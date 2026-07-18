@@ -2,6 +2,7 @@ const std = @import("std");
 const hao = @import("hao");
 
 pub const package_name = "affon";
+pub const compute = @import("compute/core.zig");
 
 const sources = [_]hao.SourceModule{.{
     .specifier = "affon:runtime",
@@ -35,4 +36,16 @@ test "registers the Affon package through Hao" {
     const name = try hao.qjs.valueToStringAlloc(environment.runtime.ctx, value, std.testing.allocator);
     defer std.testing.allocator.free(name);
     try std.testing.expectEqualStrings("affon", name);
+}
+
+test "compute core owns tensor values independently of the JS binding" {
+    const Value = compute.tensor.Value;
+    var value = try Value.fromSliceF32(std.testing.allocator, &.{ 2, 2 }, &.{ 1, 2, 3, 4 });
+    defer value.deinit();
+
+    try std.testing.expectEqualSlices(usize, &.{ 2, 2 }, value.shape.dims);
+    try std.testing.expectEqual(compute.tensor.DType.f32, value.dtype);
+    const bytes = try value.storage.?.readableBytes();
+    const values = std.mem.bytesAsSlice(f32, bytes);
+    try std.testing.expectEqual(@as(f32, 3), values[2]);
 }
