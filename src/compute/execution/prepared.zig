@@ -1,16 +1,16 @@
 const std = @import("std");
-const tensor_value = @import("../tensor/value.zig");
+const tensor_value = @import("../types/tensor/value.zig");
 const Value = tensor_value.Value;
-const Shape = @import("../tensor/shape.zig").Shape;
-const Layout = @import("../tensor/layout.zig").Layout;
-const Storage = @import("../tensor/storage.zig").Storage;
-const ValueSpec = @import("../tensor/value_spec.zig").ValueSpec;
+const Shape = @import("../types/tensor/shape.zig").Shape;
+const Layout = @import("../types/tensor/layout.zig").Layout;
+const Storage = @import("../types/tensor/storage.zig").Storage;
+const ValueSpec = @import("../types/tensor/value_spec.zig").ValueSpec;
 const execution_layout = @import("layout.zig");
-const OpTag = @import("../op/tag.zig").OpTag;
-const OpOptions = @import("../op/options.zig").OpOptions;
-const ExecutionMetadata = @import("../op/execution_metadata.zig").ExecutionMetadata;
-const semantic = @import("../semantic/index.zig");
-const matmul_planning = @import("../planning/matmul.zig");
+const OpTag = @import("../types/operation/tag.zig").OpTag;
+const OpOptions = @import("../types/operation/options.zig").OpOptions;
+const ExecutionMetadata = @import("../types/operation/execution_metadata.zig").ExecutionMetadata;
+const semantic = @import("../sema/index.zig");
+const matmul_planning = @import("../plan/matmul.zig");
 const materialization_execution = @import("materialization.zig");
 
 pub const BinaryElementwiseDescriptor = union(enum) {

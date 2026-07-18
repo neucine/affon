@@ -1,6 +1,6 @@
 const std = @import("std");
 const compat = @import("../support/compat.zig");
-const Device = @import("../compute/tensor/device.zig").Device;
+const Device = @import("../compute/types/tensor/device.zig").Device;
 const cfg = @import("../config.zig");
 const accounting = @import("metrics.zig");
 const policy_mod = @import("policy.zig");

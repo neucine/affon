@@ -1,5 +1,5 @@
-const semantic = @import("../semantic/index.zig");
-const kernel_capability = @import("../kernel/capability.zig");
+const semantic = @import("../sema/index.zig");
+const kernel_capability = @import("../backend/capability.zig");
 
 pub const InputLayoutDecision = kernel_capability.InputLayoutDecision;
 

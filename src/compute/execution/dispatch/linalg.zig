@@ -1,11 +1,11 @@
-const Device = @import("../../tensor/device.zig").Device;
-const DType = @import("../../tensor/dtype.zig").DType;
-const Storage = @import("../../tensor/storage.zig").Storage;
-const Value = @import("../../tensor/value.zig").Value;
-const ValueSpec = @import("../../tensor/value_spec.zig").ValueSpec;
-const ExecutionMetadata = @import("../../op/execution_metadata.zig").ExecutionMetadata;
-const kernel_capability = @import("../../kernel/capability.zig");
-const kernel_dispatch = @import("../../kernel/dispatch.zig");
+const Device = @import("../../types/tensor/device.zig").Device;
+const DType = @import("../../types/tensor/dtype.zig").DType;
+const Storage = @import("../../types/tensor/storage.zig").Storage;
+const Value = @import("../../types/tensor/value.zig").Value;
+const ValueSpec = @import("../../types/tensor/value_spec.zig").ValueSpec;
+const ExecutionMetadata = @import("../../types/operation/execution_metadata.zig").ExecutionMetadata;
+const kernel_capability = @import("../../backend/capability.zig");
+const kernel_dispatch = @import("../../backend/dispatch.zig");
 const prepared_execution = @import("../prepared.zig");
 
 pub fn dispatchDot(

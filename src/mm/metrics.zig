@@ -1,6 +1,6 @@
 const std = @import("std");
 const compat = @import("../support/compat.zig");
-const Device = @import("../compute/tensor/device.zig").Device;
+const Device = @import("../compute/types/tensor/device.zig").Device;
 const Region = @import("region.zig").Region;
 const obs = @import("../obs/index.zig");
 const metrics = obs.metrics;

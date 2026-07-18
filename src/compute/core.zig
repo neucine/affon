@@ -1,11 +1,12 @@
-pub const tensor = @import("tensor/index.zig");
-pub const op = @import("op/index.zig");
-pub const cpu = @import("kernel/cpu/index.zig");
+pub const types = @import("types/index.zig");
+pub const tensor = types.tensor;
+pub const operation = types.operation;
+pub const backend = @import("backend/index.zig");
 pub const execution = @import("execution/core.zig");
 
 test {
     _ = tensor;
-    _ = op;
-    _ = cpu;
+    _ = operation;
+    _ = backend;
     _ = execution;
 }

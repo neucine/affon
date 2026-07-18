@@ -1,13 +1,13 @@
 const std = @import("std");
-const Device = @import("../../tensor/device.zig").Device;
-const DType = @import("../../tensor/dtype.zig").DType;
-const Value = @import("../../tensor/value.zig").Value;
-const Shape = @import("../../tensor/shape.zig").Shape;
-const Layout = @import("../../tensor/layout.zig").Layout;
-const Storage = @import("../../tensor/storage.zig").Storage;
-const kernel_dispatch = @import("../../kernel/dispatch.zig");
-const semantic = @import("../../semantic/index.zig");
-const OpTag = @import("../../op/tag.zig").OpTag;
+const Device = @import("../../types/tensor/device.zig").Device;
+const DType = @import("../../types/tensor/dtype.zig").DType;
+const Value = @import("../../types/tensor/value.zig").Value;
+const Shape = @import("../../types/tensor/shape.zig").Shape;
+const Layout = @import("../../types/tensor/layout.zig").Layout;
+const Storage = @import("../../types/tensor/storage.zig").Storage;
+const kernel_dispatch = @import("../../backend/dispatch.zig");
+const semantic = @import("../../sema/index.zig");
+const OpTag = @import("../../types/operation/tag.zig").OpTag;
 const transfer_execution = @import("../transfer.zig");
 
 pub fn dispatchAll(

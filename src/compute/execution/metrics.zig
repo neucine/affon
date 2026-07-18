@@ -1,4 +1,4 @@
-const Value = @import("../tensor/value.zig").Value;
+const Value = @import("../types/tensor/value.zig").Value;
 const obs = @import("../../obs/index.zig");
 const metrics = obs.metrics;
 const execution_layout = @import("layout.zig");
@@ -49,7 +49,7 @@ pub fn prepareInputValue(
     allocator: @import("std").mem.Allocator,
     value: *const Value,
     decision: execution_layout.InputLayoutDecision,
-    source: @import("../tensor/storage.zig").Storage.Source,
+    source: @import("../types/tensor/storage.zig").Storage.Source,
 ) !prepared_execution.PreparedInputValue {
     const prepared = try prepared_execution.prepareInputValue(allocator, value, decision, source);
     if (prepared.materialized_packed_dense) recordPackedDenseMaterialization(sink, value);

@@ -22,7 +22,7 @@ pub fn build(b: *std.Build) void {
     });
     tests.root_module.linkLibrary(hao.artifact("hao_runtime"));
     tests.root_module.addCSourceFile(.{
-        .file = b.path("src/compute/kernel/metal/ffi_stub.c"),
+          .file = b.path("src/compute/backend/metal/ffi_stub.c"),
         .flags = &.{"-std=c11"},
     });
     const run_tests = b.addRunArtifact(tests);

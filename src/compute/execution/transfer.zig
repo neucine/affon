@@ -1,6 +1,6 @@
 const std = @import("std");
-const Value = @import("../tensor/value.zig").Value;
-const kernel_dispatch = @import("../kernel/dispatch.zig");
+const Value = @import("../types/tensor/value.zig").Value;
+const kernel_dispatch = @import("../backend/dispatch.zig");
 
 pub const TransferSummary = struct {
     to_host_count: usize = 0,

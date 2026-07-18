@@ -1,32 +1,32 @@
 const std = @import("std");
-const tensor_value = @import("../../tensor/value.zig");
+const tensor_value = @import("../../types/tensor/value.zig");
 const Value = tensor_value.Value;
-const Storage = @import("../../tensor/storage.zig").Storage;
+const Storage = @import("../../types/tensor/storage.zig").Storage;
 const obs = @import("../../../obs/index.zig");
 const trace = obs.trace;
 const metrics = obs.metrics;
-const Op = @import("../../op/op.zig").Op;
-const semantic = @import("../../semantic/index.zig");
-const Device = @import("../../tensor/device.zig").Device;
+const Op = @import("../../types/operation/op.zig").Op;
+const semantic = @import("../../sema/index.zig");
+const Device = @import("../../types/tensor/device.zig").Device;
 const errors = @import("../../errors.zig");
-const Shape = @import("../../tensor/shape.zig").Shape;
-const Layout = @import("../../tensor/layout.zig").Layout;
-const ValueSpec = @import("../../tensor/value_spec.zig").ValueSpec;
+const Shape = @import("../../types/tensor/shape.zig").Shape;
+const Layout = @import("../../types/tensor/layout.zig").Layout;
+const ValueSpec = @import("../../types/tensor/value_spec.zig").ValueSpec;
 const prepared_execution = @import("../prepared.zig");
 const reduction_execution = @import("../dispatch/reduction.zig");
 const materialization_execution = @import("../materialization.zig");
 const transfer_execution = @import("../transfer.zig");
 const execution_metrics = @import("../metrics.zig");
 const execution_layout = @import("../layout.zig");
-const eager_pir = @import("../../ir/pir/eager.zig");
-const eager_lowering = @import("../../planning/eager.zig");
+const eager_pir = @import("../../types/ir/pir/eager.zig");
+const eager_lowering = @import("../../plan/eager.zig");
 const conversion_execution = @import("../dispatch/conversion.zig");
 const elementwise_execution = @import("../dispatch/elementwise.zig");
 const linalg_execution = @import("../dispatch/linalg.zig");
 const normalization_execution = @import("../dispatch/normalization.zig");
 const selection_execution = @import("../dispatch/selection.zig");
 const shape_execution = @import("../dispatch/shape.zig");
-const matmul_planning = @import("../../planning/matmul.zig");
+const matmul_planning = @import("../../plan/matmul.zig");
 
 var eager_metrics_initialized: bool = false;
 var metric_transfer_to_host_bytes: ?metrics.Id = null;
@@ -410,7 +410,7 @@ fn validateInputsForPlan(op: Op, plan: *const EagerOpPlan) !void {
                 .{ i, @tagName(input.dtype), @tagName(spec.dtype) },
             );
         }
-        if (!@import("../../tensor/shape.zig").Shape.eql(input.shape, spec.shape)) {
+        if (!@import("../../types/tensor/shape.zig").Shape.eql(input.shape, spec.shape)) {
             return errors.nativeErrorWithCurrent(
                 error.ShapeMismatch,
                 "eager.plan: input[{d}] shape mismatch",
@@ -918,11 +918,11 @@ fn prepareInputValueForDecision(value: *const Value, decision: execution_layout.
 
 fn inferPreparedOpSpec(
     allocator: std.mem.Allocator,
-    tag: @import("../../op/tag.zig").OpTag,
+    tag: @import("../../types/operation/tag.zig").OpTag,
     values: []const *const Value,
-    options: @import("../../op/options.zig").OpOptions,
+    options: @import("../../types/operation/options.zig").OpOptions,
 ) !semantic.OpSpec {
-    var specs: [3]@import("../../tensor/value_spec.zig").ValueSpec = undefined;
+    var specs: [3]@import("../../types/tensor/value_spec.zig").ValueSpec = undefined;
     if (values.len > specs.len) return error.InvalidExecutionPlan;
     for (values, 0..) |value, i| specs[i] = try value.spec();
     return semantic.inferFromSpecs(allocator, tag, specs[0..values.len], options);

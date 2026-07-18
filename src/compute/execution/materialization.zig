@@ -1,11 +1,11 @@
 const std = @import("std");
-const tensor_value = @import("../tensor/value.zig");
+const tensor_value = @import("../types/tensor/value.zig");
 const Value = tensor_value.Value;
-const Shape = @import("../tensor/shape.zig").Shape;
-const Layout = @import("../tensor/layout.zig").Layout;
-const Storage = @import("../tensor/storage.zig").Storage;
-const ValueSpec = @import("../tensor/value_spec.zig").ValueSpec;
-const kernel_dispatch = @import("../kernel/dispatch.zig");
+const Shape = @import("../types/tensor/shape.zig").Shape;
+const Layout = @import("../types/tensor/layout.zig").Layout;
+const Storage = @import("../types/tensor/storage.zig").Storage;
+const ValueSpec = @import("../types/tensor/value_spec.zig").ValueSpec;
+const kernel_dispatch = @import("../backend/dispatch.zig");
 const transfer_execution = @import("transfer.zig");
 
 pub const MaterializationSummary = struct {
