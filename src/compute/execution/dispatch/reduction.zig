@@ -1,12 +1,12 @@
 const std = @import("std");
 const Device = @import("../../types/tensor/device.zig").Device;
 const DType = @import("../../types/tensor/dtype.zig").DType;
-const Value = @import("../../types/tensor/value.zig").Value;
+const Tensor = @import("../../types/tensor/tensor.zig").Tensor;
 const Shape = @import("../../types/tensor/shape.zig").Shape;
 const Layout = @import("../../types/tensor/layout.zig").Layout;
 const Storage = @import("../../types/tensor/storage.zig").Storage;
 const kernel_dispatch = @import("../../backend/dispatch.zig");
-const semantic = @import("../../sema/index.zig");
+const ReduceToShapeSpec = @import("../../types/ir/plan.zig").ReduceToShapeSpec;
 const OpTag = @import("../../types/operation/tag.zig").OpTag;
 const transfer_execution = @import("../transfer.zig");
 
@@ -14,7 +14,7 @@ pub fn dispatchAll(
     device: Device,
     tag: OpTag,
     dtype: DType,
-    input: *const Value,
+    input: *const Tensor,
     output: *Storage,
 ) !void {
     try kernel_dispatch.reductionAll(
@@ -30,7 +30,7 @@ pub fn dispatchAxis(
     device: Device,
     tag: OpTag,
     dtype: DType,
-    input: *const Value,
+    input: *const Tensor,
     output: *Storage,
     axis: usize,
     keepdim: bool,
@@ -50,7 +50,7 @@ pub fn dispatchAxis(
 pub fn dispatchSoftmax(
     device: Device,
     dtype: DType,
-    input: *const Value,
+    input: *const Tensor,
     output: *Storage,
     axis: usize,
 ) !void {
@@ -69,7 +69,7 @@ pub fn dispatchLogSoftmax(
     allocator: std.mem.Allocator,
     device: Device,
     dtype: DType,
-    input: *const Value,
+    input: *const Tensor,
     output: *Storage,
     axis: usize,
 ) !void {
@@ -88,8 +88,8 @@ pub fn dispatchLogSoftmax(
 pub fn dispatchLogSoftmaxNll(
     device: Device,
     dtype: DType,
-    logits: *const Value,
-    targets: *const Value,
+    logits: *const Tensor,
+    targets: *const Tensor,
     output: *Storage,
     axis: usize,
 ) !void {
@@ -107,8 +107,8 @@ pub fn dispatchLogSoftmaxNll(
 pub fn dispatchCrossEntropyIndexed(
     device: Device,
     dtype: DType,
-    logits: *const Value,
-    targets: *const Value,
+    logits: *const Tensor,
+    targets: *const Tensor,
     output: *Storage,
 ) !void {
     try kernel_dispatch.crossEntropyIndexed(
@@ -125,9 +125,9 @@ pub fn dispatchCrossEntropyIndexed(
 pub fn dispatchCrossEntropyIndexedBackward(
     device: Device,
     dtype: DType,
-    logits: *const Value,
-    targets: *const Value,
-    grad_out: *const Value,
+    logits: *const Tensor,
+    targets: *const Tensor,
+    grad_out: *const Tensor,
     output: *Storage,
 ) !void {
     try kernel_dispatch.crossEntropyIndexedBackward(
@@ -144,9 +144,9 @@ pub fn dispatchCrossEntropyIndexedBackward(
 
 pub fn reduceToShape(
     allocator: std.mem.Allocator,
-    input: *const Value,
-    reduce: semantic.ReduceToShapeSpec,
-    output: *Value,
+    input: *const Tensor,
+    reduce: ReduceToShapeSpec,
+    output: *Tensor,
     source: Storage.Source,
 ) !transfer_execution.TransferSummary {
     const input_storage = input.storage orelse return error.InputNotMaterialized;
@@ -186,7 +186,7 @@ pub fn reduceToShape(
         tmp_shape[axis] = 1;
     }
 
-    const current_value = try allocator.create(Value);
+    const current_value = try allocator.create(Tensor);
     defer allocator.destroy(current_value);
     var shape = try Shape.initCopy(allocator, output.shape.dims);
     defer shape.deinit();

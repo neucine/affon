@@ -24,7 +24,9 @@ The compute engine is also available as an independent Zig module:
 ```zig
 const compute = @import("compute");
 
-const value = try compute.tensor.Value.fromSliceF32(allocator, &.{2}, &.{1, 2});
-const op = try compute.operation.Op.init(.relu, &.{value}, .{ .none = {} });
-const result = try compute.eager.execute(allocator, op);
+const engine = compute.Engine.init(allocator, .{});
+const value = try engine.fromF32(&.{2}, &.{1, 2});
+defer value.deinit();
+const result = try engine.relu(value);
+defer result.deinit();
 ```

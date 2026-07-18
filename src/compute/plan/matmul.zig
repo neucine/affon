@@ -1,6 +1,6 @@
 const std = @import("std");
 const tensor = @import("../types/tensor/index.zig");
-const ValueSpec = tensor.ValueSpec;
+const TensorSpec = tensor.TensorSpec;
 const DType = tensor.DType;
 const Device = tensor.Device;
 const Shape = tensor.Shape;
@@ -82,9 +82,9 @@ pub fn familyName(family: MatmulExecutionFamily) []const u8 {
 }
 
 pub fn classifyFromSpecs(
-    lhs: ValueSpec,
-    rhs: ValueSpec,
-    out: ValueSpec,
+    lhs: TensorSpec,
+    rhs: TensorSpec,
+    out: TensorSpec,
     ctx: MatmulClassificationContext,
 ) MatmulDescriptor {
     const lhs_rank = lhs.shape.rank();
@@ -182,7 +182,7 @@ fn flattenableLeadingBatch(lhs_rank: usize, rhs_rank: usize) bool {
     return lhs_rank >= 3 and rhs_rank == 2;
 }
 
-fn makeValueSpec(allocator: std.mem.Allocator, dims: []const usize) !ValueSpec {
+fn makeTensorSpec(allocator: std.mem.Allocator, dims: []const usize) !TensorSpec {
     var shape = try Shape.initCopy(allocator, dims);
     errdefer shape.deinit();
     var layout = try Layout.initContiguous(allocator, shape);
@@ -195,7 +195,7 @@ fn makeValueSpec(allocator: std.mem.Allocator, dims: []const usize) !ValueSpec {
     };
 }
 
-fn deinitValueSpec(spec: *ValueSpec) void {
+fn deinitTensorSpec(spec: *TensorSpec) void {
     spec.layout.deinit();
     spec.shape.deinit();
     spec.* = undefined;
@@ -203,12 +203,12 @@ fn deinitValueSpec(spec: *ValueSpec) void {
 
 test "matmul semantics classifies plain 2d gemm" {
     const allocator = std.testing.allocator;
-    var lhs = try makeValueSpec(allocator, &.{ 128, 64 });
-    defer deinitValueSpec(&lhs);
-    var rhs = try makeValueSpec(allocator, &.{ 64, 256 });
-    defer deinitValueSpec(&rhs);
-    var out = try makeValueSpec(allocator, &.{ 128, 256 });
-    defer deinitValueSpec(&out);
+    var lhs = try makeTensorSpec(allocator, &.{ 128, 64 });
+    defer deinitTensorSpec(&lhs);
+    var rhs = try makeTensorSpec(allocator, &.{ 64, 256 });
+    defer deinitTensorSpec(&rhs);
+    var out = try makeTensorSpec(allocator, &.{ 128, 256 });
+    defer deinitTensorSpec(&out);
 
     const descriptor = classifyFromSpecs(lhs, rhs, out, .{});
     try std.testing.expectEqual(MatmulExecutionFamily.gemm_2d, descriptor.family);
@@ -222,12 +222,12 @@ test "matmul semantics classifies plain 2d gemm" {
 
 test "matmul semantics classifies projection conservatively" {
     const allocator = std.testing.allocator;
-    var lhs = try makeValueSpec(allocator, &.{ 4, 256, 512 });
-    defer deinitValueSpec(&lhs);
-    var rhs = try makeValueSpec(allocator, &.{ 512, 2048 });
-    defer deinitValueSpec(&rhs);
-    var out = try makeValueSpec(allocator, &.{ 4, 256, 2048 });
-    defer deinitValueSpec(&out);
+    var lhs = try makeTensorSpec(allocator, &.{ 4, 256, 512 });
+    defer deinitTensorSpec(&lhs);
+    var rhs = try makeTensorSpec(allocator, &.{ 512, 2048 });
+    defer deinitTensorSpec(&rhs);
+    var out = try makeTensorSpec(allocator, &.{ 4, 256, 2048 });
+    defer deinitTensorSpec(&out);
 
     const descriptor = classifyFromSpecs(lhs, rhs, out, .{});
     try std.testing.expectEqual(MatmulExecutionFamily.gemm_projection, descriptor.family);
@@ -238,12 +238,12 @@ test "matmul semantics classifies projection conservatively" {
 
 test "matmul semantics uses explicit attention hint without guessing" {
     const allocator = std.testing.allocator;
-    var lhs = try makeValueSpec(allocator, &.{ 4, 8, 256, 64 });
-    defer deinitValueSpec(&lhs);
-    var rhs = try makeValueSpec(allocator, &.{ 4, 8, 64, 256 });
-    defer deinitValueSpec(&rhs);
-    var out = try makeValueSpec(allocator, &.{ 4, 8, 256, 256 });
-    defer deinitValueSpec(&out);
+    var lhs = try makeTensorSpec(allocator, &.{ 4, 8, 256, 64 });
+    defer deinitTensorSpec(&lhs);
+    var rhs = try makeTensorSpec(allocator, &.{ 4, 8, 64, 256 });
+    defer deinitTensorSpec(&rhs);
+    var out = try makeTensorSpec(allocator, &.{ 4, 8, 256, 256 });
+    defer deinitTensorSpec(&out);
 
     const descriptor = classifyFromSpecs(lhs, rhs, out, .{
         .hint = .attention_scores,
@@ -258,12 +258,12 @@ test "matmul semantics uses explicit attention hint without guessing" {
 
 test "matmul semantics keeps unhinted high-rank batched case generic to the workload family" {
     const allocator = std.testing.allocator;
-    var lhs = try makeValueSpec(allocator, &.{ 4, 8, 256, 64 });
-    defer deinitValueSpec(&lhs);
-    var rhs = try makeValueSpec(allocator, &.{ 4, 8, 64, 256 });
-    defer deinitValueSpec(&rhs);
-    var out = try makeValueSpec(allocator, &.{ 4, 8, 256, 256 });
-    defer deinitValueSpec(&out);
+    var lhs = try makeTensorSpec(allocator, &.{ 4, 8, 256, 64 });
+    defer deinitTensorSpec(&lhs);
+    var rhs = try makeTensorSpec(allocator, &.{ 4, 8, 64, 256 });
+    defer deinitTensorSpec(&rhs);
+    var out = try makeTensorSpec(allocator, &.{ 4, 8, 256, 256 });
+    defer deinitTensorSpec(&out);
 
     const descriptor = classifyFromSpecs(lhs, rhs, out, .{});
     try std.testing.expectEqual(MatmulExecutionFamily.gemm_batched, descriptor.family);

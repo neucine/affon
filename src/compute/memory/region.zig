@@ -1,6 +1,4 @@
 pub const Region = enum {
-    runtime_host,
-    runtime_host_scratch,
     compute_host_owned,
     compute_host_scratch,
     compute_cpu_owned,
@@ -17,8 +15,6 @@ pub const Metadata = struct {
 
 pub fn metadata(region: Region) Metadata {
     return switch (region) {
-        .runtime_host => .{ .domain = "runtime", .component = "mm", .name = "runtime_host" },
-        .runtime_host_scratch => .{ .domain = "runtime", .component = "mm", .name = "runtime_host_scratch" },
         .compute_host_owned => .{ .domain = "compute", .component = "mm", .name = "compute_host_owned" },
         .compute_host_scratch => .{ .domain = "compute", .component = "mm", .name = "compute_host_scratch" },
         .compute_cpu_owned => .{ .domain = "compute", .component = "mm", .name = "compute_cpu_owned" },

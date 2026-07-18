@@ -1,19 +1,19 @@
 const std = @import("std");
-const Value = @import("../../../types/tensor/value.zig").Value;
+const Tensor = @import("../../../types/tensor/tensor.zig").Tensor;
 const Shape = @import("../../../types/tensor/shape.zig").Shape;
 const Layout = @import("../../../types/tensor/layout.zig").Layout;
 const Device = @import("../../../types/tensor/device.zig").Device;
 
-pub fn moveToDevice(allocator: std.mem.Allocator, value: *const Value, target: Device) !*Value {
+pub fn moveToDevice(allocator: std.mem.Allocator, value: *const Tensor, target: Device) !*Tensor {
     if ((value.device() orelse return error.InputNotMaterialized) != target) return error.DeviceMismatch;
     return cloneValue(allocator, value);
 }
 
-pub fn cloneValue(allocator: std.mem.Allocator, value: *const Value) !*Value {
+pub fn cloneValue(allocator: std.mem.Allocator, value: *const Tensor) !*Tensor {
     const storage = value.storage orelse return error.InputNotMaterialized;
     storage.retain();
     errdefer storage.release();
-    const cloned = try allocator.create(Value);
+    const cloned = try allocator.create(Tensor);
     errdefer allocator.destroy(cloned);
     var shape = try Shape.initCopy(allocator, value.shape.dims);
     errdefer shape.deinit();

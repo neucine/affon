@@ -1,22 +1,22 @@
 const std = @import("std");
-const Value = @import("../tensor/value.zig").Value;
+const Tensor = @import("../tensor/tensor.zig").Tensor;
 const OpTag = @import("tag.zig").OpTag;
 const OpOptions = @import("options.zig").OpOptions;
 const ExecutionMetadata = @import("execution_metadata.zig").ExecutionMetadata;
 
 pub const Op = struct {
     tag: OpTag,
-    inputs: []const *Value,
+    inputs: []const *Tensor,
     options: OpOptions = .{ .none = {} },
     execution_metadata: ExecutionMetadata = .{},
 
-    pub fn init(tag: OpTag, inputs: []const *Value, options: OpOptions) !Op {
+    pub fn init(tag: OpTag, inputs: []const *Tensor, options: OpOptions) !Op {
         return initWithExecutionMetadata(tag, inputs, options, .{});
     }
 
     pub fn initWithExecutionMetadata(
         tag: OpTag,
-        inputs: []const *Value,
+        inputs: []const *Tensor,
         options: OpOptions,
         execution_metadata: ExecutionMetadata,
     ) !Op {
@@ -285,7 +285,7 @@ pub const Op = struct {
 
 test "op init validates options" {
     const allocator = std.testing.allocator;
-    const value = try Value.fromSliceF32(allocator, &.{2}, &.{ 1, 2 });
+    const value = try Tensor.fromSliceF32(allocator, &.{2}, &.{ 1, 2 });
     defer value.deinit();
 
     _ = try Op.init(.neg, &.{value}, .{ .unary = .{} });

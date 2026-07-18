@@ -4,9 +4,9 @@ const Shape = @import("shape.zig").Shape;
 const Layout = @import("layout.zig").Layout;
 const AxisName = @import("axis.zig").AxisName;
 
-pub const ValueSpec = struct {
+pub const TensorSpec = struct {
     // Logical tensor facts accepted by semantic analysis and consumed by
-    // planning. ValueSpec does not own or imply runtime storage.
+    // planning. TensorSpec does not own or imply runtime storage.
     shape: Shape,
     dtype: DType,
     layout: Layout,

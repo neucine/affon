@@ -2,14 +2,14 @@ const std = @import("std");
 const Device = @import("../../types/tensor/device.zig").Device;
 const DType = @import("../../types/tensor/dtype.zig").DType;
 const Storage = @import("../../types/tensor/storage.zig").Storage;
-const Value = @import("../../types/tensor/value.zig").Value;
+const Tensor = @import("../../types/tensor/tensor.zig").Tensor;
 const kernel_dispatch = @import("../../backend/dispatch.zig");
 
 pub fn dispatchGather(
     device: Device,
     dtype: DType,
-    input: *const Value,
-    index: *const Value,
+    input: *const Tensor,
+    index: *const Tensor,
     output: *Storage,
     axis: usize,
 ) !void {
@@ -28,8 +28,8 @@ pub fn dispatchGather(
 pub fn dispatchEmbedding(
     device: Device,
     dtype: DType,
-    table: *const Value,
-    index: *const Value,
+    table: *const Tensor,
+    index: *const Tensor,
     output: *Storage,
 ) !void {
     try kernel_dispatch.embedding(
@@ -46,8 +46,8 @@ pub fn dispatchEmbedding(
 pub fn dispatchIndexSelect(
     device: Device,
     dtype: DType,
-    input: *const Value,
-    index: *const Value,
+    input: *const Tensor,
+    index: *const Tensor,
     output: *Storage,
     axis: usize,
 ) !void {
@@ -67,9 +67,9 @@ pub fn dispatchScatterAdd(
     device: Device,
     dtype: DType,
     index_dtype: DType,
-    base: *const Value,
-    index: *const Value,
-    updates: *const Value,
+    base: *const Tensor,
+    index: *const Tensor,
+    updates: *const Tensor,
     output: *Storage,
     axis: usize,
 ) !void {
@@ -88,7 +88,7 @@ pub fn dispatchScatterAdd(
 
 pub fn dispatchOneHot(
     device: Device,
-    index: *const Value,
+    index: *const Tensor,
     output: *Storage,
     num_classes: usize,
 ) !void {
@@ -104,7 +104,7 @@ pub fn dispatchTopK(
     allocator: std.mem.Allocator,
     device: Device,
     dtype: DType,
-    input: *const Value,
+    input: *const Tensor,
     values_output: *Storage,
     indices_output: *Storage,
     axis: usize,

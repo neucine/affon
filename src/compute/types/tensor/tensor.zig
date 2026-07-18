@@ -4,7 +4,7 @@ const DType = @import("dtype.zig").DType;
 const Shape = @import("shape.zig").Shape;
 const Layout = @import("layout.zig").Layout;
 const Storage = @import("storage.zig").Storage;
-const ValueSpec = @import("value_spec.zig").ValueSpec;
+const TensorSpec = @import("tensor_spec.zig").TensorSpec;
 
 pub const AxisName = @import("axis.zig").AxisName;
 
@@ -29,9 +29,9 @@ pub fn deinitAxes(allocator: std.mem.Allocator, axes: ?[]const AxisName) void {
     allocator.free(names);
 }
 
-pub const Value = struct {
+pub const Tensor = struct {
     // Logical tensor facts. These are the facts semantic analysis and planning
-    // should reason about through ValueSpec when possible.
+    // should reason about through TensorSpec when possible.
     allocator: std.mem.Allocator,
     shape: Shape,
     dtype: DType,
@@ -39,7 +39,7 @@ pub const Value = struct {
     axes: ?[]const AxisName = null,
 
     // Runtime backing. Execution and kernels may require this; semantic and
-    // planning layers should prefer ValueSpec and avoid interpreting storage.
+    // planning layers should prefer TensorSpec and avoid interpreting storage.
     storage: ?*Storage,
 
     // Internal optional sidecar for autograd provenance / retained grad state.
@@ -51,7 +51,7 @@ pub const Value = struct {
         dtype: DType,
         target_device: Device,
         zeroed: bool,
-    ) !*Value {
+    ) !*Tensor {
         return createContiguousWithSource(allocator, dims, dtype, target_device, zeroed, .eager);
     }
 
@@ -62,7 +62,7 @@ pub const Value = struct {
         target_device: Device,
         zeroed: bool,
         source: Storage.Source,
-    ) !*Value {
+    ) !*Tensor {
         var shape = try Shape.initCopy(allocator, dims);
         errdefer shape.deinit();
         var layout = try Layout.initContiguous(allocator, shape);
@@ -81,7 +81,7 @@ pub const Value = struct {
         };
         errdefer storage.release();
 
-        const self = try allocator.create(Value);
+        const self = try allocator.create(Tensor);
         self.* = .{
             .allocator = allocator,
             .shape = shape,
@@ -94,7 +94,7 @@ pub const Value = struct {
         return self;
     }
 
-    pub fn fromSliceF64(allocator: std.mem.Allocator, dims: []const usize, values: []const f64) !*Value {
+    pub fn fromSliceF64(allocator: std.mem.Allocator, dims: []const usize, values: []const f64) !*Tensor {
         const self = try createContiguous(allocator, dims, .f64, .cpu, false);
         errdefer self.deinit();
         if (self.shape.numel() != values.len) return error.SizeMismatch;
@@ -104,7 +104,7 @@ pub const Value = struct {
         return self;
     }
 
-    pub fn fromSliceF32(allocator: std.mem.Allocator, dims: []const usize, values: []const f32) !*Value {
+    pub fn fromSliceF32(allocator: std.mem.Allocator, dims: []const usize, values: []const f32) !*Tensor {
         const self = try createContiguous(allocator, dims, .f32, .cpu, false);
         errdefer self.deinit();
         if (self.shape.numel() != values.len) return error.SizeMismatch;
@@ -114,7 +114,7 @@ pub const Value = struct {
         return self;
     }
 
-    pub fn fromSliceI64(allocator: std.mem.Allocator, dims: []const usize, values: []const i64) !*Value {
+    pub fn fromSliceI64(allocator: std.mem.Allocator, dims: []const usize, values: []const i64) !*Tensor {
         const self = try createContiguous(allocator, dims, .i64, .cpu, false);
         errdefer self.deinit();
         if (self.shape.numel() != values.len) return error.SizeMismatch;
@@ -124,7 +124,7 @@ pub const Value = struct {
         return self;
     }
 
-    pub fn deinit(self: *Value) void {
+    pub fn deinit(self: *Tensor) void {
         if (self.storage) |storage| storage.release();
         deinitAxes(self.allocator, self.axes);
         self.layout.deinit();
@@ -132,7 +132,7 @@ pub const Value = struct {
         self.allocator.destroy(self);
     }
 
-    pub fn setAxesCopy(self: *Value, axes: ?[]const AxisName) !void {
+    pub fn setAxesCopy(self: *Tensor, axes: ?[]const AxisName) !void {
         if (axes) |names| {
             if (names.len != self.shape.rank()) return error.AxisRankMismatch;
         }
@@ -141,20 +141,20 @@ pub const Value = struct {
         self.axes = cloned;
     }
 
-    pub fn device(self: *const Value) ?Device {
+    pub fn device(self: *const Tensor) ?Device {
         const storage = self.storage orelse return null;
         return storage.device();
     }
 
-    pub fn runtimeBacking(self: *const Value) ?*Storage {
+    pub fn runtimeBacking(self: *const Tensor) ?*Storage {
         return self.storage;
     }
 
-    pub fn requireRuntimeBacking(self: *const Value) !*Storage {
+    pub fn requireRuntimeBacking(self: *const Tensor) !*Storage {
         return self.runtimeBacking() orelse error.InputNotMaterialized;
     }
 
-    pub fn spec(self: *const Value) !ValueSpec {
+    pub fn spec(self: *const Tensor) !TensorSpec {
         const target_device = self.device() orelse return error.InputNotMaterialized;
         return .{
             .shape = self.shape,
@@ -165,18 +165,18 @@ pub const Value = struct {
         };
     }
 
-    pub fn autogradStateRaw(self: *const Value) ?*anyopaque {
+    pub fn autogradStateRaw(self: *const Tensor) ?*anyopaque {
         return self.autograd_state;
     }
 
-    pub fn setAutogradStateRaw(self: *Value, autograd_state: ?*anyopaque) void {
+    pub fn setAutogradStateRaw(self: *Tensor, autograd_state: ?*anyopaque) void {
         self.autograd_state = autograd_state;
     }
 };
 
 test "value from slice f64 copies host data" {
     const allocator = std.testing.allocator;
-    const value = try Value.fromSliceF64(allocator, &.{2}, &.{ 1.0, 2.0 });
+    const value = try Tensor.fromSliceF64(allocator, &.{2}, &.{ 1.0, 2.0 });
     defer value.deinit();
 
     const bytes = try value.storage.?.readableBytes();
@@ -186,7 +186,7 @@ test "value from slice f64 copies host data" {
 
 test "value from slice i64 copies host data" {
     const allocator = std.testing.allocator;
-    const value = try Value.fromSliceI64(allocator, &.{3}, &.{ 4, 5, 6 });
+    const value = try Tensor.fromSliceI64(allocator, &.{3}, &.{ 4, 5, 6 });
     defer value.deinit();
 
     const bytes = try value.storage.?.readableBytes();

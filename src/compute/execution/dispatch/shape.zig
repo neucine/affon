@@ -2,7 +2,7 @@ const std = @import("std");
 const Device = @import("../../types/tensor/device.zig").Device;
 const DType = @import("../../types/tensor/dtype.zig").DType;
 const Storage = @import("../../types/tensor/storage.zig").Storage;
-const Value = @import("../../types/tensor/value.zig").Value;
+const Tensor = @import("../../types/tensor/tensor.zig").Tensor;
 const SliceRange = @import("../../types/operation/options.zig").SliceRange;
 const kernel_dispatch = @import("../../backend/dispatch.zig");
 const prepared_execution = @import("../prepared.zig");
@@ -52,7 +52,7 @@ pub fn dispatchStack(
 pub fn dispatchSlice(
     device: Device,
     dtype: DType,
-    input: *const Value,
+    input: *const Tensor,
     output: *Storage,
     ranges: []const SliceRange,
 ) !void {

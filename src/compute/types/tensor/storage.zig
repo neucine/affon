@@ -1,14 +1,14 @@
 const std = @import("std");
 const compat = @import("../../../support/compat.zig");
 const Device = @import("device.zig").Device;
-const mm = @import("../../../mm/index.zig");
-const mm_accounting = @import("../../../mm/metrics.zig");
+const mm = @import("../../memory.zig");
+const telemetry = @import("../../telemetry.zig");
 const metal_common = @import("../../backend/metal/common.zig");
 
 // Runtime backing for tensor values.
 //
 // Storage owns allocation, device placement, refcounting, memory metrics, and
-// host/device byte movement. It lives under tensor while Value directly embeds a
+// host/device byte movement. It lives under tensor while Tensor directly embeds a
 // backing pointer, but it is a runtime concern rather than a logical tensor fact.
 const max_events = 128;
 
@@ -54,6 +54,34 @@ const Event = struct {
 var events_mu: compat.Mutex = .{};
 var events: [max_events]Event = undefined;
 var event_count: usize = 0;
+var live_bytes = std.atomic.Value(i64).init(0);
+var live_objects = std.atomic.Value(i64).init(0);
+var peak_bytes = std.atomic.Value(i64).init(0);
+var live_cpu_bytes = std.atomic.Value(i64).init(0);
+var live_metal_bytes = std.atomic.Value(i64).init(0);
+
+fn updateMax(target: *std.atomic.Value(i64), value: i64) void {
+    var current = target.load(.monotonic);
+    while (value > current) {
+        current = target.cmpxchgWeak(current, value, .monotonic, .monotonic) orelse return;
+    }
+}
+
+fn updateStorageMetrics(device: Device, delta: i64) void {
+    const live = live_bytes.fetchAdd(delta, .monotonic) + delta;
+    updateMax(&peak_bytes, live);
+    telemetry.set(telemetry.metrics.storage.live_bytes, live);
+    telemetry.set(telemetry.metrics.storage.peak_bytes, peak_bytes.load(.monotonic));
+
+    const device_live = switch (device) {
+        .cpu => live_cpu_bytes.fetchAdd(delta, .monotonic) + delta,
+        .metal => live_metal_bytes.fetchAdd(delta, .monotonic) + delta,
+    };
+    telemetry.set(switch (device) {
+        .cpu => telemetry.metrics.storage.live_cpu_bytes,
+        .metal => telemetry.metrics.storage.live_metal_bytes,
+    }, device_live);
+}
 
 fn recordEvent(event: Event) void {
     events_mu.lock();
@@ -117,7 +145,7 @@ pub const Storage = struct {
         metadata: Metadata,
     ) !*Storage {
         const memory_region = try mm.resolveRegionFor(.cpu, metadata.policy);
-        const block = try mm.allocate(memory_region, .runtime_storage_metadata, bytes, .{
+        const block = try mm.allocate(memory_region, .compute_storage_metadata, bytes, .{
             .zeroed = zeroed,
             .host_allocator = allocator,
         });
@@ -139,7 +167,7 @@ pub const Storage = struct {
         metadata: Metadata,
     ) !*Storage {
         const memory_region = try mm.resolveRegionFor(.metal, metadata.policy);
-        const block = try mm.allocate(memory_region, .runtime_storage_metadata, bytes, .{});
+        const block = try mm.allocate(memory_region, .compute_storage_metadata, bytes, .{});
         errdefer mm.release(block);
         return initOwned(allocator, bytes, .{ .managed = block }, metadata);
     }
@@ -159,8 +187,10 @@ pub const Storage = struct {
         };
 
         const storage_region = try self.region();
-        mm_accounting.noteStorageAlloc(self.device(), bytes);
-        mm_accounting.noteRegionAlloc(storage_region, bytes);
+        _ = storage_region;
+        telemetry.add(telemetry.metrics.storage.allocations, 1);
+        telemetry.set(telemetry.metrics.storage.live_objects, live_objects.fetchAdd(1, .monotonic) + 1);
+        updateStorageMetrics(self.device(), @intCast(bytes));
         emitEvent(self, .alloc, 1);
         return self;
     }
@@ -181,14 +211,17 @@ pub const Storage = struct {
             .borrowed_cpu => {},
         }
         const storage_region = self.region() catch null;
-        mm_accounting.noteStorageFree(self.device(), self.bytes);
-        if (storage_region) |r| mm_accounting.noteRegionFree(r, self.bytes);
+        _ = storage_region;
+        telemetry.add(telemetry.metrics.storage.frees, 1);
+        const new_live_objects = live_objects.fetchSub(1, .monotonic) - 1;
+        telemetry.set(telemetry.metrics.storage.live_objects, new_live_objects);
+        updateStorageMetrics(self.device(), -@as(i64, @intCast(self.bytes)));
         emitEvent(self, .free, 0);
         self.allocator.destroy(self);
     }
 
     pub fn noteReuse(self: *Storage) void {
-        mm_accounting.noteStorageReuse();
+        telemetry.add(telemetry.metrics.storage.reuses, 1);
         emitEvent(self, .reuse, self.ref_count.load(.monotonic));
     }
 
@@ -297,16 +330,12 @@ pub const Storage = struct {
 
 test "storage lifecycle emits alloc and free events" {
     const allocator = std.testing.allocator;
-    const before = mm_accounting.snapshot();
     const storage = try Storage.createCpuWithMetadata(allocator, 32, true, .{
         .reason = .op_output,
         .source = .eager,
     });
     const storage_id = storage.id;
     storage.release();
-
-    const after = mm_accounting.snapshot();
-    try std.testing.expectEqual(before.live_storage_objects, after.live_storage_objects);
 
     var recent: [8]Event = undefined;
     const view = recentEvents(&recent);

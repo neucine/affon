@@ -1,9 +1,9 @@
 const std = @import("std");
-const Value = @import("../../../types/tensor/value.zig").Value;
+const Tensor = @import("../../../types/tensor/tensor.zig").Tensor;
 const Shape = @import("../../../types/tensor/shape.zig").Shape;
 const Layout = @import("../../../types/tensor/layout.zig").Layout;
 const Graph = @import("../../../types/ir/index.zig").Graph;
-const Step = @import("../../../types/ir/eir/graph.zig").Step;
+const Step = @import("../../../types/ir/plan.zig").Step;
 const kernel_dispatch = @import("../../../backend/dispatch.zig");
 const value_helpers = @import("value_helpers.zig");
 const common = @import("common.zig");
@@ -63,7 +63,7 @@ fn hasExactlyConsumers(graph: *const Graph, value_id: u32, expected_node_ids: []
     return true;
 }
 
-fn makeLogitsExpandedView(allocator: std.mem.Allocator, logits: *Value) !*Value {
+fn makeLogitsExpandedView(allocator: std.mem.Allocator, logits: *Tensor) !*Tensor {
     const storage = logits.storage orelse return error.InputNotMaterialized;
     if (logits.shape.rank() != 2) return error.ShapeMismatch;
     const rows = logits.shape.dims[0];
@@ -71,7 +71,7 @@ fn makeLogitsExpandedView(allocator: std.mem.Allocator, logits: *Value) !*Value 
 
     storage.retain();
     errdefer storage.release();
-    const view = try allocator.create(Value);
+    const view = try allocator.create(Tensor);
     var shape3 = try Shape.initCopy(allocator, &.{ rows, 1, vocab });
     errdefer shape3.deinit();
     var layout3 = try Layout.initContiguous(allocator, shape3);
@@ -91,7 +91,7 @@ pub fn tryExecute(
     allocator: std.mem.Allocator,
     graph: *const Graph,
     group: []const Step,
-    values: []?*Value,
+    values: []?*Tensor,
     owned: []bool,
 ) !bool {
     if (group.len != 9) return false;
@@ -206,7 +206,7 @@ pub fn tryExecute(
     const dense_indices = try value_helpers.cloneValue(allocator, indices);
     defer dense_indices.deinit();
 
-    const onehot = try Value.createContiguousWithSource(allocator, &.{ rows, 1, vocab }, .f32, device, false, .graph);
+    const onehot = try Tensor.createContiguousWithSource(allocator, &.{ rows, 1, vocab }, .f32, device, false, .graph);
     defer onehot.deinit();
     try kernel_dispatch.oneHot(
         device,
@@ -216,7 +216,7 @@ pub fn tryExecute(
     );
 
     const out_spec = graph.values.items[out_id].spec;
-    const out = try Value.createContiguousWithSource(allocator, out_spec.shape.dims, out_spec.dtype, out_spec.device, false, .graph);
+    const out = try Tensor.createContiguousWithSource(allocator, out_spec.shape.dims, out_spec.dtype, out_spec.device, false, .graph);
     errdefer out.deinit();
     try kernel_dispatch.logSoftmaxNll(
         device,

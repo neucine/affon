@@ -1,12 +1,10 @@
 pub const runner = @import("runner.zig");
-pub const pir = @import("../../types/ir/pir/eager.zig");
+pub const plan = @import("../../types/ir/plan.zig");
 pub const ExecutionResult = runner.ExecutionResult;
-pub const EagerOpPlan = pir.Plan;
-pub const execute = runner.execute;
-pub const executeAll = runner.executeAll;
+pub const EagerOpPlan = plan.EagerPlan;
 pub const executeAllWithPlan = runner.executeAllWithPlan;
 
 test {
     _ = @import("runner.zig");
-    _ = pir;
+    _ = plan;
 }

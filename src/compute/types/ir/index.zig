@@ -1,16 +1,17 @@
-pub const sir = @import("sir.zig");
-pub const pir = @import("pir/index.zig");
-pub const eir = @import("eir/index.zig");
+pub const graph = @import("graph.zig");
+pub const plan = @import("plan.zig");
 
-pub const ValueId = sir.ValueId;
-pub const NodeId = sir.NodeId;
-pub const NodeKind = sir.NodeKind;
-pub const Node = sir.Node;
-pub const GraphValue = sir.GraphValue;
-pub const Graph = sir.Graph;
+pub const TensorId = graph.TensorId;
+pub const NodeId = graph.NodeId;
+pub const NodeKind = graph.NodeKind;
+pub const Node = graph.Node;
+pub const GraphTensor = graph.GraphTensor;
+pub const Graph = graph.Graph;
+pub const ComputeGraph = graph.ComputeGraph;
+pub const EagerPlan = plan.EagerPlan;
+pub const GraphPlan = plan.GraphPlan;
 
 test {
-    _ = sir;
-    _ = pir;
-    _ = eir;
+    _ = graph;
+    _ = plan;
 }

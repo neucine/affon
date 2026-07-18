@@ -1,15 +1,18 @@
 const std = @import("std");
 const compat = @import("../support/compat.zig");
-const Device = @import("../compute/types/tensor/device.zig").Device;
-const policy = @import("policy.zig");
-const region = @import("region.zig");
-const intention_mod = @import("intention.zig");
-const backend = @import("backend.zig");
+const Device = @import("types/tensor/device.zig").Device;
+const policy = @import("memory/policy.zig");
+const region = @import("memory/region.zig");
+const intention_mod = @import("memory/intention.zig");
+const backend = @import("memory/backend.zig");
+const telemetry = @import("telemetry.zig");
 
 pub const AllocationPolicy = policy.AllocationPolicy;
 pub const Region = region.Region;
 pub const RegionMetadata = region.Metadata;
 pub const Intention = intention_mod.Intention;
+
+pub const setPoolOversizeThreshold = backend.setPoolOversizeThreshold;
 pub const Block = struct {
     region: Region,
     policy: AllocationPolicy,
@@ -85,6 +88,39 @@ var region_state = std.EnumArray(Region, RegionState).initFill(.{});
 var boundary_allocators_ready = false;
 var boundary_allocators = std.EnumArray(Region, std.EnumArray(Intention, BoundaryAllocator)).initUndefined();
 var default_regions_ready = false;
+var region_host_owned_bytes = std.atomic.Value(i64).init(0);
+var region_host_scratch_bytes = std.atomic.Value(i64).init(0);
+var region_cpu_owned_bytes = std.atomic.Value(i64).init(0);
+var region_cpu_scratch_bytes = std.atomic.Value(i64).init(0);
+var region_metal_pool_bytes = std.atomic.Value(i64).init(0);
+var region_metal_scratch_bytes = std.atomic.Value(i64).init(0);
+
+fn regionCounter(memory_region: Region) *std.atomic.Value(i64) {
+    return switch (memory_region) {
+        .compute_host_owned => &region_host_owned_bytes,
+        .compute_host_scratch => &region_host_scratch_bytes,
+        .compute_cpu_owned => &region_cpu_owned_bytes,
+        .compute_cpu_scratch => &region_cpu_scratch_bytes,
+        .compute_metal_pool => &region_metal_pool_bytes,
+        .compute_metal_scratch => &region_metal_scratch_bytes,
+    };
+}
+
+fn regionMetric(memory_region: Region) telemetry.MetricDefinition {
+    return switch (memory_region) {
+        .compute_host_owned => telemetry.metrics.memory.region_host_owned_bytes,
+        .compute_host_scratch => telemetry.metrics.memory.region_host_scratch_bytes,
+        .compute_cpu_owned => telemetry.metrics.memory.region_cpu_owned_bytes,
+        .compute_cpu_scratch => telemetry.metrics.memory.region_cpu_scratch_bytes,
+        .compute_metal_pool => telemetry.metrics.memory.region_metal_pool_bytes,
+        .compute_metal_scratch => telemetry.metrics.memory.region_metal_scratch_bytes,
+    };
+}
+
+fn updateRegionBytes(memory_region: Region, delta: i64) void {
+    const value = regionCounter(memory_region).fetchAdd(delta, .monotonic) + delta;
+    telemetry.set(regionMetric(memory_region), value);
+}
 
 pub fn registerRegion(memory_region: Region, config: RegionConfig) void {
     region_mu.lock();
@@ -144,11 +180,12 @@ pub fn allocate(memory_region: Region, intention: Intention, bytes: usize, opts:
     const config = try getRegionConfig(memory_region);
     if (!config.ready) return error.RegionNotReady;
 
-    return switch (config.device) {
-        .cpu => blk: {
+    var block: Block = undefined;
+    switch (config.device) {
+        .cpu => {
             const alloc = opts.host_allocator orelse try allocator(memory_region, intention);
             const buffer = try backend.allocCpu(alloc, config.policy, bytes, opts.zeroed);
-            break :blk .{
+            block = .{
                 .region = memory_region,
                 .policy = config.policy,
                 .bytes = bytes,
@@ -156,9 +193,9 @@ pub fn allocate(memory_region: Region, intention: Intention, bytes: usize, opts:
                 .host_allocator = alloc,
             };
         },
-        .metal => blk: {
+        .metal => {
             const handle = try backend.allocMetal(config.policy, bytes);
-            break :blk .{
+            block = .{
                 .region = memory_region,
                 .policy = config.policy,
                 .bytes = bytes,
@@ -166,10 +203,13 @@ pub fn allocate(memory_region: Region, intention: Intention, bytes: usize, opts:
                 .host_allocator = null,
             };
         },
-    };
+    }
+    updateRegionBytes(block.region, @intCast(block.bytes));
+    return block;
 }
 
 pub fn release(block: Block) void {
+    updateRegionBytes(block.region, -@as(i64, @intCast(block.bytes)));
     switch (block.storage) {
         .host => |buffer| {
             if (block.host_allocator) |alloc| {
@@ -223,8 +263,6 @@ fn ensureBoundaryAllocators() void {
 
 fn ensureDefaultRegions() void {
     if (default_regions_ready) return;
-    region_state.set(.runtime_host, .{ .registered = true, .config = .{ .device = .cpu, .policy = .owned, .ready = true } });
-    region_state.set(.runtime_host_scratch, .{ .registered = true, .config = .{ .device = .cpu, .policy = .scratch, .ready = true } });
     region_state.set(.compute_host_owned, .{ .registered = true, .config = .{ .device = .cpu, .policy = .owned, .ready = true } });
     region_state.set(.compute_host_scratch, .{ .registered = true, .config = .{ .device = .cpu, .policy = .scratch, .ready = true } });
     region_state.set(.compute_cpu_owned, .{ .registered = true, .config = .{ .device = .cpu, .policy = .owned, .ready = true } });
@@ -235,8 +273,7 @@ fn ensureDefaultRegions() void {
 }
 
 test {
-    _ = @import("metrics.zig");
-    _ = @import("backend.zig");
-    _ = @import("policy.zig");
-    _ = @import("region.zig");
+    _ = @import("memory/backend.zig");
+    _ = @import("memory/policy.zig");
+    _ = @import("memory/region.zig");
 }

@@ -1,10 +1,10 @@
 const std = @import("std");
-const tensor_value = @import("../types/tensor/value.zig");
-const Value = tensor_value.Value;
+const tensor_value = @import("../types/tensor/tensor.zig");
+const Tensor = tensor_value.Tensor;
 const Shape = @import("../types/tensor/shape.zig").Shape;
 const Layout = @import("../types/tensor/layout.zig").Layout;
 const Storage = @import("../types/tensor/storage.zig").Storage;
-const ValueSpec = @import("../types/tensor/value_spec.zig").ValueSpec;
+const TensorSpec = @import("../types/tensor/tensor_spec.zig").TensorSpec;
 const kernel_dispatch = @import("../backend/dispatch.zig");
 const transfer_execution = @import("transfer.zig");
 
@@ -15,8 +15,8 @@ pub const MaterializationSummary = struct {
 };
 
 pub fn contiguousInto(
-    input: *const Value,
-    output: *Value,
+    input: *const Tensor,
+    output: *Tensor,
 ) !MaterializationSummary {
     const device = input.device() orelse return error.InputNotMaterialized;
     const byte_len = output.shape.numel() * output.dtype.size();
@@ -37,11 +37,11 @@ pub fn contiguousInto(
 
 pub fn materializeContiguousValue(
     allocator: std.mem.Allocator,
-    input: *const Value,
-    spec: ValueSpec,
+    input: *const Tensor,
+    spec: TensorSpec,
     source: Storage.Source,
-) !struct { value: *Value, summary: MaterializationSummary } {
-    const output = try Value.createContiguousWithSource(
+) !struct { value: *Tensor, summary: MaterializationSummary } {
+    const output = try Tensor.createContiguousWithSource(
         allocator,
         input.shape.dims,
         input.dtype,
@@ -57,7 +57,7 @@ pub fn materializeContiguousValue(
 
 pub fn materializePackedDenseStorage(
     allocator: std.mem.Allocator,
-    value: *const Value,
+    value: *const Tensor,
     source: Storage.Source,
 ) !*Storage {
     const src = try value.requireRuntimeBacking();
@@ -92,9 +92,9 @@ pub fn materializePackedDenseStorage(
 
 pub fn materializePackedDenseValue(
     allocator: std.mem.Allocator,
-    value: *const Value,
+    value: *const Tensor,
     source: Storage.Source,
-) !*Value {
+) !*Tensor {
     const storage = try materializePackedDenseStorage(allocator, value, source);
     errdefer storage.release();
 
@@ -103,7 +103,7 @@ pub fn materializePackedDenseValue(
     var layout = try Layout.initContiguous(allocator, shape);
     errdefer layout.deinit();
 
-    const packed_value = try allocator.create(Value);
+    const packed_value = try allocator.create(Tensor);
     errdefer allocator.destroy(packed_value);
     packed_value.* = .{
         .allocator = allocator,

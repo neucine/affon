@@ -1,37 +1,38 @@
 const std = @import("std");
 const graph_mod = @import("../types/ir/index.zig");
 const NodeId = graph_mod.NodeId;
-const ValueId = graph_mod.ValueId;
+const TensorId = graph_mod.TensorId;
 const Graph = graph_mod.Graph;
 const tensor = @import("../types/tensor/index.zig");
-const ValueSpec = tensor.ValueSpec;
+const TensorSpec = tensor.TensorSpec;
 const DType = tensor.DType;
 const Device = tensor.Device;
 const Shape = tensor.Shape;
 const Layout = tensor.Layout;
-const semantic = @import("../sema/index.zig");
+const semantic = @import("sema/index.zig");
 const ExecutionKind = execution_spec.ExecutionKind;
 const SliceRange = @import("../types/operation/options.zig").SliceRange;
-const execution_layout = @import("../execution/layout.zig");
-const execution_spec = @import("../execution/spec.zig");
-const pir = @import("../types/ir/pir/index.zig");
+const execution_layout = @import("layout.zig");
+const execution_spec = @import("spec.zig");
+const ir_plan = @import("../types/ir/plan.zig");
+const eager_planning = @import("eager.zig");
 
-pub const StepKind = pir.graph.StepKind;
-pub const Step = pir.graph.Step;
-pub const RegionKind = pir.graph.RegionKind;
-pub const MatmulEpilogueActivation = pir.graph.MatmulEpilogueActivation;
-pub const Region = pir.graph.Region;
-pub const GraphPlan = pir.GraphPlan;
+pub const StepKind = ir_plan.StepKind;
+pub const Step = ir_plan.Step;
+pub const RegionKind = ir_plan.RegionKind;
+pub const MatmulEpilogueActivation = ir_plan.MatmulEpilogueActivation;
+pub const Region = ir_plan.Region;
+pub const Plan = ir_plan.GraphPlan;
 
-pub fn lower(allocator: std.mem.Allocator, graph: *const Graph) !GraphPlan {
-    var plan = GraphPlan.init(allocator);
+pub fn create(allocator: std.mem.Allocator, graph: *const Graph) !Plan {
+    var plan = Plan.init(allocator);
     errdefer plan.deinit();
 
     for (graph.nodes.items) |node| {
         switch (node.kind) {
             .input, .constant => {},
             .op => |tag| {
-                const input_specs = try allocator.alloc(ValueSpec, node.inputs.len);
+                const input_specs = try allocator.alloc(TensorSpec, node.inputs.len);
                 defer allocator.free(input_specs);
                 for (node.inputs, 0..) |input_id, i| {
                     if (input_id >= graph.values.items.len) return error.InvalidGraphPlan;
@@ -41,10 +42,13 @@ pub fn lower(allocator: std.mem.Allocator, graph: *const Graph) !GraphPlan {
                 var inferred = try semantic.inferFromSpecs(allocator, tag, input_specs, node.options);
                 errdefer inferred.deinit();
                 try validateNodeOutputs(graph, node.id, inferred);
+                var eager_plan = try eager_planning.createFromSpecs(allocator, tag, input_specs, inferred, .{});
+                errdefer eager_plan.deinit();
                 try plan.steps.append(allocator, .{
                     .node_id = node.id,
                     .kind = .single_op,
                     .semantic_spec = inferred,
+                    .eager_plan = eager_plan,
                     .execution = executionDecisionsFromSemantic(inferred),
                 });
             },
@@ -55,7 +59,7 @@ pub fn lower(allocator: std.mem.Allocator, graph: *const Graph) !GraphPlan {
     return plan;
 }
 
-fn executionDecisionsFromSemantic(spec: semantic.OpSpec) pir.graph.Decisions {
+fn executionDecisionsFromSemantic(spec: semantic.OpSpec) ir_plan.Decisions {
     return .{
         .kind = execution_spec.executionKindFromSemantic(spec.kind),
         .allocation = execution_spec.allocationIntentFromSemantic(spec.allocation),
@@ -88,7 +92,7 @@ fn validateNodeOutputs(graph: *const Graph, node_id: NodeId, inferred: semantic.
 }
 
 fn expectSpecEqual(
-    actual: ValueSpec,
+    actual: TensorSpec,
     expected_shape: []const usize,
     expected_dtype: DType,
     expected_strides: []const isize,
@@ -110,7 +114,7 @@ fn validateSliceRange(range: SliceRange, dim_size: usize) !void {
     if (range.start > range.stop) return error.InvalidSliceBound;
 }
 
-fn discoverFusionRegions(plan: *GraphPlan, graph: *const Graph) !void {
+fn discoverFusionRegions(plan: *Plan, graph: *const Graph) !void {
     var i: usize = 0;
     while (i < plan.steps.items.len) : (i += 1) {
         if (classifyGatherLogsumexpLossRegion(plan, graph, i)) |region| {
@@ -161,19 +165,19 @@ fn discoverFusionRegions(plan: *GraphPlan, graph: *const Graph) !void {
     }
 }
 
-fn classifyGatherLogsumexpLossRegion(plan: *const GraphPlan, graph: *const Graph, start: usize) ?Region {
+fn classifyGatherLogsumexpLossRegion(plan: *const Plan, graph: *const Graph, start: usize) ?Region {
     const tags = &.{ .gather, .max_axis, .sub, .exp, .sum_axis, .log, .add, .sub, .mean_all };
     if (!matchesStepTags(graph, plan.steps.items, start, tags)) return null;
     return .{ .kind = .fusable_run, .step_start = start, .step_end = start + tags.len };
 }
 
-fn classifyCausalGatherLogsumexpLossRegion(plan: *const GraphPlan, graph: *const Graph, start: usize) ?Region {
+fn classifyCausalGatherLogsumexpLossRegion(plan: *const Plan, graph: *const Graph, start: usize) ?Region {
     const tags = &.{ .slice, .reshape, .reshape, .gather, .max_axis, .sub, .exp, .sum_axis, .log, .add, .sub, .mean_all };
     if (!matchesStepTags(graph, plan.steps.items, start, tags)) return null;
     return .{ .kind = .fusable_run, .step_start = start, .step_end = start + tags.len };
 }
 
-fn classifyLogsumexpLossRegion(plan: *const GraphPlan, graph: *const Graph, start: usize) ?Region {
+fn classifyLogsumexpLossRegion(plan: *const Plan, graph: *const Graph, start: usize) ?Region {
     const tags = &.{ .max_axis, .sub, .exp, .sum_axis, .log, .sub, .mul, .sum_axis, .neg, .mean_all };
     if (!matchesStepTags(graph, plan.steps.items, start, tags)) return null;
     return .{ .kind = .fusable_run, .step_start = start, .step_end = start + tags.len };
@@ -189,7 +193,7 @@ fn isCoarselyFusableKind(kind: ExecutionKind) bool {
         kind == .view;
 }
 
-fn classifyLmHeadCrossEntropyIndexedRegion(plan: *const GraphPlan, graph: *const Graph, start: usize) ?Region {
+fn classifyLmHeadCrossEntropyIndexedRegion(plan: *const Plan, graph: *const Graph, start: usize) ?Region {
     const steps = plan.steps.items;
     if (matchesStepTags(graph, steps, start, &.{ .permute, .contiguous, .reshape, .slice, .reshape, .contiguous, .reshape, .cast, .cross_entropy_indexed }) or
         matchesStepTags(graph, steps, start, &.{ .transpose, .contiguous, .reshape, .slice, .reshape, .contiguous, .reshape, .cast, .cross_entropy_indexed }) or
@@ -224,7 +228,7 @@ fn matchesStepTags(
     return true;
 }
 
-fn classifyMatmulEpilogueRegion(plan: *const GraphPlan, graph: *const Graph, start: usize) ?Region {
+fn classifyMatmulEpilogueRegion(plan: *const Plan, graph: *const Graph, start: usize) ?Region {
     if (start + 1 >= plan.steps.items.len) return null;
     const steps = plan.steps.items;
     const mm_step = steps[start];
@@ -299,7 +303,7 @@ fn nodeOpTag(node: graph_mod.Node) ?@import("../types/operation/tag.zig").OpTag 
     };
 }
 
-fn hasOnlyExpectedConsumer(graph: *const Graph, value_id: ValueId, expected_node_id: NodeId) bool {
+fn hasOnlyExpectedConsumer(graph: *const Graph, value_id: TensorId, expected_node_id: NodeId) bool {
     var consumer_count: usize = 0;
     var expected_is_consumer = false;
     for (graph.nodes.items) |node| {
@@ -313,7 +317,7 @@ fn hasOnlyExpectedConsumer(graph: *const Graph, value_id: ValueId, expected_node
     return consumer_count == 1 and expected_is_consumer;
 }
 
-fn isInputOrConstantValue(graph: *const Graph, value_id: ValueId) bool {
+fn isInputOrConstantValue(graph: *const Graph, value_id: TensorId) bool {
     if (value_id >= graph.values.items.len) return false;
     const producer_id = graph.values.items[value_id].producer;
     if (producer_id >= graph.nodes.items.len) return false;
@@ -323,7 +327,7 @@ fn isInputOrConstantValue(graph: *const Graph, value_id: ValueId) bool {
     };
 }
 
-fn graphOutputContains(graph: *const Graph, value_id: ValueId) bool {
+fn graphOutputContains(graph: *const Graph, value_id: TensorId) bool {
     for (graph.outputs.items) |output_id| {
         if (output_id == value_id) return true;
     }
@@ -339,7 +343,7 @@ test "graph plan lowers op nodes into single-op steps" {
     defer shape.deinit();
     var layout = try Layout.initContiguous(allocator, shape);
     defer layout.deinit();
-    const spec = ValueSpec{
+    const spec = TensorSpec{
         .shape = shape,
         .dtype = .f32,
         .layout = layout,
@@ -351,7 +355,7 @@ test "graph plan lowers op nodes into single-op steps" {
     const c = try graph.addOp(.add, &.{ a, b }, .{ .none = {} }, spec);
     try graph.setOutputs(&.{c});
 
-    var plan = try lower(allocator, &graph);
+    var plan = try create(allocator, &graph);
     defer plan.deinit();
 
     try std.testing.expectEqual(@as(usize, 1), plan.steps.items.len);
@@ -370,7 +374,7 @@ test "graph plan records matmul transposed input as accepted layout" {
     defer lhs_shape.deinit();
     var lhs_layout = try Layout.initCopy(allocator, &.{ 1, 3 }, 0);
     defer lhs_layout.deinit();
-    const lhs_spec = ValueSpec{
+    const lhs_spec = TensorSpec{
         .shape = lhs_shape,
         .dtype = .f32,
         .layout = lhs_layout,
@@ -381,7 +385,7 @@ test "graph plan records matmul transposed input as accepted layout" {
     defer rhs_shape.deinit();
     var rhs_layout = try Layout.initContiguous(allocator, rhs_shape);
     defer rhs_layout.deinit();
-    const rhs_spec = ValueSpec{
+    const rhs_spec = TensorSpec{
         .shape = rhs_shape,
         .dtype = .f32,
         .layout = rhs_layout,
@@ -392,7 +396,7 @@ test "graph plan records matmul transposed input as accepted layout" {
     defer out_shape.deinit();
     var out_layout = try Layout.initContiguous(allocator, out_shape);
     defer out_layout.deinit();
-    const out_spec = ValueSpec{
+    const out_spec = TensorSpec{
         .shape = out_shape,
         .dtype = .f32,
         .layout = out_layout,
@@ -404,7 +408,7 @@ test "graph plan records matmul transposed input as accepted layout" {
     const out = try graph.addOp(.matmul, &.{ lhs, rhs }, .{ .none = {} }, out_spec);
     try graph.setOutputs(&.{out});
 
-    var plan = try lower(allocator, &graph);
+    var plan = try create(allocator, &graph);
     defer plan.deinit();
 
     try std.testing.expectEqual(@as(usize, 1), plan.steps.items.len);
@@ -420,7 +424,7 @@ test "graph plan records reduction pack_to_dense input hint" {
     defer input_shape.deinit();
     var input_layout = try Layout.initCopy(allocator, &.{ -2, 1 }, 4);
     defer input_layout.deinit();
-    const input_spec = ValueSpec{
+    const input_spec = TensorSpec{
         .shape = input_shape,
         .dtype = .f32,
         .layout = input_layout,
@@ -431,7 +435,7 @@ test "graph plan records reduction pack_to_dense input hint" {
     defer out_shape.deinit();
     var out_layout = try Layout.initContiguous(allocator, out_shape);
     defer out_layout.deinit();
-    const out_spec = ValueSpec{
+    const out_spec = TensorSpec{
         .shape = out_shape,
         .dtype = .f32,
         .layout = out_layout,
@@ -442,7 +446,7 @@ test "graph plan records reduction pack_to_dense input hint" {
     const out = try graph.addOp(.sum_axis, &.{input}, .{ .reduce_axis = .{ .axis = 1, .keepdim = false } }, out_spec);
     try graph.setOutputs(&.{out});
 
-    var plan = try lower(allocator, &graph);
+    var plan = try create(allocator, &graph);
     defer plan.deinit();
     try std.testing.expectEqual(execution_layout.InputLayoutDecision.pack_to_dense, plan.steps.items[0].execution.input_layout_decision);
 }
@@ -456,7 +460,7 @@ test "graph plan marks fusion groups for consecutive elementwise steps" {
     defer shape.deinit();
     var layout = try Layout.initContiguous(allocator, shape);
     defer layout.deinit();
-    const spec = ValueSpec{
+    const spec = TensorSpec{
         .shape = shape,
         .dtype = .f32,
         .layout = layout,
@@ -471,7 +475,7 @@ test "graph plan marks fusion groups for consecutive elementwise steps" {
     defer scalar_shape.deinit();
     var scalar_layout = try Layout.initContiguous(allocator, scalar_shape);
     defer scalar_layout.deinit();
-    const scalar_spec = ValueSpec{
+    const scalar_spec = TensorSpec{
         .shape = scalar_shape,
         .dtype = .f32,
         .layout = scalar_layout,
@@ -480,7 +484,7 @@ test "graph plan marks fusion groups for consecutive elementwise steps" {
     const sum_out = try graph.addOp(.sum_all, &.{relu_out}, .{ .none = {} }, scalar_spec);
     try graph.setOutputs(&.{sum_out});
 
-    var plan = try lower(allocator, &graph);
+    var plan = try create(allocator, &graph);
     defer plan.deinit();
     try std.testing.expectEqual(@as(usize, 1), plan.regions.items.len);
     try std.testing.expectEqual(RegionKind.fusable_run, plan.regions.items[0].kind);
@@ -497,19 +501,19 @@ test "graph plan recognizes matmul epilogue region with gelu activation" {
     defer a_shape.deinit();
     var a_layout = try Layout.initContiguous(allocator, a_shape);
     defer a_layout.deinit();
-    const a_spec = ValueSpec{ .shape = a_shape, .dtype = .f32, .layout = a_layout, .device = .cpu };
+    const a_spec = TensorSpec{ .shape = a_shape, .dtype = .f32, .layout = a_layout, .device = .cpu };
 
     var b_shape = try Shape.initCopy(allocator, &.{ 3, 2 });
     defer b_shape.deinit();
     var b_layout = try Layout.initContiguous(allocator, b_shape);
     defer b_layout.deinit();
-    const b_spec = ValueSpec{ .shape = b_shape, .dtype = .f32, .layout = b_layout, .device = .cpu };
+    const b_spec = TensorSpec{ .shape = b_shape, .dtype = .f32, .layout = b_layout, .device = .cpu };
 
     var out_shape = try Shape.initCopy(allocator, &.{ 2, 2 });
     defer out_shape.deinit();
     var out_layout = try Layout.initContiguous(allocator, out_shape);
     defer out_layout.deinit();
-    const out_spec = ValueSpec{ .shape = out_shape, .dtype = .f32, .layout = out_layout, .device = .cpu };
+    const out_spec = TensorSpec{ .shape = out_shape, .dtype = .f32, .layout = out_layout, .device = .cpu };
 
     const a = try graph.addInput(a_spec);
     const b = try graph.addInput(b_spec);
@@ -519,7 +523,7 @@ test "graph plan recognizes matmul epilogue region with gelu activation" {
     const gelu = try graph.addOp(.gelu, &.{add}, .{ .none = {} }, out_spec);
     try graph.setOutputs(&.{gelu});
 
-    var plan = try lower(allocator, &graph);
+    var plan = try create(allocator, &graph);
     defer plan.deinit();
 
     try std.testing.expectEqual(@as(usize, 1), plan.regions.items.len);
@@ -538,25 +542,25 @@ test "graph plan recognizes matmul epilogue region with broadcast bias" {
     defer a_shape.deinit();
     var a_layout = try Layout.initContiguous(allocator, a_shape);
     defer a_layout.deinit();
-    const a_spec = ValueSpec{ .shape = a_shape, .dtype = .f32, .layout = a_layout, .device = .cpu };
+    const a_spec = TensorSpec{ .shape = a_shape, .dtype = .f32, .layout = a_layout, .device = .cpu };
 
     var b_shape = try Shape.initCopy(allocator, &.{ 3, 2 });
     defer b_shape.deinit();
     var b_layout = try Layout.initContiguous(allocator, b_shape);
     defer b_layout.deinit();
-    const b_spec = ValueSpec{ .shape = b_shape, .dtype = .f32, .layout = b_layout, .device = .cpu };
+    const b_spec = TensorSpec{ .shape = b_shape, .dtype = .f32, .layout = b_layout, .device = .cpu };
 
     var out_shape = try Shape.initCopy(allocator, &.{ 2, 2 });
     defer out_shape.deinit();
     var out_layout = try Layout.initContiguous(allocator, out_shape);
     defer out_layout.deinit();
-    const out_spec = ValueSpec{ .shape = out_shape, .dtype = .f32, .layout = out_layout, .device = .cpu };
+    const out_spec = TensorSpec{ .shape = out_shape, .dtype = .f32, .layout = out_layout, .device = .cpu };
 
     var bias_shape = try Shape.initCopy(allocator, &.{ 1, 2 });
     defer bias_shape.deinit();
     var bias_layout = try Layout.initContiguous(allocator, bias_shape);
     defer bias_layout.deinit();
-    const bias_spec = ValueSpec{ .shape = bias_shape, .dtype = .f32, .layout = bias_layout, .device = .cpu };
+    const bias_spec = TensorSpec{ .shape = bias_shape, .dtype = .f32, .layout = bias_layout, .device = .cpu };
 
     const a = try graph.addInput(a_spec);
     const b = try graph.addInput(b_spec);
@@ -565,7 +569,7 @@ test "graph plan recognizes matmul epilogue region with broadcast bias" {
     const add = try graph.addOp(.add, &.{ mm, bias }, .{ .none = {} }, out_spec);
     try graph.setOutputs(&.{add});
 
-    var plan = try lower(allocator, &graph);
+    var plan = try create(allocator, &graph);
     defer plan.deinit();
 
     try std.testing.expectEqual(@as(usize, 1), plan.regions.items.len);
@@ -584,19 +588,19 @@ test "graph plan recognizes matmul epilogue when add operands are canonicalized"
     defer a_shape.deinit();
     var a_layout = try Layout.initContiguous(allocator, a_shape);
     defer a_layout.deinit();
-    const a_spec = ValueSpec{ .shape = a_shape, .dtype = .f32, .layout = a_layout, .device = .cpu };
+    const a_spec = TensorSpec{ .shape = a_shape, .dtype = .f32, .layout = a_layout, .device = .cpu };
 
     var b_shape = try Shape.initCopy(allocator, &.{ 3, 2 });
     defer b_shape.deinit();
     var b_layout = try Layout.initContiguous(allocator, b_shape);
     defer b_layout.deinit();
-    const b_spec = ValueSpec{ .shape = b_shape, .dtype = .f32, .layout = b_layout, .device = .cpu };
+    const b_spec = TensorSpec{ .shape = b_shape, .dtype = .f32, .layout = b_layout, .device = .cpu };
 
     var out_shape = try Shape.initCopy(allocator, &.{ 2, 2 });
     defer out_shape.deinit();
     var out_layout = try Layout.initContiguous(allocator, out_shape);
     defer out_layout.deinit();
-    const out_spec = ValueSpec{ .shape = out_shape, .dtype = .f32, .layout = out_layout, .device = .cpu };
+    const out_spec = TensorSpec{ .shape = out_shape, .dtype = .f32, .layout = out_layout, .device = .cpu };
 
     const a = try graph.addInput(a_spec);
     const b = try graph.addInput(b_spec);
@@ -606,7 +610,7 @@ test "graph plan recognizes matmul epilogue when add operands are canonicalized"
     const gelu = try graph.addOp(.gelu, &.{add}, .{ .none = {} }, out_spec);
     try graph.setOutputs(&.{gelu});
 
-    var plan = try lower(allocator, &graph);
+    var plan = try create(allocator, &graph);
     defer plan.deinit();
 
     try std.testing.expectEqual(@as(usize, 1), plan.regions.items.len);
@@ -625,7 +629,7 @@ test "graph plan keeps harmless view steps inside fusion groups" {
     defer input_shape.deinit();
     var input_layout = try Layout.initContiguous(allocator, input_shape);
     defer input_layout.deinit();
-    const input_spec = ValueSpec{
+    const input_spec = TensorSpec{
         .shape = input_shape,
         .dtype = .f32,
         .layout = input_layout,
@@ -636,7 +640,7 @@ test "graph plan keeps harmless view steps inside fusion groups" {
     defer rhs_shape.deinit();
     var rhs_layout = try Layout.initContiguous(allocator, rhs_shape);
     defer rhs_layout.deinit();
-    const rhs_spec = ValueSpec{
+    const rhs_spec = TensorSpec{
         .shape = rhs_shape,
         .dtype = .f32,
         .layout = rhs_layout,
@@ -647,7 +651,7 @@ test "graph plan keeps harmless view steps inside fusion groups" {
     defer reshaped_shape.deinit();
     var reshaped_layout = try Layout.initContiguous(allocator, reshaped_shape);
     defer reshaped_layout.deinit();
-    const reshaped_spec = ValueSpec{
+    const reshaped_spec = TensorSpec{
         .shape = reshaped_shape,
         .dtype = .f32,
         .layout = reshaped_layout,
@@ -658,7 +662,7 @@ test "graph plan keeps harmless view steps inside fusion groups" {
     defer out_shape.deinit();
     var out_layout = try Layout.initContiguous(allocator, out_shape);
     defer out_layout.deinit();
-    const out_spec = ValueSpec{
+    const out_spec = TensorSpec{
         .shape = out_shape,
         .dtype = .f32,
         .layout = out_layout,
@@ -672,7 +676,7 @@ test "graph plan keeps harmless view steps inside fusion groups" {
     const logits = try graph.addOp(.sub, &.{ reduced, rhs }, .{ .none = {} }, out_spec);
     try graph.setOutputs(&.{logits});
 
-    var plan = try lower(allocator, &graph);
+    var plan = try create(allocator, &graph);
     defer plan.deinit();
 
     try std.testing.expectEqual(@as(usize, 3), plan.steps.items.len);
@@ -690,7 +694,7 @@ test "graph plan validates topk requires two outputs" {
     defer shape.deinit();
     var layout = try Layout.initContiguous(allocator, shape);
     defer layout.deinit();
-    const in_spec = ValueSpec{
+    const in_spec = TensorSpec{
         .shape = shape,
         .dtype = .f32,
         .layout = layout,
@@ -700,7 +704,7 @@ test "graph plan validates topk requires two outputs" {
     defer out_shape.deinit();
     var out_layout = try Layout.initContiguous(allocator, out_shape);
     defer out_layout.deinit();
-    const out_spec = ValueSpec{
+    const out_spec = TensorSpec{
         .shape = out_shape,
         .dtype = .f32,
         .layout = out_layout,
@@ -711,7 +715,7 @@ test "graph plan validates topk requires two outputs" {
     _ = try graph.addOp(.topk, &.{x}, .{ .topk = .{ .k = 2, .axis = 1 } }, out_spec);
     try graph.setOutputs(&.{1});
 
-    try std.testing.expectError(error.InvalidGraphPlan, lower(allocator, &graph));
+    try std.testing.expectError(error.InvalidGraphPlan, create(allocator, &graph));
 }
 
 test "graph plan accepts topk with two outputs" {
@@ -723,7 +727,7 @@ test "graph plan accepts topk with two outputs" {
     defer shape.deinit();
     var layout = try Layout.initContiguous(allocator, shape);
     defer layout.deinit();
-    const in_spec = ValueSpec{
+    const in_spec = TensorSpec{
         .shape = shape,
         .dtype = .f32,
         .layout = layout,
@@ -733,13 +737,13 @@ test "graph plan accepts topk with two outputs" {
     defer out_shape.deinit();
     var out_layout = try Layout.initContiguous(allocator, out_shape);
     defer out_layout.deinit();
-    const values_spec = ValueSpec{
+    const values_spec = TensorSpec{
         .shape = out_shape,
         .dtype = .f32,
         .layout = out_layout,
         .device = .cpu,
     };
-    const indices_spec = ValueSpec{
+    const indices_spec = TensorSpec{
         .shape = out_shape,
         .dtype = .i64,
         .layout = out_layout,
@@ -751,7 +755,7 @@ test "graph plan accepts topk with two outputs" {
     defer allocator.free(ids);
     try graph.setOutputs(ids);
 
-    var plan = try lower(allocator, &graph);
+    var plan = try create(allocator, &graph);
     defer plan.deinit();
     try std.testing.expectEqual(@as(usize, 1), plan.steps.items.len);
 }
@@ -765,7 +769,7 @@ test "graph plan rejects softmax axis out of bounds" {
     defer shape.deinit();
     var layout = try Layout.initContiguous(allocator, shape);
     defer layout.deinit();
-    const spec = ValueSpec{
+    const spec = TensorSpec{
         .shape = shape,
         .dtype = .f32,
         .layout = layout,
@@ -775,7 +779,7 @@ test "graph plan rejects softmax axis out of bounds" {
     const x = try graph.addInput(spec);
     _ = try graph.addOp(.softmax, &.{x}, .{ .softmax = .{ .axis = 2 } }, spec);
     try graph.setOutputs(&.{1});
-    try std.testing.expectError(error.InvalidAxis, lower(allocator, &graph));
+    try std.testing.expectError(error.InvalidAxis, create(allocator, &graph));
 }
 
 test "graph plan rejects topk k greater than axis dim" {
@@ -787,7 +791,7 @@ test "graph plan rejects topk k greater than axis dim" {
     defer shape.deinit();
     var layout = try Layout.initContiguous(allocator, shape);
     defer layout.deinit();
-    const in_spec = ValueSpec{
+    const in_spec = TensorSpec{
         .shape = shape,
         .dtype = .f32,
         .layout = layout,
@@ -797,13 +801,13 @@ test "graph plan rejects topk k greater than axis dim" {
     defer out_shape.deinit();
     var out_layout = try Layout.initContiguous(allocator, out_shape);
     defer out_layout.deinit();
-    const values_spec = ValueSpec{
+    const values_spec = TensorSpec{
         .shape = out_shape,
         .dtype = .f32,
         .layout = out_layout,
         .device = .cpu,
     };
-    const indices_spec = ValueSpec{
+    const indices_spec = TensorSpec{
         .shape = out_shape,
         .dtype = .i64,
         .layout = out_layout,
@@ -814,7 +818,7 @@ test "graph plan rejects topk k greater than axis dim" {
     const ids = try graph.addOpMulti(.topk, &.{x}, .{ .topk = .{ .k = 4, .axis = 1 } }, &.{ values_spec, indices_spec });
     defer allocator.free(ids);
     try graph.setOutputs(ids);
-    try std.testing.expectError(error.InvalidTopK, lower(allocator, &graph));
+    try std.testing.expectError(error.InvalidTopK, create(allocator, &graph));
 }
 
 test "graph plan rejects slice with invalid bounds" {
@@ -826,7 +830,7 @@ test "graph plan rejects slice with invalid bounds" {
     defer in_shape.deinit();
     var in_layout = try Layout.initContiguous(allocator, in_shape);
     defer in_layout.deinit();
-    const in_spec = ValueSpec{
+    const in_spec = TensorSpec{
         .shape = in_shape,
         .dtype = .f32,
         .layout = in_layout,
@@ -836,7 +840,7 @@ test "graph plan rejects slice with invalid bounds" {
     defer out_shape.deinit();
     var out_layout = try Layout.initContiguous(allocator, out_shape);
     defer out_layout.deinit();
-    const out_spec = ValueSpec{
+    const out_spec = TensorSpec{
         .shape = out_shape,
         .dtype = .f32,
         .layout = out_layout,
@@ -847,5 +851,5 @@ test "graph plan rejects slice with invalid bounds" {
     const ranges = [_]SliceRange{.{ .start = 0, .stop = 4, .step = 1 }};
     _ = try graph.addOp(.slice, &.{x}, .{ .slice = .{ .ranges = &ranges } }, out_spec);
     try graph.setOutputs(&.{1});
-    try std.testing.expectError(error.InvalidSlice, lower(allocator, &graph));
+    try std.testing.expectError(error.InvalidSlice, create(allocator, &graph));
 }

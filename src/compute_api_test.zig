@@ -1,18 +1,36 @@
 const std = @import("std");
 const compute = @import("compute");
 
-test "compute is usable as an independent native module" {
-    const Value = compute.tensor.Value;
-    const lhs = try Value.fromSliceF32(std.testing.allocator, &.{2}, &.{ 1, 2 });
+test "standalone client surface" {
+    const engine = compute.Engine.init(std.testing.allocator, .{});
+    const lhs = try engine.fromF32(&.{2}, &.{ 1, 2 });
     defer lhs.deinit();
-    const rhs = try Value.fromSliceF32(std.testing.allocator, &.{2}, &.{ 10, 20 });
+    const rhs = try engine.fromF32(&.{2}, &.{ 3, 4 });
     defer rhs.deinit();
 
-    const inputs = [_]*Value{ lhs, rhs };
-    const op = try compute.operation.Op.init(.add, &inputs, .{ .none = {} });
-    const result = try compute.eager.execute(std.testing.allocator, op);
+    const result = try engine.add(lhs, rhs);
     defer result.deinit();
 
-    const bytes = try result.storage.?.readableBytes();
-    try std.testing.expectEqualSlices(f32, &.{ 11, 22 }, std.mem.bytesAsSlice(f32, bytes));
+    var bytes: [2 * @sizeOf(f32)]u8 = undefined;
+    try engine.copyToHost(result, &bytes);
+    var values: [2]f32 = undefined;
+    @memcpy(std.mem.asBytes(&values), &bytes);
+    try std.testing.expectEqualSlices(f32, &.{ 4, 6 }, &values);
+}
+
+test "compute is usable as an independent native module" {
+    const engine = compute.Engine.init(std.testing.allocator, .{});
+    const lhs = try engine.fromF32(&.{2}, &.{ 1, 2 });
+    defer lhs.deinit();
+    const rhs = try engine.fromF32(&.{2}, &.{ 10, 20 });
+    defer rhs.deinit();
+
+    const result = try engine.add(lhs, rhs);
+    defer result.deinit();
+
+    var bytes: [2 * @sizeOf(f32)]u8 = undefined;
+    try engine.copyToHost(result, &bytes);
+    var values: [2]f32 = undefined;
+    @memcpy(std.mem.asBytes(&values), &bytes);
+    try std.testing.expectEqualSlices(f32, &.{ 11, 22 }, &values);
 }

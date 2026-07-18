@@ -1,8 +1,7 @@
 const std = @import("std");
-const semantic = @import("../../../sema/index.zig");
 const kernel_dispatch = @import("../../../backend/dispatch.zig");
-const Value = @import("../../../types/tensor/value.zig").Value;
-const Step = @import("../../../types/ir/eir/graph.zig").Step;
+const Tensor = @import("../../../types/tensor/tensor.zig").Tensor;
+const Step = @import("../../../types/ir/plan.zig").Step;
 const Graph = @import("../../../types/ir/index.zig").Graph;
 const OpTag = @import("../../../types/operation/tag.zig").OpTag;
 const OpOptions = @import("../../../types/operation/options.zig").OpOptions;
@@ -24,8 +23,8 @@ pub fn materializeBroadcastBiasForAdd(
     add_step: Step,
     matmul_output_id: u32,
     bias_input_index: usize,
-    bias: *Value,
-) !?*Value {
+    bias: *Tensor,
+) !?*Tensor {
     const add_node = graph.nodes.items[add_step.node_id];
     if (add_node.inputs.len != 2 or add_node.outputs.len != 1) return error.InvalidGraphPlan;
     if (bias_input_index >= add_node.inputs.len) return error.InvalidGraphPlan;
@@ -44,7 +43,7 @@ pub fn materializeBroadcastBiasForAdd(
     else
         binary.rhs_strides[0..binary.rank];
 
-    const expanded = try Value.createContiguousWithSource(
+    const expanded = try Tensor.createContiguousWithSource(
         allocator,
         add_spec.shape.dims,
         add_spec.dtype,
@@ -95,7 +94,7 @@ pub fn isInputOrConstantValue(graph: *const Graph, value_id: u32) bool {
     };
 }
 
-pub fn rawStorageInputsArePackedDense(values: []const *Value) bool {
+pub fn rawStorageInputsArePackedDense(values: []const *Tensor) bool {
     for (values) |value| {
         if (!prepared_execution.isPackedDenseInput(value)) return false;
     }

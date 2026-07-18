@@ -1,5 +1,6 @@
 pub const OpTag = @import("tag.zig").OpTag;
 pub const OpOptions = @import("options.zig").OpOptions;
+pub const SliceRange = @import("options.zig").SliceRange;
 pub const ExecutionMetadata = @import("execution_metadata.zig").ExecutionMetadata;
 pub const Op = @import("op.zig").Op;
 pub const contracts = @import("contracts.zig");

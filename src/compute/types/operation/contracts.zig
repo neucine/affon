@@ -1,5 +1,5 @@
 const std = @import("std");
-const ValueSpec = @import("../tensor/value_spec.zig").ValueSpec;
+const TensorSpec = @import("../tensor/tensor_spec.zig").TensorSpec;
 
 pub const RankContract = union(enum) {
     any: void,
@@ -10,15 +10,15 @@ pub const RankContract = union(enum) {
     },
 };
 
-pub fn requireInputCount(inputs: []const ValueSpec, expected: usize) !void {
+pub fn requireInputCount(inputs: []const TensorSpec, expected: usize) !void {
     if (inputs.len != expected) return error.InvalidInputCount;
 }
 
-pub fn requireMinInputCount(inputs: []const ValueSpec, minimum: usize) !void {
+pub fn requireMinInputCount(inputs: []const TensorSpec, minimum: usize) !void {
     if (inputs.len < minimum) return error.InvalidInputCount;
 }
 
-pub fn requireRank(value: ValueSpec, contract: RankContract) !void {
+pub fn requireRank(value: TensorSpec, contract: RankContract) !void {
     const rank = value.shape.rank();
     switch (contract) {
         .any => {},
@@ -27,11 +27,11 @@ pub fn requireRank(value: ValueSpec, contract: RankContract) !void {
     }
 }
 
-pub fn requireAllRanks(inputs: []const ValueSpec, contract: RankContract) !void {
+pub fn requireAllRanks(inputs: []const TensorSpec, contract: RankContract) !void {
     for (inputs) |input| try requireRank(input, contract);
 }
 
-pub fn requireSameRank(inputs: []const ValueSpec) !void {
+pub fn requireSameRank(inputs: []const TensorSpec) !void {
     if (inputs.len == 0) return error.InvalidInputCount;
     const rank = inputs[0].shape.rank();
     for (inputs[1..]) |input| {
@@ -61,7 +61,7 @@ pub fn requirePermutation(allocator: std.mem.Allocator, axes: []const usize, ran
 
 test "rank contract exact and range" {
     const allocator = std.testing.allocator;
-    const value = try @import("../tensor/value.zig").Value.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
+    const value = try @import("../tensor/tensor.zig").Tensor.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
     defer value.deinit();
     const spec = try value.spec();
 

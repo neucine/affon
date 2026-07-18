@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const compat = @import("support/compat.zig");
-const mm = @import("mm/index.zig");
+const mm = @import("compute/memory.zig");
 const c = @cImport({
     @cInclude("stdlib.h");
 });
@@ -115,7 +115,7 @@ fn setProcessEnv(key: [:0]const u8, value: []const u8) !void {
         return error.Unsupported;
     }
 
-    const allocator = try mm.allocator(.runtime_host_scratch, .runtime_env_string);
+    const allocator = std.heap.c_allocator;
     var value_z = try allocator.alloc(u8, value.len + 1);
     defer allocator.free(value_z);
     @memcpy(value_z[0..value.len], value);
@@ -142,6 +142,7 @@ pub fn loadFromEnv() !void {
     loadUsize("AFFON_METAL_REDUCE_ALL_THRESHOLD", &config.device.metal.reduce_all_threshold);
     loadUsize("AFFON_METAL_REDUCE_AXIS_THRESHOLD", &config.device.metal.reduce_axis_threshold);
     loadUsize("AFFON_METAL_POOL_OVERSIZE_THRESHOLD_BYTES", &config.device.metal.pool_oversize_threshold_bytes);
+    mm.setPoolOversizeThreshold(config.device.metal.pool_oversize_threshold_bytes);
     loadUsize("AFFON_CPU_PARALLEL_THRESHOLD", &config.device.cpu.parallel_threshold);
     loadUsize("AFFON_CSV_CHUNK_SIZE", &config.csv.chunk_size);
     loadUsize("AFFON_REPR_MAX_ITEMS", &config.repr.max_items);

@@ -1,7 +1,7 @@
 const Device = @import("../../types/tensor/device.zig").Device;
 const DType = @import("../../types/tensor/dtype.zig").DType;
 const Storage = @import("../../types/tensor/storage.zig").Storage;
-const Value = @import("../../types/tensor/value.zig").Value;
+const Tensor = @import("../../types/tensor/tensor.zig").Tensor;
 const OpTag = @import("../../types/operation/tag.zig").OpTag;
 const kernel_dispatch = @import("../../backend/dispatch.zig");
 const prepared_execution = @import("../prepared.zig");
@@ -10,7 +10,7 @@ pub fn dispatchUnary(
     device: Device,
     tag: OpTag,
     dtype: DType,
-    input: *const Value,
+    input: *const Tensor,
     output: *Storage,
 ) !void {
     try kernel_dispatch.unary(
@@ -25,7 +25,7 @@ pub fn dispatchUnary(
 pub fn dispatchClamp(
     device: Device,
     dtype: DType,
-    input: *const Value,
+    input: *const Tensor,
     output: *Storage,
     min: f64,
     max: f64,
@@ -44,8 +44,8 @@ pub fn dispatchBinary(
     device: Device,
     tag: OpTag,
     dtype: DType,
-    lhs: *const Value,
-    rhs: *const Value,
+    lhs: *const Tensor,
+    rhs: *const Tensor,
     output: *Storage,
     descriptor: prepared_execution.BinaryElementwiseDescriptor,
 ) !void {
@@ -78,8 +78,8 @@ pub fn dispatchCompare(
     device: Device,
     tag: OpTag,
     input_dtype: DType,
-    lhs: *const Value,
-    rhs: *const Value,
+    lhs: *const Tensor,
+    rhs: *const Tensor,
     output: *Storage,
     descriptor: prepared_execution.BinaryElementwiseDescriptor,
 ) !void {
@@ -112,9 +112,9 @@ pub fn dispatchWhere(
     device: Device,
     cond_dtype: DType,
     value_dtype: DType,
-    cond: *const Value,
-    on_true: *const Value,
-    on_false: *const Value,
+    cond: *const Tensor,
+    on_true: *const Tensor,
+    on_false: *const Tensor,
     output: *Storage,
     descriptor: prepared_execution.WhereDescriptor,
 ) !void {
@@ -151,8 +151,8 @@ pub fn dispatchMaskedFill(
     device: Device,
     input_dtype: DType,
     mask_dtype: DType,
-    input: *const Value,
-    mask: *const Value,
+    input: *const Tensor,
+    mask: *const Tensor,
     output: *Storage,
     value: f64,
     descriptor: prepared_execution.MaskedFillDescriptor,

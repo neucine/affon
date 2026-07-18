@@ -1,10 +1,10 @@
-const tensor = @import("../types/tensor/index.zig");
+const tensor = @import("../../types/tensor/index.zig");
 const Shape = tensor.Shape;
 const Layout = tensor.Layout;
 const Device = tensor.Device;
 const DType = tensor.DType;
 const AxisName = tensor.AxisName;
-const kernel_capability = @import("../backend/capability.zig");
+const kernel_capability = @import("../../backend/capability.zig");
 
 pub const ExecutionKind = enum {
     elementwise_binary,

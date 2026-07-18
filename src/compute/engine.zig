@@ -7,6 +7,7 @@ const semantic = @import("plan/sema/index.zig");
 const eager_planning = @import("plan/eager.zig");
 const graph_planning = @import("plan/graph.zig");
 const graph_execution = @import("execution/graph/index.zig");
+const transfer = @import("execution/transfer.zig");
 const ir = @import("types/ir/index.zig");
 const telemetry = @import("telemetry.zig");
 
@@ -26,6 +27,7 @@ pub const Operation = enum {
     sub,
     mul,
     div,
+    gt,
     abs,
     exp,
     log,
@@ -48,6 +50,24 @@ pub const Operation = enum {
     argmin,
     argmax,
     contiguous,
+    clamp,
+    softmax,
+    cat,
+    stack,
+    reshape,
+    slice,
+    gather,
+    index_select,
+    topk,
+    one_hot,
+    permute,
+    transpose,
+    squeeze,
+    unsqueeze,
+    cast,
+    where,
+    masked_fill,
+    cross_entropy_indexed,
 };
 
 pub const Outputs = struct {
@@ -102,8 +122,23 @@ pub const Engine = struct {
         try (try value.requireRuntimeBacking()).copyToHost(out);
     }
 
+    pub fn copyInto(self: Engine, target: *Tensor, source: *const Tensor) !void {
+        if (target.shape.numel() != source.shape.numel()) return error.ShapeMismatch;
+        if (target.dtype == source.dtype) {
+            _ = try transfer.copyValueStorageInto(self.allocator, source, target);
+            return;
+        }
+        const converted = try self.cast(@constCast(source), target.dtype);
+        defer converted.deinit();
+        _ = try transfer.copyValueStorageInto(self.allocator, converted, target);
+    }
+
     pub fn invoke(self: Engine, op: Operation, inputs: []const *Tensor) !*Tensor {
-        var result = try self.invokeAll(op, inputs);
+        return self.invokeWithOptions(op, inputs, defaultOptions(op));
+    }
+
+    pub fn invokeWithOptions(self: Engine, op: Operation, inputs: []const *Tensor, options: operation.OpOptions) !*Tensor {
+        var result = try self.invokeAllWithOptions(op, inputs, options);
         if (result.secondary != null) {
             result.deinit();
             return error.MultiOutputRequiresOutputs;
@@ -114,7 +149,11 @@ pub const Engine = struct {
     }
 
     pub fn invokeAll(self: Engine, op: Operation, inputs: []const *Tensor) !Outputs {
-        const raw = try operation.Op.init(toTag(op), inputs, defaultOptions(op));
+        return self.invokeAllWithOptions(op, inputs, defaultOptions(op));
+    }
+
+    pub fn invokeAllWithOptions(self: Engine, op: Operation, inputs: []const *Tensor, options: operation.OpOptions) !Outputs {
+        const raw = try operation.Op.init(toTag(op), inputs, options);
         var result = try self.executeRaw(raw);
         const outputs = Outputs{ .primary = result.primary, .secondary = result.secondary };
         result.primary = undefined;
@@ -175,16 +214,197 @@ pub const Engine = struct {
         return self.invoke(.div, &.{ lhs, rhs });
     }
 
+    pub fn gt(self: Engine, lhs: *Tensor, rhs: *Tensor) !*Tensor {
+        return self.invoke(.gt, &.{ lhs, rhs });
+    }
+
+    pub fn abs(self: Engine, value: *Tensor) !*Tensor {
+        return self.invoke(.abs, &.{value});
+    }
+
+    pub fn exp(self: Engine, value: *Tensor) !*Tensor {
+        return self.invoke(.exp, &.{value});
+    }
+
+    pub fn log(self: Engine, value: *Tensor) !*Tensor {
+        return self.invoke(.log, &.{value});
+    }
+
+    pub fn neg(self: Engine, value: *Tensor) !*Tensor {
+        return self.invoke(.neg, &.{value});
+    }
+
+    pub fn sqrt(self: Engine, value: *Tensor) !*Tensor {
+        return self.invoke(.sqrt, &.{value});
+    }
+
+    pub fn sign(self: Engine, value: *Tensor) !*Tensor {
+        return self.invoke(.sign, &.{value});
+    }
+
     pub fn relu(self: Engine, value: *Tensor) !*Tensor {
         return self.invoke(.relu, &.{value});
+    }
+
+    pub fn sigmoid(self: Engine, value: *Tensor) !*Tensor {
+        return self.invoke(.sigmoid, &.{value});
+    }
+
+    pub fn silu(self: Engine, value: *Tensor) !*Tensor {
+        return self.invoke(.silu, &.{value});
+    }
+
+    pub fn tanh(self: Engine, value: *Tensor) !*Tensor {
+        return self.invoke(.tanh, &.{value});
+    }
+
+    pub fn gelu(self: Engine, value: *Tensor) !*Tensor {
+        return self.invoke(.gelu, &.{value});
     }
 
     pub fn matmul(self: Engine, lhs: *Tensor, rhs: *Tensor) !*Tensor {
         return self.invoke(.matmul, &.{ lhs, rhs });
     }
 
+    pub fn dot(self: Engine, lhs: *Tensor, rhs: *Tensor) !*Tensor {
+        return self.invoke(.dot, &.{ lhs, rhs });
+    }
+
     pub fn sum(self: Engine, value: *Tensor) !*Tensor {
         return self.invoke(.sum, &.{value});
+    }
+
+    pub fn reduce(self: Engine, op: Operation, value: *Tensor, axis: ?usize, keepdim: bool) !*Tensor {
+        const tag: operation.OpTag = switch (op) {
+            .sum => if (axis == null) .sum_all else .sum_axis,
+            .mean => if (axis == null) .mean_all else .mean_axis,
+            .min => if (axis == null) .min_all else .min_axis,
+            .max => if (axis == null) .max_all else .max_axis,
+            .variance => if (axis == null) .variance_all else .variance_axis,
+            .std => if (axis == null) .std_all else .std_axis,
+            .argmin => if (axis == null) .argmin_all else .argmin_axis,
+            .argmax => if (axis == null) .argmax_all else .argmax_axis,
+            else => return error.InvalidReduction,
+        };
+        const options: operation.OpOptions = if (axis) |value_axis|
+            .{ .reduce_axis = .{ .axis = value_axis, .keepdim = keepdim } }
+        else
+            .{ .reduce_all = .{ .keepdim = keepdim } };
+        const raw = try operation.Op.init(tag, &.{value}, options);
+        var result = try self.executeRaw(raw);
+        const primary = result.primary;
+        result.primary = undefined;
+        if (result.secondary) |secondary| secondary.deinit();
+        return primary;
+    }
+
+    pub fn mean(self: Engine, value: *Tensor) !*Tensor {
+        return self.invoke(.mean, &.{value});
+    }
+
+    pub fn min(self: Engine, value: *Tensor) !*Tensor {
+        return self.invoke(.min, &.{value});
+    }
+
+    pub fn max(self: Engine, value: *Tensor) !*Tensor {
+        return self.invoke(.max, &.{value});
+    }
+
+    pub fn variance(self: Engine, value: *Tensor) !*Tensor {
+        return self.invoke(.variance, &.{value});
+    }
+
+    pub fn stddev(self: Engine, value: *Tensor) !*Tensor {
+        return self.invoke(.std, &.{value});
+    }
+
+    pub fn argmin(self: Engine, value: *Tensor) !*Tensor {
+        return self.invoke(.argmin, &.{value});
+    }
+
+    pub fn argmax(self: Engine, value: *Tensor) !*Tensor {
+        return self.invoke(.argmax, &.{value});
+    }
+
+    pub fn clamp(self: Engine, value: *Tensor, minimum: f64, maximum: f64) !*Tensor {
+        return self.invokeWithOptions(.clamp, &.{value}, .{ .clamp = .{ .min = minimum, .max = maximum } });
+    }
+
+    pub fn softmax(self: Engine, value: *Tensor, axis: usize) !*Tensor {
+        return self.invokeWithOptions(.softmax, &.{value}, .{ .softmax = .{ .axis = axis } });
+    }
+
+    pub fn reshape(self: Engine, value: *Tensor, shape: []const usize) !*Tensor {
+        return self.invokeWithOptions(.reshape, &.{value}, .{ .reshape = .{ .shape = shape } });
+    }
+
+    pub fn slice(self: Engine, value: *Tensor, ranges: []const operation.SliceRange) !*Tensor {
+        return self.invokeWithOptions(.slice, &.{value}, .{ .slice = .{ .ranges = ranges } });
+    }
+
+    pub fn contiguous(self: Engine, value: *Tensor) !*Tensor {
+        return self.invoke(.contiguous, &.{value});
+    }
+
+    pub fn permute(self: Engine, value: *Tensor, axes: []const usize) !*Tensor {
+        return self.invokeWithOptions(.permute, &.{value}, .{ .permute = .{ .axes = axes } });
+    }
+
+    pub fn transpose(self: Engine, value: *Tensor, axis_a: usize, axis_b: usize) !*Tensor {
+        const axes = self.allocator.alloc(usize, value.shape.rank()) catch return error.OutOfMemory;
+        defer self.allocator.free(axes);
+        for (axes, 0..) |*axis, index| axis.* = index;
+        if (axis_a >= axes.len or axis_b >= axes.len) return error.InvalidAxis;
+        std.mem.swap(usize, &axes[axis_a], &axes[axis_b]);
+        return self.invokeWithOptions(.transpose, &.{value}, .{ .transpose = .{ .permutation = axes } });
+    }
+
+    pub fn squeeze(self: Engine, value: *Tensor, axis: ?usize) !*Tensor {
+        return self.invokeWithOptions(.squeeze, &.{value}, .{ .squeeze = .{ .axis = axis } });
+    }
+
+    pub fn unsqueeze(self: Engine, value: *Tensor, axis: usize) !*Tensor {
+        return self.invokeWithOptions(.unsqueeze, &.{value}, .{ .unsqueeze = .{ .axis = axis } });
+    }
+
+    pub fn cat(self: Engine, values: []const *Tensor, axis: usize) !*Tensor {
+        return self.invokeWithOptions(.cat, values, .{ .concat = .{ .axis = axis } });
+    }
+
+    pub fn stack(self: Engine, values: []const *Tensor, axis: usize) !*Tensor {
+        return self.invokeWithOptions(.stack, values, .{ .stack = .{ .axis = axis } });
+    }
+
+    pub fn gather(self: Engine, value: *Tensor, axis: usize, index: *Tensor) !*Tensor {
+        return self.invokeWithOptions(.gather, &.{ value, index }, .{ .gather = .{ .axis = axis } });
+    }
+
+    pub fn indexSelect(self: Engine, value: *Tensor, axis: usize, index: *Tensor) !*Tensor {
+        return self.invokeWithOptions(.index_select, &.{ value, index }, .{ .index_select = .{ .axis = axis } });
+    }
+
+    pub fn oneHot(self: Engine, value: *Tensor, num_classes: usize) !*Tensor {
+        return self.invokeWithOptions(.one_hot, &.{value}, .{ .one_hot = .{ .num_classes = num_classes } });
+    }
+
+    pub fn topK(self: Engine, value: *Tensor, k: usize, axis: usize) !Outputs {
+        return self.invokeAllWithOptions(.topk, &.{value}, .{ .topk = .{ .k = k, .axis = axis } });
+    }
+
+    pub fn cast(self: Engine, value: *Tensor, dtype: DType) !*Tensor {
+        return self.invokeWithOptions(.cast, &.{value}, .{ .cast = .{ .to = dtype } });
+    }
+
+    pub fn whereSelect(self: Engine, condition: *Tensor, on_true: *Tensor, on_false: *Tensor) !*Tensor {
+        return self.invoke(.where, &.{ condition, on_true, on_false });
+    }
+
+    pub fn maskedFill(self: Engine, value: *Tensor, mask: *Tensor, fill: f64) !*Tensor {
+        return self.invokeWithOptions(.masked_fill, &.{ value, mask }, .{ .masked_fill = .{ .value = fill } });
+    }
+
+    pub fn crossEntropyIndexed(self: Engine, logits: *Tensor, targets: *Tensor, axis: usize) !*Tensor {
+        return self.invokeWithOptions(.cross_entropy_indexed, &.{ logits, targets }, .{ .cross_entropy_indexed = .{ .axis = axis } });
     }
 };
 
@@ -194,6 +414,7 @@ fn toTag(op: Operation) operation.OpTag {
         .sub => .sub,
         .mul => .mul,
         .div => .div,
+        .gt => .gt,
         .abs => .abs,
         .exp => .exp,
         .log => .log,
@@ -216,13 +437,33 @@ fn toTag(op: Operation) operation.OpTag {
         .argmin => .argmin_all,
         .argmax => .argmax_all,
         .contiguous => .contiguous,
+        .clamp => .clamp,
+        .softmax => .softmax,
+        .cat => .cat,
+        .stack => .stack,
+        .reshape => .reshape,
+        .slice => .slice,
+        .gather => .gather,
+        .index_select => .index_select,
+        .topk => .topk,
+        .one_hot => .one_hot,
+        .permute => .permute,
+        .transpose => .transpose,
+        .squeeze => .squeeze,
+        .unsqueeze => .unsqueeze,
+        .cast => .cast,
+        .where => .where,
+        .masked_fill => .masked_fill,
+        .cross_entropy_indexed => .cross_entropy_indexed,
     };
 }
 
 fn defaultOptions(op: Operation) operation.OpOptions {
     return switch (op) {
-        .abs, .exp, .log, .neg, .sqrt, .sign, .relu, .sigmoid, .silu, .tanh, .gelu, .add, .sub, .mul, .div, .dot, .matmul, .contiguous => .{ .none = {} },
+        .abs, .exp, .log, .neg, .sqrt, .sign, .relu, .sigmoid, .silu, .tanh, .gelu, .add, .sub, .mul, .div, .gt, .dot, .matmul, .contiguous => .{ .none = {} },
         .sum, .mean, .min, .max, .variance, .std, .argmin, .argmax => .{ .reduce_all = .{} },
+        .clamp, .softmax, .cat, .stack, .reshape, .slice, .gather, .index_select, .topk, .one_hot, .permute, .transpose, .squeeze, .unsqueeze, .cast, .where => .{ .none = {} },
+        .masked_fill, .cross_entropy_indexed => .{ .none = {} },
     };
 }
 

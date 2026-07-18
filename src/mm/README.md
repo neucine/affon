@@ -1,23 +1,19 @@
 # MM Public API Contract
 
-`mm/*` is the memory-management subsystem contract for allocation paths across compute and host integrations.
+The memory-management contract now lives under `compute/memory.zig`.
 
 This document is the current contract for `mm/*`.
 
 ## Public Entry
 
-- `src/mm/index.zig`
+- `src/compute/memory.zig`
 
 All new callsites should prefer `mm` (from `index.zig`) over direct imports of internal implementation modules.
 
 ## Telemetry Contract
 
-`mm` does not define a separate telemetry surface.
-
-- Aggregates are exported through `obs.metrics`.
-- Event/span semantics are exported through `obs.trace`.
-- `mm.events` is removed from `mm/*`.
-- `mm.metrics` is an internal implementation detail for metric updates, not a public read API.
+Memory metrics are emitted through the injected `compute.telemetry` interface.
+Runtime VM and QuickJS diagnostics remain owned by `obs.metrics`.
 
 ## Stable Types
 
@@ -75,7 +71,7 @@ Public model is region-first.
   - `setRegionReady(region, ready)`
   - `isRegionReady(region)`
 - Zig integration path:
-  - `mm.allocator(region, intention)` for APIs requiring `std.mem.Allocator`
+  - `compute.memory.allocator(region, intention)` for APIs requiring `std.mem.Allocator`
 
 The allocator is derived from region, never the other way around.
 Intention is expressed when providing the allocator handle.
@@ -116,11 +112,11 @@ Intention is expressed when providing the allocator handle.
 - metadata:
   - `regionMetadata(region)`
 
-Public reads should use `obs.metrics.snapshot(...)` rather than `mm` snapshots.
+Public reads should use the host telemetry implementation rather than memory-manager snapshots.
 
 ## Guardrails
 
 - Keep region registration/readiness deterministic.
 - Preserve explicit failure for non-ready regions; no hidden fallback.
-- Keep telemetry routed through `obs.metrics` / `obs.trace`.
-- Keep `mm.metrics` internal-only; do not add external consumers of `mm` snapshots.
+- Keep compute memory telemetry routed through `compute.telemetry`.
+- Keep runtime diagnostics routed through `obs.metrics`.

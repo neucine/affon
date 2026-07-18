@@ -2,12 +2,9 @@ const std = @import("std");
 const compat = @import("../../../../support/compat.zig");
 const Graph = @import("../../../types/ir/index.zig").Graph;
 const Node = @import("../../../types/ir/index.zig").Node;
-const executable = @import("../../../types/ir/eir/graph.zig");
-const graph_lowering = @import("../../../plan/graph.zig");
-const graph_execution_lowering = @import("../lower.zig");
-const Step = executable.Step;
+const Step = @import("../../../types/ir/plan.zig").Step;
 const OpTag = @import("../../../types/operation/tag.zig").OpTag;
-const Value = @import("../../../types/tensor/value.zig").Value;
+const Tensor = @import("../../../types/tensor/tensor.zig").Tensor;
 const kernel_dispatch = @import("../../../backend/dispatch.zig");
 const value_helpers = @import("value_helpers.zig");
 const metal_common = @import("../../../backend/metal/common.zig");
@@ -181,9 +178,9 @@ fn findLossNode(graph: *const Graph, group: []const Step) ?Node {
     };
 }
 
-fn findRegionContainingProducer(program: *const executable.Program, producer_id: u32) ?executable.Region {
-    for (program.regions.items) |region| {
-        for (program.steps.items[region.step_start..region.step_end]) |step| {
+fn findRegionContainingProducer(plan: *const @import("../../../types/ir/plan.zig").GraphPlan, producer_id: u32) ?@import("../../../types/ir/plan.zig").Region {
+    for (plan.regions.items) |region| {
+        for (plan.steps.items[region.step_start..region.step_end]) |step| {
             if (step.node_id == producer_id) return region;
         }
     }
@@ -228,7 +225,7 @@ pub fn tryExecute(
     allocator: std.mem.Allocator,
     graph: *const Graph,
     group: []const Step,
-    values: []?*Value,
+    values: []?*Tensor,
     owned: []bool,
 ) !bool {
     if (!matchesGroup(graph, group)) return false;
@@ -254,7 +251,7 @@ pub fn tryExecute(
     if (targets.shape.dims[0] != rows) return false;
 
     const out_spec = graph.values.items[out_id].spec;
-    const out = try Value.createContiguousWithSource(allocator, out_spec.shape.dims, out_spec.dtype, out_spec.device, false, .graph);
+    const out = try Tensor.createContiguousWithSource(allocator, out_spec.shape.dims, out_spec.dtype, out_spec.device, false, .graph);
     errdefer out.deinit();
 
     try kernel_dispatch.crossEntropyIndexedTransposed(
@@ -274,7 +271,7 @@ pub fn tryExecute(
 
 test "lm head cross entropy indexed matcher recognizes tied-head indexed loss shape" {
     const allocator = std.testing.allocator;
-    const ValueSpec = @import("../../../types/tensor/value_spec.zig").ValueSpec;
+    const TensorSpec = @import("../../../types/tensor/tensor_spec.zig").TensorSpec;
     const Layout = @import("../../../types/tensor/layout.zig").Layout;
     const Shape = @import("../../../types/tensor/shape.zig").Shape;
     const SliceRange = @import("../../../types/operation/options.zig").SliceRange;
@@ -283,63 +280,63 @@ test "lm head cross entropy indexed matcher recognizes tied-head indexed loss sh
     defer weight_shape.deinit();
     var weight_layout = try Layout.initContiguous(allocator, weight_shape);
     defer weight_layout.deinit();
-    const weight_spec = ValueSpec{ .shape = weight_shape, .dtype = .f32, .layout = weight_layout, .device = .cpu };
+    const weight_spec = TensorSpec{ .shape = weight_shape, .dtype = .f32, .layout = weight_layout, .device = .cpu };
 
     var hidden_t_shape = try Shape.initCopy(allocator, &.{ 2, 4 });
     defer hidden_t_shape.deinit();
     var hidden_t_layout = try Layout.initContiguous(allocator, hidden_t_shape);
     defer hidden_t_layout.deinit();
-    const hidden_t_spec = ValueSpec{ .shape = hidden_t_shape, .dtype = .f32, .layout = hidden_t_layout, .device = .cpu };
+    const hidden_t_spec = TensorSpec{ .shape = hidden_t_shape, .dtype = .f32, .layout = hidden_t_layout, .device = .cpu };
 
     var vocab_by_token_shape = try Shape.initCopy(allocator, &.{ 3, 4 });
     defer vocab_by_token_shape.deinit();
     var vocab_by_token_layout = try Layout.initContiguous(allocator, vocab_by_token_shape);
     defer vocab_by_token_layout.deinit();
-    const vocab_by_token_spec = ValueSpec{ .shape = vocab_by_token_shape, .dtype = .f32, .layout = vocab_by_token_layout, .device = .cpu };
+    const vocab_by_token_spec = TensorSpec{ .shape = vocab_by_token_shape, .dtype = .f32, .layout = vocab_by_token_layout, .device = .cpu };
 
     var flat_logits_shape = try Shape.initCopy(allocator, &.{ 4, 3 });
     defer flat_logits_shape.deinit();
     var flat_logits_view_layout = try Layout.initCopy(allocator, &.{ 1, 4 }, 0);
     defer flat_logits_view_layout.deinit();
-    const flat_logits_view_spec = ValueSpec{ .shape = flat_logits_shape, .dtype = .f32, .layout = flat_logits_view_layout, .device = .cpu };
+    const flat_logits_view_spec = TensorSpec{ .shape = flat_logits_shape, .dtype = .f32, .layout = flat_logits_view_layout, .device = .cpu };
 
     var flat_logits_layout = try Layout.initContiguous(allocator, flat_logits_shape);
     defer flat_logits_layout.deinit();
-    const flat_logits_spec = ValueSpec{ .shape = flat_logits_shape, .dtype = .f32, .layout = flat_logits_layout, .device = .cpu };
+    const flat_logits_spec = TensorSpec{ .shape = flat_logits_shape, .dtype = .f32, .layout = flat_logits_layout, .device = .cpu };
 
     var logits3_shape = try Shape.initCopy(allocator, &.{ 2, 2, 3 });
     defer logits3_shape.deinit();
     var logits3_layout = try Layout.initContiguous(allocator, logits3_shape);
     defer logits3_layout.deinit();
-    const logits3_spec = ValueSpec{ .shape = logits3_shape, .dtype = .f32, .layout = logits3_layout, .device = .cpu };
+    const logits3_spec = TensorSpec{ .shape = logits3_shape, .dtype = .f32, .layout = logits3_layout, .device = .cpu };
 
     var token_shape = try Shape.initCopy(allocator, &.{ 2, 3 });
     defer token_shape.deinit();
     var token_layout = try Layout.initContiguous(allocator, token_shape);
     defer token_layout.deinit();
-    const token_spec = ValueSpec{ .shape = token_shape, .dtype = .i64, .layout = token_layout, .device = .cpu };
+    const token_spec = TensorSpec{ .shape = token_shape, .dtype = .i64, .layout = token_layout, .device = .cpu };
 
     var shifted_shape = try Shape.initCopy(allocator, &.{ 2, 2 });
     defer shifted_shape.deinit();
     var shifted_layout = try Layout.initCopy(allocator, &.{ 3, 1 }, 1);
     defer shifted_layout.deinit();
-    const shifted_spec = ValueSpec{ .shape = shifted_shape, .dtype = .i64, .layout = shifted_layout, .device = .cpu };
+    const shifted_spec = TensorSpec{ .shape = shifted_shape, .dtype = .i64, .layout = shifted_layout, .device = .cpu };
 
     var shifted_dense_layout = try Layout.initContiguous(allocator, shifted_shape);
     defer shifted_dense_layout.deinit();
-    const shifted_dense_spec = ValueSpec{ .shape = shifted_shape, .dtype = .i64, .layout = shifted_dense_layout, .device = .cpu };
+    const shifted_dense_spec = TensorSpec{ .shape = shifted_shape, .dtype = .i64, .layout = shifted_dense_layout, .device = .cpu };
 
     var flat_targets_shape = try Shape.initCopy(allocator, &.{4});
     defer flat_targets_shape.deinit();
     var flat_targets_layout = try Layout.initContiguous(allocator, flat_targets_shape);
     defer flat_targets_layout.deinit();
-    const flat_targets_spec = ValueSpec{ .shape = flat_targets_shape, .dtype = .i64, .layout = flat_targets_layout, .device = .cpu };
+    const flat_targets_spec = TensorSpec{ .shape = flat_targets_shape, .dtype = .i64, .layout = flat_targets_layout, .device = .cpu };
 
     var scalar_shape = try Shape.initCopy(allocator, &.{1});
     defer scalar_shape.deinit();
     var scalar_layout = try Layout.initContiguous(allocator, scalar_shape);
     defer scalar_layout.deinit();
-    const scalar_spec = ValueSpec{ .shape = scalar_shape, .dtype = .f32, .layout = scalar_layout, .device = .cpu };
+    const scalar_spec = TensorSpec{ .shape = scalar_shape, .dtype = .f32, .layout = scalar_layout, .device = .cpu };
 
     var graph = Graph.init(allocator);
     defer graph.deinit();
@@ -365,14 +362,12 @@ test "lm head cross entropy indexed matcher recognizes tied-head indexed loss sh
     const loss = try graph.addOp(.cross_entropy_indexed, &.{ flat_logits, flat_targets }, .{ .cross_entropy_indexed = .{ .axis = 1 } }, scalar_spec);
     try graph.setOutputs(&.{loss});
 
-    var graph_plan = try graph_lowering.lower(allocator, &graph);
+    var graph_plan = try @import("../../../plan/graph.zig").create(allocator, &graph);
     defer graph_plan.deinit();
-    var program = try graph_execution_lowering.lower(allocator, &graph_plan);
-    defer program.deinit();
 
-    const region = findRegionContainingProducer(&program, graph.values.items[loss].producer) orelse return error.TestUnexpectedResult;
+    const region = findRegionContainingProducer(&graph_plan, graph.values.items[loss].producer) orelse return error.TestUnexpectedResult;
     try std.testing.expect(region.step_end > region.step_start);
-    const group = program.steps.items[region.step_start..region.step_end];
+    const group = graph_plan.steps.items[region.step_start..region.step_end];
     try std.testing.expect(matchesGroup(&graph, group));
     try std.testing.expect(shouldSkipPreparatoryStep(&graph, group, group[0]));
     try std.testing.expect(shouldSkipPreparatoryStep(&graph, group, group[1]));
@@ -384,7 +379,7 @@ test "lm head cross entropy indexed matcher recognizes tied-head indexed loss sh
 
 test "lm head cross entropy indexed fused execution matches dense indexed loss" {
     const allocator = std.testing.allocator;
-    const ValueSpec = @import("../../../types/tensor/value_spec.zig").ValueSpec;
+    const TensorSpec = @import("../../../types/tensor/tensor_spec.zig").TensorSpec;
     const Layout = @import("../../../types/tensor/layout.zig").Layout;
     const Shape = @import("../../../types/tensor/shape.zig").Shape;
     const SliceRange = @import("../../../types/operation/options.zig").SliceRange;
@@ -393,63 +388,63 @@ test "lm head cross entropy indexed fused execution matches dense indexed loss" 
     defer weight_shape.deinit();
     var weight_layout = try Layout.initContiguous(allocator, weight_shape);
     defer weight_layout.deinit();
-    const weight_spec = ValueSpec{ .shape = weight_shape, .dtype = .f32, .layout = weight_layout, .device = .cpu };
+    const weight_spec = TensorSpec{ .shape = weight_shape, .dtype = .f32, .layout = weight_layout, .device = .cpu };
 
     var hidden_t_shape = try Shape.initCopy(allocator, &.{ 2, 4 });
     defer hidden_t_shape.deinit();
     var hidden_t_layout = try Layout.initContiguous(allocator, hidden_t_shape);
     defer hidden_t_layout.deinit();
-    const hidden_t_spec = ValueSpec{ .shape = hidden_t_shape, .dtype = .f32, .layout = hidden_t_layout, .device = .cpu };
+    const hidden_t_spec = TensorSpec{ .shape = hidden_t_shape, .dtype = .f32, .layout = hidden_t_layout, .device = .cpu };
 
     var vocab_by_token_shape = try Shape.initCopy(allocator, &.{ 3, 4 });
     defer vocab_by_token_shape.deinit();
     var vocab_by_token_layout = try Layout.initContiguous(allocator, vocab_by_token_shape);
     defer vocab_by_token_layout.deinit();
-    const vocab_by_token_spec = ValueSpec{ .shape = vocab_by_token_shape, .dtype = .f32, .layout = vocab_by_token_layout, .device = .cpu };
+    const vocab_by_token_spec = TensorSpec{ .shape = vocab_by_token_shape, .dtype = .f32, .layout = vocab_by_token_layout, .device = .cpu };
 
     var flat_logits_shape = try Shape.initCopy(allocator, &.{ 4, 3 });
     defer flat_logits_shape.deinit();
     var flat_logits_view_layout = try Layout.initCopy(allocator, &.{ 1, 4 }, 0);
     defer flat_logits_view_layout.deinit();
-    const flat_logits_view_spec = ValueSpec{ .shape = flat_logits_shape, .dtype = .f32, .layout = flat_logits_view_layout, .device = .cpu };
+    const flat_logits_view_spec = TensorSpec{ .shape = flat_logits_shape, .dtype = .f32, .layout = flat_logits_view_layout, .device = .cpu };
 
     var flat_logits_layout = try Layout.initContiguous(allocator, flat_logits_shape);
     defer flat_logits_layout.deinit();
-    const flat_logits_spec = ValueSpec{ .shape = flat_logits_shape, .dtype = .f32, .layout = flat_logits_layout, .device = .cpu };
+    const flat_logits_spec = TensorSpec{ .shape = flat_logits_shape, .dtype = .f32, .layout = flat_logits_layout, .device = .cpu };
 
     var logits3_shape = try Shape.initCopy(allocator, &.{ 2, 2, 3 });
     defer logits3_shape.deinit();
     var logits3_layout = try Layout.initContiguous(allocator, logits3_shape);
     defer logits3_layout.deinit();
-    const logits3_spec = ValueSpec{ .shape = logits3_shape, .dtype = .f32, .layout = logits3_layout, .device = .cpu };
+    const logits3_spec = TensorSpec{ .shape = logits3_shape, .dtype = .f32, .layout = logits3_layout, .device = .cpu };
 
     var token_shape = try Shape.initCopy(allocator, &.{ 2, 3 });
     defer token_shape.deinit();
     var token_layout = try Layout.initContiguous(allocator, token_shape);
     defer token_layout.deinit();
-    const token_spec = ValueSpec{ .shape = token_shape, .dtype = .i64, .layout = token_layout, .device = .cpu };
+    const token_spec = TensorSpec{ .shape = token_shape, .dtype = .i64, .layout = token_layout, .device = .cpu };
 
     var shifted_shape = try Shape.initCopy(allocator, &.{ 2, 2 });
     defer shifted_shape.deinit();
     var shifted_layout = try Layout.initCopy(allocator, &.{ 3, 1 }, 1);
     defer shifted_layout.deinit();
-    const shifted_spec = ValueSpec{ .shape = shifted_shape, .dtype = .i64, .layout = shifted_layout, .device = .cpu };
+    const shifted_spec = TensorSpec{ .shape = shifted_shape, .dtype = .i64, .layout = shifted_layout, .device = .cpu };
 
     var shifted_dense_layout = try Layout.initContiguous(allocator, shifted_shape);
     defer shifted_dense_layout.deinit();
-    const shifted_dense_spec = ValueSpec{ .shape = shifted_shape, .dtype = .i64, .layout = shifted_dense_layout, .device = .cpu };
+    const shifted_dense_spec = TensorSpec{ .shape = shifted_shape, .dtype = .i64, .layout = shifted_dense_layout, .device = .cpu };
 
     var flat_targets_shape = try Shape.initCopy(allocator, &.{4});
     defer flat_targets_shape.deinit();
     var flat_targets_layout = try Layout.initContiguous(allocator, flat_targets_shape);
     defer flat_targets_layout.deinit();
-    const flat_targets_spec = ValueSpec{ .shape = flat_targets_shape, .dtype = .i64, .layout = flat_targets_layout, .device = .cpu };
+    const flat_targets_spec = TensorSpec{ .shape = flat_targets_shape, .dtype = .i64, .layout = flat_targets_layout, .device = .cpu };
 
     var scalar_shape = try Shape.initCopy(allocator, &.{1});
     defer scalar_shape.deinit();
     var scalar_layout = try Layout.initContiguous(allocator, scalar_shape);
     defer scalar_layout.deinit();
-    const scalar_spec = ValueSpec{ .shape = scalar_shape, .dtype = .f32, .layout = scalar_layout, .device = .cpu };
+    const scalar_spec = TensorSpec{ .shape = scalar_shape, .dtype = .f32, .layout = scalar_layout, .device = .cpu };
 
     var graph = Graph.init(allocator);
     defer graph.deinit();
@@ -474,35 +469,33 @@ test "lm head cross entropy indexed fused execution matches dense indexed loss" 
     const loss = try graph.addOp(.cross_entropy_indexed, &.{ flat_logits, flat_targets }, .{ .cross_entropy_indexed = .{ .axis = 1 } }, scalar_spec);
     try graph.setOutputs(&.{loss});
 
-    var graph_plan = try graph_lowering.lower(allocator, &graph);
+    var graph_plan = try @import("../../../plan/graph.zig").create(allocator, &graph);
     defer graph_plan.deinit();
-    var program = try graph_execution_lowering.lower(allocator, &graph_plan);
-    defer program.deinit();
 
-    const region = findRegionContainingProducer(&program, graph.values.items[loss].producer) orelse return error.TestUnexpectedResult;
+    const region = findRegionContainingProducer(&graph_plan, graph.values.items[loss].producer) orelse return error.TestUnexpectedResult;
     try std.testing.expect(region.step_end > region.step_start);
 
-    const vocab_by_token_value = try Value.fromSliceF32(allocator, &.{ 3, 4 }, &.{
+    const vocab_by_token_value = try Tensor.fromSliceF32(allocator, &.{ 3, 4 }, &.{
         1.0, 0.0, 2.0, 1.0,
         2.0, 1.0, 0.0, -1.0,
         3.0, 2.0, 1.0, 0.0,
     });
     defer vocab_by_token_value.deinit();
-    const flat_targets_value = try Value.fromSliceI64(allocator, &.{4}, &.{ 2, 1, 0, 0 });
+    const flat_targets_value = try Tensor.fromSliceI64(allocator, &.{4}, &.{ 2, 1, 0, 0 });
     defer flat_targets_value.deinit();
 
-    const flat_logits_value = try Value.fromSliceF32(allocator, &.{ 4, 3 }, &.{
+    const flat_logits_value = try Tensor.fromSliceF32(allocator, &.{ 4, 3 }, &.{
         1.0, 2.0,  3.0,
         0.0, 1.0,  2.0,
         2.0, 0.0,  1.0,
         1.0, -1.0, 0.0,
     });
     defer flat_logits_value.deinit();
-    const expected = try Value.createContiguousWithSource(allocator, &.{1}, .f32, .cpu, false, .graph);
+    const expected = try Tensor.createContiguousWithSource(allocator, &.{1}, .f32, .cpu, false, .graph);
     defer expected.deinit();
     try kernel_dispatch.crossEntropyIndexed(.cpu, .f32, flat_logits_value.storage.?, flat_targets_value.storage.?, expected.storage.?, 4, 3);
 
-    const values = try allocator.alloc(?*Value, graph.values.items.len);
+    const values = try allocator.alloc(?*Tensor, graph.values.items.len);
     defer allocator.free(values);
     const owned = try allocator.alloc(bool, graph.values.items.len);
     defer allocator.free(owned);
@@ -512,7 +505,7 @@ test "lm head cross entropy indexed fused execution matches dense indexed loss" 
     values[vocab_by_token] = vocab_by_token_value;
     values[flat_targets] = flat_targets_value;
 
-    try std.testing.expect(try tryExecute(allocator, &graph, program.steps.items[region.step_start..region.step_end], values, owned));
+    try std.testing.expect(try tryExecute(allocator, &graph, graph_plan.steps.items[region.step_start..region.step_end], values, owned));
     defer {
         for (values, owned) |maybe_value, is_owned| {
             if (is_owned and maybe_value != null) maybe_value.?.deinit();
@@ -526,7 +519,7 @@ test "lm head cross entropy indexed fused execution matches dense indexed loss" 
     try std.testing.expectApproxEqAbs(expected_vals[0], actual_vals[0], 1e-5);
 }
 
-fn fillBenchmarkLogits(flat: *Value, transposed: *Value, rows: usize, classes: usize) !void {
+fn fillBenchmarkLogits(flat: *Tensor, transposed: *Tensor, rows: usize, classes: usize) !void {
     const flat_vals = std.mem.bytesAsSlice(f32, try flat.storage.?.writableBytes());
     const transposed_vals = std.mem.bytesAsSlice(f32, try transposed.storage.?.writableBytes());
     for (0..rows) |row| {
@@ -539,7 +532,7 @@ fn fillBenchmarkLogits(flat: *Value, transposed: *Value, rows: usize, classes: u
     }
 }
 
-fn fillBenchmarkTargets(targets: *Value, rows: usize, classes: usize) !void {
+fn fillBenchmarkTargets(targets: *Tensor, rows: usize, classes: usize) !void {
     const target_vals = std.mem.bytesAsSlice(i64, try targets.storage.?.writableBytes());
     for (0..rows) |row| target_vals[row] = @intCast((row * 29 + 7) % classes);
 }
@@ -553,13 +546,13 @@ test "lm head cross entropy indexed transposed benchmark (opt-in)" {
     const classes: usize = 50_257;
     const iterations: usize = 20;
 
-    const flat_cpu = try Value.createContiguous(allocator, &.{ rows, classes }, .f32, .cpu, false);
+    const flat_cpu = try Tensor.createContiguous(allocator, &.{ rows, classes }, .f32, .cpu, false);
     defer flat_cpu.deinit();
-    const transposed_cpu = try Value.createContiguous(allocator, &.{ classes, rows }, .f32, .cpu, false);
+    const transposed_cpu = try Tensor.createContiguous(allocator, &.{ classes, rows }, .f32, .cpu, false);
     defer transposed_cpu.deinit();
     try fillBenchmarkLogits(flat_cpu, transposed_cpu, rows, classes);
 
-    const targets_cpu = try Value.createContiguous(allocator, &.{rows}, .i64, .cpu, false);
+    const targets_cpu = try Tensor.createContiguous(allocator, &.{rows}, .i64, .cpu, false);
     defer targets_cpu.deinit();
     try fillBenchmarkTargets(targets_cpu, rows, classes);
 
@@ -570,11 +563,11 @@ test "lm head cross entropy indexed transposed benchmark (opt-in)" {
     const targets = try value_helpers.moveToDevice(allocator, targets_cpu, .metal);
     defer targets.deinit();
 
-    const out_dense = try Value.createContiguousWithSource(allocator, &.{1}, .f32, .metal, false, .graph);
+    const out_dense = try Tensor.createContiguousWithSource(allocator, &.{1}, .f32, .metal, false, .graph);
     defer out_dense.deinit();
-    const out_transposed = try Value.createContiguousWithSource(allocator, &.{1}, .f32, .metal, false, .graph);
+    const out_transposed = try Tensor.createContiguousWithSource(allocator, &.{1}, .f32, .metal, false, .graph);
     defer out_transposed.deinit();
-    const out_materialized = try Value.createContiguousWithSource(allocator, &.{1}, .f32, .metal, false, .graph);
+    const out_materialized = try Tensor.createContiguousWithSource(allocator, &.{1}, .f32, .metal, false, .graph);
     defer out_materialized.deinit();
 
     const transposed_storage = transposed.storage orelse return error.InputNotMaterialized;
@@ -582,7 +575,7 @@ test "lm head cross entropy indexed transposed benchmark (opt-in)" {
     defer transposed_storage.release();
     const flat_view_shape = try @import("../../../types/tensor/shape.zig").Shape.initCopy(allocator, &.{ rows, classes });
     const flat_view_layout = try @import("../../../types/tensor/layout.zig").Layout.initCopy(allocator, &.{ 1, @as(isize, @intCast(rows)) }, 0);
-    const flat_view = try allocator.create(Value);
+    const flat_view = try allocator.create(Tensor);
     defer {
         flat_view.storage = null;
         flat_view.deinit();

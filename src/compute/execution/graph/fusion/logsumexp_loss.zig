@@ -1,8 +1,8 @@
 const std = @import("std");
-const Value = @import("../../../types/tensor/value.zig").Value;
+const Tensor = @import("../../../types/tensor/tensor.zig").Tensor;
 const Shape = @import("../../../types/tensor/shape.zig").Shape;
 const Graph = @import("../../../types/ir/index.zig").Graph;
-const Step = @import("../../../types/ir/eir/graph.zig").Step;
+const Step = @import("../../../types/ir/plan.zig").Step;
 const kernel_dispatch = @import("../../../backend/dispatch.zig");
 const common = @import("common.zig");
 
@@ -67,7 +67,7 @@ pub fn tryExecute(
     allocator: std.mem.Allocator,
     graph: *const Graph,
     group: []const Step,
-    values: []?*Value,
+    values: []?*Tensor,
     owned: []bool,
 ) !bool {
     if (group.len != 10) return false;
@@ -185,7 +185,7 @@ pub fn tryExecute(
     if (!common.rawStorageInputsArePackedDense(&.{ logits, targets })) return false;
 
     const out_spec = graph.values.items[out_id].spec;
-    const out = try Value.createContiguousWithSource(allocator, out_spec.shape.dims, out_spec.dtype, out_spec.device, false, .graph);
+    const out = try Tensor.createContiguousWithSource(allocator, out_spec.shape.dims, out_spec.dtype, out_spec.device, false, .graph);
     errdefer out.deinit();
     try kernel_dispatch.logSoftmaxNll(
         device,

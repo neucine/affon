@@ -1,5 +1,5 @@
 const std = @import("std");
-const Value = @import("../types/tensor/value.zig").Value;
+const Tensor = @import("../types/tensor/tensor.zig").Tensor;
 const kernel_dispatch = @import("../backend/dispatch.zig");
 
 pub const TransferSummary = struct {
@@ -11,8 +11,8 @@ pub const TransferSummary = struct {
 
 pub fn copyValueStorageInto(
     allocator: std.mem.Allocator,
-    src: *const Value,
-    dst: *Value,
+    src: *const Tensor,
+    dst: *Tensor,
 ) !TransferSummary {
     const byte_len = dst.shape.numel() * dst.dtype.size();
     const src_device = src.device() orelse return error.InputNotMaterialized;

@@ -1,17 +1,17 @@
 const std = @import("std");
-const tensor = @import("../types/tensor/index.zig");
+const tensor = @import("../../types/tensor/index.zig");
 const Device = tensor.Device;
 const DType = tensor.DType;
 const Shape = tensor.Shape;
 const Layout = tensor.Layout;
-const Value = tensor.Value;
-const ValueSpec = tensor.ValueSpec;
+const Tensor = tensor.Tensor;
+const TensorSpec = tensor.TensorSpec;
 const AxisName = tensor.AxisName;
-const Op = @import("../types/operation/op.zig").Op;
-const contracts = @import("../types/operation/contracts.zig");
-const OpOptions = @import("../types/operation/options.zig").OpOptions;
-const SliceRange = @import("../types/operation/options.zig").SliceRange;
-const kernel_capability = @import("../backend/capability.zig");
+const Op = @import("../../types/operation/op.zig").Op;
+const contracts = @import("../../types/operation/contracts.zig");
+const OpOptions = @import("../../types/operation/options.zig").OpOptions;
+const SliceRange = @import("../../types/operation/options.zig").SliceRange;
+const kernel_capability = @import("../../backend/capability.zig");
 const semantic_spec = @import("spec.zig");
 
 pub const ExecutionKind = semantic_spec.ExecutionKind;
@@ -118,7 +118,7 @@ fn axisNamesEqual(a: ?[]const AxisName, b: ?[]const AxisName) bool {
     return true;
 }
 
-fn binaryElementwiseAxes(allocator: std.mem.Allocator, a: ValueSpec, b: ValueSpec, output_shape: Shape) !?[]const AxisName {
+fn binaryElementwiseAxes(allocator: std.mem.Allocator, a: TensorSpec, b: TensorSpec, output_shape: Shape) !?[]const AxisName {
     const a_full = Shape.eql(a.shape, output_shape);
     const b_full = Shape.eql(b.shape, output_shape);
     if (a_full and b_full) {
@@ -153,7 +153,7 @@ fn shapesBroadcastTo(source: []const usize, target: []const usize) bool {
     return true;
 }
 
-fn indexSelectAxes(allocator: std.mem.Allocator, input: ValueSpec, index: ValueSpec, axis: usize) !?[]const AxisName {
+fn indexSelectAxes(allocator: std.mem.Allocator, input: TensorSpec, index: TensorSpec, axis: usize) !?[]const AxisName {
     const input_axes = input.axes orelse return null;
     if (input_axes.len != input.shape.rank()) return null;
     const out = try allocator.alloc(AxisName, input_axes.len);
@@ -173,7 +173,7 @@ fn indexSelectAxes(allocator: std.mem.Allocator, input: ValueSpec, index: ValueS
     return out;
 }
 
-fn gatherAxes(allocator: std.mem.Allocator, input: ValueSpec, index: ValueSpec, axis: usize) !?[]const AxisName {
+fn gatherAxes(allocator: std.mem.Allocator, input: TensorSpec, index: TensorSpec, axis: usize) !?[]const AxisName {
     const input_axes = input.axes orelse return cloneAxesForShape(allocator, index.axes, index.shape.rank());
     if (input_axes.len != input.shape.rank()) return null;
     const index_axes = index.axes;
@@ -207,7 +207,7 @@ fn gatherAxes(allocator: std.mem.Allocator, input: ValueSpec, index: ValueSpec, 
     return out;
 }
 
-fn embeddingAxes(allocator: std.mem.Allocator, table: ValueSpec, index: ValueSpec) !?[]const AxisName {
+fn embeddingAxes(allocator: std.mem.Allocator, table: TensorSpec, index: TensorSpec) !?[]const AxisName {
     const table_axes = table.axes orelse return null;
     if (table_axes.len != table.shape.rank()) return null;
     if (index.axes) |index_axes| {
@@ -233,7 +233,7 @@ fn embeddingAxes(allocator: std.mem.Allocator, table: ValueSpec, index: ValueSpe
     return out;
 }
 
-fn matmulAxes(allocator: std.mem.Allocator, lhs: ValueSpec, rhs: ValueSpec, output_shape: Shape) !?[]const AxisName {
+fn matmulAxes(allocator: std.mem.Allocator, lhs: TensorSpec, rhs: TensorSpec, output_shape: Shape) !?[]const AxisName {
     const lhs_axes = lhs.axes orelse return null;
     const rhs_axes = rhs.axes orelse return null;
     const lhs_rank = lhs.shape.rank();
@@ -263,7 +263,7 @@ fn matmulAxes(allocator: std.mem.Allocator, lhs: ValueSpec, rhs: ValueSpec, outp
     return out;
 }
 
-fn matchingInputAxes(allocator: std.mem.Allocator, inputs: []const ValueSpec, rank: usize) !?[]const AxisName {
+fn matchingInputAxes(allocator: std.mem.Allocator, inputs: []const TensorSpec, rank: usize) !?[]const AxisName {
     if (inputs.len == 0) return null;
     const first_axes = inputs[0].axes orelse return null;
     if (first_axes.len != rank) return null;
@@ -275,7 +275,7 @@ fn matchingInputAxes(allocator: std.mem.Allocator, inputs: []const ValueSpec, ra
 
 pub fn infer(allocator: std.mem.Allocator, op: Op) !OpSpec {
     try op.validate();
-    const specs = try allocator.alloc(ValueSpec, op.inputs.len);
+    const specs = try allocator.alloc(TensorSpec, op.inputs.len);
     defer allocator.free(specs);
     for (op.inputs, 0..) |input, i| specs[i] = try input.spec();
 
@@ -284,8 +284,8 @@ pub fn infer(allocator: std.mem.Allocator, op: Op) !OpSpec {
 
 pub fn inferFromSpecs(
     allocator: std.mem.Allocator,
-    tag: @import("../types/operation/tag.zig").OpTag,
-    specs: []const ValueSpec,
+    tag: @import("../../types/operation/tag.zig").OpTag,
+    specs: []const TensorSpec,
     options: OpOptions,
 ) !OpSpec {
     return switch (tag) {
@@ -412,7 +412,7 @@ fn validateReduceToShape(input_shape: []const usize, target: []const usize) !voi
     }
 }
 
-fn inferBinaryBroadcastSpec(lhs: ValueSpec, rhs: ValueSpec) !BroadcastSpec {
+fn inferBinaryBroadcastSpec(lhs: TensorSpec, rhs: TensorSpec) !BroadcastSpec {
     var out = BinaryBroadcastSpec{
         .rank = 0,
         .shape = [_]usize{0} ** 8,
@@ -439,13 +439,13 @@ test "binary broadcast spec handles right-aligned rank-changing shapes" {
     var rhs_layout = try Layout.initContiguous(allocator, rhs_shape);
     defer rhs_layout.deinit();
 
-    const lhs = ValueSpec{
+    const lhs = TensorSpec{
         .shape = lhs_shape,
         .dtype = .f32,
         .layout = lhs_layout,
         .device = .cpu,
     };
-    const rhs = ValueSpec{
+    const rhs = TensorSpec{
         .shape = rhs_shape,
         .dtype = .f32,
         .layout = rhs_layout,
@@ -464,7 +464,7 @@ test "binary broadcast spec handles right-aligned rank-changing shapes" {
     }
 }
 
-fn inferWhereBroadcastSpec(cond: ValueSpec, on_true: ValueSpec, on_false: ValueSpec) !BroadcastSpec {
+fn inferWhereBroadcastSpec(cond: TensorSpec, on_true: TensorSpec, on_false: TensorSpec) !BroadcastSpec {
     var out = WhereBroadcastSpec{
         .rank = 0,
         .shape = [_]usize{0} ** 8,
@@ -482,7 +482,7 @@ fn inferWhereBroadcastSpec(cond: ValueSpec, on_true: ValueSpec, on_false: ValueS
     return .{ .where = out };
 }
 
-fn inferMaskedFillBroadcastSpec(input: ValueSpec, mask: ValueSpec) !BroadcastSpec {
+fn inferMaskedFillBroadcastSpec(input: TensorSpec, mask: TensorSpec) !BroadcastSpec {
     var out = MaskedFillBroadcastSpec{
         .rank = 0,
         .shape = [_]usize{0} ** 8,
@@ -513,19 +513,19 @@ fn inferReduceToShapeSpec(input_shape: []const usize, target: []const usize) !Re
     return out;
 }
 
-fn inferAdd(allocator: std.mem.Allocator, inputs: []const ValueSpec) !OpSpec {
+fn inferAdd(allocator: std.mem.Allocator, inputs: []const TensorSpec) !OpSpec {
     return buildBinaryElementwiseSpec(allocator, inputs, .{ .output_dtype = null });
 }
 
-fn inferSub(allocator: std.mem.Allocator, inputs: []const ValueSpec) !OpSpec {
+fn inferSub(allocator: std.mem.Allocator, inputs: []const TensorSpec) !OpSpec {
     return buildBinaryElementwiseSpec(allocator, inputs, .{ .output_dtype = null });
 }
 
-fn inferMul(allocator: std.mem.Allocator, inputs: []const ValueSpec) !OpSpec {
+fn inferMul(allocator: std.mem.Allocator, inputs: []const TensorSpec) !OpSpec {
     return buildBinaryElementwiseSpec(allocator, inputs, .{ .output_dtype = null });
 }
 
-fn inferDiv(allocator: std.mem.Allocator, inputs: []const ValueSpec) !OpSpec {
+fn inferDiv(allocator: std.mem.Allocator, inputs: []const TensorSpec) !OpSpec {
     return buildBinaryElementwiseSpec(allocator, inputs, .{ .output_dtype = null });
 }
 
@@ -535,7 +535,7 @@ const BinaryElementwiseSpecConfig = struct {
 
 fn buildBinaryElementwiseSpec(
     allocator: std.mem.Allocator,
-    inputs: []const ValueSpec,
+    inputs: []const TensorSpec,
     config: BinaryElementwiseSpecConfig,
 ) !OpSpec {
     try contracts.requireInputCount(inputs, 2);
@@ -574,67 +574,67 @@ fn buildBinaryElementwiseSpec(
     };
 }
 
-fn inferEq(allocator: std.mem.Allocator, inputs: []const ValueSpec) !OpSpec {
+fn inferEq(allocator: std.mem.Allocator, inputs: []const TensorSpec) !OpSpec {
     return buildBinaryElementwiseSpec(allocator, inputs, .{ .output_dtype = .i64 });
 }
 
-fn inferLt(allocator: std.mem.Allocator, inputs: []const ValueSpec) !OpSpec {
+fn inferLt(allocator: std.mem.Allocator, inputs: []const TensorSpec) !OpSpec {
     return buildBinaryElementwiseSpec(allocator, inputs, .{ .output_dtype = .i64 });
 }
 
-fn inferGt(allocator: std.mem.Allocator, inputs: []const ValueSpec) !OpSpec {
+fn inferGt(allocator: std.mem.Allocator, inputs: []const TensorSpec) !OpSpec {
     return buildBinaryElementwiseSpec(allocator, inputs, .{ .output_dtype = .i64 });
 }
 
-fn inferAbs(allocator: std.mem.Allocator, inputs: []const ValueSpec) !OpSpec {
+fn inferAbs(allocator: std.mem.Allocator, inputs: []const TensorSpec) !OpSpec {
     return buildUnaryElementwiseSpec(allocator, inputs);
 }
 
-fn inferExp(allocator: std.mem.Allocator, inputs: []const ValueSpec) !OpSpec {
+fn inferExp(allocator: std.mem.Allocator, inputs: []const TensorSpec) !OpSpec {
     return buildUnaryElementwiseSpec(allocator, inputs);
 }
 
-fn inferLog(allocator: std.mem.Allocator, inputs: []const ValueSpec) !OpSpec {
+fn inferLog(allocator: std.mem.Allocator, inputs: []const TensorSpec) !OpSpec {
     return buildUnaryElementwiseSpec(allocator, inputs);
 }
 
-fn inferNeg(allocator: std.mem.Allocator, inputs: []const ValueSpec) !OpSpec {
+fn inferNeg(allocator: std.mem.Allocator, inputs: []const TensorSpec) !OpSpec {
     return buildUnaryElementwiseSpec(allocator, inputs);
 }
 
-fn inferSqrt(allocator: std.mem.Allocator, inputs: []const ValueSpec) !OpSpec {
+fn inferSqrt(allocator: std.mem.Allocator, inputs: []const TensorSpec) !OpSpec {
     return buildUnaryElementwiseSpec(allocator, inputs);
 }
 
-fn inferSign(allocator: std.mem.Allocator, inputs: []const ValueSpec) !OpSpec {
+fn inferSign(allocator: std.mem.Allocator, inputs: []const TensorSpec) !OpSpec {
     return buildUnaryElementwiseSpec(allocator, inputs);
 }
 
-fn inferRelu(allocator: std.mem.Allocator, inputs: []const ValueSpec) !OpSpec {
+fn inferRelu(allocator: std.mem.Allocator, inputs: []const TensorSpec) !OpSpec {
     return buildUnaryElementwiseSpec(allocator, inputs);
 }
 
-fn inferSigmoid(allocator: std.mem.Allocator, inputs: []const ValueSpec) !OpSpec {
+fn inferSigmoid(allocator: std.mem.Allocator, inputs: []const TensorSpec) !OpSpec {
     return buildUnaryElementwiseSpec(allocator, inputs);
 }
 
-fn inferSilu(allocator: std.mem.Allocator, inputs: []const ValueSpec) !OpSpec {
+fn inferSilu(allocator: std.mem.Allocator, inputs: []const TensorSpec) !OpSpec {
     return buildUnaryElementwiseSpec(allocator, inputs);
 }
 
-fn inferTanh(allocator: std.mem.Allocator, inputs: []const ValueSpec) !OpSpec {
+fn inferTanh(allocator: std.mem.Allocator, inputs: []const TensorSpec) !OpSpec {
     return buildUnaryElementwiseSpec(allocator, inputs);
 }
 
-fn inferGelu(allocator: std.mem.Allocator, inputs: []const ValueSpec) !OpSpec {
+fn inferGelu(allocator: std.mem.Allocator, inputs: []const TensorSpec) !OpSpec {
     return buildUnaryElementwiseSpec(allocator, inputs);
 }
 
-fn inferGeluGrad(allocator: std.mem.Allocator, inputs: []const ValueSpec) !OpSpec {
+fn inferGeluGrad(allocator: std.mem.Allocator, inputs: []const TensorSpec) !OpSpec {
     return buildUnaryElementwiseSpec(allocator, inputs);
 }
 
-fn buildUnaryElementwiseSpec(allocator: std.mem.Allocator, inputs: []const ValueSpec) !OpSpec {
+fn buildUnaryElementwiseSpec(allocator: std.mem.Allocator, inputs: []const TensorSpec) !OpSpec {
     try contracts.requireInputCount(inputs, 1);
     try contracts.requireRank(inputs[0], .{ .range = .{ .min = 0, .max = 8 } });
     const input = inputs[0];
@@ -661,7 +661,7 @@ fn buildUnaryElementwiseSpec(allocator: std.mem.Allocator, inputs: []const Value
     };
 }
 
-fn inferClamp(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferClamp(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     switch (options) {
         .clamp => {},
         else => return error.InvalidOpOptions,
@@ -669,7 +669,7 @@ fn inferClamp(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: 
     return buildUnaryElementwiseSpec(allocator, inputs);
 }
 
-fn inferWhere(allocator: std.mem.Allocator, inputs: []const ValueSpec) !OpSpec {
+fn inferWhere(allocator: std.mem.Allocator, inputs: []const TensorSpec) !OpSpec {
     try contracts.requireInputCount(inputs, 3);
     try contracts.requireAllRanks(inputs, .{ .range = .{ .min = 0, .max = 8 } });
     const cond = inputs[0];
@@ -733,7 +733,7 @@ fn inferWhere(allocator: std.mem.Allocator, inputs: []const ValueSpec) !OpSpec {
     };
 }
 
-fn inferMaskedFill(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferMaskedFill(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     try contracts.requireInputCount(inputs, 2);
     try contracts.requireAllRanks(inputs, .{ .range = .{ .min = 0, .max = 8 } });
     switch (options) {
@@ -793,7 +793,7 @@ fn inferMaskedFill(allocator: std.mem.Allocator, inputs: []const ValueSpec, opti
     };
 }
 
-fn inferLayerNorm(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferLayerNorm(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     try contracts.requireInputCount(inputs, 1);
     try contracts.requireRank(inputs[0], .{ .range = .{ .min = 1, .max = 8 } });
     const input = inputs[0];
@@ -825,7 +825,7 @@ fn inferLayerNorm(allocator: std.mem.Allocator, inputs: []const ValueSpec, optio
     };
 }
 
-fn inferRmsNorm(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferRmsNorm(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     try contracts.requireInputCount(inputs, 1);
     try contracts.requireRank(inputs[0], .{ .range = .{ .min = 1, .max = 8 } });
     const input = inputs[0];
@@ -857,7 +857,7 @@ fn inferRmsNorm(allocator: std.mem.Allocator, inputs: []const ValueSpec, options
     };
 }
 
-fn inferCast(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferCast(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     try contracts.requireInputCount(inputs, 1);
     try contracts.requireRank(inputs[0], .{ .range = .{ .min = 0, .max = 8 } });
     const input = inputs[0];
@@ -885,7 +885,7 @@ fn inferCast(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: O
     };
 }
 
-fn inferSoftmax(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferSoftmax(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     try contracts.requireInputCount(inputs, 1);
     try contracts.requireRank(inputs[0], .{ .range = .{ .min = 1, .max = 8 } });
     const input = inputs[0];
@@ -917,7 +917,7 @@ fn inferSoftmax(allocator: std.mem.Allocator, inputs: []const ValueSpec, options
     };
 }
 
-fn inferLogSoftmax(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferLogSoftmax(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     try contracts.requireInputCount(inputs, 1);
     try contracts.requireRank(inputs[0], .{ .range = .{ .min = 1, .max = 8 } });
     const input = inputs[0];
@@ -949,7 +949,7 @@ fn inferLogSoftmax(allocator: std.mem.Allocator, inputs: []const ValueSpec, opti
     };
 }
 
-fn inferLogSoftmaxNll(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferLogSoftmaxNll(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     const axis = switch (options) {
         .none => @as(usize, 1),
         .log_softmax_nll => |o| o.axis,
@@ -960,7 +960,7 @@ fn inferLogSoftmaxNll(allocator: std.mem.Allocator, inputs: []const ValueSpec, o
 
 fn buildLogSoftmaxNllSpec(
     allocator: std.mem.Allocator,
-    inputs: []const ValueSpec,
+    inputs: []const TensorSpec,
     axis: usize,
 ) !OpSpec {
     try contracts.requireInputCount(inputs, 2);
@@ -998,7 +998,7 @@ fn buildLogSoftmaxNllSpec(
     };
 }
 
-fn inferCrossEntropyIndexed(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferCrossEntropyIndexed(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     try contracts.requireInputCount(inputs, 2);
     const logits = inputs[0];
     const targets = inputs[1];
@@ -1040,7 +1040,7 @@ fn inferCrossEntropyIndexed(allocator: std.mem.Allocator, inputs: []const ValueS
     };
 }
 
-fn inferCrossEntropyIndexedBackward(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferCrossEntropyIndexedBackward(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     try contracts.requireInputCount(inputs, 3);
     const logits = inputs[0];
     const targets = inputs[1];
@@ -1089,7 +1089,7 @@ fn inferCrossEntropyIndexedBackward(allocator: std.mem.Allocator, inputs: []cons
     };
 }
 
-fn inferCrossEntropy(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferCrossEntropy(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     const axis = switch (options) {
         .none => @as(usize, 1),
         .cross_entropy => |o| o.axis,
@@ -1098,41 +1098,41 @@ fn inferCrossEntropy(allocator: std.mem.Allocator, inputs: []const ValueSpec, op
     return buildLogSoftmaxNllSpec(allocator, inputs, axis);
 }
 
-fn inferSumAll(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferSumAll(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     return buildReduceAllSpec(allocator, inputs, options, null);
 }
 
-fn inferMeanAll(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferMeanAll(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     return buildReduceAllSpec(allocator, inputs, options, null);
 }
 
-fn inferMinAll(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferMinAll(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     return buildReduceAllSpec(allocator, inputs, options, null);
 }
 
-fn inferMaxAll(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferMaxAll(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     return buildReduceAllSpec(allocator, inputs, options, null);
 }
 
-fn inferVarianceAll(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferVarianceAll(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     return buildReduceAllSpec(allocator, inputs, options, null);
 }
 
-fn inferStdAll(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferStdAll(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     return buildReduceAllSpec(allocator, inputs, options, null);
 }
 
-fn inferArgminAll(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferArgminAll(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     return buildReduceAllSpec(allocator, inputs, options, .i64);
 }
 
-fn inferArgmaxAll(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferArgmaxAll(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     return buildReduceAllSpec(allocator, inputs, options, .i64);
 }
 
 fn buildReduceAllSpec(
     allocator: std.mem.Allocator,
-    inputs: []const ValueSpec,
+    inputs: []const TensorSpec,
     options: OpOptions,
     output_dtype: ?DType,
 ) !OpSpec {
@@ -1167,41 +1167,41 @@ fn buildReduceAllSpec(
     };
 }
 
-fn inferSumAxis(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferSumAxis(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     return buildReduceAxisSpec(allocator, inputs, options, null);
 }
 
-fn inferMeanAxis(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferMeanAxis(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     return buildReduceAxisSpec(allocator, inputs, options, null);
 }
 
-fn inferMinAxis(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferMinAxis(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     return buildReduceAxisSpec(allocator, inputs, options, null);
 }
 
-fn inferMaxAxis(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferMaxAxis(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     return buildReduceAxisSpec(allocator, inputs, options, null);
 }
 
-fn inferVarianceAxis(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferVarianceAxis(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     return buildReduceAxisSpec(allocator, inputs, options, null);
 }
 
-fn inferStdAxis(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferStdAxis(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     return buildReduceAxisSpec(allocator, inputs, options, null);
 }
 
-fn inferArgminAxis(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferArgminAxis(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     return buildReduceAxisSpec(allocator, inputs, options, .i64);
 }
 
-fn inferArgmaxAxis(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferArgmaxAxis(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     return buildReduceAxisSpec(allocator, inputs, options, .i64);
 }
 
 fn buildReduceAxisSpec(
     allocator: std.mem.Allocator,
-    inputs: []const ValueSpec,
+    inputs: []const TensorSpec,
     options: OpOptions,
     output_dtype: ?DType,
 ) !OpSpec {
@@ -1254,7 +1254,7 @@ fn buildReduceAxisSpec(
     };
 }
 
-fn inferCat(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferCat(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     try contracts.requireMinInputCount(inputs, 1);
     try contracts.requireSameRank(inputs);
     try contracts.requireAllRanks(inputs, .{ .range = .{ .min = 1, .max = 8 } });
@@ -1313,7 +1313,7 @@ fn inferCat(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: Op
     };
 }
 
-fn inferStack(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferStack(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     try contracts.requireMinInputCount(inputs, 1);
     try contracts.requireSameRank(inputs);
     try contracts.requireAllRanks(inputs, .{ .range = .{ .min = 0, .max = 8 } });
@@ -1370,7 +1370,7 @@ fn inferStack(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: 
     };
 }
 
-fn inferContiguous(allocator: std.mem.Allocator, inputs: []const ValueSpec) !OpSpec {
+fn inferContiguous(allocator: std.mem.Allocator, inputs: []const TensorSpec) !OpSpec {
     try contracts.requireInputCount(inputs, 1);
     try contracts.requireRank(inputs[0], .{ .range = .{ .min = 0, .max = 8 } });
     const input = inputs[0];
@@ -1397,7 +1397,7 @@ fn inferContiguous(allocator: std.mem.Allocator, inputs: []const ValueSpec) !OpS
     };
 }
 
-fn inferReshape(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferReshape(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     try contracts.requireInputCount(inputs, 1);
     try contracts.requireRank(inputs[0], .{ .range = .{ .min = 0, .max = 8 } });
     const input = inputs[0];
@@ -1431,7 +1431,7 @@ fn inferReshape(allocator: std.mem.Allocator, inputs: []const ValueSpec, options
     };
 }
 
-fn inferSlice(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferSlice(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     try contracts.requireInputCount(inputs, 1);
     try contracts.requireRank(inputs[0], .{ .range = .{ .min = 1, .max = 8 } });
     const input = inputs[0];
@@ -1495,7 +1495,7 @@ fn inferSlice(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: 
     };
 }
 
-fn inferGather(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferGather(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     try contracts.requireInputCount(inputs, 2);
     try contracts.requireSameRank(inputs);
     try contracts.requireAllRanks(inputs, .{ .range = .{ .min = 1, .max = 8 } });
@@ -1544,7 +1544,7 @@ fn inferGather(allocator: std.mem.Allocator, inputs: []const ValueSpec, options:
     };
 }
 
-fn inferIndexSelect(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferIndexSelect(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     try contracts.requireInputCount(inputs, 2);
     try contracts.requireRank(inputs[0], .{ .range = .{ .min = 1, .max = 8 } });
     try contracts.requireRank(inputs[1], .{ .exact = 1 });
@@ -1593,7 +1593,7 @@ fn inferIndexSelect(allocator: std.mem.Allocator, inputs: []const ValueSpec, opt
     };
 }
 
-fn inferScatterAdd(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferScatterAdd(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     try contracts.requireInputCount(inputs, 3);
     try contracts.requireAllRanks(inputs, .{ .range = .{ .min = 1, .max = 8 } });
     const base = inputs[0];
@@ -1643,7 +1643,7 @@ fn inferScatterAdd(allocator: std.mem.Allocator, inputs: []const ValueSpec, opti
     };
 }
 
-fn inferReduceToShape(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferReduceToShape(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     try contracts.requireInputCount(inputs, 1);
     try contracts.requireRank(inputs[0], .{ .range = .{ .min = 1, .max = 8 } });
     const input = inputs[0];
@@ -1671,7 +1671,7 @@ fn inferReduceToShape(allocator: std.mem.Allocator, inputs: []const ValueSpec, o
     };
 }
 
-fn inferEmbedding(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferEmbedding(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     try contracts.requireInputCount(inputs, 2);
     try contracts.requireRank(inputs[0], .{ .range = .{ .min = 2, .max = 8 } });
     try contracts.requireRank(inputs[1], .{ .range = .{ .min = 0, .max = 7 } });
@@ -1720,7 +1720,7 @@ fn inferEmbedding(allocator: std.mem.Allocator, inputs: []const ValueSpec, optio
     };
 }
 
-fn inferOneHot(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferOneHot(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     try contracts.requireInputCount(inputs, 1);
     try contracts.requireRank(inputs[0], .{ .range = .{ .min = 0, .max = 7 } });
     const input = inputs[0];
@@ -1756,7 +1756,7 @@ fn inferOneHot(allocator: std.mem.Allocator, inputs: []const ValueSpec, options:
     };
 }
 
-fn inferTopK(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferTopK(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     try contracts.requireInputCount(inputs, 1);
     try contracts.requireRank(inputs[0], .{ .range = .{ .min = 1, .max = 8 } });
     const input = inputs[0];
@@ -1802,7 +1802,7 @@ fn inferTopK(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: O
     };
 }
 
-fn inferDot(allocator: std.mem.Allocator, inputs: []const ValueSpec) !OpSpec {
+fn inferDot(allocator: std.mem.Allocator, inputs: []const TensorSpec) !OpSpec {
     try contracts.requireInputCount(inputs, 2);
     try contracts.requireRank(inputs[0], .{ .exact = 1 });
     try contracts.requireRank(inputs[1], .{ .exact = 1 });
@@ -1831,7 +1831,7 @@ fn inferDot(allocator: std.mem.Allocator, inputs: []const ValueSpec) !OpSpec {
     };
 }
 
-fn inferMatmul(allocator: std.mem.Allocator, inputs: []const ValueSpec) !OpSpec {
+fn inferMatmul(allocator: std.mem.Allocator, inputs: []const TensorSpec) !OpSpec {
     try contracts.requireInputCount(inputs, 2);
     try contracts.requireRank(inputs[0], .{ .range = .{ .min = 1, .max = 8 } });
     try contracts.requireRank(inputs[1], .{ .range = .{ .min = 1, .max = 8 } });
@@ -1919,7 +1919,7 @@ fn inferMatmulOutputShape(allocator: std.mem.Allocator, lhs: []const usize, rhs:
     return out;
 }
 
-fn inferPermute(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferPermute(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     try contracts.requireInputCount(inputs, 1);
     try contracts.requireRank(inputs[0], .{ .range = .{ .min = 1, .max = 8 } });
     const axes = switch (options) {
@@ -1929,7 +1929,7 @@ fn inferPermute(allocator: std.mem.Allocator, inputs: []const ValueSpec, options
     return inferPermutationView(allocator, inputs[0], axes);
 }
 
-fn inferTranspose(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferTranspose(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     try contracts.requireInputCount(inputs, 1);
     const input = inputs[0];
     try contracts.requireRank(input, .{ .range = .{ .min = 1, .max = 8 } });
@@ -1945,7 +1945,7 @@ fn inferTranspose(allocator: std.mem.Allocator, inputs: []const ValueSpec, optio
     return inferPermutationView(allocator, input, order);
 }
 
-fn inferSqueeze(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferSqueeze(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     try contracts.requireInputCount(inputs, 1);
     try contracts.requireRank(inputs[0], .{ .range = .{ .min = 1, .max = 8 } });
     const input = inputs[0];
@@ -2007,7 +2007,7 @@ fn inferSqueeze(allocator: std.mem.Allocator, inputs: []const ValueSpec, options
     };
 }
 
-fn inferUnsqueeze(allocator: std.mem.Allocator, inputs: []const ValueSpec, options: OpOptions) !OpSpec {
+fn inferUnsqueeze(allocator: std.mem.Allocator, inputs: []const TensorSpec, options: OpOptions) !OpSpec {
     try contracts.requireInputCount(inputs, 1);
     try contracts.requireRank(inputs[0], .{ .range = .{ .min = 0, .max = 7 } });
     const input = inputs[0];
@@ -2069,7 +2069,7 @@ fn validatePermutation(allocator: std.mem.Allocator, order: []const usize, rank:
     try contracts.requirePermutation(allocator, order, rank);
 }
 
-fn inferPermutationView(allocator: std.mem.Allocator, input: ValueSpec, order: []const usize) !OpSpec {
+fn inferPermutationView(allocator: std.mem.Allocator, input: TensorSpec, order: []const usize) !OpSpec {
     const device = input.device;
     const rank = input.shape.rank();
     try validatePermutation(allocator, order, rank);
@@ -2102,7 +2102,7 @@ fn inferPermutationView(allocator: std.mem.Allocator, input: ValueSpec, order: [
     };
 }
 
-fn unsqueezedStride(input: ValueSpec, axis: usize) isize {
+fn unsqueezedStride(input: TensorSpec, axis: usize) isize {
     if (input.shape.rank() == 0) return 1;
     if (axis >= input.shape.rank()) return 1;
     return input.layout.strides[axis] * @as(isize, @intCast(input.shape.dims[axis]));
@@ -2131,9 +2131,9 @@ fn needsCopyMaterialization(ranges: []const SliceRange) bool {
 
 test "add inference keeps shape dtype and device" {
     const allocator = std.testing.allocator;
-    const a = try Value.fromSliceF32(allocator, &.{2}, &.{ 1, 2 });
+    const a = try Tensor.fromSliceF32(allocator, &.{2}, &.{ 1, 2 });
     defer a.deinit();
-    const b = try Value.fromSliceF32(allocator, &.{2}, &.{ 3, 4 });
+    const b = try Tensor.fromSliceF32(allocator, &.{2}, &.{ 3, 4 });
     defer b.deinit();
 
     const op = try Op.init(.add, &.{ a, b }, .{ .binary = .{} });
@@ -2149,9 +2149,9 @@ test "add inference keeps shape dtype and device" {
 
 test "add inference right-aligns broadcast dims" {
     const allocator = std.testing.allocator;
-    const a = try Value.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
+    const a = try Tensor.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
     defer a.deinit();
-    const b = try Value.fromSliceF32(allocator, &.{3}, &.{ 10, 20, 30 });
+    const b = try Tensor.fromSliceF32(allocator, &.{3}, &.{ 10, 20, 30 });
     defer b.deinit();
 
     const op = try Op.init(.add, &.{ a, b }, .{ .binary = .{} });
@@ -2165,7 +2165,7 @@ test "add inference right-aligns broadcast dims" {
 
 test "unary relu inference keeps same shape dtype and device" {
     const allocator = std.testing.allocator;
-    const value = try Value.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1, -2, 3, -4, 5, -6 });
+    const value = try Tensor.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1, -2, 3, -4, 5, -6 });
     defer value.deinit();
 
     const op = try Op.init(.relu, &.{value}, .{ .unary = .{} });
@@ -2180,7 +2180,7 @@ test "unary relu inference keeps same shape dtype and device" {
 
 test "clamp inference keeps same shape and validates bounds" {
     const allocator = std.testing.allocator;
-    const value = try Value.fromSliceF64(allocator, &.{3}, &.{ -1, 0, 1 });
+    const value = try Tensor.fromSliceF64(allocator, &.{3}, &.{ -1, 0, 1 });
     defer value.deinit();
 
     const op = try Op.init(.clamp, &.{value}, .{ .clamp = .{ .min = -0.5, .max = 0.5 } });
@@ -2194,7 +2194,7 @@ test "clamp inference keeps same shape and validates bounds" {
 
 test "reshape inference is view-like" {
     const allocator = std.testing.allocator;
-    const value = try Value.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
+    const value = try Tensor.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
     defer value.deinit();
 
     const op = try Op.init(.reshape, &.{value}, .{ .reshape = .{ .shape = &.{ 3, 2 } } });
@@ -2208,9 +2208,9 @@ test "reshape inference is view-like" {
 
 test "cat inference joins along requested axis" {
     const allocator = std.testing.allocator;
-    const a = try Value.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
+    const a = try Tensor.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
     defer a.deinit();
-    const b = try Value.fromSliceF32(allocator, &.{ 2, 2 }, &.{ 7, 8, 9, 10 });
+    const b = try Tensor.fromSliceF32(allocator, &.{ 2, 2 }, &.{ 7, 8, 9, 10 });
     defer b.deinit();
 
     const op = try Op.init(.cat, &.{ a, b }, .{ .concat = .{ .axis = 1 } });
@@ -2226,9 +2226,9 @@ test "cat inference joins along requested axis" {
 
 test "stack inference inserts axis and counts inputs" {
     const allocator = std.testing.allocator;
-    const a = try Value.fromSliceF64(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
+    const a = try Tensor.fromSliceF64(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
     defer a.deinit();
-    const b = try Value.fromSliceF64(allocator, &.{ 2, 3 }, &.{ 7, 8, 9, 10, 11, 12 });
+    const b = try Tensor.fromSliceF64(allocator, &.{ 2, 3 }, &.{ 7, 8, 9, 10, 11, 12 });
     defer b.deinit();
 
     const op = try Op.init(.stack, &.{ a, b }, .{ .stack = .{ .axis = 0 } });
@@ -2243,7 +2243,7 @@ test "stack inference inserts axis and counts inputs" {
 
 test "contiguous inference aliases already contiguous input" {
     const allocator = std.testing.allocator;
-    const value = try Value.fromSliceF32(allocator, &.{ 2, 2 }, &.{ 1, 2, 3, 4 });
+    const value = try Tensor.fromSliceF32(allocator, &.{ 2, 2 }, &.{ 1, 2, 3, 4 });
     defer value.deinit();
 
     const op = try Op.init(.contiguous, &.{value}, .{ .none = {} });
@@ -2256,7 +2256,7 @@ test "contiguous inference aliases already contiguous input" {
 
 test "permute inference is explicit-axis view" {
     const allocator = std.testing.allocator;
-    const value = try Value.fromSliceF32(allocator, &.{ 2, 3, 4 }, &.{
+    const value = try Tensor.fromSliceF32(allocator, &.{ 2, 3, 4 }, &.{
         1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 11, 12,
         13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
     });
@@ -2273,7 +2273,7 @@ test "permute inference is explicit-axis view" {
 
 test "sum_all keepdim preserves rank with singleton extents" {
     const allocator = std.testing.allocator;
-    const value = try Value.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
+    const value = try Tensor.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
     defer value.deinit();
 
     const op = try Op.init(.sum_all, &.{value}, .{ .reduce_all = .{ .keepdim = true } });
@@ -2288,7 +2288,7 @@ test "sum_all keepdim preserves rank with singleton extents" {
 
 test "transpose inference permutes shape and strides as a view" {
     const allocator = std.testing.allocator;
-    const value = try Value.fromSliceF32(allocator, &.{ 2, 3, 4 }, &.{
+    const value = try Tensor.fromSliceF32(allocator, &.{ 2, 3, 4 }, &.{
         1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 11, 12,
         13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
     });
@@ -2305,7 +2305,7 @@ test "transpose inference permutes shape and strides as a view" {
 
 test "squeeze inference removes singleton axis as a view" {
     const allocator = std.testing.allocator;
-    const value = try Value.fromSliceF32(allocator, &.{ 2, 1, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
+    const value = try Tensor.fromSliceF32(allocator, &.{ 2, 1, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
     defer value.deinit();
 
     const op = try Op.init(.squeeze, &.{value}, .{ .squeeze = .{ .axis = 1 } });
@@ -2319,7 +2319,7 @@ test "squeeze inference removes singleton axis as a view" {
 
 test "unsqueeze inference inserts singleton axis as a view" {
     const allocator = std.testing.allocator;
-    const value = try Value.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
+    const value = try Tensor.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
     defer value.deinit();
 
     const op = try Op.init(.unsqueeze, &.{value}, .{ .unsqueeze = .{ .axis = 1 } });
@@ -2333,7 +2333,7 @@ test "unsqueeze inference inserts singleton axis as a view" {
 
 test "sum_axis inference removes reduced axis by default" {
     const allocator = std.testing.allocator;
-    const value = try Value.fromSliceF32(allocator, &.{ 2, 3, 4 }, &.{
+    const value = try Tensor.fromSliceF32(allocator, &.{ 2, 3, 4 }, &.{
         1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 11, 12,
         13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
     });
@@ -2349,7 +2349,7 @@ test "sum_axis inference removes reduced axis by default" {
 
 test "mean_axis inference preserves dtype and keepdim semantics" {
     const allocator = std.testing.allocator;
-    const value = try Value.fromSliceF64(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
+    const value = try Tensor.fromSliceF64(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
     defer value.deinit();
 
     const op = try Op.init(.mean_axis, &.{value}, .{ .reduce_axis = .{ .axis = 1, .keepdim = true } });
@@ -2362,7 +2362,7 @@ test "mean_axis inference preserves dtype and keepdim semantics" {
 
 test "max_all inference produces scalar-like output with reduction metadata" {
     const allocator = std.testing.allocator;
-    const value = try Value.fromSliceF32(allocator, &.{ 2, 2 }, &.{ 1, 2, 3, 4 });
+    const value = try Tensor.fromSliceF32(allocator, &.{ 2, 2 }, &.{ 1, 2, 3, 4 });
     defer value.deinit();
 
     const op = try Op.init(.max_all, &.{value}, .{ .reduce_all = .{} });
@@ -2375,7 +2375,7 @@ test "max_all inference produces scalar-like output with reduction metadata" {
 
 test "variance_axis inference keeps numeric dtype and reduced shape" {
     const allocator = std.testing.allocator;
-    const value = try Value.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
+    const value = try Tensor.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
     defer value.deinit();
 
     const op = try Op.init(.variance_axis, &.{value}, .{ .reduce_axis = .{ .axis = 0 } });
@@ -2388,7 +2388,7 @@ test "variance_axis inference keeps numeric dtype and reduced shape" {
 
 test "std_all inference keeps numeric dtype and scalar-like shape" {
     const allocator = std.testing.allocator;
-    const value = try Value.fromSliceF64(allocator, &.{ 2, 2 }, &.{ 1, 2, 3, 4 });
+    const value = try Tensor.fromSliceF64(allocator, &.{ 2, 2 }, &.{ 1, 2, 3, 4 });
     defer value.deinit();
 
     const op = try Op.init(.std_all, &.{value}, .{ .reduce_all = .{} });
@@ -2401,7 +2401,7 @@ test "std_all inference keeps numeric dtype and scalar-like shape" {
 
 test "argmax_axis inference changes output dtype to i64" {
     const allocator = std.testing.allocator;
-    const value = try Value.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
+    const value = try Tensor.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
     defer value.deinit();
 
     const op = try Op.init(.argmax_axis, &.{value}, .{ .reduce_axis = .{ .axis = 1 } });
@@ -2414,7 +2414,7 @@ test "argmax_axis inference changes output dtype to i64" {
 
 test "argmin_all inference changes output dtype to i64" {
     const allocator = std.testing.allocator;
-    const value = try Value.fromSliceF64(allocator, &.{ 2, 2 }, &.{ 1, 2, 3, 4 });
+    const value = try Tensor.fromSliceF64(allocator, &.{ 2, 2 }, &.{ 1, 2, 3, 4 });
     defer value.deinit();
 
     const op = try Op.init(.argmin_all, &.{value}, .{ .reduce_all = .{} });
@@ -2427,7 +2427,7 @@ test "argmin_all inference changes output dtype to i64" {
 
 test "slice inference is a view for unit-step ranges" {
     const allocator = std.testing.allocator;
-    const value = try Value.fromSliceF32(allocator, &.{ 4, 5 }, &.{
+    const value = try Tensor.fromSliceF32(allocator, &.{ 4, 5 }, &.{
         1,  2,  3,  4,  5,
         6,  7,  8,  9,  10,
         11, 12, 13, 14, 15,
@@ -2450,7 +2450,7 @@ test "slice inference is a view for unit-step ranges" {
 
 test "slice inference requires new storage for stepped ranges" {
     const allocator = std.testing.allocator;
-    const value = try Value.fromSliceF32(allocator, &.{6}, &.{ 1, 2, 3, 4, 5, 6 });
+    const value = try Tensor.fromSliceF32(allocator, &.{6}, &.{ 1, 2, 3, 4, 5, 6 });
     defer value.deinit();
 
     const op = try Op.init(.slice, &.{value}, .{ .slice = .{ .ranges = &.{
@@ -2467,11 +2467,11 @@ test "slice inference requires new storage for stepped ranges" {
 
 test "where inference keeps branch dtype and same-shape output" {
     const allocator = std.testing.allocator;
-    const cond = try Value.fromSliceI64(allocator, &.{ 2, 2 }, &.{ 1, 0, 0, 1 });
+    const cond = try Tensor.fromSliceI64(allocator, &.{ 2, 2 }, &.{ 1, 0, 0, 1 });
     defer cond.deinit();
-    const on_true = try Value.fromSliceF32(allocator, &.{ 2, 2 }, &.{ 1, 2, 3, 4 });
+    const on_true = try Tensor.fromSliceF32(allocator, &.{ 2, 2 }, &.{ 1, 2, 3, 4 });
     defer on_true.deinit();
-    const on_false = try Value.fromSliceF32(allocator, &.{ 2, 2 }, &.{ 5, 6, 7, 8 });
+    const on_false = try Tensor.fromSliceF32(allocator, &.{ 2, 2 }, &.{ 5, 6, 7, 8 });
     defer on_false.deinit();
 
     const op = try Op.init(.where, &.{ cond, on_true, on_false }, .{ .none = {} });
@@ -2487,9 +2487,9 @@ test "where inference keeps branch dtype and same-shape output" {
 
 test "masked_fill inference keeps data shape/dtype and validates mask shape" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF32(allocator, &.{ 2, 2 }, &.{ 1, 2, 3, 4 });
+    const input = try Tensor.fromSliceF32(allocator, &.{ 2, 2 }, &.{ 1, 2, 3, 4 });
     defer input.deinit();
-    const mask = try Value.fromSliceI64(allocator, &.{ 2, 2 }, &.{ 1, 0, 1, 0 });
+    const mask = try Tensor.fromSliceI64(allocator, &.{ 2, 2 }, &.{ 1, 0, 1, 0 });
     defer mask.deinit();
 
     const op = try Op.init(.masked_fill, &.{ input, mask }, .{ .masked_fill = .{ .value = 0.0 } });
@@ -2510,7 +2510,7 @@ test "binary inference records pack_to_dense planner hint for negative strides" 
     defer lhs_shape.deinit();
     var lhs_layout = try Layout.initCopy(allocator, &.{ -2, 1 }, 4);
     defer lhs_layout.deinit();
-    const lhs = ValueSpec{
+    const lhs = TensorSpec{
         .shape = lhs_shape,
         .dtype = .f32,
         .layout = lhs_layout,
@@ -2521,7 +2521,7 @@ test "binary inference records pack_to_dense planner hint for negative strides" 
     defer rhs_shape.deinit();
     var rhs_layout = try Layout.initContiguous(allocator, rhs_shape);
     defer rhs_layout.deinit();
-    const rhs = ValueSpec{
+    const rhs = TensorSpec{
         .shape = rhs_shape,
         .dtype = .f32,
         .layout = rhs_layout,
@@ -2538,9 +2538,9 @@ test "binary inference records pack_to_dense planner hint for negative strides" 
 
 test "where inference right-aligns broadcast dims" {
     const allocator = std.testing.allocator;
-    const cond = try Value.fromSliceI64(allocator, &.{ 3, 1 }, &.{ 1, 0, 1 });
+    const cond = try Tensor.fromSliceI64(allocator, &.{ 3, 1 }, &.{ 1, 0, 1 });
     defer cond.deinit();
-    const on_true = try Value.fromSliceF32(allocator, &.{ 2, 3, 4 }, &.{
+    const on_true = try Tensor.fromSliceF32(allocator, &.{ 2, 3, 4 }, &.{
         1,  2,  3,  4,
         5,  6,  7,  8,
         9,  10, 11, 12,
@@ -2549,7 +2549,7 @@ test "where inference right-aligns broadcast dims" {
         21, 22, 23, 24,
     });
     defer on_true.deinit();
-    const on_false = try Value.fromSliceF32(allocator, &.{4}, &.{ 0, 0, 0, 0 });
+    const on_false = try Tensor.fromSliceF32(allocator, &.{4}, &.{ 0, 0, 0, 0 });
     defer on_false.deinit();
 
     const op = try Op.init(.where, &.{ cond, on_true, on_false }, .{ .none = {} });
@@ -2561,7 +2561,7 @@ test "where inference right-aligns broadcast dims" {
 
 test "masked_fill inference right-aligns broadcast dims" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF32(allocator, &.{ 2, 3, 4 }, &.{
+    const input = try Tensor.fromSliceF32(allocator, &.{ 2, 3, 4 }, &.{
         1,  2,  3,  4,
         5,  6,  7,  8,
         9,  10, 11, 12,
@@ -2570,7 +2570,7 @@ test "masked_fill inference right-aligns broadcast dims" {
         21, 22, 23, 24,
     });
     defer input.deinit();
-    const mask = try Value.fromSliceI64(allocator, &.{ 3, 1 }, &.{ 1, 0, 1 });
+    const mask = try Tensor.fromSliceI64(allocator, &.{ 3, 1 }, &.{ 1, 0, 1 });
     defer mask.deinit();
 
     const op = try Op.init(.masked_fill, &.{ input, mask }, .{ .masked_fill = .{ .value = 0.0 } });
@@ -2583,9 +2583,9 @@ test "masked_fill inference right-aligns broadcast dims" {
 
 test "gather inference follows index shape on the selected axis contract" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
+    const input = try Tensor.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
     defer input.deinit();
-    const index = try Value.fromSliceI64(allocator, &.{ 2, 4 }, &.{ 0, 2, 1, 0, 1, 1, 2, 0 });
+    const index = try Tensor.fromSliceI64(allocator, &.{ 2, 4 }, &.{ 0, 2, 1, 0, 1, 1, 2, 0 });
     defer index.deinit();
 
     const op = try Op.init(.gather, &.{ input, index }, .{ .gather = .{ .axis = 1 } });
@@ -2601,7 +2601,7 @@ test "gather inference follows index shape on the selected axis contract" {
 
 test "index_select inference replaces the selected axis extent" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF64(allocator, &.{ 2, 3, 4 }, &.{
+    const input = try Tensor.fromSliceF64(allocator, &.{ 2, 3, 4 }, &.{
         1,  2,  3,  4,
         5,  6,  7,  8,
         9,  10, 11, 12,
@@ -2610,7 +2610,7 @@ test "index_select inference replaces the selected axis extent" {
         21, 22, 23, 24,
     });
     defer input.deinit();
-    const index = try Value.fromSliceI64(allocator, &.{2}, &.{ 2, 0 });
+    const index = try Tensor.fromSliceI64(allocator, &.{2}, &.{ 2, 0 });
     defer index.deinit();
 
     const op = try Op.init(.index_select, &.{ input, index }, .{ .index_select = .{ .axis = 1 } });
@@ -2626,7 +2626,7 @@ test "index_select inference replaces the selected axis extent" {
 
 test "one_hot inference appends class axis and returns f32 output" {
     const allocator = std.testing.allocator;
-    const indices = try Value.fromSliceI64(allocator, &.{ 2, 3 }, &.{ 0, 1, 2, 1, 2, 0 });
+    const indices = try Tensor.fromSliceI64(allocator, &.{ 2, 3 }, &.{ 0, 1, 2, 1, 2, 0 });
     defer indices.deinit();
 
     const op = try Op.init(.one_hot, &.{indices}, .{ .one_hot = .{ .num_classes = 4 } });
@@ -2642,7 +2642,7 @@ test "one_hot inference appends class axis and returns f32 output" {
 
 test "embedding inference appends embedding dims to index shape" {
     const allocator = std.testing.allocator;
-    const table = try Value.fromSliceF32(allocator, &.{ 6, 4 }, &.{
+    const table = try Tensor.fromSliceF32(allocator, &.{ 6, 4 }, &.{
         0,  1,  2,  3,
         4,  5,  6,  7,
         8,  9,  10, 11,
@@ -2651,7 +2651,7 @@ test "embedding inference appends embedding dims to index shape" {
         20, 21, 22, 23,
     });
     defer table.deinit();
-    const index = try Value.fromSliceI64(allocator, &.{ 2, 3 }, &.{ 0, 1, 2, 3, 4, 5 });
+    const index = try Tensor.fromSliceI64(allocator, &.{ 2, 3 }, &.{ 0, 1, 2, 3, 4, 5 });
     defer index.deinit();
 
     const op = try Op.init(.embedding, &.{ table, index }, .{ .none = {} });
@@ -2672,7 +2672,7 @@ test "gather inference records pack_to_dense planner hint for negative strides" 
     defer input_shape.deinit();
     var input_layout = try Layout.initCopy(allocator, &.{ -3, 1 }, 3);
     defer input_layout.deinit();
-    const input = ValueSpec{
+    const input = TensorSpec{
         .shape = input_shape,
         .dtype = .f32,
         .layout = input_layout,
@@ -2683,7 +2683,7 @@ test "gather inference records pack_to_dense planner hint for negative strides" 
     defer index_shape.deinit();
     var index_layout = try Layout.initContiguous(allocator, index_shape);
     defer index_layout.deinit();
-    const index = ValueSpec{
+    const index = TensorSpec{
         .shape = index_shape,
         .dtype = .i64,
         .layout = index_layout,
@@ -2699,9 +2699,9 @@ test "gather inference records pack_to_dense planner hint for negative strides" 
 
 test "log_softmax_nll inference returns scalar-like loss output" {
     const allocator = std.testing.allocator;
-    const logits = try Value.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 0.1, 0.2, 0.3, 1.0, 0.0, -1.0 });
+    const logits = try Tensor.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 0.1, 0.2, 0.3, 1.0, 0.0, -1.0 });
     defer logits.deinit();
-    const targets = try Value.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 0.0, 0.0, 1.0, 1.0, 0.0, 0.0 });
+    const targets = try Tensor.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 0.0, 0.0, 1.0, 1.0, 0.0, 0.0 });
     defer targets.deinit();
 
     const op = try Op.init(.log_softmax_nll, &.{ logits, targets }, .{ .log_softmax_nll = .{ .axis = 1 } });
@@ -2717,9 +2717,9 @@ test "log_softmax_nll inference returns scalar-like loss output" {
 
 test "cross_entropy inference returns scalar-like loss output" {
     const allocator = std.testing.allocator;
-    const logits = try Value.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 0.1, 0.2, 0.3, 1.0, 0.0, -1.0 });
+    const logits = try Tensor.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 0.1, 0.2, 0.3, 1.0, 0.0, -1.0 });
     defer logits.deinit();
-    const targets = try Value.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 0.0, 0.0, 1.0, 1.0, 0.0, 0.0 });
+    const targets = try Tensor.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 0.0, 0.0, 1.0, 1.0, 0.0, 0.0 });
     defer targets.deinit();
 
     const op = try Op.init(.cross_entropy, &.{ logits, targets }, .{ .cross_entropy = .{ .axis = 1 } });
@@ -2735,9 +2735,9 @@ test "cross_entropy inference returns scalar-like loss output" {
 
 test "cross_entropy_indexed inference returns scalar-like loss output" {
     const allocator = std.testing.allocator;
-    const logits = try Value.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 0.1, 0.2, 0.3, 1.0, 0.0, -1.0 });
+    const logits = try Tensor.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 0.1, 0.2, 0.3, 1.0, 0.0, -1.0 });
     defer logits.deinit();
-    const targets = try Value.fromSliceI64(allocator, &.{2}, &.{ 2, 0 });
+    const targets = try Tensor.fromSliceI64(allocator, &.{2}, &.{ 2, 0 });
     defer targets.deinit();
 
     const op = try Op.init(.cross_entropy_indexed, &.{ logits, targets }, .{ .cross_entropy_indexed = .{ .axis = 1 } });
@@ -2753,11 +2753,11 @@ test "cross_entropy_indexed inference returns scalar-like loss output" {
 
 test "cross_entropy_indexed_backward inference returns logits-shaped output" {
     const allocator = std.testing.allocator;
-    const logits = try Value.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 0.1, 0.2, 0.3, 1.0, 0.0, -1.0 });
+    const logits = try Tensor.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 0.1, 0.2, 0.3, 1.0, 0.0, -1.0 });
     defer logits.deinit();
-    const targets = try Value.fromSliceI64(allocator, &.{2}, &.{ 2, 0 });
+    const targets = try Tensor.fromSliceI64(allocator, &.{2}, &.{ 2, 0 });
     defer targets.deinit();
-    const grad_out = try Value.fromSliceF32(allocator, &.{1}, &.{1.0});
+    const grad_out = try Tensor.fromSliceF32(allocator, &.{1}, &.{1.0});
     defer grad_out.deinit();
 
     const op = try Op.init(.cross_entropy_indexed_backward, &.{ logits, targets, grad_out }, .{ .cross_entropy_indexed_backward = .{ .axis = 1 } });
@@ -2778,7 +2778,7 @@ test "loss inference records pack_to_dense planner hint for negative strides" {
     defer logits_shape.deinit();
     var logits_layout = try Layout.initCopy(allocator, &.{ -3, 1 }, 3);
     defer logits_layout.deinit();
-    const logits = ValueSpec{
+    const logits = TensorSpec{
         .shape = logits_shape,
         .dtype = .f32,
         .layout = logits_layout,
@@ -2789,7 +2789,7 @@ test "loss inference records pack_to_dense planner hint for negative strides" {
     defer targets_shape.deinit();
     var targets_layout = try Layout.initCopy(allocator, &.{ -3, 1 }, 3);
     defer targets_layout.deinit();
-    const targets = ValueSpec{
+    const targets = TensorSpec{
         .shape = targets_shape,
         .dtype = .f32,
         .layout = targets_layout,
@@ -2805,7 +2805,7 @@ test "loss inference records pack_to_dense planner hint for negative strides" {
 
 test "topk inference emits values and indices output contracts" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF32(allocator, &.{ 2, 5 }, &.{
+    const input = try Tensor.fromSliceF32(allocator, &.{ 2, 5 }, &.{
         1,  2, 3, 4, 5,
         10, 9, 8, 7, 6,
     });
@@ -2825,7 +2825,7 @@ test "topk inference emits values and indices output contracts" {
 
 test "softmax inference preserves shape and validates axis contract" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF32(allocator, &.{ 2, 3, 4 }, &.{
+    const input = try Tensor.fromSliceF32(allocator, &.{ 2, 3, 4 }, &.{
         1,  2,  3,  4,
         5,  6,  7,  8,
         9,  10, 11, 12,
@@ -2852,7 +2852,7 @@ test "softmax inference accepts positive-stride metal view layout" {
     defer shape.deinit();
     var layout = try Layout.initCopy(allocator, &.{ 1, 2 }, 0);
     defer layout.deinit();
-    const input = ValueSpec{
+    const input = TensorSpec{
         .shape = shape,
         .dtype = .f32,
         .layout = layout,
@@ -2868,7 +2868,7 @@ test "softmax inference accepts positive-stride metal view layout" {
 
 test "layer_norm inference preserves shape and validates axis/eps contract" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF32(allocator, &.{ 2, 3, 4 }, &.{
+    const input = try Tensor.fromSliceF32(allocator, &.{ 2, 3, 4 }, &.{
         1,  2,  3,  4,
         5,  6,  7,  8,
         9,  10, 11, 12,
@@ -2896,7 +2896,7 @@ test "layer_norm inference records pack_to_dense planner hint for negative strid
     defer input_shape.deinit();
     var input_layout = try Layout.initCopy(allocator, &.{ -2, 1 }, 4);
     defer input_layout.deinit();
-    const input = ValueSpec{
+    const input = TensorSpec{
         .shape = input_shape,
         .dtype = .f32,
         .layout = input_layout,
@@ -2912,9 +2912,9 @@ test "layer_norm inference records pack_to_dense planner hint for negative strid
 
 test "dot inference requires 1d inputs and returns scalar-like shape" {
     const allocator = std.testing.allocator;
-    const lhs = try Value.fromSliceF64(allocator, &.{3}, &.{ 1, 2, 3 });
+    const lhs = try Tensor.fromSliceF64(allocator, &.{3}, &.{ 1, 2, 3 });
     defer lhs.deinit();
-    const rhs = try Value.fromSliceF64(allocator, &.{3}, &.{ 4, 5, 6 });
+    const rhs = try Tensor.fromSliceF64(allocator, &.{3}, &.{ 4, 5, 6 });
     defer rhs.deinit();
 
     const op = try Op.init(.dot, &.{ lhs, rhs }, .{ .none = {} });
@@ -2930,7 +2930,7 @@ test "dot inference requires 1d inputs and returns scalar-like shape" {
 
 test "matmul inference broadcasts batch dims and preserves matrix contract" {
     const allocator = std.testing.allocator;
-    const lhs = try Value.fromSliceF32(allocator, &.{ 2, 3, 4 }, &.{
+    const lhs = try Tensor.fromSliceF32(allocator, &.{ 2, 3, 4 }, &.{
         1,  2,  3,  4,
         5,  6,  7,  8,
         9,  10, 11, 12,
@@ -2939,7 +2939,7 @@ test "matmul inference broadcasts batch dims and preserves matrix contract" {
         21, 22, 23, 24,
     });
     defer lhs.deinit();
-    const rhs = try Value.fromSliceF32(allocator, &.{ 1, 4, 5 }, &.{
+    const rhs = try Tensor.fromSliceF32(allocator, &.{ 1, 4, 5 }, &.{
         1,  2,  3,  4,  5,
         6,  7,  8,  9,  10,
         11, 12, 13, 14, 15,
@@ -2961,7 +2961,7 @@ test "matmul inference broadcasts batch dims and preserves matrix contract" {
 
 test "reduce_to_shape inference right-aligns target dims" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF32(allocator, &.{ 2, 2, 3 }, &.{
+    const input = try Tensor.fromSliceF32(allocator, &.{ 2, 2, 3 }, &.{
         1,  2,  3,
         4,  5,  6,
         7,  8,  9,
@@ -2985,7 +2985,7 @@ test "reduction inference records pack_to_dense planner hint for negative stride
     defer input_shape.deinit();
     var input_layout = try Layout.initCopy(allocator, &.{ -2, 1 }, 4);
     defer input_layout.deinit();
-    const input = ValueSpec{
+    const input = TensorSpec{
         .shape = input_shape,
         .dtype = .f32,
         .layout = input_layout,
@@ -3003,9 +3003,9 @@ test "reduction inference records pack_to_dense planner hint for negative stride
 test "matmul inference supports vector @ matrix and matrix @ vector patterns" {
     const allocator = std.testing.allocator;
 
-    const v = try Value.fromSliceF32(allocator, &.{4}, &.{ 1, 2, 3, 4 });
+    const v = try Tensor.fromSliceF32(allocator, &.{4}, &.{ 1, 2, 3, 4 });
     defer v.deinit();
-    const m = try Value.fromSliceF32(allocator, &.{ 4, 3 }, &.{
+    const m = try Tensor.fromSliceF32(allocator, &.{ 4, 3 }, &.{
         1,  2,  3,
         4,  5,  6,
         7,  8,  9,
@@ -3021,12 +3021,12 @@ test "matmul inference supports vector @ matrix and matrix @ vector patterns" {
     try std.testing.expect(vm_info.planner_hint != null);
     try std.testing.expectEqual(kernel_capability.InputLayoutDecision.accept, vm_info.planner_hint.?.input_layout_decision);
 
-    const m2 = try Value.fromSliceF32(allocator, &.{ 2, 4 }, &.{
+    const m2 = try Tensor.fromSliceF32(allocator, &.{ 2, 4 }, &.{
         1, 2, 3, 4,
         5, 6, 7, 8,
     });
     defer m2.deinit();
-    const v2 = try Value.fromSliceF32(allocator, &.{4}, &.{ 1, 2, 3, 4 });
+    const v2 = try Tensor.fromSliceF32(allocator, &.{4}, &.{ 1, 2, 3, 4 });
     defer v2.deinit();
 
     const mv = try Op.init(.matmul, &.{ m2, v2 }, .{ .none = {} });
@@ -3045,7 +3045,7 @@ test "matmul inference records pack_to_dense planner hint for negative strides" 
     defer lhs_shape.deinit();
     var lhs_layout = try Layout.initCopy(allocator, &.{ -2, 1 }, 4);
     defer lhs_layout.deinit();
-    const lhs = ValueSpec{
+    const lhs = TensorSpec{
         .shape = lhs_shape,
         .dtype = .f32,
         .layout = lhs_layout,
@@ -3056,7 +3056,7 @@ test "matmul inference records pack_to_dense planner hint for negative strides" 
     defer rhs_shape.deinit();
     var rhs_layout = try Layout.initContiguous(allocator, rhs_shape);
     defer rhs_layout.deinit();
-    const rhs = ValueSpec{
+    const rhs = TensorSpec{
         .shape = rhs_shape,
         .dtype = .f32,
         .layout = rhs_layout,

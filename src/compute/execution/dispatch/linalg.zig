@@ -1,9 +1,7 @@
 const Device = @import("../../types/tensor/device.zig").Device;
 const DType = @import("../../types/tensor/dtype.zig").DType;
 const Storage = @import("../../types/tensor/storage.zig").Storage;
-const Value = @import("../../types/tensor/value.zig").Value;
-const ValueSpec = @import("../../types/tensor/value_spec.zig").ValueSpec;
-const ExecutionMetadata = @import("../../types/operation/execution_metadata.zig").ExecutionMetadata;
+const Tensor = @import("../../types/tensor/tensor.zig").Tensor;
 const kernel_capability = @import("../../backend/capability.zig");
 const kernel_dispatch = @import("../../backend/dispatch.zig");
 const prepared_execution = @import("../prepared.zig");
@@ -11,8 +9,8 @@ const prepared_execution = @import("../prepared.zig");
 pub fn dispatchDot(
     device: Device,
     dtype: DType,
-    lhs: *const Value,
-    rhs: *const Value,
+    lhs: *const Tensor,
+    rhs: *const Tensor,
     output: *Storage,
 ) !void {
     try kernel_dispatch.dot(
@@ -27,8 +25,8 @@ pub fn dispatchDot(
 pub fn dispatchMatmulWithLayouts(
     device: Device,
     dtype: DType,
-    lhs: *const Value,
-    rhs: *const Value,
+    lhs: *const Tensor,
+    rhs: *const Tensor,
     output: *Storage,
 ) !void {
     if (!kernel_capability.matmulAcceptsLayouts(
@@ -56,13 +54,12 @@ pub fn dispatchMatmulWithLayouts(
 pub fn dispatchProjectionMatmulFastPath(
     device: Device,
     dtype: DType,
-    lhs: *const Value,
-    rhs: *const Value,
-    output_spec: ValueSpec,
-    metadata: ExecutionMetadata,
+    lhs: *const Tensor,
+    rhs: *const Tensor,
+    projection_enabled: bool,
     output: *Storage,
 ) !bool {
-    const projection = (try prepared_execution.matmulProjectionDescriptor(lhs, rhs, output_spec, metadata)) orelse return false;
+    const projection = (try prepared_execution.matmulProjectionDescriptor(lhs, rhs, projection_enabled)) orelse return false;
     const flat_layout = projection.lhsLayout();
 
     if (!kernel_capability.matmulAcceptsLayouts(

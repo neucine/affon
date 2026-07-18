@@ -5,10 +5,10 @@ pub const Shape = @import("shape.zig").Shape;
 pub const Layout = @import("layout.zig").Layout;
 pub const Storage = @import("storage.zig").Storage;
 pub const RuntimeBacking = Storage;
-pub const Value = @import("value.zig").Value;
-pub const ValueSpec = @import("value_spec.zig").ValueSpec;
-pub const cloneAxes = @import("value.zig").cloneAxes;
-pub const deinitAxes = @import("value.zig").deinitAxes;
+pub const Tensor = @import("tensor.zig").Tensor;
+pub const TensorSpec = @import("tensor_spec.zig").TensorSpec;
+pub const cloneAxes = @import("tensor.zig").cloneAxes;
+pub const deinitAxes = @import("tensor.zig").deinitAxes;
 
 test {
     _ = Device;
@@ -18,8 +18,8 @@ test {
     _ = Layout;
     _ = Storage;
     _ = RuntimeBacking;
-    _ = Value;
-    _ = ValueSpec;
+    _ = Tensor;
+    _ = TensorSpec;
     _ = cloneAxes;
     _ = deinitAxes;
 }

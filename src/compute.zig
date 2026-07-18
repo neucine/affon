@@ -1,9 +1,8 @@
-const core = @import("compute/core.zig");
-
-pub const types = core.types;
-pub const tensor = core.tensor;
-pub const operation = core.operation;
-pub const ir = core.ir;
-pub const execution = core.execution;
-pub const eager = core.eager;
-pub const graph = core.graph;
+pub const engine = @import("compute/engine.zig");
+pub const compose = @import("compute/compose/index.zig");
+pub const Engine = engine.Engine;
+pub const Tensor = engine.Tensor;
+pub const TensorSpec = @import("compute/types/tensor/index.zig").TensorSpec;
+pub const ComputeGraph = @import("compute/types/ir/index.zig").ComputeGraph;
+pub const Operation = engine.Operation;
+pub const Telemetry = engine.Telemetry;

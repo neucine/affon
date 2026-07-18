@@ -1,8 +1,7 @@
 const std = @import("std");
-const compat = @import("../support/compat.zig");
-const Device = @import("../compute/types/tensor/device.zig").Device;
-const cfg = @import("../config.zig");
-const accounting = @import("metrics.zig");
+const compat = @import("../../support/compat.zig");
+const Device = @import("../types/tensor/device.zig").Device;
+const telemetry = @import("../telemetry.zig");
 const policy_mod = @import("policy.zig");
 const region_mod = @import("region.zig");
 
@@ -16,11 +15,17 @@ extern fn affon_metal_last_error() [*:0]const u8;
 
 const max_per_size = 8;
 const max_total_bytes = 1024 * 1024 * 1024;
+var pool_oversize_threshold_bytes: usize = 64 * 1024 * 1024;
 
 var mu: compat.Mutex = .{};
 var pool = std.AutoHashMapUnmanaged(usize, std.ArrayListUnmanaged(*anyopaque)){};
 var pooled_bytes = std.atomic.Value(usize).init(0);
 var pooled_buffers = std.atomic.Value(usize).init(0);
+
+fn publishPoolGauges() void {
+    telemetry.set(telemetry.metrics.memory.pool_live_bytes, @intCast(pooled_bytes.load(.monotonic)));
+    telemetry.set(telemetry.metrics.memory.pool_live_buffers, @intCast(pooled_buffers.load(.monotonic)));
+}
 
 pub fn resolveRegion(device: Device, policy: AllocationPolicy) !Region {
     return switch (device) {
@@ -81,6 +86,10 @@ pub fn supports(device: Device, policy: AllocationPolicy) bool {
     };
 }
 
+pub fn setPoolOversizeThreshold(bytes: usize) void {
+    pool_oversize_threshold_bytes = bytes;
+}
+
 pub fn trimMetalPool() usize {
     var freed: usize = 0;
     var freed_count: usize = 0;
@@ -103,7 +112,9 @@ pub fn trimMetalPool() usize {
     if (freed > 0) {
         _ = pooled_bytes.fetchSub(freed, .monotonic);
         _ = pooled_buffers.fetchSub(freed_count, .monotonic);
-        accounting.noteMetalPoolTrim(freed, freed_count);
+        publishPoolGauges();
+        telemetry.add(telemetry.metrics.memory.pool_trims, @intCast(freed_count));
+        telemetry.add(telemetry.metrics.memory.pool_trim_bytes, @intCast(freed));
     }
     return freed;
 }
@@ -139,7 +150,7 @@ fn freeCpuScratch(allocator: std.mem.Allocator, buffer: []align(8) u8) void {
 fn createPooledHandle(byte_len: usize) ?*anyopaque {
     if (!shouldPool(byte_len)) return directAlloc(byte_len);
     if (takePooled(byte_len)) |handle| return handle;
-    accounting.noteMetalPoolMiss();
+    telemetry.add(telemetry.metrics.memory.pool_misses, 1);
 
     const handle = affon_metal_buffer_create(byte_len) orelse blk: {
         _ = trimMetalPool();
@@ -150,12 +161,12 @@ fn createPooledHandle(byte_len: usize) ?*anyopaque {
 
 fn releasePooledHandle(byte_len: usize, handle: *anyopaque) void {
     if (!shouldPool(byte_len)) {
-        accounting.noteMetalPoolDrop();
+        telemetry.add(telemetry.metrics.memory.pool_drops, 1);
         affon_metal_buffer_destroy(handle);
         return;
     }
     if (!returnPooled(byte_len, handle)) {
-        accounting.noteMetalPoolDrop();
+        telemetry.add(telemetry.metrics.memory.pool_drops, 1);
         affon_metal_buffer_destroy(handle);
     }
 }
@@ -169,7 +180,7 @@ fn freeMetalScratch(handle: *anyopaque) void {
 }
 
 fn shouldPool(byte_len: usize) bool {
-    return byte_len < cfg.config.device.metal.pool_oversize_threshold_bytes;
+    return byte_len < pool_oversize_threshold_bytes;
 }
 
 fn directAlloc(byte_len: usize) ?*anyopaque {
@@ -188,7 +199,8 @@ fn takePooled(byte_len: usize) ?*anyopaque {
     const handle = bucket.pop() orelse return null;
     _ = pooled_bytes.fetchSub(byte_len, .monotonic);
     _ = pooled_buffers.fetchSub(1, .monotonic);
-    accounting.noteMetalPoolHit(byte_len);
+    telemetry.add(telemetry.metrics.memory.pool_hits, 1);
+    publishPoolGauges();
     return handle;
 }
 
@@ -205,6 +217,7 @@ fn returnPooled(byte_len: usize, handle: *anyopaque) bool {
 
     _ = pooled_bytes.fetchAdd(byte_len, .monotonic);
     _ = pooled_buffers.fetchAdd(1, .monotonic);
-    accounting.noteMetalPoolStore(byte_len);
+    telemetry.add(telemetry.metrics.memory.pool_stores, 1);
+    publishPoolGauges();
     return true;
 }
