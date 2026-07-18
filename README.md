@@ -16,3 +16,15 @@ zig build test
 
 The dependency will move to a released Hao source package when the first Hao
 embedding release is available.
+
+## Native compute library
+
+The compute engine is also available as an independent Zig module:
+
+```zig
+const compute = @import("compute");
+
+const value = try compute.tensor.Value.fromSliceF32(allocator, &.{2}, &.{1, 2});
+const op = try compute.operation.Op.init(.relu, &.{value}, .{ .none = {} });
+const result = try compute.eager.execute(allocator, op);
+```
