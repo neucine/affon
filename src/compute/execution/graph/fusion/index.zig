@@ -1,12 +1,13 @@
 const std = @import("std");
-const Value = @import("../../types/tensor/value.zig").Value;
-const Shape = @import("../../types/tensor/shape.zig").Shape;
-const Device = @import("../../types/tensor/device.zig").Device;
-const Graph = @import("../../types/ir/sir.zig").Graph;
-const Region = @import("../../types/ir/pir/graph.zig").Region;
-const Step = @import("../../types/ir/eir/graph.zig").Step;
-const OpTag = @import("../../types/operation/tag.zig").OpTag;
-const backend_dispatch = @import("../../backend/dispatch.zig");
+const Value = @import("../../../types/tensor/value.zig").Value;
+const Shape = @import("../../../types/tensor/shape.zig").Shape;
+const Device = @import("../../../types/tensor/device.zig").Device;
+const Graph = @import("../../../types/ir/sir.zig").Graph;
+const Region = @import("../../../types/ir/pir/graph.zig").Region;
+const Step = @import("../../../types/ir/eir/graph.zig").Step;
+const OpTag = @import("../../../types/operation/tag.zig").OpTag;
+const backend_dispatch = @import("../../../backend/dispatch.zig");
+const logsumexp_loss = @import("logsumexp_loss.zig");
 
 pub fn execute(
     allocator: std.mem.Allocator,
@@ -23,6 +24,7 @@ pub fn execute(
             false;
     }
     if (region.kind != .fusable_run or steps.len < 2) return false;
+    if (try logsumexp_loss.tryExecute(allocator, graph, steps, values, owned)) return true;
     if (try executeAttentionScores(allocator, graph, steps, values, owned)) return true;
     if (try executeAddLayerNorm(allocator, graph, steps, values, owned)) return true;
 

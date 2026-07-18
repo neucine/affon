@@ -6,7 +6,7 @@ const Op = @import("../../types/operation/op.zig").Op;
 const eager = @import("../eager/index.zig");
 const plan_graph = @import("../../plan/graph.zig");
 const graph_lower = @import("lower.zig");
-const fusion = @import("fusion.zig");
+const fusion = @import("fusion/index.zig");
 
 pub const GraphExecutionResult = struct {
     allocator: std.mem.Allocator,
