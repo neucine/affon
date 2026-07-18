@@ -16,7 +16,7 @@ pub const GraphExecutionResult = struct {
 
     pub fn deinit(self: *GraphExecutionResult) void {
         for (self.values, self.owned) |value, is_owned| {
-            if (is_owned) value.?.deinit();
+            if (is_owned) if (value) |owned_value| owned_value.deinit();
         }
         self.allocator.free(self.outputs);
         self.allocator.free(self.owned);
@@ -45,6 +45,17 @@ pub fn execute(
     errdefer allocator.free(owned);
     @memset(owned, false);
 
+    const remaining_uses = try allocator.alloc(usize, graph.values.items.len);
+    defer allocator.free(remaining_uses);
+    @memset(remaining_uses, 0);
+    const is_graph_output = try allocator.alloc(bool, graph.values.items.len);
+    defer allocator.free(is_graph_output);
+    @memset(is_graph_output, false);
+    for (graph.nodes.items) |node| {
+        for (node.inputs) |input_id| remaining_uses[input_id] += 1;
+    }
+    for (graph.outputs.items) |output_id| is_graph_output[output_id] = true;
+
     for (graph.inputs.items, inputs) |value_id, input| values[value_id] = input;
 
     var result = GraphExecutionResult{
@@ -63,6 +74,7 @@ pub fn execute(
             const region_steps = program.steps.items[region.step_start..region.step_end];
             region_index += 1;
             if (try fusion.execute(allocator, graph, region, region_steps, values, owned)) {
+                consumeInputs(graph, region_steps, values, owned, remaining_uses, is_graph_output);
                 step_index = region.step_end;
                 continue;
             }
@@ -108,6 +120,7 @@ pub fn execute(
             values[node.outputs[1]] = secondary.?;
             owned[node.outputs[1]] = true;
         }
+        consumeInputs(graph, &.{step}, values, owned, remaining_uses, is_graph_output);
         step_index += 1;
     }
 
@@ -116,4 +129,24 @@ pub fn execute(
         output.* = values[value_id] orelse return error.MissingGraphValue;
     }
     return result;
+}
+
+fn consumeInputs(
+    graph: *const Graph,
+    steps: []const @import("../../types/ir/eir/graph.zig").Step,
+    values: []?*Value,
+    owned: []bool,
+    remaining_uses: []usize,
+    is_graph_output: []const bool,
+) void {
+    for (steps) |step| {
+        const node = graph.nodes.items[step.node_id];
+        for (node.inputs) |value_id| {
+            if (remaining_uses[value_id] > 0) remaining_uses[value_id] -= 1;
+            if (remaining_uses[value_id] != 0 or is_graph_output[value_id] or !owned[value_id]) continue;
+            if (values[value_id]) |value| value.deinit();
+            values[value_id] = null;
+            owned[value_id] = false;
+        }
+    }
 }
