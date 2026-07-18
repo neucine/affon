@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out Affon
+        uses: actions/checkout@v4
+        with:
+          path: affon-next
+
+      - name: Check out Hao
+        uses: actions/checkout@v4
+        with:
+          repository: neucine/hao
+          ref: v0.1.2
+          path: hao
+
+      - name: Check out shared Zig libraries
+        uses: actions/checkout@v4
+        with:
+          repository: neucine/zig-libs
+          path: zig-libs
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Verify version
+        working-directory: affon-next
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          version=$(sed -n 's/.*\.version = "\([^"]*\)".*/\1/p' build.zig.zon)
+          test "v$version" = "$RELEASE_TAG"
+
+      - name: Verify release build
+        working-directory: affon-next
+        run: |
+          zig build test -Doptimize=ReleaseSafe
+          zig build -Doptimize=ReleaseSafe
+
+      - name: Package source release
+        working-directory: affon-next
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          archive="affon-next-${RELEASE_TAG#v}.tar.gz"
+          tar --exclude=.git --exclude=.zig-cache -czf "$archive" \
+            build.zig build.zig.zon README.md src
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: affon-next/affon-next-*.tar.gz

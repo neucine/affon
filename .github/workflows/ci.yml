@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Check out Affon
+        uses: actions/checkout@v4
+        with:
+          path: affon-next
+
+      - name: Check out Hao
+        uses: actions/checkout@v4
+        with:
+          repository: neucine/hao
+          ref: v0.1.2
+          path: hao
+
+      - name: Check out shared Zig libraries
+        uses: actions/checkout@v4
+        with:
+          repository: neucine/zig-libs
+          path: zig-libs
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Run tests
+        working-directory: affon-next
+        run: zig build test -Doptimize=ReleaseSafe
+
+      - name: Build
+        working-directory: affon-next
+        run: zig build -Doptimize=ReleaseSafe

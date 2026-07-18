@@ -4,17 +4,25 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const hao = b.dependency("hao", .{ .target = target, .optimize = optimize });
+    const zig_libs_dep = b.dependency("zig_libs", .{ .target = target, .optimize = optimize });
+    const zig_libs = zig_libs_dep.module("zig_libs");
+    const hao_module = hao.module("hao");
+    hao_module.addImport("zig_libs", zig_libs);
     const compute = b.addModule("compute", .{
         .root_source_file = b.path("src/compute.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{.{ .name = "zig_libs", .module = zig_libs }},
     });
 
     _ = b.addModule("affon", .{
         .root_source_file = b.path("src/affon.zig"),
         .target = target,
         .optimize = optimize,
-        .imports = &.{.{ .name = "hao", .module = hao.module("hao") }},
+        .imports = &.{
+            .{ .name = "hao", .module = hao_module },
+            .{ .name = "zig_libs", .module = zig_libs },
+        },
     });
 
     const tests = b.addTest(.{
@@ -22,12 +30,15 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/affon.zig"),
             .target = target,
             .optimize = optimize,
-            .imports = &.{.{ .name = "hao", .module = hao.module("hao") }},
+            .imports = &.{
+                .{ .name = "hao", .module = hao_module },
+                .{ .name = "zig_libs", .module = zig_libs },
+            },
         }),
     });
     tests.root_module.linkLibrary(hao.artifact("hao_runtime"));
     tests.root_module.addCSourceFile(.{
-          .file = b.path("src/compute/backend/metal/ffi_stub.c"),
+        .file = b.path("src/compute/backend/metal/ffi_stub.c"),
         .flags = &.{"-std=c11"},
     });
     const run_tests = b.addRunArtifact(tests);
