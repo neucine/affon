@@ -49,3 +49,17 @@ test "compute core owns tensor values independently of the JS binding" {
     const values = std.mem.bytesAsSlice(f32, bytes);
     try std.testing.expectEqual(@as(f32, 3), values[2]);
 }
+
+test "compute CPU kernels consume tensor storage" {
+    const Value = compute.tensor.Value;
+    const lhs = try Value.fromSliceF32(std.testing.allocator, &.{3}, &.{ 1, 2, 3 });
+    defer lhs.deinit();
+    const rhs = try Value.fromSliceF32(std.testing.allocator, &.{3}, &.{ 10, 20, 30 });
+    defer rhs.deinit();
+    const result = try Value.createContiguous(std.testing.allocator, &.{3}, .f32, .cpu, false);
+    defer result.deinit();
+
+    try compute.cpu.add(.f32, lhs.storage.?, rhs.storage.?, result.storage.?);
+    const bytes = try result.storage.?.readableBytes();
+    try std.testing.expectEqualSlices(f32, &.{ 11, 22, 33 }, std.mem.bytesAsSlice(f32, bytes));
+}
