@@ -195,6 +195,41 @@ test "compute graph execution supports add layer norm fusion" {
     try std.testing.expectApproxEqAbs(@as(f32, 0), values[2] + values[3], 1e-5);
 }
 
+test "compute graph execution supports attention score fusion" {
+    const Value = compute.tensor.Value;
+    const q = try Value.fromSliceF32(std.testing.allocator, &.{ 1, 2, 2 }, &.{ 1, 0, 0, 1 });
+    defer q.deinit();
+    const k_t = try Value.fromSliceF32(std.testing.allocator, &.{ 1, 2, 2 }, &.{ 1, 0, 0, 1 });
+    defer k_t.deinit();
+    const scale = try Value.fromSliceF32(std.testing.allocator, &.{ 1, 2, 2 }, &.{ 1, 1, 1, 1 });
+    defer scale.deinit();
+    const mask = try Value.fromSliceI64(std.testing.allocator, &.{ 1, 2, 2 }, &.{ 0, 0, 0, 0 });
+    defer mask.deinit();
+
+    var graph = compute.types.ir.Graph.init(std.testing.allocator);
+    defer graph.deinit();
+    const q_id = try compute.execution.graph.builder.addInputFromValue(std.testing.allocator, &graph, q);
+    const k_id = try compute.execution.graph.builder.addInputFromValue(std.testing.allocator, &graph, k_t);
+    const scale_id = try compute.execution.graph.builder.addInputFromValue(std.testing.allocator, &graph, scale);
+    const mask_id = try compute.execution.graph.builder.addInputFromValue(std.testing.allocator, &graph, mask);
+    var shape = try compute.types.tensor.Shape.initCopy(std.testing.allocator, &.{ 1, 2, 2 });
+    defer shape.deinit();
+    var layout = try compute.types.tensor.Layout.initContiguous(std.testing.allocator, shape);
+    defer layout.deinit();
+    const spec = compute.types.tensor.ValueSpec{ .shape = shape, .dtype = .f32, .layout = layout, .device = .cpu };
+    const mm_id = try graph.addOp(.matmul, &.{ q_id, k_id }, .{ .none = {} }, spec);
+    const scaled_id = try graph.addOp(.mul, &.{ mm_id, scale_id }, .{ .none = {} }, spec);
+    const masked_id = try graph.addOp(.masked_fill, &.{ scaled_id, mask_id }, .{ .masked_fill = .{ .value = -1e9 } }, spec);
+    const output_id = try graph.addOp(.softmax, &.{masked_id}, .{ .softmax = .{ .axis = 2 } }, spec);
+    try graph.setOutputs(&.{output_id});
+
+    var result = try compute.execution.graph.execute(std.testing.allocator, &graph, &.{ q, k_t, scale, mask });
+    defer result.deinit();
+    const values = std.mem.bytesAsSlice(f32, try result.outputs[0].storage.?.readableBytes());
+    try std.testing.expectApproxEqAbs(@as(f32, 1), values[0] + values[1], 1e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 1), values[2] + values[3], 1e-5);
+}
+
 test "autograd tape tracks provenance without coupling to execution" {
     const Value = compute.tensor.Value;
     const input = try Value.fromSliceF32(std.testing.allocator, &.{2}, &.{ 1, 2 });

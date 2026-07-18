@@ -23,6 +23,7 @@ pub fn execute(
             false;
     }
     if (region.kind != .fusable_run or steps.len < 2) return false;
+    if (try executeAttentionScores(allocator, graph, steps, values, owned)) return true;
     if (try executeAddLayerNorm(allocator, graph, steps, values, owned)) return true;
 
     const first_node = graph.nodes.items[steps[0].node_id];
@@ -67,6 +68,67 @@ pub fn execute(
         stages[i] = try unaryStage(node);
     }
     return dispatchRegion(allocator, graph, steps, lhs, null, device, undefined, stages, values, owned);
+}
+
+fn executeAttentionScores(
+    allocator: std.mem.Allocator,
+    graph: *const Graph,
+    steps: []const Step,
+    values: []?*Value,
+    owned: []bool,
+) !bool {
+    if (steps.len != 4) return false;
+    const matmul_node = graph.nodes.items[steps[0].node_id];
+    const scale_node = graph.nodes.items[steps[1].node_id];
+    const mask_node = graph.nodes.items[steps[2].node_id];
+    const softmax_node = graph.nodes.items[steps[3].node_id];
+    const matmul_tag = switch (matmul_node.kind) { .op => |tag| tag, else => return false };
+    const scale_tag = switch (scale_node.kind) { .op => |tag| tag, else => return false };
+    const mask_tag = switch (mask_node.kind) { .op => |tag| tag, else => return false };
+    const softmax_tag = switch (softmax_node.kind) { .op => |tag| tag, else => return false };
+    if (matmul_tag != .matmul or scale_tag != .mul or mask_tag != .masked_fill or softmax_tag != .softmax) return false;
+    if (matmul_node.inputs.len != 2 or matmul_node.outputs.len != 1 or
+        scale_node.inputs.len != 2 or scale_node.outputs.len != 1 or
+        mask_node.inputs.len != 2 or mask_node.outputs.len != 1 or
+        softmax_node.inputs.len != 1 or softmax_node.outputs.len != 1) return false;
+    if (scale_node.inputs[0] != matmul_node.outputs[0] or mask_node.inputs[0] != scale_node.outputs[0] or
+        softmax_node.inputs[0] != mask_node.outputs[0]) return false;
+
+    const q = values[matmul_node.inputs[0]] orelse return error.MissingGraphValue;
+    const k_t = values[matmul_node.inputs[1]] orelse return error.MissingGraphValue;
+    const scale = values[scale_node.inputs[1]] orelse return error.MissingGraphValue;
+    const mask = values[mask_node.inputs[1]] orelse return error.MissingGraphValue;
+    const device = q.device() orelse return error.InputNotMaterialized;
+    if ((k_t.device() orelse return error.InputNotMaterialized) != device or
+        (scale.device() orelse return error.InputNotMaterialized) != device or
+        (mask.device() orelse return error.InputNotMaterialized) != device) return false;
+    if (q.dtype != k_t.dtype or q.dtype != scale.dtype) return false;
+    if (q.storage == null or k_t.storage == null or scale.storage == null or mask.storage == null) return false;
+    if (q.layout.offset != 0 or k_t.layout.offset != 0 or scale.layout.offset != 0 or mask.layout.offset != 0 or
+        !q.layout.isContiguous(q.shape) or !k_t.layout.isContiguous(k_t.shape) or
+        !scale.layout.isContiguous(scale.shape) or !mask.layout.isContiguous(mask.shape)) return false;
+
+    const output_spec = graph.values.items[softmax_node.outputs[0]].spec;
+    const matmul_spec = graph.values.items[matmul_node.outputs[0]].spec;
+    if (output_spec.dtype != q.dtype or output_spec.device != device or
+        !Shape.eql(matmul_spec.shape, output_spec.shape) or !Shape.eql(scale.shape, matmul_spec.shape) or
+        !Shape.eql(mask.shape, matmul_spec.shape)) return false;
+    const softmax_options = switch (softmax_node.options) {
+        .softmax => |options| options,
+        else => return false,
+    };
+    const mask_options = switch (mask_node.options) {
+        .masked_fill => |options| options,
+        else => return false,
+    };
+    if (softmax_options.axis + 1 != output_spec.shape.rank()) return false;
+
+    const output = try Value.createContiguousWithSource(allocator, output_spec.shape.dims, output_spec.dtype, device, false, .graph);
+    errdefer output.deinit();
+    try backend_dispatch.attentionScores(allocator, device, q.dtype, q.storage.?, k_t.storage.?, scale.storage.?, mask.storage.?, output.storage.?, q.shape.dims, k_t.shape.dims, output_spec.shape.dims, softmax_options.axis, mask_options.value);
+    values[softmax_node.outputs[0]] = output;
+    owned[softmax_node.outputs[0]] = true;
+    return true;
 }
 
 fn executeAddLayerNorm(
