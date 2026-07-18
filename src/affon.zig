@@ -63,3 +63,19 @@ test "compute CPU kernels consume tensor storage" {
     const bytes = try result.storage.?.readableBytes();
     try std.testing.expectEqualSlices(f32, &.{ 11, 22, 33 }, std.mem.bytesAsSlice(f32, bytes));
 }
+
+test "compute eager execution runs an operation" {
+    const Value = compute.tensor.Value;
+    const lhs = try Value.fromSliceF32(std.testing.allocator, &.{3}, &.{ 1, 2, 3 });
+    defer lhs.deinit();
+    const rhs = try Value.fromSliceF32(std.testing.allocator, &.{3}, &.{ 10, 20, 30 });
+    defer rhs.deinit();
+
+    const inputs = [_]*Value{ lhs, rhs };
+    const op = try compute.op.Op.init(.add, &inputs, .{ .none = {} });
+    const result = try compute.execution.eager.execute(std.testing.allocator, op);
+    defer result.deinit();
+
+    const bytes = try result.storage.?.readableBytes();
+    try std.testing.expectEqualSlices(f32, &.{ 11, 22, 33 }, std.mem.bytesAsSlice(f32, bytes));
+}
