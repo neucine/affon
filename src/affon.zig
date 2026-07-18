@@ -3,6 +3,7 @@ const hao = @import("hao");
 
 pub const package_name = "affon";
 pub const compute = @import("compute/core.zig");
+const autograd = @import("compute/autograd/index.zig");
 
 const sources = [_]hao.SourceModule{.{
     .specifier = "affon:runtime",
@@ -107,9 +108,9 @@ test "autograd tape tracks provenance without coupling to execution" {
     const input = try Value.fromSliceF32(std.testing.allocator, &.{2}, &.{ 1, 2 });
     const output = try Value.fromSliceF32(std.testing.allocator, &.{2}, &.{ 3, 4 });
 
-    _ = try compute.autograd.makeTrainableValue(std.testing.allocator, input);
-    _ = try compute.autograd.makeTrackedValue(std.testing.allocator, output);
-    const node = try compute.autograd.tape.createNode(
+    _ = try autograd.makeTrainableValue(std.testing.allocator, input);
+    _ = try autograd.makeTrackedValue(std.testing.allocator, output);
+    const node = try autograd.tape.createNode(
         std.testing.allocator,
         .relu,
         &.{.{ .value = input, .input_slot = 0 }},
@@ -123,10 +124,10 @@ test "autograd tape tracks provenance without coupling to execution" {
         null,
         null,
     );
-    compute.autograd.State.fromValue(output).?.attachNode(node);
+    autograd.State.fromValue(output).?.attachNode(node);
 
-    try std.testing.expectEqual(compute.autograd.TrackingState.trainable, compute.autograd.State.trackingState(input));
-    try std.testing.expectEqual(compute.autograd.TrackingState.tracked, compute.autograd.State.trackingState(output));
-    compute.autograd.releaseOwnedValue(output);
-    compute.autograd.releaseOwnedValue(input);
+    try std.testing.expectEqual(autograd.TrackingState.trainable, autograd.State.trackingState(input));
+    try std.testing.expectEqual(autograd.TrackingState.tracked, autograd.State.trackingState(output));
+    autograd.releaseOwnedValue(output);
+    autograd.releaseOwnedValue(input);
 }
