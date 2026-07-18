@@ -8,6 +8,9 @@ const Step = @import("../../../types/ir/eir/graph.zig").Step;
 const OpTag = @import("../../../types/operation/tag.zig").OpTag;
 const backend_dispatch = @import("../../../backend/dispatch.zig");
 const logsumexp_loss = @import("logsumexp_loss.zig");
+const gather_logsumexp_loss = @import("gather_logsumexp_loss.zig");
+const causal_shift_gather_logsumexp_loss = @import("causal_shift_gather_logsumexp_loss.zig");
+const lm_head_cross_entropy_indexed = @import("lm_head_cross_entropy_indexed.zig");
 
 pub fn execute(
     allocator: std.mem.Allocator,
@@ -25,6 +28,9 @@ pub fn execute(
     }
     if (region.kind != .fusable_run or steps.len < 2) return false;
     if (try logsumexp_loss.tryExecute(allocator, graph, steps, values, owned)) return true;
+    if (try gather_logsumexp_loss.tryExecute(allocator, graph, steps, values, owned)) return true;
+    if (try causal_shift_gather_logsumexp_loss.tryExecute(allocator, graph, steps, values, owned)) return true;
+    if (try lm_head_cross_entropy_indexed.tryExecute(allocator, graph, steps, values, owned)) return true;
     if (try executeAttentionScores(allocator, graph, steps, values, owned)) return true;
     if (try executeAddLayerNorm(allocator, graph, steps, values, owned)) return true;
 

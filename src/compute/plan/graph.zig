@@ -113,6 +113,16 @@ fn validateSliceRange(range: SliceRange, dim_size: usize) !void {
 fn discoverFusionRegions(plan: *GraphPlan, graph: *const Graph) !void {
     var i: usize = 0;
     while (i < plan.steps.items.len) : (i += 1) {
+        if (classifyGatherLogsumexpLossRegion(plan, graph, i)) |region| {
+            try plan.regions.append(plan.allocator, region);
+            i = region.step_end - 1;
+            continue;
+        }
+        if (classifyCausalGatherLogsumexpLossRegion(plan, graph, i)) |region| {
+            try plan.regions.append(plan.allocator, region);
+            i = region.step_end - 1;
+            continue;
+        }
         if (classifyLogsumexpLossRegion(plan, graph, i)) |region| {
             try plan.regions.append(plan.allocator, region);
             i = region.step_end - 1;
@@ -133,6 +143,8 @@ fn discoverFusionRegions(plan: *GraphPlan, graph: *const Graph) !void {
         const run_start = i;
         var run_end = i + 1;
         while (run_end < plan.steps.items.len) : (run_end += 1) {
+            if (classifyGatherLogsumexpLossRegion(plan, graph, run_end) != null or
+                classifyCausalGatherLogsumexpLossRegion(plan, graph, run_end) != null) break;
             if (classifyLogsumexpLossRegion(plan, graph, run_end) != null) break;
             if (classifyMatmulEpilogueRegion(plan, graph, run_end) != null) break;
             if (classifyLmHeadCrossEntropyIndexedRegion(plan, graph, run_end) != null) break;
@@ -147,6 +159,18 @@ fn discoverFusionRegions(plan: *GraphPlan, graph: *const Graph) !void {
         }
         i = run_end - 1;
     }
+}
+
+fn classifyGatherLogsumexpLossRegion(plan: *const GraphPlan, graph: *const Graph, start: usize) ?Region {
+    const tags = &.{ .gather, .max_axis, .sub, .exp, .sum_axis, .log, .add, .sub, .mean_all };
+    if (!matchesStepTags(graph, plan.steps.items, start, tags)) return null;
+    return .{ .kind = .fusable_run, .step_start = start, .step_end = start + tags.len };
+}
+
+fn classifyCausalGatherLogsumexpLossRegion(plan: *const GraphPlan, graph: *const Graph, start: usize) ?Region {
+    const tags = &.{ .slice, .reshape, .reshape, .gather, .max_axis, .sub, .exp, .sum_axis, .log, .add, .sub, .mean_all };
+    if (!matchesStepTags(graph, plan.steps.items, start, tags)) return null;
+    return .{ .kind = .fusable_run, .step_start = start, .step_end = start + tags.len };
 }
 
 fn classifyLogsumexpLossRegion(plan: *const GraphPlan, graph: *const Graph, start: usize) ?Region {
