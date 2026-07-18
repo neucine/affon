@@ -101,3 +101,32 @@ test "compute graph execution runs multiple operations" {
     const bytes = try result.outputs[0].storage.?.readableBytes();
     try std.testing.expectEqualSlices(f32, &.{ 1, 5, 7 }, std.mem.bytesAsSlice(f32, bytes));
 }
+
+test "autograd tape tracks provenance without coupling to execution" {
+    const Value = compute.tensor.Value;
+    const input = try Value.fromSliceF32(std.testing.allocator, &.{2}, &.{ 1, 2 });
+    const output = try Value.fromSliceF32(std.testing.allocator, &.{2}, &.{ 3, 4 });
+
+    _ = try compute.autograd.makeTrainableValue(std.testing.allocator, input);
+    _ = try compute.autograd.makeTrackedValue(std.testing.allocator, output);
+    const node = try compute.autograd.tape.createNode(
+        std.testing.allocator,
+        .relu,
+        &.{.{ .value = input, .input_slot = 0 }},
+        &.{input},
+        output,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+    );
+    compute.autograd.State.fromValue(output).?.attachNode(node);
+
+    try std.testing.expectEqual(compute.autograd.TrackingState.trainable, compute.autograd.State.trackingState(input));
+    try std.testing.expectEqual(compute.autograd.TrackingState.tracked, compute.autograd.State.trackingState(output));
+    compute.autograd.releaseOwnedValue(output);
+    compute.autograd.releaseOwnedValue(input);
+}
