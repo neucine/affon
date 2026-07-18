@@ -1,5 +1,5 @@
 const std = @import("std");
-const graph_mod = @import("../ir.zig");
+const graph_mod = @import("../types/ir/index.zig");
 const NodeId = graph_mod.NodeId;
 const ValueId = graph_mod.ValueId;
 const Graph = graph_mod.Graph;

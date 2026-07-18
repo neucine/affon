@@ -79,3 +79,25 @@ test "compute eager execution runs an operation" {
     const bytes = try result.storage.?.readableBytes();
     try std.testing.expectEqualSlices(f32, &.{ 11, 22, 33 }, std.mem.bytesAsSlice(f32, bytes));
 }
+
+test "compute graph execution runs multiple operations" {
+    const Value = compute.tensor.Value;
+    const lhs = try Value.fromSliceF32(std.testing.allocator, &.{3}, &.{ -1, 2, 3 });
+    defer lhs.deinit();
+    const rhs = try Value.fromSliceF32(std.testing.allocator, &.{3}, &.{ 2, 3, 4 });
+    defer rhs.deinit();
+
+    var graph = compute.types.ir.Graph.init(std.testing.allocator);
+    defer graph.deinit();
+    const lhs_id = try compute.execution.graph.builder.addInputFromValue(std.testing.allocator, &graph, lhs);
+    const rhs_id = try compute.execution.graph.builder.addInputFromValue(std.testing.allocator, &graph, rhs);
+    const spec = try lhs.spec();
+    const sum_id = try graph.addOp(.add, &.{ lhs_id, rhs_id }, .{ .none = {} }, spec);
+    const output_id = try graph.addOp(.relu, &.{sum_id}, .{ .none = {} }, spec);
+    try graph.setOutputs(&.{output_id});
+
+    var result = try compute.execution.graph.execute(std.testing.allocator, &graph, &.{ lhs, rhs });
+    defer result.deinit();
+    const bytes = try result.outputs[0].storage.?.readableBytes();
+    try std.testing.expectEqualSlices(f32, &.{ 1, 5, 7 }, std.mem.bytesAsSlice(f32, bytes));
+}
