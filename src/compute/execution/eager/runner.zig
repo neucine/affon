@@ -1,132 +1,34 @@
 const std = @import("std");
-const tensor_value = @import("../../types/tensor/value.zig");
-const Value = tensor_value.Value;
+const tensor_value = @import("../../types/tensor/tensor.zig");
+const Tensor = tensor_value.Tensor;
 const Storage = @import("../../types/tensor/storage.zig").Storage;
-const obs = @import("../../../obs/index.zig");
-const trace = obs.trace;
-const metrics = obs.metrics;
+const telemetry = @import("../../telemetry.zig");
 const Op = @import("../../types/operation/op.zig").Op;
-const semantic = @import("../../sema/index.zig");
 const Device = @import("../../types/tensor/device.zig").Device;
 const errors = @import("../../errors.zig");
 const Shape = @import("../../types/tensor/shape.zig").Shape;
 const Layout = @import("../../types/tensor/layout.zig").Layout;
-const ValueSpec = @import("../../types/tensor/value_spec.zig").ValueSpec;
+const TensorSpec = @import("../../types/tensor/tensor_spec.zig").TensorSpec;
 const prepared_execution = @import("../prepared.zig");
 const reduction_execution = @import("../dispatch/reduction.zig");
 const materialization_execution = @import("../materialization.zig");
 const transfer_execution = @import("../transfer.zig");
 const execution_metrics = @import("../metrics.zig");
-const execution_layout = @import("../layout.zig");
-const eager_pir = @import("../../types/ir/pir/eager.zig");
-const eager_lowering = @import("../../plan/eager.zig");
+const execution_layout = @import("../../plan/layout.zig");
+const eager_plan = @import("../../types/ir/plan.zig");
 const conversion_execution = @import("../dispatch/conversion.zig");
 const elementwise_execution = @import("../dispatch/elementwise.zig");
 const linalg_execution = @import("../dispatch/linalg.zig");
 const normalization_execution = @import("../dispatch/normalization.zig");
 const selection_execution = @import("../dispatch/selection.zig");
 const shape_execution = @import("../dispatch/shape.zig");
-const matmul_planning = @import("../../plan/matmul.zig");
 
-var eager_metrics_initialized: bool = false;
-var metric_transfer_to_host_bytes: ?metrics.Id = null;
-var metric_transfer_from_host_bytes: ?metrics.Id = null;
-var metric_transfer_to_host_count: ?metrics.Id = null;
-var metric_transfer_from_host_count: ?metrics.Id = null;
-var metric_storage_required_count: ?metrics.Id = null;
-var metric_contiguous_input_required_count: ?metrics.Id = null;
-var metric_contiguity_fixup_count: ?metrics.Id = null;
-var metric_contiguity_fixup_bytes: ?metrics.Id = null;
-var eager_metric_registration_failed_reported: bool = false;
-
-fn reportEagerMetricRegistrationFailureOnce() void {
-    if (eager_metric_registration_failed_reported) return;
-    eager_metric_registration_failed_reported = true;
-    var diag_scope = trace.begin(.compute, "execution", "eager_metric_registration_failed");
-    diag_scope.end();
-}
-
-fn tryRegisterEagerMetric(definition: metrics.Definition) ?metrics.Id {
-    return metrics.register(definition) catch {
-        reportEagerMetricRegistrationFailureOnce();
-        return null;
-    };
-}
-
-fn ensureEagerMetrics() void {
-    if (eager_metrics_initialized) return;
-    eager_metrics_initialized = true;
-    metric_transfer_to_host_bytes = tryRegisterEagerMetric(.{
-        .group = "execution.transfer",
-        .name = "to_host_bytes",
-        .kind = .counter,
-        .unit = .bytes,
-        .domain = .compute,
-    });
-    metric_transfer_from_host_bytes = tryRegisterEagerMetric(.{
-        .group = "execution.transfer",
-        .name = "from_host_bytes",
-        .kind = .counter,
-        .unit = .bytes,
-        .domain = .compute,
-    });
-    metric_transfer_to_host_count = tryRegisterEagerMetric(.{
-        .group = "execution.transfer",
-        .name = "to_host_count",
-        .kind = .counter,
-        .unit = .count,
-        .domain = .compute,
-    });
-    metric_transfer_from_host_count = tryRegisterEagerMetric(.{
-        .group = "execution.transfer",
-        .name = "from_host_count",
-        .kind = .counter,
-        .unit = .count,
-        .domain = .compute,
-    });
-    metric_storage_required_count = tryRegisterEagerMetric(.{
-        .group = "execution.storage",
-        .name = "required_count",
-        .kind = .counter,
-        .unit = .count,
-        .domain = .compute,
-    });
-    metric_contiguous_input_required_count = tryRegisterEagerMetric(.{
-        .group = "execution.contiguity",
-        .name = "input_required_count",
-        .kind = .counter,
-        .unit = .count,
-        .domain = .compute,
-    });
-    metric_contiguity_fixup_count = tryRegisterEagerMetric(.{
-        .group = "execution.contiguity",
-        .name = "fixup_count",
-        .kind = .counter,
-        .unit = .count,
-        .domain = .compute,
-    });
-    metric_contiguity_fixup_bytes = tryRegisterEagerMetric(.{
-        .group = "execution.contiguity",
-        .name = "fixup_bytes",
-        .kind = .counter,
-        .unit = .bytes,
-        .domain = .compute,
-    });
-}
-
-fn metricAdd(id: ?metrics.Id, delta: i64) void {
-    if (id) |metric_id| metrics.add(metric_id, delta);
+fn metricAdd(definition: telemetry.MetricDefinition, delta: i64) void {
+    telemetry.add(definition, delta);
 }
 
 fn metricSink() execution_metrics.Sink {
-    return .{
-        .transfer_to_host_count = metric_transfer_to_host_count,
-        .transfer_to_host_bytes = metric_transfer_to_host_bytes,
-        .transfer_from_host_count = metric_transfer_from_host_count,
-        .transfer_from_host_bytes = metric_transfer_from_host_bytes,
-        .contiguity_fixup_count = metric_contiguity_fixup_count,
-        .contiguity_fixup_bytes = metric_contiguity_fixup_bytes,
-    };
+    return .{ .telemetry = telemetry.current() };
 }
 
 fn recordTransferSummary(summary: transfer_execution.TransferSummary) void {
@@ -137,17 +39,17 @@ fn recordMaterializationSummary(summary: materialization_execution.Materializati
     execution_metrics.recordMaterializationSummary(metricSink(), summary);
 }
 
-pub const ExecutionInputRequirement = eager_pir.ExecutionInputRequirement;
-pub const EagerOpPlan = eager_pir.Plan;
+pub const ExecutionInputRequirement = eager_plan.ExecutionInputRequirement;
+pub const EagerOpPlan = eager_plan.EagerPlan;
 
 const StepTraceLabel = struct {
-    group: []const u8,
+    group: telemetry.Group,
     name: []const u8,
 };
 
 pub const ExecutionResult = struct {
-    primary: *Value,
-    secondary: ?*Value = null,
+    primary: *Tensor,
+    secondary: ?*Tensor = null,
 
     pub fn deinit(self: *ExecutionResult) void {
         if (self.secondary) |secondary| secondary.deinit();
@@ -155,35 +57,6 @@ pub const ExecutionResult = struct {
         self.* = undefined;
     }
 };
-
-pub fn execute(allocator: std.mem.Allocator, op: Op) !*Value {
-    var result = try executeAll(allocator, op);
-    if (result.secondary != null) {
-        result.deinit();
-        return errors.nativeErrorWithCurrent(
-            error.MultiOutputRequiresExecuteAll,
-            "eager.execute: op produced multi-output; call executeAll",
-            .{},
-        );
-    }
-    const output = result.primary;
-    result.secondary = null;
-    return output;
-}
-
-pub fn executeAll(allocator: std.mem.Allocator, op: Op) !ExecutionResult {
-    var execution_scope = trace.begin(.compute, "execution", "run");
-    defer execution_scope.end();
-    ensureEagerMetrics();
-
-    var info = try semantic.infer(allocator, op);
-    defer info.deinit();
-
-    var plan = try eager_lowering.lower(allocator, op, info);
-    defer plan.deinit();
-
-    return executeAllWithPlan(allocator, op, &plan);
-}
 
 pub fn executeAllWithPlan(allocator: std.mem.Allocator, op: Op, plan: *const EagerOpPlan) !ExecutionResult {
     try validateInputsForPlan(op, plan);
@@ -201,17 +74,19 @@ fn executeAllocatedPlan(allocator: std.mem.Allocator, op: Op, plan: *const Eager
     const primary = try prepared_execution.createOutputValue(allocator, eagerOutputSpec(plan.primary_output, plan.device), .eager);
     errdefer primary.deinit();
 
-    var secondary: ?*Value = null;
+    var secondary: ?*Tensor = null;
     errdefer if (secondary) |s| s.deinit();
     if (plan.secondary_output) |secondary_spec| {
         secondary = try prepared_execution.createOutputValue(allocator, eagerOutputSpec(secondary_spec, plan.device), .eager);
     }
 
-    var dispatch_scope = trace.begin(.compute, "execution", "run");
-    defer dispatch_scope.end();
+    var dispatch_scope = telemetry.beginTrace(.execution, telemetry.traces.run);
+    var dispatch_succeeded = false;
+    defer if (!dispatch_succeeded) dispatch_scope.endError();
     const step_trace = classifyStepTrace(op, plan);
-    var step_scope = trace.begin(.compute, step_trace.group, step_trace.name);
-    defer step_scope.end();
+    var step_scope = telemetry.beginTrace(step_trace.group, step_trace.name);
+    var step_succeeded = false;
+    defer if (!step_succeeded) step_scope.endError();
 
     switch (plan.kind) {
         .elementwise_binary => try dispatchElementwiseBinary(allocator, op, plan, primary.storage.?),
@@ -223,31 +98,36 @@ fn executeAllocatedPlan(allocator: std.mem.Allocator, op: Op, plan: *const Eager
         .view => return error.InvalidExecutionPlan,
     }
 
-    return .{
+    const result = ExecutionResult{
         .primary = primary,
         .secondary = secondary,
     };
+    step_succeeded = true;
+    step_scope.end();
+    dispatch_succeeded = true;
+    dispatch_scope.end();
+    return result;
 }
 
 fn classifyStepTrace(op: Op, plan: *const EagerOpPlan) StepTraceLabel {
     if (op.tag != .matmul or op.inputs.len != 2) {
-        return .{ .group = "execution.step", .name = @tagName(op.tag) };
+        return .{ .group = .execution, .name = @tagName(op.tag) };
     }
-    const lhs = op.inputs[0].spec() catch return .{ .group = "execution.step", .name = @tagName(op.tag) };
-    const rhs = op.inputs[1].spec() catch return .{ .group = "execution.step", .name = @tagName(op.tag) };
-    const out = ValueSpec{
-        .shape = plan.primary_output.shape,
-        .dtype = plan.primary_output.dtype,
-        .layout = plan.primary_output.layout,
-        .device = plan.device,
-    };
-    const descriptor = matmul_planning.classifyFromSpecs(lhs, rhs, out, .{
-        .hint = op.execution_metadata.matmul_hint,
-        .hint_source = op.execution_metadata.hint_source,
-    });
+    const matmul = plan.matmul orelse return .{ .group = .execution, .name = @tagName(op.tag) };
     return .{
-        .group = "execution.step.matmul",
-        .name = matmul_planning.familyName(descriptor.family),
+        .group = .execution,
+        .name = matmulFamilyName(matmul.family),
+    };
+}
+
+fn matmulFamilyName(family: eager_plan.MatmulFamily) []const u8 {
+    return switch (family) {
+        .gemm_2d => "gemm_2d",
+        .gemm_batched => "gemm_batched",
+        .gemm_projection => "gemm_projection",
+        .gemm_attention_scores => "gemm_attention_scores",
+        .gemm_attention_values => "gemm_attention_values",
+        .gemm_generic_unresolved => "gemm_generic_unresolved",
     };
 }
 
@@ -262,7 +142,7 @@ fn executeViewPlan(allocator: std.mem.Allocator, op: Op, plan: *const EagerOpPla
     };
 }
 
-fn eagerOutputSpec(output: EagerOpPlan.Output, device: Device) ValueSpec {
+fn eagerOutputSpec(output: EagerOpPlan.Output, device: Device) TensorSpec {
     return .{
         .shape = output.shape,
         .dtype = output.dtype,
@@ -288,7 +168,7 @@ fn dispatchElementwiseUnary(allocator: std.mem.Allocator, op: Op, plan: *const E
     }
 }
 
-fn dispatchElementwiseGeneric(allocator: std.mem.Allocator, op: Op, plan: *const EagerOpPlan, output: *Value) !void {
+fn dispatchElementwiseGeneric(allocator: std.mem.Allocator, op: Op, plan: *const EagerOpPlan, output: *Tensor) !void {
     switch (op.tag) {
         .where => try dispatchWhere(allocator, op, plan, output.storage orelse return error.InvalidExecutionPlan),
         .masked_fill => try dispatchMaskedFill(allocator, op, plan, output.storage orelse return error.InvalidExecutionPlan),
@@ -313,7 +193,7 @@ fn dispatchReductionAllKind(_: std.mem.Allocator, op: Op, plan: *const EagerOpPl
     }
 }
 
-fn dispatchReductionKind(allocator: std.mem.Allocator, op: Op, plan: *const EagerOpPlan, output: *Value) !void {
+fn dispatchReductionKind(allocator: std.mem.Allocator, op: Op, plan: *const EagerOpPlan, output: *Tensor) !void {
     switch (op.tag) {
         .sum_axis, .mean_axis, .min_axis, .max_axis, .variance_axis, .std_axis, .argmin_axis, .argmax_axis => try dispatchReductionAxis(op, plan, output.storage orelse return error.InvalidExecutionPlan),
         .reduce_to_shape => try dispatchReduceToShape(allocator, op, plan, output),
@@ -325,7 +205,7 @@ fn dispatchReductionKind(allocator: std.mem.Allocator, op: Op, plan: *const Eage
     }
 }
 
-fn dispatchIndexKind(op: Op, plan: *const EagerOpPlan, output: *Storage, secondary: ?*Value) !void {
+fn dispatchIndexKind(op: Op, plan: *const EagerOpPlan, output: *Storage, secondary: ?*Tensor) !void {
     switch (op.tag) {
         .gather => try dispatchGather(op, plan, output),
         .embedding => try dispatchEmbedding(op, plan, output),
@@ -340,7 +220,7 @@ fn dispatchIndexKind(op: Op, plan: *const EagerOpPlan, output: *Storage, seconda
     }
 }
 
-fn dispatchReduceToShape(allocator: std.mem.Allocator, op: Op, plan: *const EagerOpPlan, output: *Value) !void {
+fn dispatchReduceToShape(allocator: std.mem.Allocator, op: Op, plan: *const EagerOpPlan, output: *Tensor) !void {
     var prepared = try prepareInputValueForDecision(op.inputs[0], inputLayoutDecisionForPlan(plan));
     defer prepared.deinit();
     const reduce = plan.reduce_to_shape orelse return error.InvalidExecutionPlan;
@@ -431,12 +311,12 @@ fn validateInputsForPlan(op: Op, plan: *const EagerOpPlan) !void {
                 .{i},
             );
         }
-        if (plan.input_requirement == .require_contiguous_input) metricAdd(metric_contiguous_input_required_count, 1);
-        if (plan.input_requirement == .require_storage) metricAdd(metric_storage_required_count, 1);
+        if (plan.input_requirement == .require_contiguous_input) metricAdd(telemetry.metrics.execution.input_required_count, 1);
+        if (plan.input_requirement == .require_storage) metricAdd(telemetry.metrics.execution.storage_required_count, 1);
     }
 }
 
-fn dispatchBinary(allocator: std.mem.Allocator, op: Op, plan: *const EagerOpPlan, output: *Storage) !void {
+fn dispatchBinary(_: std.mem.Allocator, op: Op, plan: *const EagerOpPlan, output: *Storage) !void {
     var lhs = try prepareInputValueForDecision(op.inputs[0], inputLayoutDecisionForPlan(plan));
     defer lhs.deinit();
     var rhs = try prepareInputValueForDecision(op.inputs[1], inputLayoutDecisionForPlan(plan));
@@ -449,7 +329,7 @@ fn dispatchBinary(allocator: std.mem.Allocator, op: Op, plan: *const EagerOpPlan
         lhs.value,
         rhs.value,
         output,
-        try prepared_execution.binaryElementwiseDescriptor(allocator, op.tag, lhs.value, rhs.value, op.options, plan.broadcast),
+        try prepared_execution.binaryElementwiseDescriptor(lhs.value, rhs.value, plan.broadcast),
     );
 }
 
@@ -465,7 +345,7 @@ fn dispatchUnary(_: std.mem.Allocator, op: Op, plan: *const EagerOpPlan, output:
     );
 }
 
-fn dispatchCompare(allocator: std.mem.Allocator, op: Op, plan: *const EagerOpPlan, output: *Storage) !void {
+fn dispatchCompare(_: std.mem.Allocator, op: Op, plan: *const EagerOpPlan, output: *Storage) !void {
     var lhs = try prepareInputValueForDecision(op.inputs[0], inputLayoutDecisionForPlan(plan));
     defer lhs.deinit();
     var rhs = try prepareInputValueForDecision(op.inputs[1], inputLayoutDecisionForPlan(plan));
@@ -478,7 +358,7 @@ fn dispatchCompare(allocator: std.mem.Allocator, op: Op, plan: *const EagerOpPla
         lhs.value,
         rhs.value,
         output,
-        try prepared_execution.binaryElementwiseDescriptor(allocator, op.tag, lhs.value, rhs.value, op.options, plan.broadcast),
+        try prepared_execution.binaryElementwiseDescriptor(lhs.value, rhs.value, plan.broadcast),
     );
 }
 
@@ -609,7 +489,7 @@ fn dispatchCrossEntropyIndexedBackward(op: Op, plan: *const EagerOpPlan, output:
     );
 }
 
-fn dispatchWhere(allocator: std.mem.Allocator, op: Op, plan: *const EagerOpPlan, output: *Storage) !void {
+fn dispatchWhere(_: std.mem.Allocator, op: Op, plan: *const EagerOpPlan, output: *Storage) !void {
     var cond = try prepareInputValueForDecision(op.inputs[0], inputLayoutDecisionForPlan(plan));
     defer cond.deinit();
     var on_true = try prepareInputValueForDecision(op.inputs[1], inputLayoutDecisionForPlan(plan));
@@ -625,11 +505,11 @@ fn dispatchWhere(allocator: std.mem.Allocator, op: Op, plan: *const EagerOpPlan,
         on_true.value,
         on_false.value,
         output,
-        try prepared_execution.whereDescriptor(allocator, cond.value, on_true.value, on_false.value, op.options, plan.broadcast),
+        try prepared_execution.whereDescriptor(cond.value, on_true.value, on_false.value, plan.broadcast),
     );
 }
 
-fn dispatchMaskedFill(allocator: std.mem.Allocator, op: Op, plan: *const EagerOpPlan, output: *Storage) !void {
+fn dispatchMaskedFill(_: std.mem.Allocator, op: Op, plan: *const EagerOpPlan, output: *Storage) !void {
     var input = try prepareInputValueForDecision(op.inputs[0], inputLayoutDecisionForPlan(plan));
     defer input.deinit();
     var mask = try prepareInputValueForDecision(op.inputs[1], inputLayoutDecisionForPlan(plan));
@@ -646,7 +526,7 @@ fn dispatchMaskedFill(allocator: std.mem.Allocator, op: Op, plan: *const EagerOp
         mask.value,
         output,
         fill.value,
-        try prepared_execution.maskedFillDescriptor(allocator, input.value, mask.value, op.options, plan.broadcast),
+        try prepared_execution.maskedFillDescriptor(input.value, mask.value, plan.broadcast),
     );
 }
 
@@ -699,7 +579,7 @@ fn dispatchRmsNorm(op: Op, plan: *const EagerOpPlan, output: *Storage) !void {
         rn.eps,
     );
 }
-fn dispatchContiguous(op: Op, output: *Value) !void {
+fn dispatchContiguous(op: Op, output: *Tensor) !void {
     recordMaterializationSummary(try materialization_execution.contiguousInto(op.inputs[0], output));
 }
 
@@ -723,14 +603,12 @@ fn dispatchMatmul(op: Op, plan: *const EagerOpPlan, output: *Storage) !void {
     var rhs = try prepareMatmulOperand(op.inputs[1], inputLayoutDecisionForPlan(plan));
     defer rhs.deinit();
     const device = lhs.value.device() orelse return error.InputNotMaterialized;
-    const out_spec = eagerOutputSpec(plan.primary_output, plan.device);
     if (try linalg_execution.dispatchProjectionMatmulFastPath(
         device,
         lhs.value.dtype,
         lhs.value,
         rhs.value,
-        out_spec,
-        op.execution_metadata,
+        plan.matmul != null and plan.matmul.?.projection,
         output,
     )) return;
     try linalg_execution.dispatchMatmulWithLayouts(
@@ -912,35 +790,23 @@ fn dispatchClamp(_: std.mem.Allocator, op: Op, plan: *const EagerOpPlan, output:
 
 const PreparedInputValue = prepared_execution.PreparedInputValue;
 
-fn prepareInputValueForDecision(value: *const Value, decision: execution_layout.InputLayoutDecision) !PreparedInputValue {
+fn prepareInputValueForDecision(value: *const Tensor, decision: execution_layout.InputLayoutDecision) !PreparedInputValue {
     return execution_metrics.prepareInputValue(metricSink(), value.allocator, value, decision, .eager);
-}
-
-fn inferPreparedOpSpec(
-    allocator: std.mem.Allocator,
-    tag: @import("../../types/operation/tag.zig").OpTag,
-    values: []const *const Value,
-    options: @import("../../types/operation/options.zig").OpOptions,
-) !semantic.OpSpec {
-    var specs: [3]@import("../../types/tensor/value_spec.zig").ValueSpec = undefined;
-    if (values.len > specs.len) return error.InvalidExecutionPlan;
-    for (values, 0..) |value, i| specs[i] = try value.spec();
-    return semantic.inferFromSpecs(allocator, tag, specs[0..values.len], options);
 }
 
 const PreparedMatmulOperand = PreparedInputValue;
 
-fn prepareMatmulOperand(value: *const Value, decision: execution_layout.InputLayoutDecision) !PreparedMatmulOperand {
+fn prepareMatmulOperand(value: *const Tensor, decision: execution_layout.InputLayoutDecision) !PreparedMatmulOperand {
     return prepareInputValueForDecision(value, decision);
 }
 
 fn makeViewForTest(
     allocator: std.mem.Allocator,
-    base: *const Value,
+    base: *const Tensor,
     dims: []const usize,
     strides: []const isize,
     offset: usize,
-) !*Value {
+) !*Tensor {
     const storage = base.storage orelse return error.InputNotMaterialized;
     storage.retain();
     errdefer storage.release();
@@ -950,7 +816,7 @@ fn makeViewForTest(
     var layout = try Layout.initCopy(allocator, strides, offset);
     errdefer layout.deinit();
 
-    const view = try allocator.create(Value);
+    const view = try allocator.create(Tensor);
     errdefer allocator.destroy(view);
     view.* = .{
         .allocator = allocator,
@@ -965,13 +831,13 @@ fn makeViewForTest(
 
 test "eager add runs end to end" {
     const allocator = std.testing.allocator;
-    const a = try Value.fromSliceF64(allocator, &.{3}, &.{ 1.0, 2.0, 3.0 });
+    const a = try Tensor.fromSliceF64(allocator, &.{3}, &.{ 1.0, 2.0, 3.0 });
     defer a.deinit();
-    const b = try Value.fromSliceF64(allocator, &.{3}, &.{ 10.0, 20.0, 30.0 });
+    const b = try Tensor.fromSliceF64(allocator, &.{3}, &.{ 10.0, 20.0, 30.0 });
     defer b.deinit();
 
     const op = try Op.init(.add, &.{ a, b }, .{ .binary = .{} });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
 
     const bytes = try out.storage.?.readableBytes();
@@ -983,15 +849,13 @@ test "eager add runs end to end" {
 
 test "eager add plan requires storage" {
     const allocator = std.testing.allocator;
-    const a = try Value.fromSliceF32(allocator, &.{2}, &.{ 1, 2 });
+    const a = try Tensor.fromSliceF32(allocator, &.{2}, &.{ 1, 2 });
     defer a.deinit();
-    const b = try Value.fromSliceF32(allocator, &.{2}, &.{ 3, 4 });
+    const b = try Tensor.fromSliceF32(allocator, &.{2}, &.{ 3, 4 });
     defer b.deinit();
 
     const op = try Op.init(.add, &.{ a, b }, .{ .binary = .{} });
-    var info = try semantic.infer(allocator, op);
-    defer info.deinit();
-    var plan = try eager_lowering.lower(allocator, op, info);
+    var plan = try @import("test_support.zig").createPlan(allocator, op);
     defer plan.deinit();
 
     try std.testing.expectEqual(ExecutionInputRequirement.require_storage, plan.input_requirement);
@@ -1000,13 +864,13 @@ test "eager add plan requires storage" {
 
 test "eager sub runs end to end" {
     const allocator = std.testing.allocator;
-    const a = try Value.fromSliceF64(allocator, &.{3}, &.{ 10.0, 20.0, 30.0 });
+    const a = try Tensor.fromSliceF64(allocator, &.{3}, &.{ 10.0, 20.0, 30.0 });
     defer a.deinit();
-    const b = try Value.fromSliceF64(allocator, &.{3}, &.{ 1.0, 2.0, 3.0 });
+    const b = try Tensor.fromSliceF64(allocator, &.{3}, &.{ 1.0, 2.0, 3.0 });
     defer b.deinit();
 
     const op = try Op.init(.sub, &.{ a, b }, .{ .binary = .{} });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
 
     const bytes = try out.storage.?.readableBytes();
@@ -1018,13 +882,13 @@ test "eager sub runs end to end" {
 
 test "eager mul runs end to end" {
     const allocator = std.testing.allocator;
-    const a = try Value.fromSliceF64(allocator, &.{3}, &.{ 1.0, 2.0, 3.0 });
+    const a = try Tensor.fromSliceF64(allocator, &.{3}, &.{ 1.0, 2.0, 3.0 });
     defer a.deinit();
-    const b = try Value.fromSliceF64(allocator, &.{3}, &.{ 10.0, 20.0, 30.0 });
+    const b = try Tensor.fromSliceF64(allocator, &.{3}, &.{ 10.0, 20.0, 30.0 });
     defer b.deinit();
 
     const op = try Op.init(.mul, &.{ a, b }, .{ .binary = .{} });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
 
     const bytes = try out.storage.?.readableBytes();
@@ -1036,13 +900,13 @@ test "eager mul runs end to end" {
 
 test "eager div runs end to end" {
     const allocator = std.testing.allocator;
-    const a = try Value.fromSliceF64(allocator, &.{3}, &.{ 10.0, 20.0, 30.0 });
+    const a = try Tensor.fromSliceF64(allocator, &.{3}, &.{ 10.0, 20.0, 30.0 });
     defer a.deinit();
-    const b = try Value.fromSliceF64(allocator, &.{3}, &.{ 2.0, 4.0, 5.0 });
+    const b = try Tensor.fromSliceF64(allocator, &.{3}, &.{ 2.0, 4.0, 5.0 });
     defer b.deinit();
 
     const op = try Op.init(.div, &.{ a, b }, .{ .binary = .{} });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
 
     const bytes = try out.storage.?.readableBytes();
@@ -1054,16 +918,16 @@ test "eager div runs end to end" {
 
 test "eager add right-aligns broadcast dims" {
     const allocator = std.testing.allocator;
-    const a = try Value.fromSliceF64(allocator, &.{ 2, 3 }, &.{
+    const a = try Tensor.fromSliceF64(allocator, &.{ 2, 3 }, &.{
         1.0, 2.0, 3.0,
         4.0, 5.0, 6.0,
     });
     defer a.deinit();
-    const b = try Value.fromSliceF64(allocator, &.{3}, &.{ 10.0, 20.0, 30.0 });
+    const b = try Tensor.fromSliceF64(allocator, &.{3}, &.{ 10.0, 20.0, 30.0 });
     defer b.deinit();
 
     const op = try Op.init(.add, &.{ a, b }, .{ .binary = .{} });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
 
     try std.testing.expectEqualSlices(usize, &.{ 2, 3 }, out.shape.dims);
@@ -1077,17 +941,15 @@ test "eager add right-aligns broadcast dims" {
 
 test "eager add packs negative-stride input to dense" {
     const allocator = std.testing.allocator;
-    const base = try Value.fromSliceF32(allocator, &.{ 3, 2 }, &.{ 1, 2, 3, 4, 5, 6 });
+    const base = try Tensor.fromSliceF32(allocator, &.{ 3, 2 }, &.{ 1, 2, 3, 4, 5, 6 });
     defer base.deinit();
     const lhs = try makeViewForTest(allocator, base, &.{ 3, 2 }, &.{ -2, 1 }, 4);
     defer lhs.deinit();
-    const rhs = try Value.fromSliceF32(allocator, &.{ 3, 2 }, &.{ 10, 20, 30, 40, 50, 60 });
+    const rhs = try Tensor.fromSliceF32(allocator, &.{ 3, 2 }, &.{ 10, 20, 30, 40, 50, 60 });
     defer rhs.deinit();
 
     const op = try Op.init(.add, &.{ lhs, rhs }, .{ .binary = .{} });
-    var info = try semantic.infer(allocator, op);
-    defer info.deinit();
-    var plan = try eager_lowering.lower(allocator, op, info);
+    var plan = try @import("test_support.zig").createPlan(allocator, op);
     defer plan.deinit();
     try std.testing.expectEqual(execution_layout.InputLayoutDecision.pack_to_dense, plan.input_layout_decision);
 
@@ -1099,11 +961,11 @@ test "eager add packs negative-stride input to dense" {
 
 test "eager neg runs end to end" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF64(allocator, &.{3}, &.{ 1.5, -2.0, 3.25 });
+    const input = try Tensor.fromSliceF64(allocator, &.{3}, &.{ 1.5, -2.0, 3.25 });
     defer input.deinit();
 
     const op = try Op.init(.neg, &.{input}, .{ .unary = .{} });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
 
     const bytes = try out.storage.?.readableBytes();
@@ -1115,11 +977,11 @@ test "eager neg runs end to end" {
 
 test "eager relu runs end to end" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF64(allocator, &.{4}, &.{ -1.0, 0.5, 0.0, 3.25 });
+    const input = try Tensor.fromSliceF64(allocator, &.{4}, &.{ -1.0, 0.5, 0.0, 3.25 });
     defer input.deinit();
 
     const op = try Op.init(.relu, &.{input}, .{ .unary = .{} });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
 
     const bytes = try out.storage.?.readableBytes();
@@ -1132,11 +994,11 @@ test "eager relu runs end to end" {
 
 test "eager exp runs end to end" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF64(allocator, &.{2}, &.{ 0.0, 1.0 });
+    const input = try Tensor.fromSliceF64(allocator, &.{2}, &.{ 0.0, 1.0 });
     defer input.deinit();
 
     const op = try Op.init(.exp, &.{input}, .{ .unary = .{} });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
 
     const bytes = try out.storage.?.readableBytes();
@@ -1147,11 +1009,11 @@ test "eager exp runs end to end" {
 
 test "eager gelu runs end to end" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF64(allocator, &.{1}, &.{1.0});
+    const input = try Tensor.fromSliceF64(allocator, &.{1}, &.{1.0});
     defer input.deinit();
 
     const op = try Op.init(.gelu, &.{input}, .{ .unary = .{} });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
 
     const bytes = try out.storage.?.readableBytes();
@@ -1161,11 +1023,11 @@ test "eager gelu runs end to end" {
 
 test "eager clamp runs end to end" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF64(allocator, &.{4}, &.{ -2.0, -0.5, 1.5, 9.0 });
+    const input = try Tensor.fromSliceF64(allocator, &.{4}, &.{ -2.0, -0.5, 1.5, 9.0 });
     defer input.deinit();
 
     const op = try Op.init(.clamp, &.{input}, .{ .clamp = .{ .min = 0.0, .max = 2.0 } });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
 
     const bytes = try out.storage.?.readableBytes();
@@ -1178,11 +1040,11 @@ test "eager clamp runs end to end" {
 
 test "eager sum_all runs end to end" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF64(allocator, &.{ 2, 3 }, &.{ 1.0, 2.0, 3.0, 4.0, 5.0, 6.0 });
+    const input = try Tensor.fromSliceF64(allocator, &.{ 2, 3 }, &.{ 1.0, 2.0, 3.0, 4.0, 5.0, 6.0 });
     defer input.deinit();
 
     const op = try Op.init(.sum_all, &.{input}, .{ .reduce_all = .{} });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
 
     const bytes = try out.storage.?.readableBytes();
@@ -1193,11 +1055,11 @@ test "eager sum_all runs end to end" {
 
 test "eager mean_all runs end to end" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF64(allocator, &.{4}, &.{ 2.0, 4.0, 6.0, 8.0 });
+    const input = try Tensor.fromSliceF64(allocator, &.{4}, &.{ 2.0, 4.0, 6.0, 8.0 });
     defer input.deinit();
 
     const op = try Op.init(.mean_all, &.{input}, .{ .reduce_all = .{} });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
 
     const bytes = try out.storage.?.readableBytes();
@@ -1207,13 +1069,13 @@ test "eager mean_all runs end to end" {
 
 test "eager log_softmax_nll runs end to end" {
     const allocator = std.testing.allocator;
-    const logits = try Value.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1.0, 2.0, 3.0, 0.0, 1.0, 0.0 });
+    const logits = try Tensor.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1.0, 2.0, 3.0, 0.0, 1.0, 0.0 });
     defer logits.deinit();
-    const targets = try Value.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 0.0, 0.0, 1.0, 0.0, 1.0, 0.0 });
+    const targets = try Tensor.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 0.0, 0.0, 1.0, 0.0, 1.0, 0.0 });
     defer targets.deinit();
 
     const op = try Op.init(.log_softmax_nll, &.{ logits, targets }, .{ .log_softmax_nll = .{ .axis = 1 } });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
     const values = std.mem.bytesAsSlice(f32, try out.storage.?.readableBytes());
     try std.testing.expectApproxEqAbs(@as(f32, 0.4795253), values[0], 1e-5);
@@ -1221,13 +1083,13 @@ test "eager log_softmax_nll runs end to end" {
 
 test "eager cross_entropy runs end to end" {
     const allocator = std.testing.allocator;
-    const logits = try Value.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1.0, 2.0, 3.0, 0.0, 1.0, 0.0 });
+    const logits = try Tensor.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1.0, 2.0, 3.0, 0.0, 1.0, 0.0 });
     defer logits.deinit();
-    const targets = try Value.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 0.0, 0.0, 1.0, 0.0, 1.0, 0.0 });
+    const targets = try Tensor.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 0.0, 0.0, 1.0, 0.0, 1.0, 0.0 });
     defer targets.deinit();
 
     const op = try Op.init(.cross_entropy, &.{ logits, targets }, .{ .cross_entropy = .{ .axis = 1 } });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
     const values = std.mem.bytesAsSlice(f32, try out.storage.?.readableBytes());
     try std.testing.expectApproxEqAbs(@as(f32, 0.4795253), values[0], 1e-5);
@@ -1235,13 +1097,13 @@ test "eager cross_entropy runs end to end" {
 
 test "eager cross_entropy_indexed runs end to end" {
     const allocator = std.testing.allocator;
-    const logits = try Value.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1.0, 2.0, 3.0, 0.0, 1.0, 0.0 });
+    const logits = try Tensor.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1.0, 2.0, 3.0, 0.0, 1.0, 0.0 });
     defer logits.deinit();
-    const targets = try Value.fromSliceI64(allocator, &.{2}, &.{ 2, 1 });
+    const targets = try Tensor.fromSliceI64(allocator, &.{2}, &.{ 2, 1 });
     defer targets.deinit();
 
     const op = try Op.init(.cross_entropy_indexed, &.{ logits, targets }, .{ .cross_entropy_indexed = .{ .axis = 1 } });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
     const values = std.mem.bytesAsSlice(f32, try out.storage.?.readableBytes());
     try std.testing.expectApproxEqAbs(@as(f32, 0.4795253), values[0], 1e-5);
@@ -1249,15 +1111,15 @@ test "eager cross_entropy_indexed runs end to end" {
 
 test "eager cross_entropy_indexed_backward runs end to end" {
     const allocator = std.testing.allocator;
-    const logits = try Value.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1.0, 2.0, 3.0, 0.0, 1.0, 0.0 });
+    const logits = try Tensor.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1.0, 2.0, 3.0, 0.0, 1.0, 0.0 });
     defer logits.deinit();
-    const targets = try Value.fromSliceI64(allocator, &.{2}, &.{ 2, 1 });
+    const targets = try Tensor.fromSliceI64(allocator, &.{2}, &.{ 2, 1 });
     defer targets.deinit();
-    const grad_out = try Value.fromSliceF32(allocator, &.{1}, &.{1.0});
+    const grad_out = try Tensor.fromSliceF32(allocator, &.{1}, &.{1.0});
     defer grad_out.deinit();
 
     const op = try Op.init(.cross_entropy_indexed_backward, &.{ logits, targets, grad_out }, .{ .cross_entropy_indexed_backward = .{ .axis = 1 } });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
     const values = std.mem.bytesAsSlice(f32, try out.storage.?.readableBytes());
     try std.testing.expectApproxEqAbs(@as(f32, 0.04501529), values[0], 1e-5);
@@ -1270,19 +1132,17 @@ test "eager cross_entropy_indexed_backward runs end to end" {
 
 test "eager log_softmax_nll packs negative-stride input to dense" {
     const allocator = std.testing.allocator;
-    const logits_base = try Value.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1.0, 2.0, 3.0, 0.0, 1.0, 0.0 });
+    const logits_base = try Tensor.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1.0, 2.0, 3.0, 0.0, 1.0, 0.0 });
     defer logits_base.deinit();
     const logits = try makeViewForTest(allocator, logits_base, &.{ 2, 3 }, &.{ -3, 1 }, 3);
     defer logits.deinit();
-    const targets_base = try Value.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 0.0, 0.0, 1.0, 0.0, 1.0, 0.0 });
+    const targets_base = try Tensor.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 0.0, 0.0, 1.0, 0.0, 1.0, 0.0 });
     defer targets_base.deinit();
     const targets = try makeViewForTest(allocator, targets_base, &.{ 2, 3 }, &.{ -3, 1 }, 3);
     defer targets.deinit();
 
     const op = try Op.init(.log_softmax_nll, &.{ logits, targets }, .{ .log_softmax_nll = .{ .axis = 1 } });
-    var info = try semantic.infer(allocator, op);
-    defer info.deinit();
-    var plan = try eager_lowering.lower(allocator, op, info);
+    var plan = try @import("test_support.zig").createPlan(allocator, op);
     defer plan.deinit();
     try std.testing.expectEqual(execution_layout.InputLayoutDecision.pack_to_dense, plan.input_layout_decision);
 
@@ -1294,11 +1154,11 @@ test "eager log_softmax_nll packs negative-stride input to dense" {
 
 test "eager argmax_all runs end to end" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF64(allocator, &.{5}, &.{ 1.0, 9.0, -2.0, 3.0, 2.0 });
+    const input = try Tensor.fromSliceF64(allocator, &.{5}, &.{ 1.0, 9.0, -2.0, 3.0, 2.0 });
     defer input.deinit();
 
     const op = try Op.init(.argmax_all, &.{input}, .{ .reduce_all = .{} });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
 
     const bytes = try out.storage.?.readableBytes();
@@ -1308,11 +1168,11 @@ test "eager argmax_all runs end to end" {
 
 test "eager variance_all runs end to end" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF64(allocator, &.{4}, &.{ 1.0, 2.0, 3.0, 4.0 });
+    const input = try Tensor.fromSliceF64(allocator, &.{4}, &.{ 1.0, 2.0, 3.0, 4.0 });
     defer input.deinit();
 
     const op = try Op.init(.variance_all, &.{input}, .{ .reduce_all = .{} });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
 
     const bytes = try out.storage.?.readableBytes();
@@ -1322,18 +1182,18 @@ test "eager variance_all runs end to end" {
 
 test "eager min_all and max_all run end to end" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF64(allocator, &.{5}, &.{ 3.0, -2.0, 9.0, 0.5, 1.0 });
+    const input = try Tensor.fromSliceF64(allocator, &.{5}, &.{ 3.0, -2.0, 9.0, 0.5, 1.0 });
     defer input.deinit();
 
     const min_op = try Op.init(.min_all, &.{input}, .{ .reduce_all = .{} });
-    const min_out = try execute(allocator, min_op);
+    const min_out = try @import("test_support.zig").execute(allocator, min_op);
     defer min_out.deinit();
     const min_bytes = try min_out.storage.?.readableBytes();
     const min_values = std.mem.bytesAsSlice(f64, min_bytes);
     try std.testing.expectEqual(@as(f64, -2.0), min_values[0]);
 
     const max_op = try Op.init(.max_all, &.{input}, .{ .reduce_all = .{} });
-    const max_out = try execute(allocator, max_op);
+    const max_out = try @import("test_support.zig").execute(allocator, max_op);
     defer max_out.deinit();
     const max_bytes = try max_out.storage.?.readableBytes();
     const max_values = std.mem.bytesAsSlice(f64, max_bytes);
@@ -1342,11 +1202,11 @@ test "eager min_all and max_all run end to end" {
 
 test "eager argmin_all runs end to end" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF64(allocator, &.{5}, &.{ 3.0, -2.0, 9.0, -3.0, 1.0 });
+    const input = try Tensor.fromSliceF64(allocator, &.{5}, &.{ 3.0, -2.0, 9.0, -3.0, 1.0 });
     defer input.deinit();
 
     const op = try Op.init(.argmin_all, &.{input}, .{ .reduce_all = .{} });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
 
     const bytes = try out.storage.?.readableBytes();
@@ -1356,11 +1216,11 @@ test "eager argmin_all runs end to end" {
 
 test "eager std_all runs end to end" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF64(allocator, &.{4}, &.{ 1.0, 2.0, 3.0, 4.0 });
+    const input = try Tensor.fromSliceF64(allocator, &.{4}, &.{ 1.0, 2.0, 3.0, 4.0 });
     defer input.deinit();
 
     const op = try Op.init(.std_all, &.{input}, .{ .reduce_all = .{} });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
 
     const bytes = try out.storage.?.readableBytes();
@@ -1370,14 +1230,14 @@ test "eager std_all runs end to end" {
 
 test "eager sum_axis runs end to end" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF64(allocator, &.{ 2, 3 }, &.{
+    const input = try Tensor.fromSliceF64(allocator, &.{ 2, 3 }, &.{
         1, 2, 3,
         4, 5, 6,
     });
     defer input.deinit();
 
     const op = try Op.init(.sum_axis, &.{input}, .{ .reduce_axis = .{ .axis = 1, .keepdim = false } });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
 
     const bytes = try out.storage.?.readableBytes();
@@ -1389,15 +1249,13 @@ test "eager sum_axis runs end to end" {
 
 test "eager sum_axis packs negative-stride input to dense" {
     const allocator = std.testing.allocator;
-    const base = try Value.fromSliceF32(allocator, &.{ 3, 2 }, &.{ 1, 2, 3, 4, 5, 6 });
+    const base = try Tensor.fromSliceF32(allocator, &.{ 3, 2 }, &.{ 1, 2, 3, 4, 5, 6 });
     defer base.deinit();
     const input = try makeViewForTest(allocator, base, &.{ 3, 2 }, &.{ -2, 1 }, 4);
     defer input.deinit();
 
     const op = try Op.init(.sum_axis, &.{input}, .{ .reduce_axis = .{ .axis = 1, .keepdim = false } });
-    var info = try semantic.infer(allocator, op);
-    defer info.deinit();
-    var plan = try eager_lowering.lower(allocator, op, info);
+    var plan = try @import("test_support.zig").createPlan(allocator, op);
     defer plan.deinit();
     try std.testing.expectEqual(execution_layout.InputLayoutDecision.pack_to_dense, plan.input_layout_decision);
 
@@ -1409,14 +1267,14 @@ test "eager sum_axis packs negative-stride input to dense" {
 
 test "eager mean_axis keepdim runs end to end" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF64(allocator, &.{ 2, 3 }, &.{
+    const input = try Tensor.fromSliceF64(allocator, &.{ 2, 3 }, &.{
         1, 2, 3,
         4, 5, 6,
     });
     defer input.deinit();
 
     const op = try Op.init(.mean_axis, &.{input}, .{ .reduce_axis = .{ .axis = 0, .keepdim = true } });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
 
     try std.testing.expectEqual(@as(usize, 2), out.shape.rank());
@@ -1432,14 +1290,14 @@ test "eager mean_axis keepdim runs end to end" {
 
 test "eager argmax_axis runs end to end" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF64(allocator, &.{ 2, 3 }, &.{
+    const input = try Tensor.fromSliceF64(allocator, &.{ 2, 3 }, &.{
         1, 8, 3,
         9, 5, 6,
     });
     defer input.deinit();
 
     const op = try Op.init(.argmax_axis, &.{input}, .{ .reduce_axis = .{ .axis = 1, .keepdim = false } });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
 
     const bytes = try out.storage.?.readableBytes();
@@ -1451,15 +1309,15 @@ test "eager argmax_axis runs end to end" {
 
 test "eager where runs end to end" {
     const allocator = std.testing.allocator;
-    const cond = try Value.fromSliceI64(allocator, &.{4}, &.{ 1, 0, 2, 0 });
+    const cond = try Tensor.fromSliceI64(allocator, &.{4}, &.{ 1, 0, 2, 0 });
     defer cond.deinit();
-    const a = try Value.fromSliceF64(allocator, &.{4}, &.{ 10.0, 20.0, 30.0, 40.0 });
+    const a = try Tensor.fromSliceF64(allocator, &.{4}, &.{ 10.0, 20.0, 30.0, 40.0 });
     defer a.deinit();
-    const b = try Value.fromSliceF64(allocator, &.{4}, &.{ 1.0, 2.0, 3.0, 4.0 });
+    const b = try Tensor.fromSliceF64(allocator, &.{4}, &.{ 1.0, 2.0, 3.0, 4.0 });
     defer b.deinit();
 
     const op = try Op.init(.where, &.{ cond, a, b }, .{ .none = {} });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
 
     const bytes = try out.storage.?.readableBytes();
@@ -1472,13 +1330,13 @@ test "eager where runs end to end" {
 
 test "eager masked_fill runs end to end" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF64(allocator, &.{4}, &.{ 1.0, 2.0, 3.0, 4.0 });
+    const input = try Tensor.fromSliceF64(allocator, &.{4}, &.{ 1.0, 2.0, 3.0, 4.0 });
     defer input.deinit();
-    const mask = try Value.fromSliceI64(allocator, &.{4}, &.{ 0, 1, 0, 1 });
+    const mask = try Tensor.fromSliceI64(allocator, &.{4}, &.{ 0, 1, 0, 1 });
     defer mask.deinit();
 
     const op = try Op.init(.masked_fill, &.{ input, mask }, .{ .masked_fill = .{ .value = -9.0 } });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
 
     const bytes = try out.storage.?.readableBytes();
@@ -1491,9 +1349,9 @@ test "eager masked_fill runs end to end" {
 
 test "eager where right-aligns broadcast dims" {
     const allocator = std.testing.allocator;
-    const cond = try Value.fromSliceI64(allocator, &.{ 3, 1 }, &.{ 1, 0, 1 });
+    const cond = try Tensor.fromSliceI64(allocator, &.{ 3, 1 }, &.{ 1, 0, 1 });
     defer cond.deinit();
-    const on_true = try Value.fromSliceF32(allocator, &.{ 2, 3, 4 }, &.{
+    const on_true = try Tensor.fromSliceF32(allocator, &.{ 2, 3, 4 }, &.{
         1,  2,  3,  4,
         5,  6,  7,  8,
         9,  10, 11, 12,
@@ -1502,11 +1360,11 @@ test "eager where right-aligns broadcast dims" {
         21, 22, 23, 24,
     });
     defer on_true.deinit();
-    const on_false = try Value.fromSliceF32(allocator, &.{4}, &.{ 0, 0, 0, 0 });
+    const on_false = try Tensor.fromSliceF32(allocator, &.{4}, &.{ 0, 0, 0, 0 });
     defer on_false.deinit();
 
     const op = try Op.init(.where, &.{ cond, on_true, on_false }, .{ .none = {} });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
 
     try std.testing.expectEqualSlices(usize, &.{ 2, 3, 4 }, out.shape.dims);
@@ -1521,7 +1379,7 @@ test "eager where right-aligns broadcast dims" {
 
 test "eager masked_fill right-aligns broadcast dims" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF32(allocator, &.{ 2, 3, 4 }, &.{
+    const input = try Tensor.fromSliceF32(allocator, &.{ 2, 3, 4 }, &.{
         1,  2,  3,  4,
         5,  6,  7,  8,
         9,  10, 11, 12,
@@ -1530,11 +1388,11 @@ test "eager masked_fill right-aligns broadcast dims" {
         21, 22, 23, 24,
     });
     defer input.deinit();
-    const mask = try Value.fromSliceI64(allocator, &.{ 3, 1 }, &.{ 1, 0, 1 });
+    const mask = try Tensor.fromSliceI64(allocator, &.{ 3, 1 }, &.{ 1, 0, 1 });
     defer mask.deinit();
 
     const op = try Op.init(.masked_fill, &.{ input, mask }, .{ .masked_fill = .{ .value = -9.0 } });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
 
     try std.testing.expectEqualSlices(usize, &.{ 2, 3, 4 }, out.shape.dims);
@@ -1549,14 +1407,14 @@ test "eager masked_fill right-aligns broadcast dims" {
 
 test "eager softmax runs end to end" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF64(allocator, &.{ 2, 2 }, &.{
+    const input = try Tensor.fromSliceF64(allocator, &.{ 2, 2 }, &.{
         1.0, 2.0,
         3.0, 4.0,
     });
     defer input.deinit();
 
     const op = try Op.init(.softmax, &.{input}, .{ .softmax = .{ .axis = 1 } });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
 
     const bytes = try out.storage.?.readableBytes();
@@ -1569,11 +1427,11 @@ test "eager softmax runs end to end" {
 
 test "eager layer_norm runs end to end on cpu" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF32(allocator, &.{ 2, 2 }, &.{ 1.0, 3.0, 2.0, 4.0 });
+    const input = try Tensor.fromSliceF32(allocator, &.{ 2, 2 }, &.{ 1.0, 3.0, 2.0, 4.0 });
     defer input.deinit();
 
     const op = try Op.init(.layer_norm, &.{input}, .{ .layer_norm = .{ .axis = 1, .eps = 1e-5 } });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
 
     const bytes = try out.storage.?.readableBytes();
@@ -1586,15 +1444,13 @@ test "eager layer_norm runs end to end on cpu" {
 
 test "eager layer_norm packs negative-stride input to dense" {
     const allocator = std.testing.allocator;
-    const base = try Value.fromSliceF32(allocator, &.{ 2, 2 }, &.{ 1.0, 3.0, 2.0, 4.0 });
+    const base = try Tensor.fromSliceF32(allocator, &.{ 2, 2 }, &.{ 1.0, 3.0, 2.0, 4.0 });
     defer base.deinit();
     const input = try makeViewForTest(allocator, base, &.{ 2, 2 }, &.{ -2, 1 }, 2);
     defer input.deinit();
 
     const op = try Op.init(.layer_norm, &.{input}, .{ .layer_norm = .{ .axis = 1, .eps = 1e-5 } });
-    var info = try semantic.infer(allocator, op);
-    defer info.deinit();
-    var plan = try eager_lowering.lower(allocator, op, info);
+    var plan = try @import("test_support.zig").createPlan(allocator, op);
     defer plan.deinit();
     try std.testing.expectEqual(execution_layout.InputLayoutDecision.pack_to_dense, plan.input_layout_decision);
 
@@ -1609,11 +1465,11 @@ test "eager layer_norm packs negative-stride input to dense" {
 
 test "eager contiguous runs end to end" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF32(allocator, &.{3}, &.{ 1.0, 2.0, 3.0 });
+    const input = try Tensor.fromSliceF32(allocator, &.{3}, &.{ 1.0, 2.0, 3.0 });
     defer input.deinit();
 
     const op = try Op.init(.contiguous, &.{input}, .{ .none = {} });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
 
     const bytes = try out.storage.?.readableBytes();
@@ -1625,12 +1481,12 @@ test "eager contiguous runs end to end" {
 
 test "eager dot runs end to end" {
     const allocator = std.testing.allocator;
-    const a = try Value.fromSliceF64(allocator, &.{3}, &.{ 1.0, 2.0, 3.0 });
+    const a = try Tensor.fromSliceF64(allocator, &.{3}, &.{ 1.0, 2.0, 3.0 });
     defer a.deinit();
-    const b = try Value.fromSliceF64(allocator, &.{3}, &.{ 4.0, 5.0, 6.0 });
+    const b = try Tensor.fromSliceF64(allocator, &.{3}, &.{ 4.0, 5.0, 6.0 });
     defer b.deinit();
     const op = try Op.init(.dot, &.{ a, b }, .{ .none = {} });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
     const values = std.mem.bytesAsSlice(f64, try out.storage.?.readableBytes());
     try std.testing.expectEqual(@as(f64, 32.0), values[0]);
@@ -1638,12 +1494,12 @@ test "eager dot runs end to end" {
 
 test "eager matmul runs end to end" {
     const allocator = std.testing.allocator;
-    const a = try Value.fromSliceF64(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
+    const a = try Tensor.fromSliceF64(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
     defer a.deinit();
-    const b = try Value.fromSliceF64(allocator, &.{ 3, 2 }, &.{ 7, 8, 9, 10, 11, 12 });
+    const b = try Tensor.fromSliceF64(allocator, &.{ 3, 2 }, &.{ 7, 8, 9, 10, 11, 12 });
     defer b.deinit();
     const op = try Op.init(.matmul, &.{ a, b }, .{ .none = {} });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
     const values = std.mem.bytesAsSlice(f64, try out.storage.?.readableBytes());
     try std.testing.expectEqual(@as(f64, 58), values[0]);
@@ -1654,17 +1510,17 @@ test "eager matmul runs end to end" {
 
 test "eager matmul accepts transposed view inputs" {
     const allocator = std.testing.allocator;
-    const a = try Value.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
+    const a = try Tensor.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
     defer a.deinit();
-    const b = try Value.fromSliceF32(allocator, &.{ 2, 4 }, &.{ 1, 2, 3, 4, 5, 6, 7, 8 });
+    const b = try Tensor.fromSliceF32(allocator, &.{ 2, 4 }, &.{ 1, 2, 3, 4, 5, 6, 7, 8 });
     defer b.deinit();
 
     const at_op = try Op.init(.transpose, &.{a}, .{ .transpose = .{ .permutation = &.{ 1, 0 } } });
-    const at = try execute(allocator, at_op);
+    const at = try @import("test_support.zig").execute(allocator, at_op);
     defer at.deinit();
 
     const op = try Op.init(.matmul, &.{ at, b }, .{ .none = {} });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
 
     const values = std.mem.bytesAsSlice(f32, try out.storage.?.readableBytes());
@@ -1684,19 +1540,17 @@ test "eager matmul accepts transposed view inputs" {
 
 test "eager matmul plan accepts transposed input without dense downgrade" {
     const allocator = std.testing.allocator;
-    const a = try Value.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
+    const a = try Tensor.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
     defer a.deinit();
-    const b = try Value.fromSliceF32(allocator, &.{ 2, 4 }, &.{ 1, 2, 3, 4, 5, 6, 7, 8 });
+    const b = try Tensor.fromSliceF32(allocator, &.{ 2, 4 }, &.{ 1, 2, 3, 4, 5, 6, 7, 8 });
     defer b.deinit();
 
     const at_op = try Op.init(.transpose, &.{a}, .{ .transpose = .{ .permutation = &.{ 1, 0 } } });
-    const at = try execute(allocator, at_op);
+    const at = try @import("test_support.zig").execute(allocator, at_op);
     defer at.deinit();
 
     const op = try Op.init(.matmul, &.{ at, b }, .{ .none = {} });
-    var info = try semantic.infer(allocator, op);
-    defer info.deinit();
-    var plan = try eager_lowering.lower(allocator, op, info);
+    var plan = try @import("test_support.zig").createPlan(allocator, op);
     defer plan.deinit();
     try std.testing.expectEqual(execution_layout.InputLayoutDecision.accept, plan.input_layout_decision);
     try std.testing.expectEqual(ExecutionInputRequirement.preserve, plan.input_requirement);
@@ -1704,17 +1558,15 @@ test "eager matmul plan accepts transposed input without dense downgrade" {
 
 test "eager matmul packs negative-stride input to dense" {
     const allocator = std.testing.allocator;
-    const base = try Value.fromSliceF32(allocator, &.{ 3, 2 }, &.{ 1, 2, 3, 4, 5, 6 });
+    const base = try Tensor.fromSliceF32(allocator, &.{ 3, 2 }, &.{ 1, 2, 3, 4, 5, 6 });
     defer base.deinit();
     const lhs = try makeViewForTest(allocator, base, &.{ 3, 2 }, &.{ -2, 1 }, 4);
     defer lhs.deinit();
-    const rhs = try Value.fromSliceF32(allocator, &.{ 2, 2 }, &.{ 1, 2, 3, 4 });
+    const rhs = try Tensor.fromSliceF32(allocator, &.{ 2, 2 }, &.{ 1, 2, 3, 4 });
     defer rhs.deinit();
 
     const op = try Op.init(.matmul, &.{ lhs, rhs }, .{ .none = {} });
-    var info = try semantic.infer(allocator, op);
-    defer info.deinit();
-    var plan = try eager_lowering.lower(allocator, op, info);
+    var plan = try @import("test_support.zig").createPlan(allocator, op);
     defer plan.deinit();
     try std.testing.expectEqual(execution_layout.InputLayoutDecision.pack_to_dense, plan.input_layout_decision);
     try std.testing.expectEqual(ExecutionInputRequirement.preserve, plan.input_requirement);
@@ -1727,10 +1579,10 @@ test "eager matmul packs negative-stride input to dense" {
 
 test "eager one_hot runs end to end" {
     const allocator = std.testing.allocator;
-    const index = try Value.fromSliceI64(allocator, &.{3}, &.{ 0, 2, 1 });
+    const index = try Tensor.fromSliceI64(allocator, &.{3}, &.{ 0, 2, 1 });
     defer index.deinit();
     const op = try Op.init(.one_hot, &.{index}, .{ .one_hot = .{ .num_classes = 4 } });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
     const values = std.mem.bytesAsSlice(f32, try out.storage.?.readableBytes());
     try std.testing.expectEqual(@as(f32, 1), values[0]);
@@ -1740,12 +1592,12 @@ test "eager one_hot runs end to end" {
 
 test "eager embedding runs end to end" {
     const allocator = std.testing.allocator;
-    const table = try Value.fromSliceF32(allocator, &.{ 3, 2 }, &.{ 10, 11, 20, 21, 30, 31 });
+    const table = try Tensor.fromSliceF32(allocator, &.{ 3, 2 }, &.{ 10, 11, 20, 21, 30, 31 });
     defer table.deinit();
-    const index = try Value.fromSliceI64(allocator, &.{ 2, 2 }, &.{ 2, 0, 1, 2 });
+    const index = try Tensor.fromSliceI64(allocator, &.{ 2, 2 }, &.{ 2, 0, 1, 2 });
     defer index.deinit();
     const op = try Op.init(.embedding, &.{ table, index }, .{ .none = {} });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
 
     const values = std.mem.bytesAsSlice(f32, try out.storage.?.readableBytes());
@@ -1759,17 +1611,15 @@ test "eager embedding runs end to end" {
 
 test "eager gather packs negative-stride input to dense" {
     const allocator = std.testing.allocator;
-    const base = try Value.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
+    const base = try Tensor.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
     defer base.deinit();
     const input = try makeViewForTest(allocator, base, &.{ 2, 3 }, &.{ -3, 1 }, 3);
     defer input.deinit();
-    const index = try Value.fromSliceI64(allocator, &.{ 2, 2 }, &.{ 2, 0, 1, 2 });
+    const index = try Tensor.fromSliceI64(allocator, &.{ 2, 2 }, &.{ 2, 0, 1, 2 });
     defer index.deinit();
 
     const op = try Op.init(.gather, &.{ input, index }, .{ .gather = .{ .axis = 1 } });
-    var info = try semantic.infer(allocator, op);
-    defer info.deinit();
-    var plan = try eager_lowering.lower(allocator, op, info);
+    var plan = try @import("test_support.zig").createPlan(allocator, op);
     defer plan.deinit();
     try std.testing.expectEqual(execution_layout.InputLayoutDecision.pack_to_dense, plan.input_layout_decision);
 
@@ -1781,12 +1631,12 @@ test "eager gather packs negative-stride input to dense" {
 
 test "eager cat runs end to end" {
     const allocator = std.testing.allocator;
-    const a = try Value.fromSliceF32(allocator, &.{ 2, 2 }, &.{ 1, 2, 3, 4 });
+    const a = try Tensor.fromSliceF32(allocator, &.{ 2, 2 }, &.{ 1, 2, 3, 4 });
     defer a.deinit();
-    const b = try Value.fromSliceF32(allocator, &.{ 2, 1 }, &.{ 5, 6 });
+    const b = try Tensor.fromSliceF32(allocator, &.{ 2, 1 }, &.{ 5, 6 });
     defer b.deinit();
     const op = try Op.init(.cat, &.{ a, b }, .{ .concat = .{ .axis = 1 } });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
     const values = std.mem.bytesAsSlice(f32, try out.storage.?.readableBytes());
     try std.testing.expectEqualSlices(f32, &.{ 1, 2, 5, 3, 4, 6 }, values);
@@ -1794,12 +1644,12 @@ test "eager cat runs end to end" {
 
 test "eager stack runs end to end" {
     const allocator = std.testing.allocator;
-    const a = try Value.fromSliceF32(allocator, &.{2}, &.{ 1, 2 });
+    const a = try Tensor.fromSliceF32(allocator, &.{2}, &.{ 1, 2 });
     defer a.deinit();
-    const b = try Value.fromSliceF32(allocator, &.{2}, &.{ 3, 4 });
+    const b = try Tensor.fromSliceF32(allocator, &.{2}, &.{ 3, 4 });
     defer b.deinit();
     const op = try Op.init(.stack, &.{ a, b }, .{ .stack = .{ .axis = 0 } });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
     const values = std.mem.bytesAsSlice(f32, try out.storage.?.readableBytes());
     try std.testing.expectEqualSlices(f32, &.{ 1, 2, 3, 4 }, values);
@@ -1807,10 +1657,10 @@ test "eager stack runs end to end" {
 
 test "eager slice copy path runs end to end" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF32(allocator, &.{6}, &.{ 1, 2, 3, 4, 5, 6 });
+    const input = try Tensor.fromSliceF32(allocator, &.{6}, &.{ 1, 2, 3, 4, 5, 6 });
     defer input.deinit();
     const op = try Op.init(.slice, &.{input}, .{ .slice = .{ .ranges = &.{.{ .start = 1, .stop = 6, .step = 2 }} } });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
     const values = std.mem.bytesAsSlice(f32, try out.storage.?.readableBytes());
     try std.testing.expectEqualSlices(f32, &.{ 2, 4, 6 }, values);
@@ -1818,16 +1668,16 @@ test "eager slice copy path runs end to end" {
 
 test "eager dense op packs contiguous offset view before dispatch" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF32(allocator, &.{4}, &.{ 1, 2, 3, 4 });
+    const input = try Tensor.fromSliceF32(allocator, &.{4}, &.{ 1, 2, 3, 4 });
     defer input.deinit();
     const slice = try Op.init(.slice, &.{input}, .{ .slice = .{ .ranges = &.{.{ .start = 1, .stop = 3, .step = 1 }} } });
-    const view = try execute(allocator, slice);
+    const view = try @import("test_support.zig").execute(allocator, slice);
     defer view.deinit();
-    const rhs = try Value.fromSliceF32(allocator, &.{2}, &.{ 10, 20 });
+    const rhs = try Tensor.fromSliceF32(allocator, &.{2}, &.{ 10, 20 });
     defer rhs.deinit();
 
     const add = try Op.init(.add, &.{ view, rhs }, .{ .binary = .{} });
-    const out = try execute(allocator, add);
+    const out = try @import("test_support.zig").execute(allocator, add);
     defer out.deinit();
 
     const values = std.mem.bytesAsSlice(f32, try out.storage.?.readableBytes());
@@ -1836,11 +1686,11 @@ test "eager dense op packs contiguous offset view before dispatch" {
 
 test "eager reshape aliases storage" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
+    const input = try Tensor.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
     defer input.deinit();
 
     const op = try Op.init(.reshape, &.{input}, .{ .reshape = .{ .shape = &.{ 3, 2 } } });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
 
     try std.testing.expect(input.storage == out.storage);
@@ -1849,27 +1699,27 @@ test "eager reshape aliases storage" {
 
 test "eager execution rejects non-contiguous reshape input" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
+    const input = try Tensor.fromSliceF32(allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
     defer input.deinit();
 
     const transpose = try Op.init(.transpose, &.{input}, .{ .transpose = .{ .permutation = &.{ 1, 0 } } });
-    const transposed = try execute(allocator, transpose);
+    const transposed = try @import("test_support.zig").execute(allocator, transpose);
     defer transposed.deinit();
 
     const reshape = try Op.init(.reshape, &.{transposed}, .{ .reshape = .{ .shape = &.{ 6, 1 } } });
-    try std.testing.expectError(error.InputNotContiguous, execute(allocator, reshape));
+    try std.testing.expectError(error.InputNotContiguous, @import("test_support.zig").execute(allocator, reshape));
 }
 
 test "topk runs through executeAll with values and indices outputs" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF32(allocator, &.{ 2, 5 }, &.{
+    const input = try Tensor.fromSliceF32(allocator, &.{ 2, 5 }, &.{
         1,  2, 3, 4, 5,
         10, 9, 8, 7, 6,
     });
     defer input.deinit();
 
     const op = try Op.init(.topk, &.{input}, .{ .topk = .{ .k = 2, .axis = 1 } });
-    var result = try executeAll(allocator, op);
+    var result = try @import("test_support.zig").executeAll(allocator, op);
     defer result.deinit();
     try std.testing.expect(result.secondary != null);
 
@@ -1890,13 +1740,13 @@ test "topk runs through executeAll with values and indices outputs" {
 
 test "eager reduce_to_shape sums broadcasted axes" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF32(allocator, &.{ 2, 3 }, &.{
+    const input = try Tensor.fromSliceF32(allocator, &.{ 2, 3 }, &.{
         1, 2, 3,
         4, 5, 6,
     });
     defer input.deinit();
     const op = try Op.init(.reduce_to_shape, &.{input}, .{ .reduce_to_shape = .{ .shape = &.{ 1, 3 } } });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
     const values = std.mem.bytesAsSlice(f32, try out.storage.?.readableBytes());
     try std.testing.expectEqualSlices(f32, &.{ 5, 7, 9 }, values);
@@ -1904,7 +1754,7 @@ test "eager reduce_to_shape sums broadcasted axes" {
 
 test "eager reduce_to_shape right-aligns target dims" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF32(allocator, &.{ 2, 2, 3 }, &.{
+    const input = try Tensor.fromSliceF32(allocator, &.{ 2, 2, 3 }, &.{
         1,  2,  3,
         4,  5,  6,
         7,  8,  9,
@@ -1912,7 +1762,7 @@ test "eager reduce_to_shape right-aligns target dims" {
     });
     defer input.deinit();
     const op = try Op.init(.reduce_to_shape, &.{input}, .{ .reduce_to_shape = .{ .shape = &.{ 1, 3 } } });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
     const values = std.mem.bytesAsSlice(f32, try out.storage.?.readableBytes());
     try std.testing.expectEqualSlices(f32, &.{ 22, 26, 30 }, values);
@@ -1920,7 +1770,7 @@ test "eager reduce_to_shape right-aligns target dims" {
 
 test "eager reduce_to_shape preserves aligned inner batch dims" {
     const allocator = std.testing.allocator;
-    const input = try Value.fromSliceF32(allocator, &.{ 2, 2, 3 }, &.{
+    const input = try Tensor.fromSliceF32(allocator, &.{ 2, 2, 3 }, &.{
         1,  2,  3,
         4,  5,  6,
         7,  8,  9,
@@ -1928,7 +1778,7 @@ test "eager reduce_to_shape preserves aligned inner batch dims" {
     });
     defer input.deinit();
     const op = try Op.init(.reduce_to_shape, &.{input}, .{ .reduce_to_shape = .{ .shape = &.{ 2, 3 } } });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
     const values = std.mem.bytesAsSlice(f32, try out.storage.?.readableBytes());
     try std.testing.expectEqualSlices(f32, &.{
@@ -1939,23 +1789,23 @@ test "eager reduce_to_shape preserves aligned inner batch dims" {
 
 test "eager scatter_add axis accumulation" {
     const allocator = std.testing.allocator;
-    const base = try Value.fromSliceF32(allocator, &.{ 2, 3 }, &.{
+    const base = try Tensor.fromSliceF32(allocator, &.{ 2, 3 }, &.{
         1, 2, 3,
         4, 5, 6,
     });
     defer base.deinit();
-    const index = try Value.fromSliceI64(allocator, &.{ 2, 2 }, &.{
+    const index = try Tensor.fromSliceI64(allocator, &.{ 2, 2 }, &.{
         2, 0,
         1, 1,
     });
     defer index.deinit();
-    const updates = try Value.fromSliceF32(allocator, &.{ 2, 2 }, &.{
+    const updates = try Tensor.fromSliceF32(allocator, &.{ 2, 2 }, &.{
         10, 20,
         30, 40,
     });
     defer updates.deinit();
     const op = try Op.init(.scatter_add, &.{ base, index, updates }, .{ .scatter_add = .{ .axis = 1 } });
-    const out = try execute(allocator, op);
+    const out = try @import("test_support.zig").execute(allocator, op);
     defer out.deinit();
     const values = std.mem.bytesAsSlice(f32, try out.storage.?.readableBytes());
     try std.testing.expectEqualSlices(f32, &.{

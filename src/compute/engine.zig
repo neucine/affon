@@ -124,7 +124,8 @@ pub const Engine = struct {
 
     pub fn executeRaw(self: Engine, raw: operation.Op) !EagerResult {
         var execution_scope = telemetry.beginTrace(.execution, telemetry.traces.run);
-        defer execution_scope.end();
+        var execution_succeeded = false;
+        defer if (!execution_succeeded) execution_scope.endError();
 
         var infer_scope = execution_scope.child("plan/infer", .internal, &.{});
         var info = semantic.infer(self.allocator, raw) catch |err| {
@@ -141,7 +142,10 @@ pub const Engine = struct {
         };
         plan_scope.end();
         defer plan.deinit();
-        return eager.executeAllWithPlan(self.allocator, raw, &plan);
+        const result = try eager.executeAllWithPlan(self.allocator, raw, &plan);
+        execution_succeeded = true;
+        execution_scope.end();
+        return result;
     }
 
     pub fn executeGraph(self: Engine, graph: *const ComputeGraph, inputs: []const *Tensor) !GraphResult {

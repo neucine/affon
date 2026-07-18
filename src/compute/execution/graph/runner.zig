@@ -1,20 +1,50 @@
 const std = @import("std");
-const Value = @import("../../types/tensor/value.zig").Value;
-const Graph = @import("../../types/ir/sir.zig").Graph;
-const ValueId = @import("../../types/ir/sir.zig").ValueId;
+const Tensor = @import("../../types/tensor/tensor.zig").Tensor;
+const Graph = @import("../../types/ir/graph.zig").Graph;
+const GraphPlan = @import("../../types/ir/plan.zig").GraphPlan;
 const Op = @import("../../types/operation/op.zig").Op;
 const eager = @import("../eager/index.zig");
-const plan_graph = @import("../../plan/graph.zig");
-const graph_lower = @import("lower.zig");
 const fusion = @import("fusion/index.zig");
+const telemetry = @import("../../telemetry.zig");
 
-pub const GraphExecutionResult = struct {
+fn fusionMetric(name: []const u8) void {
+    telemetry.addCounter(.execution, name, 1);
+}
+
+fn emitFusionHit(scope: telemetry.Scope, hit: fusion.Hit) void {
+    if (fusion.metricName(hit)) |name| fusionMetric(name);
+    if (fusion.traceEventName(hit)) |name| {
+        scope.addEventNow(name, &.{});
+    }
+}
+
+fn emitFusionMiss(scope: telemetry.Scope, miss: fusion.Miss) void {
+    if (fusion.missMetricName(miss)) |name| fusionMetric(name);
+    if (fusion.missTraceEventName(miss)) |name| {
+        scope.addEventNow(name, &.{});
+    }
+}
+
+fn emitRegionMetric(scope: telemetry.Scope, kind: @import("../../types/ir/plan.zig").RegionKind, prefix: []const u8) void {
+    const suffix = switch (kind) {
+        .fusable_run => "fusable_run",
+        .matmul_epilogue => "matmul_epilogue",
+    };
+    var name_buffer: [64]u8 = undefined;
+    const name = std.fmt.bufPrint(&name_buffer, "{s}_region_{s}", .{ prefix, suffix }) catch return;
+    fusionMetric(name);
+    var event_buffer: [64]u8 = undefined;
+    const event = std.fmt.bufPrint(&event_buffer, "fusion_{s}_region_{s}", .{ prefix, suffix }) catch return;
+    scope.addEventNow(event, &.{});
+}
+
+pub const Result = struct {
     allocator: std.mem.Allocator,
-    values: []?*Value,
+    values: []?*Tensor,
     owned: []bool,
-    outputs: []*Value,
+    outputs: []*Tensor,
 
-    pub fn deinit(self: *GraphExecutionResult) void {
+    pub fn deinit(self: *Result) void {
         for (self.values, self.owned) |value, is_owned| {
             if (is_owned) if (value) |owned_value| owned_value.deinit();
         }
@@ -28,16 +58,16 @@ pub const GraphExecutionResult = struct {
 pub fn execute(
     allocator: std.mem.Allocator,
     graph: *const Graph,
-    inputs: []const *Value,
-) !GraphExecutionResult {
+    plan: *const GraphPlan,
+    inputs: []const *Tensor,
+) !Result {
     if (inputs.len != graph.inputs.items.len) return error.InputCountMismatch;
 
-    var graph_plan = try plan_graph.lower(allocator, graph);
-    defer graph_plan.deinit();
-    var program = try graph_lower.lower(allocator, &graph_plan);
-    defer program.deinit();
+    var graph_scope = telemetry.beginTrace(.execution, telemetry.traces.run);
+    var graph_succeeded = false;
+    defer if (!graph_succeeded) graph_scope.endError();
 
-    const values = try allocator.alloc(?*Value, graph.values.items.len);
+    const values = try allocator.alloc(?*Tensor, graph.values.items.len);
     errdefer allocator.free(values);
     @memset(values, null);
 
@@ -58,83 +88,147 @@ pub fn execute(
 
     for (graph.inputs.items, inputs) |value_id, input| values[value_id] = input;
 
-    var result = GraphExecutionResult{
+    var result = Result{
         .allocator = allocator,
         .values = values,
         .owned = owned,
-        .outputs = try allocator.alloc(*Value, 0),
+        .outputs = try allocator.alloc(*Tensor, 0),
     };
     errdefer result.deinit();
 
     var step_index: usize = 0;
     var region_index: usize = 0;
-    while (step_index < program.steps.items.len) {
-        if (region_index < program.regions.items.len and program.regions.items[region_index].step_start == step_index) {
-            const region = program.regions.items[region_index];
-            const region_steps = program.steps.items[region.step_start..region.step_end];
+    while (step_index < plan.steps.items.len) {
+        if (region_index < plan.regions.items.len and plan.regions.items[region_index].step_start == step_index) {
+            const region = plan.regions.items[region_index];
+            const region_steps = plan.steps.items[region.step_start..region.step_end];
             region_index += 1;
-            if (try fusion.execute(allocator, graph, region, region_steps, values, owned)) {
+            fusionMetric("groups_eligible");
+            var region_scope = graph_scope.child(telemetry.traces.region, .internal, &.{});
+            emitRegionMetric(region_scope, region.kind, "eligible");
+            try prepareFusionPrefix(allocator, graph, region_scope, region, region_steps, values, owned);
+            const outcome = try fusion.execute(allocator, graph, region, region_steps, values, owned);
+            if (outcome.hit != .none) {
+                emitFusionHit(region_scope, outcome.hit);
+                region_scope.end();
                 consumeInputs(graph, region_steps, values, owned, remaining_uses, is_graph_output);
                 step_index = region.step_end;
                 continue;
             }
+            emitFusionMiss(region_scope, outcome.miss);
+            fusionMetric("fallback");
+            emitRegionMetric(region_scope, region.kind, "fallback");
+            var fallback_scope = region_scope.child(telemetry.traces.fallback, .internal, &.{});
+            fallback_scope.end();
+            region_scope.end();
         }
 
-        const step = program.steps.items[step_index];
+        const step = plan.steps.items[step_index];
         const node = graph.nodes.items[step.node_id];
+        if (stepOutputsMaterialized(graph, step, values)) {
+            consumeInputs(graph, &.{step}, values, owned, remaining_uses, is_graph_output);
+            step_index += 1;
+            continue;
+        }
         const tag = switch (node.kind) {
             .op => |op_tag| op_tag,
             else => return error.InvalidGraphStep,
         };
-
-        const op_inputs = try allocator.alloc(*Value, node.inputs.len);
-        defer allocator.free(op_inputs);
-        for (node.inputs, op_inputs) |value_id, *input| {
-            input.* = values[value_id] orelse return error.MissingGraphValue;
-        }
-
-        const op = try Op.initWithExecutionMetadata(
-            tag,
-            op_inputs,
-            node.options,
-            node.execution_metadata,
-        );
-        var execution = try eager.executeAll(allocator, op);
-        errdefer execution.deinit();
-
-        if (node.outputs.len == 0 or node.outputs.len > 2) return error.InvalidOutputCount;
-        if (node.outputs.len == 1 and execution.secondary != null) {
-            return error.MultiOutputRequiresExecuteAll;
-        }
-        if (node.outputs.len == 2 and execution.secondary == null) return error.MissingGraphValue;
-
-        const primary = execution.primary;
-        const secondary = execution.secondary;
-        execution.primary = undefined;
-        execution.secondary = null;
-        execution = undefined;
-
-        values[node.outputs[0]] = primary;
-        owned[node.outputs[0]] = true;
-        if (node.outputs.len == 2) {
-            values[node.outputs[1]] = secondary.?;
-            owned[node.outputs[1]] = true;
-        }
+        try executeStep(allocator, graph, graph_scope, step, tag, values, owned);
         consumeInputs(graph, &.{step}, values, owned, remaining_uses, is_graph_output);
         step_index += 1;
     }
 
-    result.outputs = try allocator.alloc(*Value, program.outputs.items.len);
-    for (program.outputs.items, result.outputs) |value_id, *output| {
+    result.outputs = try allocator.alloc(*Tensor, plan.outputs.items.len);
+    for (plan.outputs.items, result.outputs) |value_id, *output| {
         output.* = values[value_id] orelse return error.MissingGraphValue;
     }
+    graph_succeeded = true;
+    graph_scope.end();
     return result;
+}
+
+fn isFusionPreparatoryTag(tag: @import("../../types/operation/tag.zig").OpTag) bool {
+    return switch (tag) {
+        .slice, .cast, .contiguous, .reshape, .permute, .transpose, .squeeze, .unsqueeze => true,
+        else => false,
+    };
+}
+
+fn stepOutputsMaterialized(graph: *const Graph, step: @import("../../types/ir/plan.zig").Step, values: []?*Tensor) bool {
+    for (graph.nodes.items[step.node_id].outputs) |output_id| {
+        if (values[output_id] == null) return false;
+    }
+    return true;
+}
+
+fn stepInputsBound(graph: *const Graph, step: @import("../../types/ir/plan.zig").Step, values: []?*Tensor) bool {
+    for (graph.nodes.items[step.node_id].inputs) |input_id| {
+        if (values[input_id] == null) return false;
+    }
+    return true;
+}
+
+fn prepareFusionPrefix(
+    allocator: std.mem.Allocator,
+    graph: *const Graph,
+    parent: telemetry.Scope,
+    region: @import("../../types/ir/plan.zig").Region,
+    steps: []const @import("../../types/ir/plan.zig").Step,
+    values: []?*Tensor,
+    owned: []bool,
+) !void {
+    for (steps) |step| {
+        const tag = switch (graph.nodes.items[step.node_id].kind) {
+            .op => |value| value,
+            else => return error.InvalidGraphStep,
+        };
+        if (!isFusionPreparatoryTag(tag)) break;
+        if (fusion.shouldSkipPreparatoryStep(graph, region, steps, step)) continue;
+        if (stepOutputsMaterialized(graph, step, values)) continue;
+        if (!stepInputsBound(graph, step, values)) break;
+        try executeStep(allocator, graph, parent, step, tag, values, owned);
+    }
+}
+
+fn executeStep(
+    allocator: std.mem.Allocator,
+    graph: *const Graph,
+    parent: telemetry.Scope,
+    step: @import("../../types/ir/plan.zig").Step,
+    tag: @import("../../types/operation/tag.zig").OpTag,
+    values: []?*Tensor,
+    owned: []bool,
+) !void {
+    const node = graph.nodes.items[step.node_id];
+    const op_inputs = try allocator.alloc(*Tensor, node.inputs.len);
+    defer allocator.free(op_inputs);
+    for (node.inputs, op_inputs) |value_id, *input| {
+        input.* = values[value_id] orelse return error.MissingGraphValue;
+    }
+    const op = try Op.initWithExecutionMetadata(tag, op_inputs, node.options, node.execution_metadata);
+    var step_scope = parent.child(@tagName(tag), .internal, &.{});
+    defer step_scope.end();
+    var execution = try eager.executeAllWithPlan(allocator, op, &step.eager_plan);
+    errdefer execution.deinit();
+    if (node.outputs.len == 0 or node.outputs.len > 2) return error.InvalidOutputCount;
+    if (node.outputs.len == 1 and execution.secondary != null) return error.MultiOutputRequiresExecuteAll;
+    if (node.outputs.len == 2 and execution.secondary == null) return error.MissingGraphValue;
+    values[node.outputs[0]] = execution.primary;
+    owned[node.outputs[0]] = true;
+    execution.primary = undefined;
+    if (node.outputs.len == 2) {
+        values[node.outputs[1]] = execution.secondary.?;
+        owned[node.outputs[1]] = true;
+        execution.secondary = null;
+    }
+    execution = undefined;
 }
 
 fn consumeInputs(
     graph: *const Graph,
-    steps: []const @import("../../types/ir/eir/graph.zig").Step,
-    values: []?*Value,
+    steps: []const @import("../../types/ir/plan.zig").Step,
+    values: []?*Tensor,
     owned: []bool,
     remaining_uses: []usize,
     is_graph_output: []const bool,
