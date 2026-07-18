@@ -103,6 +103,40 @@ test "compute graph execution runs multiple operations" {
     try std.testing.expectEqualSlices(f32, &.{ 1, 5, 7 }, std.mem.bytesAsSlice(f32, bytes));
 }
 
+test "compute graph execution fuses matmul and full-shape bias" {
+    const Value = compute.tensor.Value;
+    const lhs = try Value.fromSliceF32(std.testing.allocator, &.{ 2, 3 }, &.{ 1, 2, 3, 4, 5, 6 });
+    defer lhs.deinit();
+    const rhs = try Value.fromSliceF32(std.testing.allocator, &.{ 3, 2 }, &.{ 1, 2, 3, 4, 5, 6 });
+    defer rhs.deinit();
+    const bias = try Value.fromSliceF32(std.testing.allocator, &.{ 2, 2 }, &.{ 1, 1, 1, 1 });
+    defer bias.deinit();
+
+    var graph = compute.types.ir.Graph.init(std.testing.allocator);
+    defer graph.deinit();
+    const lhs_id = try compute.execution.graph.builder.addInputFromValue(std.testing.allocator, &graph, lhs);
+    const rhs_id = try compute.execution.graph.builder.addInputFromValue(std.testing.allocator, &graph, rhs);
+    const bias_id = try compute.execution.graph.builder.addInputFromValue(std.testing.allocator, &graph, bias);
+    var output_shape = try compute.types.tensor.Shape.initCopy(std.testing.allocator, &.{ 2, 2 });
+    defer output_shape.deinit();
+    var output_layout = try compute.types.tensor.Layout.initContiguous(std.testing.allocator, output_shape);
+    defer output_layout.deinit();
+    const output_spec = compute.types.tensor.ValueSpec{
+        .shape = output_shape,
+        .dtype = .f32,
+        .layout = output_layout,
+        .device = .cpu,
+    };
+    const matmul_id = try graph.addOp(.matmul, &.{ lhs_id, rhs_id }, .{ .none = {} }, output_spec);
+    const output_id = try graph.addOp(.add, &.{ matmul_id, bias_id }, .{ .none = {} }, output_spec);
+    try graph.setOutputs(&.{output_id});
+
+    var result = try compute.execution.graph.execute(std.testing.allocator, &graph, &.{ lhs, rhs, bias });
+    defer result.deinit();
+    const bytes = try result.outputs[0].storage.?.readableBytes();
+    try std.testing.expectEqualSlices(f32, &.{ 23, 29, 50, 65 }, std.mem.bytesAsSlice(f32, bytes));
+}
+
 test "autograd tape tracks provenance without coupling to execution" {
     const Value = compute.tensor.Value;
     const input = try Value.fromSliceF32(std.testing.allocator, &.{2}, &.{ 1, 2 });
