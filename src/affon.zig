@@ -168,6 +168,33 @@ test "compute graph execution supports matmul add gelu epilogues" {
     for (values) |value| try std.testing.expect(value > 0);
 }
 
+test "compute graph execution supports add layer norm fusion" {
+    const Value = compute.tensor.Value;
+    const lhs = try Value.fromSliceF32(std.testing.allocator, &.{ 2, 2 }, &.{ 1, 3, 5, 7 });
+    defer lhs.deinit();
+    const rhs = try Value.fromSliceF32(std.testing.allocator, &.{ 2, 2 }, &.{ 1, 1, 1, 1 });
+    defer rhs.deinit();
+
+    var graph = compute.types.ir.Graph.init(std.testing.allocator);
+    defer graph.deinit();
+    const lhs_id = try compute.execution.graph.builder.addInputFromValue(std.testing.allocator, &graph, lhs);
+    const rhs_id = try compute.execution.graph.builder.addInputFromValue(std.testing.allocator, &graph, rhs);
+    var shape = try compute.types.tensor.Shape.initCopy(std.testing.allocator, &.{ 2, 2 });
+    defer shape.deinit();
+    var layout = try compute.types.tensor.Layout.initContiguous(std.testing.allocator, shape);
+    defer layout.deinit();
+    const spec = compute.types.tensor.ValueSpec{ .shape = shape, .dtype = .f32, .layout = layout, .device = .cpu };
+    const sum_id = try graph.addOp(.add, &.{ lhs_id, rhs_id }, .{ .none = {} }, spec);
+    const output_id = try graph.addOp(.layer_norm, &.{sum_id}, .{ .layer_norm = .{ .axis = 1, .eps = 1e-5 } }, spec);
+    try graph.setOutputs(&.{output_id});
+
+    var result = try compute.execution.graph.execute(std.testing.allocator, &graph, &.{ lhs, rhs });
+    defer result.deinit();
+    const values = std.mem.bytesAsSlice(f32, try result.outputs[0].storage.?.readableBytes());
+    try std.testing.expectApproxEqAbs(@as(f32, 0), values[0] + values[1], 1e-5);
+    try std.testing.expectApproxEqAbs(@as(f32, 0), values[2] + values[3], 1e-5);
+}
+
 test "autograd tape tracks provenance without coupling to execution" {
     const Value = compute.tensor.Value;
     const input = try Value.fromSliceF32(std.testing.allocator, &.{2}, &.{ 1, 2 });

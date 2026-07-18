@@ -23,6 +23,7 @@ pub fn execute(
             false;
     }
     if (region.kind != .fusable_run or steps.len < 2) return false;
+    if (try executeAddLayerNorm(allocator, graph, steps, values, owned)) return true;
 
     const first_node = graph.nodes.items[steps[0].node_id];
     const binary_tag = switch (first_node.kind) {
@@ -66,6 +67,51 @@ pub fn execute(
         stages[i] = try unaryStage(node);
     }
     return dispatchRegion(allocator, graph, steps, lhs, null, device, undefined, stages, values, owned);
+}
+
+fn executeAddLayerNorm(
+    allocator: std.mem.Allocator,
+    graph: *const Graph,
+    steps: []const Step,
+    values: []?*Value,
+    owned: []bool,
+) !bool {
+    if (steps.len != 2) return false;
+    const add_node = graph.nodes.items[steps[0].node_id];
+    const norm_node = graph.nodes.items[steps[1].node_id];
+    const add_tag = switch (add_node.kind) {
+        .op => |tag| tag,
+        else => return false,
+    };
+    const norm_tag = switch (norm_node.kind) {
+        .op => |tag| tag,
+        else => return false,
+    };
+    if (add_tag != .add or norm_tag != .layer_norm) return false;
+    if (add_node.inputs.len != 2 or add_node.outputs.len != 1) return false;
+    if (norm_node.inputs.len != 1 or norm_node.outputs.len != 1) return false;
+    if (norm_node.inputs[0] != add_node.outputs[0]) return false;
+
+    const lhs = values[add_node.inputs[0]] orelse return error.MissingGraphValue;
+    const rhs = values[add_node.inputs[1]] orelse return error.MissingGraphValue;
+    const device = lhs.device() orelse return error.InputNotMaterialized;
+    if ((rhs.device() orelse return error.InputNotMaterialized) != device or rhs.dtype != lhs.dtype) return false;
+    if (!Shape.eql(lhs.shape, rhs.shape)) return false;
+    if (lhs.storage == null or rhs.storage == null or lhs.layout.offset != 0 or rhs.layout.offset != 0 or
+        !lhs.layout.isContiguous(lhs.shape) or !rhs.layout.isContiguous(rhs.shape)) return false;
+
+    const options = switch (norm_node.options) {
+        .layer_norm => |value| value,
+        else => return false,
+    };
+    const output_spec = graph.values.items[norm_node.outputs[0]].spec;
+    if (output_spec.device != device or output_spec.dtype != lhs.dtype or !Shape.eql(output_spec.shape, lhs.shape)) return false;
+    const output = try Value.createContiguousWithSource(allocator, output_spec.shape.dims, output_spec.dtype, device, false, .graph);
+    errdefer output.deinit();
+    try backend_dispatch.addLayerNorm(device, lhs.dtype, lhs.storage.?, rhs.storage.?, output.storage.?, output_spec.shape.dims, options.axis, options.eps);
+    values[norm_node.outputs[0]] = output;
+    owned[norm_node.outputs[0]] = true;
+    return true;
 }
 
 fn executeMatmulAddRegion(
