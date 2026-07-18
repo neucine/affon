@@ -137,6 +137,37 @@ test "compute graph execution fuses matmul and full-shape bias" {
     try std.testing.expectEqualSlices(f32, &.{ 23, 29, 50, 65 }, std.mem.bytesAsSlice(f32, bytes));
 }
 
+test "compute graph execution supports matmul add gelu epilogues" {
+    const Value = compute.tensor.Value;
+    const lhs = try Value.fromSliceF32(std.testing.allocator, &.{ 2, 2 }, &.{ 1, 2, 3, 4 });
+    defer lhs.deinit();
+    const rhs = try Value.fromSliceF32(std.testing.allocator, &.{ 2, 2 }, &.{ 1, 0, 0, 1 });
+    defer rhs.deinit();
+    const bias = try Value.fromSliceF32(std.testing.allocator, &.{ 2, 2 }, &.{ 1, 1, 1, 1 });
+    defer bias.deinit();
+
+    var graph = compute.types.ir.Graph.init(std.testing.allocator);
+    defer graph.deinit();
+    const lhs_id = try compute.execution.graph.builder.addInputFromValue(std.testing.allocator, &graph, lhs);
+    const rhs_id = try compute.execution.graph.builder.addInputFromValue(std.testing.allocator, &graph, rhs);
+    const bias_id = try compute.execution.graph.builder.addInputFromValue(std.testing.allocator, &graph, bias);
+    var shape = try compute.types.tensor.Shape.initCopy(std.testing.allocator, &.{ 2, 2 });
+    defer shape.deinit();
+    var layout = try compute.types.tensor.Layout.initContiguous(std.testing.allocator, shape);
+    defer layout.deinit();
+    const spec = compute.types.tensor.ValueSpec{ .shape = shape, .dtype = .f32, .layout = layout, .device = .cpu };
+    const matmul_id = try graph.addOp(.matmul, &.{ lhs_id, rhs_id }, .{ .none = {} }, spec);
+    const add_id = try graph.addOp(.add, &.{ matmul_id, bias_id }, .{ .none = {} }, spec);
+    const output_id = try graph.addOp(.gelu, &.{add_id}, .{ .none = {} }, spec);
+    try graph.setOutputs(&.{output_id});
+
+    var result = try compute.execution.graph.execute(std.testing.allocator, &graph, &.{ lhs, rhs, bias });
+    defer result.deinit();
+    const values = std.mem.bytesAsSlice(f32, try result.outputs[0].storage.?.readableBytes());
+    try std.testing.expectEqual(@as(usize, 4), values.len);
+    for (values) |value| try std.testing.expect(value > 0);
+}
+
 test "autograd tape tracks provenance without coupling to execution" {
     const Value = compute.tensor.Value;
     const input = try Value.fromSliceF32(std.testing.allocator, &.{2}, &.{ 1, 2 });

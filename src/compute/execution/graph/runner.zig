@@ -132,7 +132,9 @@ fn executeFusableRegion(
 ) !bool {
     if (region.kind == .matmul_epilogue) {
         return if (region.matmul_epilogue_activation == .none)
-            executeMatmulAddRegion(allocator, graph, steps, values, owned)
+            executeMatmulAddRegion(allocator, graph, region, steps, values, owned)
+        else if (region.matmul_epilogue_activation == .gelu)
+            executeMatmulAddRegion(allocator, graph, region, steps, values, owned)
         else
             false;
     }
@@ -186,15 +188,27 @@ fn executeFusableRegion(
 fn executeMatmulAddRegion(
     allocator: std.mem.Allocator,
     graph: *const Graph,
+    region: Region,
     steps: []const Step,
     values: []?*Value,
     owned: []bool,
 ) !bool {
-    if (steps.len != 2) return false;
+    const has_gelu = region.matmul_epilogue_activation == .gelu;
+    const expected_len: usize = if (has_gelu) 3 else 2;
+    if (steps.len != expected_len) return false;
     const matmul_node = graph.nodes.items[steps[0].node_id];
     const add_node = graph.nodes.items[steps[1].node_id];
     if (matmul_node.inputs.len != 2 or matmul_node.outputs.len != 1) return false;
     if (add_node.inputs.len != 2 or add_node.outputs.len != 1) return false;
+    if (has_gelu) {
+        const activation_node = graph.nodes.items[steps[2].node_id];
+        if (activation_node.inputs.len != 1 or activation_node.outputs.len != 1) return false;
+        if (activation_node.inputs[0] != add_node.outputs[0]) return false;
+        switch (activation_node.kind) {
+            .op => |tag| if (tag != .gelu) return false,
+            else => return false,
+        }
+    }
 
     const matmul_output_id = matmul_node.outputs[0];
     const bias_id = if (add_node.inputs[0] == matmul_output_id)
@@ -214,25 +228,41 @@ fn executeMatmulAddRegion(
         !rhs.layout.isContiguous(rhs.shape) or rhs.layout.offset != 0 or
         !bias.layout.isContiguous(bias.shape) or bias.layout.offset != 0) return false;
 
-    const output_spec = graph.values.items[add_node.outputs[0]].spec;
+    const output_id = if (has_gelu) graph.nodes.items[steps[2].node_id].outputs[0] else add_node.outputs[0];
+    const output_spec = graph.values.items[output_id].spec;
     const matmul_spec = graph.values.items[matmul_output_id].spec;
     if (!Shape.eql(output_spec.shape, matmul_spec.shape) or !Shape.eql(output_spec.shape, bias.shape)) return false;
     const output = try Value.createContiguousWithSource(allocator, output_spec.shape.dims, output_spec.dtype, device, false, .graph);
     errdefer output.deinit();
-    try backend_dispatch.matmulAdd(
-        allocator,
-        device,
-        lhs.dtype,
-        lhs.storage orelse return error.InputNotMaterialized,
-        rhs.storage orelse return error.InputNotMaterialized,
-        bias.storage orelse return error.InputNotMaterialized,
-        output.storage.?,
-        lhs.shape.dims,
-        rhs.shape.dims,
-        output_spec.shape.dims,
-    );
-    values[add_node.outputs[0]] = output;
-    owned[add_node.outputs[0]] = true;
+    if (has_gelu) {
+        try backend_dispatch.matmulAddGelu(
+            allocator,
+            device,
+            lhs.dtype,
+            lhs.storage orelse return error.InputNotMaterialized,
+            rhs.storage orelse return error.InputNotMaterialized,
+            bias.storage orelse return error.InputNotMaterialized,
+            output.storage.?,
+            lhs.shape.dims,
+            rhs.shape.dims,
+            output_spec.shape.dims,
+        );
+    } else {
+        try backend_dispatch.matmulAdd(
+            allocator,
+            device,
+            lhs.dtype,
+            lhs.storage orelse return error.InputNotMaterialized,
+            rhs.storage orelse return error.InputNotMaterialized,
+            bias.storage orelse return error.InputNotMaterialized,
+            output.storage.?,
+            lhs.shape.dims,
+            rhs.shape.dims,
+            output_spec.shape.dims,
+        );
+    }
+    values[output_id] = output;
+    owned[output_id] = true;
     return true;
 }
 
