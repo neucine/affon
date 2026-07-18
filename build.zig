@@ -4,8 +4,6 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const hao = b.dependency("hao", .{ .target = target, .optimize = optimize });
-    const build_transpiler = b.addSystemCommand(&.{ "cargo", "build", "--release", "--quiet" });
-    build_transpiler.setCwd(hao.path("libs/transpiler"));
 
     _ = b.addModule("affon", .{
         .root_source_file = b.path("src/affon.zig"),
@@ -22,11 +20,7 @@ pub fn build(b: *std.Build) void {
             .imports = &.{.{ .name = "hao", .module = hao.module("hao") }},
         }),
     });
-    tests.root_module.linkLibrary(hao.artifact("uv"));
-    tests.root_module.linkLibrary(hao.artifact("quickjs"));
-    tests.root_module.addLibraryPath(hao.path("libs/transpiler/target/release"));
-    tests.root_module.linkSystemLibrary("hao_transpiler", .{});
-    tests.step.dependOn(&build_transpiler.step);
+    tests.root_module.linkLibrary(hao.artifact("hao_runtime"));
     const run_tests = b.addRunArtifact(tests);
     const test_step = b.step("test", "Run Affon tests");
     test_step.dependOn(&run_tests.step);
