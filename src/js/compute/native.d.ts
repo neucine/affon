@@ -76,6 +76,10 @@ declare module "affon:compute/native" {
     gather(value: Tensor, axis: number, index: Tensor): Tensor
     index_select(value: Tensor, axis: number, index: Tensor): Tensor
     topk(value: Tensor, k: number, axis?: number): { values: Tensor; indices: Tensor }
+    setDevice(device: 'cpu' | 'metal'): void
+    $axpy_(target: Tensor, scale: number, addend: Tensor): void
+    $zero_grad_(parameter: Tensor): void
+    $backward_(loss: Tensor): void
     where(condition: Tensor, onTrue: Tensor, onFalse: Tensor): Tensor
     masked_fill(value: Tensor, mask: Tensor, fill: number): Tensor
     cross_entropy_indexed(logits: Tensor, targets: Tensor, axis?: number): Tensor

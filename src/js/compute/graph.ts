@@ -437,7 +437,7 @@ function getCaptureState(opName: string): CaptureState {
 }
 
 function getStaticMeta(value: unknown): StaticTensorMeta | null {
-  if (!isGraphValue(value)) return null
+  if (!isCapturedTensor(value)) return null
   const meta = (value as any)[GRAPH_META] as StaticTensorMeta | undefined
   if (!meta) return null
   return { shape: [...meta.shape], dtype: meta.dtype }
@@ -747,7 +747,7 @@ function pushConstant(state: CaptureState, data: Nested, dtype: TensorDType): Ca
 }
 
 function normalizeBinaryCaptureOperand(state: CaptureState, opName: string, value: unknown): CapturedValue {
-  if (isGraphValue(value)) return value
+  if (isCapturedTensor(value)) return value
   if (isTensorLike(value)) return makeBoundInput(state, value, () => value)
   if (isFiniteNumber(value)) return pushConstant(state, value, 'f32')
   throw graphCaptureError('capture_adapter', 'invalid_arg', `${opName} graph capture currently supports graph values and finite scalar constants only`)
@@ -1988,7 +1988,7 @@ function captureGraph(fn: (...inputs: CapturedValue[]) => CapturedValue, arityOv
     currentCapture = previous
   }
 
-  if (!isGraphValue(output)) {
+  if (!isCapturedTensor(output)) {
     throw graphCaptureSyntaxError('graph() capture function must return a graph value')
   }
 
@@ -2113,7 +2113,7 @@ function captureBoundTensor(key: unknown, resolve: () => NativeTensor): NativeTe
 }
 
 function captureUnary(kind: UnaryKind, opName: string, value: unknown): NativeTensor | CapturedValue {
-  if (isGraphValue(value)) return pushUnary(getCaptureState(opName), kind, value)
+  if (isCapturedTensor(value)) return pushUnary(getCaptureState(opName), kind, value)
   return (native as any)[opName](value)
 }
 
@@ -2129,13 +2129,13 @@ function captureRandom(kind: 'rand' | 'randn', shape: unknown, dtype: unknown): 
 }
 
 function captureClamp(value: unknown, min: unknown, max: unknown): NativeTensor | CapturedValue {
-  if (isGraphValue(min) || isGraphValue(max)) {
+  if (isCapturedTensor(min) || isCapturedTensor(max)) {
     throw graphCaptureAdapterError('clamp graph capture requires finite scalar min and max')
   }
   if (!isFiniteNumber(min) || !isFiniteNumber(max)) {
     throw graphCaptureSyntaxError('clamp graph capture requires finite scalar min and max')
   }
-  if (isGraphValue(value)) return pushClamp(getCaptureState('clamp'), value, min, max)
+  if (isCapturedTensor(value)) return pushClamp(getCaptureState('clamp'), value, min, max)
   return native.clamp(value as any, min, max)
 }
 
@@ -2143,7 +2143,7 @@ function captureReshape(value: unknown, shape: unknown, opts?: unknown): NativeT
   if (!Array.isArray(shape) || !shape.every((dim) => Number.isInteger(dim) && dim >= 0)) {
     throw graphCaptureSyntaxError('reshape graph capture requires a non-negative integer shape array')
   }
-  if (isGraphValue(value)) return pushReshape(getCaptureState('reshape'), value, shape as number[])
+  if (isCapturedTensor(value)) return pushReshape(getCaptureState('reshape'), value, shape as number[])
   if (opts === undefined) return native.reshape(value as any, shape as number[])
   return native.reshape(value as any, shape as number[], opts as any)
 }
@@ -2152,7 +2152,7 @@ function captureSlice(value: unknown, ranges: unknown): NativeTensor | CapturedV
   if (!Array.isArray(ranges) || !ranges.every((entry) => typeof entry === 'string' || Number.isInteger(entry))) {
     throw graphCaptureSyntaxError('slice graph capture requires an array of number or string ranges')
   }
-  if (isGraphValue(value)) return pushSlice(getCaptureState('slice'), value, ranges as SliceRangeSpec[])
+  if (isCapturedTensor(value)) return pushSlice(getCaptureState('slice'), value, ranges as SliceRangeSpec[])
   return native.slice(value as any, ranges as SliceRangeSpec[])
 }
 
@@ -2160,7 +2160,7 @@ function captureSqueeze(value: unknown, axis?: unknown): NativeTensor | Captured
   if (axis != null && !Number.isInteger(axis)) {
     throw graphCaptureSyntaxError('squeeze graph capture requires axis to be an integer when provided')
   }
-  if (isGraphValue(value)) return pushSqueeze(getCaptureState('squeeze'), value, axis as number | undefined)
+  if (isCapturedTensor(value)) return pushSqueeze(getCaptureState('squeeze'), value, axis as number | undefined)
   if (axis === undefined) return native.squeeze(value as any)
   return native.squeeze(value as any, axis as any)
 }
@@ -2169,12 +2169,12 @@ function captureUnsqueeze(value: unknown, axis: unknown): NativeTensor | Capture
   if (!Number.isInteger(axis)) {
     throw graphCaptureSyntaxError('unsqueeze graph capture requires an integer axis')
   }
-  if (isGraphValue(value)) return pushUnsqueeze(getCaptureState('unsqueeze'), value, axis as number)
+  if (isCapturedTensor(value)) return pushUnsqueeze(getCaptureState('unsqueeze'), value, axis as number)
   return native.unsqueeze(value as any, axis as any)
 }
 
 function captureTranspose(value: unknown): NativeTensor | CapturedValue {
-  if (isGraphValue(value)) return pushTranspose(getCaptureState('transpose'), value)
+  if (isCapturedTensor(value)) return pushTranspose(getCaptureState('transpose'), value)
   return native.transpose(value as any)
 }
 
@@ -2182,12 +2182,12 @@ function capturePermute(value: unknown, axes: unknown): NativeTensor | CapturedV
   if (!Array.isArray(axes) || !axes.every((axis) => Number.isInteger(axis) && axis >= 0)) {
     throw graphCaptureSyntaxError('permute graph capture requires a non-negative integer axes array')
   }
-  if (isGraphValue(value)) return pushPermute(getCaptureState('permute'), value, axes as number[])
+  if (isCapturedTensor(value)) return pushPermute(getCaptureState('permute'), value, axes as number[])
   return native.permute(value as any, axes as number[])
 }
 
 function captureContiguous(value: unknown): NativeTensor | CapturedValue {
-  if (isGraphValue(value)) return pushContiguous(getCaptureState('contiguous'), value)
+  if (isCapturedTensor(value)) return pushContiguous(getCaptureState('contiguous'), value)
   return native.contiguous(value as any)
 }
 
@@ -2195,17 +2195,17 @@ function captureCast(value: unknown, dtype: unknown): NativeTensor | CapturedVal
   if (dtype !== 'f32' && dtype !== 'f64') {
     throw graphCaptureAdapterError('cast graph capture currently supports f32 and f64 dtypes only')
   }
-  if (isGraphValue(value)) return pushCast(getCaptureState('cast'), value, dtype)
+  if (isCapturedTensor(value)) return pushCast(getCaptureState('cast'), value, dtype)
   return native.cast(value as any, dtype as any)
 }
 
 function captureGelu(value: unknown): NativeTensor | CapturedValue {
-  if (isGraphValue(value)) return pushGelu(getCaptureState('gelu'), value)
+  if (isCapturedTensor(value)) return pushGelu(getCaptureState('gelu'), value)
   return native.gelu(value as any)
 }
 
 function captureDot(left: unknown, right: unknown): NativeTensor | CapturedValue {
-  if (isGraphValue(left) || isGraphValue(right)) {
+  if (isCapturedTensor(left) || isCapturedTensor(right)) {
     const state = getCaptureState('dot')
     return pushDot(
       state,
@@ -2217,7 +2217,7 @@ function captureDot(left: unknown, right: unknown): NativeTensor | CapturedValue
 }
 
 function captureMatmul(left: unknown, right: unknown, execution?: MatmulExecutionOptions): NativeTensor | CapturedValue {
-  if (isGraphValue(left) || isGraphValue(right)) {
+  if (isCapturedTensor(left) || isCapturedTensor(right)) {
     const state = getCaptureState('matmul')
     return pushMatmul(
       state,
@@ -2254,12 +2254,12 @@ function normalizeTensorListCaptureOperand(opName: string, values: unknown): Cap
   if (!Array.isArray(values)) {
     throw graphCaptureSyntaxError(`${opName} graph capture requires an input array`)
   }
-  const hasGraph = values.some((value) => isGraphValue(value))
+  const hasGraph = values.some((value) => isCapturedTensor(value))
   if (!hasGraph) return null
   if (values.length === 0) {
     throw graphCaptureSyntaxError(`${opName} graph capture requires at least one input tensor`)
   }
-  if (!values.every((value) => isGraphValue(value))) {
+  if (!values.every((value) => isCapturedTensor(value))) {
     throw graphCaptureAdapterError(`${opName} graph capture requires all inputs to be graph values when any input is captured`)
   }
   return values as CapturedValue[]
@@ -2294,7 +2294,7 @@ function captureStack(inputs: unknown, dim?: unknown): NativeTensor | CapturedVa
 }
 
 function captureWhere(cond: unknown, onTrue: unknown, onFalse: unknown): NativeTensor | CapturedValue {
-  if (isGraphValue(cond) || isGraphValue(onTrue) || isGraphValue(onFalse)) {
+  if (isCapturedTensor(cond) || isCapturedTensor(onTrue) || isCapturedTensor(onFalse)) {
     const state = getCaptureState('where')
     return pushWhere(
       state,
@@ -2307,7 +2307,7 @@ function captureWhere(cond: unknown, onTrue: unknown, onFalse: unknown): NativeT
 }
 
 function captureMaskedFill(input: unknown, mask: unknown, value: unknown): NativeTensor | CapturedValue {
-  if (isGraphValue(input) || isGraphValue(mask)) {
+  if (isCapturedTensor(input) || isCapturedTensor(mask)) {
     if (!isFiniteNumber(value)) {
       throw graphCaptureSyntaxError('masked_fill graph capture requires a finite scalar fill value')
     }
@@ -2326,7 +2326,7 @@ function captureSoftmax(input: unknown, dim: unknown): NativeTensor | CapturedVa
   if (!Number.isInteger(dim)) {
     throw graphCaptureSyntaxError('softmax graph capture requires an integer dim')
   }
-  if (isGraphValue(input)) return pushSoftmax(getCaptureState('softmax'), input, dim)
+  if (isCapturedTensor(input)) return pushSoftmax(getCaptureState('softmax'), input, dim)
   return native.softmax(input as any, dim)
 }
 
@@ -2337,7 +2337,7 @@ function captureCrossEntropyIndexed(logits: unknown, targets: unknown, axis: unk
   if ((axis as number) !== 1) {
     throw graphCaptureAdapterError('cross_entropy_indexed graph capture currently supports axis=1 only')
   }
-  if (isGraphValue(logits) || isGraphValue(targets)) {
+  if (isCapturedTensor(logits) || isCapturedTensor(targets)) {
     const state = getCaptureState('cross_entropy_indexed')
     return pushCrossEntropyIndexed(
       state,
@@ -2353,7 +2353,7 @@ function captureOneHot(input: unknown, numClasses: unknown): NativeTensor | Capt
   if (!Number.isInteger(numClasses) || (numClasses as number) < 0) {
     throw graphCaptureSyntaxError('one_hot graph capture requires a non-negative integer num_classes')
   }
-  if (isGraphValue(input)) return pushOneHot(getCaptureState('one_hot'), input, numClasses as number)
+  if (isCapturedTensor(input)) return pushOneHot(getCaptureState('one_hot'), input, numClasses as number)
   return native.one_hot(input as any, numClasses as any)
 }
 
@@ -2365,7 +2365,7 @@ function captureTopK(input: unknown, k: unknown, dim?: unknown): TopKResult | { 
   if (!Number.isInteger(normalizedDim)) {
     throw graphCaptureSyntaxError('topk graph capture requires dim to be an integer when provided')
   }
-  if (isGraphValue(input)) return pushTopK(getCaptureState('topk'), input, k as number, normalizedDim as number)
+  if (isCapturedTensor(input)) return pushTopK(getCaptureState('topk'), input, k as number, normalizedDim as number)
   if (dim === undefined) return native.topk(input as any, k as any)
   return native.topk(input as any, k as any, dim as any)
 }
@@ -2374,7 +2374,7 @@ function captureIndexSelect(input: unknown, dim: unknown, index: unknown): Nativ
   if (!Number.isInteger(dim)) {
     throw graphCaptureSyntaxError('index_select graph capture requires an integer dim')
   }
-  if (isGraphValue(input) || isGraphValue(index)) {
+  if (isCapturedTensor(input) || isCapturedTensor(index)) {
     const state = getCaptureState('index_select')
     return pushIndexSelect(
       state,
@@ -2390,7 +2390,7 @@ function captureGather(input: unknown, dim: unknown, index: unknown): NativeTens
   if (!Number.isInteger(dim)) {
     throw graphCaptureSyntaxError('gather graph capture requires an integer dim')
   }
-  if (isGraphValue(input) || isGraphValue(index)) {
+  if (isCapturedTensor(input) || isCapturedTensor(index)) {
     const state = getCaptureState('gather')
     return pushGather(
       state,
@@ -2409,7 +2409,7 @@ function captureReduction(kind: ReductionKind, input: unknown, axis?: unknown, k
   if (keepdim != null && typeof keepdim !== 'boolean') {
     throw graphCaptureSyntaxError(`${kind} graph capture requires keepdim to be boolean when provided`)
   }
-  if (isGraphValue(input)) return pushReduction(getCaptureState(kind), kind, input, axis as number | undefined, keepdim as boolean | undefined)
+  if (isCapturedTensor(input)) return pushReduction(getCaptureState(kind), kind, input, axis as number | undefined, keepdim as boolean | undefined)
   if (axis === undefined) return (native as any)[kind](input)
   if (keepdim === undefined) return (native as any)[kind](input, axis)
   return (native as any)[kind](input, axis, keepdim)
@@ -2422,14 +2422,14 @@ function captureIndexReduction(kind: IndexReductionKind, input: unknown, axis?: 
   if (keepdim != null && typeof keepdim !== 'boolean') {
     throw graphCaptureSyntaxError(`${kind} graph capture requires keepdim to be boolean when provided`)
   }
-  if (isGraphValue(input)) return pushIndexReduction(getCaptureState(kind), kind, input, axis as number | undefined, keepdim as boolean | undefined)
+  if (isCapturedTensor(input)) return pushIndexReduction(getCaptureState(kind), kind, input, axis as number | undefined, keepdim as boolean | undefined)
   if (axis === undefined) return (native as any)[kind](input)
   if (keepdim === undefined) return (native as any)[kind](input, axis)
   return (native as any)[kind](input, axis, keepdim)
 }
 
 function captureBinary(kind: BinaryKind, opName: string, left: unknown, right: unknown): NativeTensor | CapturedValue {
-  if (isGraphValue(left) || isGraphValue(right)) {
+  if (isCapturedTensor(left) || isCapturedTensor(right)) {
     const state = getCaptureState(opName)
     return pushBinary(
       state,
@@ -2443,13 +2443,13 @@ function captureBinary(kind: BinaryKind, opName: string, left: unknown, right: u
 
 function rejectIfGraphArgs(opName: string, values: unknown[]): void {
   for (let i = 0; i < values.length; i++) {
-    if (isGraphValue(values[i])) unsupportedGraphOp(opName)
+    if (isCapturedTensor(values[i])) unsupportedGraphOp(opName)
   }
 }
 
 function graphTensor(data: any, opts?: { dtype?: TensorDType }): CapturedValue | undefined {
   if (!currentCapture) return undefined
-  if (isGraphValue(data)) {
+  if (isCapturedTensor(data)) {
     throw graphCaptureAdapterError('graph capture does not support wrapping graph values with tensor()')
   }
   if (typeof data === 'number') {
@@ -2461,7 +2461,7 @@ function graphTensor(data: any, opts?: { dtype?: TensorDType }): CapturedValue |
   return undefined
 }
 
-function isGraphValue(value: unknown): value is CapturedValue {
+function isCapturedTensor(value: unknown): value is CapturedValue {
   return !!value && typeof value === 'object' && (value as any)[GRAPH_VALUE] === true
 }
 

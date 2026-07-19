@@ -1,1 +1,36 @@
 declare function setDevice(device: "cpu" | "metal"): void
+
+type RuntimeErrorCode =
+  | "invalid_arg"
+  | "missing_arg"
+  | "shape_mismatch"
+  | "invalid_shape"
+  | "invalid_dtype"
+  | "out_of_memory"
+  | "device_mismatch"
+  | "device_error"
+  | "grad_error"
+  | "io_error"
+  | "cancelled"
+  | "invalid_state"
+  | "unsupported_lowering"
+  | "internal"
+  | "thread_pool_unavailable"
+  | "metal_unavailable"
+
+type AffonErrorCode = RuntimeErrorCode
+
+declare class RuntimeError extends Error {
+  readonly name: "RuntimeError"
+  readonly code: RuntimeErrorCode
+  readonly nativeStack?: string
+
+  constructor(code: RuntimeErrorCode, message: string)
+}
+
+declare class AffonError extends Error {
+  readonly name: "AffonError"
+  readonly code: AffonErrorCode
+  readonly nativeStack?: string
+  constructor(code: AffonErrorCode, message: string)
+}

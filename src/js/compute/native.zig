@@ -16,6 +16,7 @@ const grad_mode = @import("../../compute/grad_mode.zig");
 const captured_schema = @import("captured/schema.zig");
 const captured_lowering = @import("captured/lowering.zig");
 const repr_common = @import("../../compute/shared/repr.zig");
+const compat = @import("../../support/compat.zig");
 
 const abi = hao.js.abi;
 const allocator = std.heap.c_allocator;
@@ -369,8 +370,138 @@ fn errorValue(ctx: abi.JSContext, message: [*:0]const u8) abi.JSValue {
     return abi.jsThrowError(ctx, message);
 }
 
+fn classifiedErrorValue(ctx: abi.JSContext, message: []const u8, err: anyerror) abi.JSValue {
+    return switch (err) {
+        error.ShapeMismatch, error.IncompatibleShapes, error.SizeMismatch => abi.jsThrowConstructedError(ctx, "AffonError", "shape_mismatch", message),
+        error.DTypeMismatch, error.TypeMismatch, error.UnsupportedDType => abi.jsThrowConstructedError(ctx, "AffonError", "invalid_dtype", message),
+        error.InvalidArgument, error.InvalidAxis, error.AxisOutOfBounds, error.IndexOutOfBounds => abi.jsThrowConstructedError(ctx, "AffonError", "invalid_arg", message),
+        error.JaggedArray, error.NotContiguous, error.UnsupportedShape => abi.jsThrowConstructedError(ctx, "AffonError", "invalid_shape", message),
+        else => abi.jsThrowError(ctx, "native compute operation failed"),
+    };
+}
+
 fn typeError(ctx: abi.JSContext, message: [*:0]const u8) abi.JSValue {
     return abi.jsThrowTypeError(ctx, message);
+}
+
+const CheckpointEntry = struct { name: []u8, value: *Tensor };
+
+fn checkpointDTypeName(dtype: engine_api.DType) []const u8 {
+    return switch (dtype) { .f32 => "F32", .f64 => "F64", .i64 => "I64" };
+}
+
+fn checkpointDType(text: []const u8) ?engine_api.DType {
+    if (std.mem.eql(u8, text, "F32")) return .f32;
+    if (std.mem.eql(u8, text, "F64")) return .f64;
+    if (std.mem.eql(u8, text, "I64")) return .i64;
+    return null;
+}
+
+fn jsSaveNative(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    if (argc < 2 or !abi.jsIsArray(ctx, argv[0])) return typeError(ctx, "checkpoint.save expects entries and a path");
+    const path = abi.jsStringAlloc(ctx, argv[1], allocator) catch return typeError(ctx, "checkpoint.save expects a string path");
+    defer allocator.free(path);
+    const length_value = abi.jsGetProperty(ctx, argv[0], "length");
+    defer abi.jsFreeValue(ctx, length_value);
+    var count: i32 = 0;
+    if (abi.jsToInt32(ctx, &count, length_value) < 0 or count <= 0) return errorValue(ctx, "checkpoint.save requires non-empty entries");
+    const entries = allocator.alloc(CheckpointEntry, @intCast(count)) catch return errorValue(ctx, "checkpoint.save out of memory");
+    defer {
+        for (entries) |entry| allocator.free(entry.name);
+        allocator.free(entries);
+    }
+    var total_bytes: usize = 0;
+    for (entries, 0..) |*entry, index| {
+        const item = abi.jsGetArrayElement(ctx, argv[0], @intCast(index));
+        defer abi.jsFreeValue(ctx, item);
+        const name_value = abi.jsGetProperty(ctx, item, "name");
+        defer abi.jsFreeValue(ctx, name_value);
+        entry.name = abi.jsStringAlloc(ctx, name_value, allocator) catch return typeError(ctx, "checkpoint entry name must be a string");
+        const tensor_value = abi.jsGetProperty(ctx, item, "value");
+        defer abi.jsFreeValue(ctx, tensor_value);
+        entry.value = tensorFromValue(ctx, tensor_value) orelse return typeError(ctx, "checkpoint entry value must be a Tensor");
+        total_bytes += entry.value.shape.numel() * entry.value.dtype.size();
+    }
+    var header = std.ArrayList(u8).empty;
+    defer header.deinit(allocator);
+    header.append(allocator, '{') catch return errorValue(ctx, "checkpoint.save out of memory");
+    var offset: usize = 0;
+    for (entries, 0..) |entry, index| {
+        if (index > 0) header.append(allocator, ',') catch return errorValue(ctx, "checkpoint.save out of memory");
+        header.append(allocator, '"') catch return errorValue(ctx, "checkpoint.save out of memory");
+        header.appendSlice(allocator, entry.name) catch return errorValue(ctx, "checkpoint.save out of memory");
+        header.appendSlice(allocator, "\":{\"dtype\":\"") catch return errorValue(ctx, "checkpoint.save out of memory");
+        header.appendSlice(allocator, checkpointDTypeName(entry.value.dtype)) catch return errorValue(ctx, "checkpoint.save out of memory");
+        header.appendSlice(allocator, "\",\"shape\":[") catch return errorValue(ctx, "checkpoint.save out of memory");
+        for (entry.value.shape.dims, 0..) |dim, dim_index| {
+            if (dim_index > 0) header.append(allocator, ',') catch return errorValue(ctx, "checkpoint.save out of memory");
+            var dim_buf: [32]u8 = undefined;
+            header.appendSlice(allocator, std.fmt.bufPrint(&dim_buf, "{d}", .{dim}) catch return errorValue(ctx, "checkpoint.save out of memory")) catch return errorValue(ctx, "checkpoint.save out of memory");
+        }
+        header.appendSlice(allocator, "],\"data_offsets\":[") catch return errorValue(ctx, "checkpoint.save out of memory");
+        var buf: [32]u8 = undefined;
+        header.appendSlice(allocator, std.fmt.bufPrint(&buf, "{d}", .{offset}) catch return errorValue(ctx, "checkpoint.save out of memory")) catch return errorValue(ctx, "checkpoint.save out of memory");
+        offset += entry.value.shape.numel() * entry.value.dtype.size();
+        header.append(allocator, ',') catch return errorValue(ctx, "checkpoint.save out of memory");
+        header.appendSlice(allocator, std.fmt.bufPrint(&buf, "{d}", .{offset}) catch return errorValue(ctx, "checkpoint.save out of memory")) catch return errorValue(ctx, "checkpoint.save out of memory");
+        header.appendSlice(allocator, "]}") catch return errorValue(ctx, "checkpoint.save out of memory");
+    }
+    header.append(allocator, '}') catch return errorValue(ctx, "checkpoint.save out of memory");
+    var output = std.ArrayList(u8).empty;
+    defer output.deinit(allocator);
+    const header_size: u64 = @intCast(header.items.len);
+    const header_size_le = std.mem.nativeToLittle(u64, header_size);
+    output.appendSlice(allocator, std.mem.asBytes(&header_size_le)) catch return errorValue(ctx, "checkpoint.save out of memory");
+    output.appendSlice(allocator, header.items) catch return errorValue(ctx, "checkpoint.save out of memory");
+    for (entries) |entry| {
+        const bytes = allocator.alloc(u8, entry.value.shape.numel() * entry.value.dtype.size()) catch return errorValue(ctx, "checkpoint.save out of memory");
+        defer allocator.free(bytes);
+        engine_api.Engine.init(allocator, .{}).copyToHost(entry.value, bytes) catch return errorValue(ctx, "checkpoint.save failed to read Tensor");
+        output.appendSlice(allocator, bytes) catch return errorValue(ctx, "checkpoint.save out of memory");
+    }
+    compat.writeFile(path, output.items) catch return errorValue(ctx, "checkpoint.save failed to write file");
+    return abi.jsUndefined(ctx);
+}
+
+fn jsLoadNative(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    if (argc < 1) return typeError(ctx, "checkpoint.load expects a path");
+    const path = abi.jsStringAlloc(ctx, argv[0], allocator) catch return typeError(ctx, "checkpoint.load expects a string path");
+    defer allocator.free(path);
+    const file = compat.readFileAlloc(allocator, path, 500 * 1024 * 1024) catch return errorValue(ctx, "checkpoint.load failed to read file");
+    defer allocator.free(file);
+    if (file.len < 8) return errorValue(ctx, "checkpoint.load file is too small");
+    const header_size = std.mem.readInt(u64, file[0..8], .little);
+    if (header_size > file.len - 8) return errorValue(ctx, "checkpoint.load has an invalid header");
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, file[8 .. 8 + @as(usize, @intCast(header_size))], .{}) catch return errorValue(ctx, "checkpoint.load has invalid metadata");
+    defer parsed.deinit();
+    const result = abi.jsNewObject(ctx);
+    if (abi.jsIsException(result)) return result;
+    const raw = file[8 + @as(usize, @intCast(header_size))..];
+    const root = parsed.value.object;
+    for (root.keys(), root.values()) |name, metadata| {
+        const object = metadata.object;
+        const dtype_text = object.get("dtype") orelse return errorValue(ctx, "checkpoint.load metadata is missing dtype");
+        const dtype = checkpointDType(dtype_text.string) orelse return errorValue(ctx, "checkpoint.load has unsupported dtype");
+        const shape_value = object.get("shape") orelse return errorValue(ctx, "checkpoint.load metadata is missing shape");
+        const dims = allocator.alloc(usize, shape_value.array.items.len) catch return errorValue(ctx, "checkpoint.load out of memory");
+        defer allocator.free(dims);
+        for (dims, shape_value.array.items) |*dim, item| dim.* = @intCast(item.integer);
+        const offsets = object.get("data_offsets") orelse return errorValue(ctx, "checkpoint.load metadata is missing offsets");
+        const start: usize = @intCast(offsets.array.items[0].integer);
+        const end: usize = @intCast(offsets.array.items[1].integer);
+        if (end < start or end > raw.len) return errorValue(ctx, "checkpoint.load offsets exceed file size");
+        const value = Tensor.createContiguous(allocator, dims, dtype, .cpu, false) catch return errorValue(ctx, "checkpoint.load out of memory");
+        errdefer value.deinit();
+        const writable = value.storage.?.writableBytes() catch return errorValue(ctx, "checkpoint.load failed to allocate Tensor");
+        if (writable.len != end - start) return errorValue(ctx, "checkpoint.load tensor byte length mismatch");
+        @memcpy(writable, raw[start..end]);
+        const js_value = createTensorObject(ctx, value);
+        if (abi.jsIsException(js_value)) { value.deinit(); return js_value; }
+        const name_z = allocator.dupeZ(u8, name) catch return errorValue(ctx, "checkpoint.load out of memory");
+        defer allocator.free(name_z);
+        if (abi.jsSetProperty(ctx, result, name_z.ptr, js_value) < 0) return abi.jsThrowError(ctx, "checkpoint.load failed to create result");
+    }
+    return result;
 }
 
 fn tensorFromValue(ctx: abi.JSContext, value: abi.JSValueConst) ?*Tensor {
@@ -430,8 +561,11 @@ fn jsTensorGradDevice(ctx: abi.JSContext, this_value: abi.JSValueConst) callconv
     return abi.jsString(ctx, device);
 }
 
-fn jsTensorBackward(ctx: abi.JSContext, this_value: abi.JSValueConst, _: c_int, _: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
-    const loss = tensorFromValue(ctx, this_value) orelse return typeError(ctx, "backward expects a Tensor");
+fn jsTensorBackward(ctx: abi.JSContext, this_value: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    const loss = tensorFromValue(ctx, this_value) orelse blk: {
+        if (argc != 1) return typeError(ctx, "backward expects a Tensor");
+        break :blk tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "backward expects a Tensor");
+    };
     if (loss.shape.numel() != 1) return errorValue(ctx, "backward() failed: loss must be scalar");
     const previous_grad_mode = grad_mode.isEnabled();
     grad_mode.setEnabled(false);
@@ -473,7 +607,7 @@ fn flattenTensorInput(
     try values.append(allocator, @floatCast(number));
 }
 
-fn createTensorObject(ctx: abi.JSContext, value: *Tensor) abi.JSValue {
+pub fn createTensorObject(ctx: abi.JSContext, value: *Tensor) abi.JSValue {
     const object = allocator.create(TensorObject) catch {
         value.deinit();
         return errorValue(ctx, "out of memory");
@@ -924,6 +1058,19 @@ fn jsInternalMuladd(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: 
     return abi.jsUndefined(ctx);
 }
 
+fn jsInternalAxpy(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    if (argc != 3) return typeError(ctx, "$axpy_ expects a target, scale, and addend Tensor");
+    const target = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "$axpy_ expects a target Tensor");
+    const addend = tensorFromValue(ctx, argv[2]) orelse return typeError(ctx, "$axpy_ expects an addend Tensor");
+    if (target.dtype != addend.dtype or target.device() != addend.device()) return typeError(ctx, "$axpy_ requires matching dtype and device");
+    var scale: f64 = 0;
+    if (abi.jsToFloat64(ctx, &scale, argv[1]) < 0) return typeError(ctx, "$axpy_ expects a numeric scale");
+    const target_storage = target.storage orelse return errorValue(ctx, "$axpy_ target has no storage");
+    const addend_storage = addend.storage orelse return errorValue(ctx, "$axpy_ addend has no storage");
+    dispatch.update(target.device() orelse .cpu, .axpy, target.dtype, target_storage, addend_storage, scale) catch return errorValue(ctx, "$axpy_ failed");
+    return abi.jsUndefined(ctx);
+}
+
 fn jsGrad(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
     if (argc != 2) return typeError(ctx, "grad expects a loss Tensor and parameter array");
     const loss = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "grad expects a loss Tensor");
@@ -1004,6 +1151,18 @@ fn jsClearGrad(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]a
                 gradient.deinit();
                 state.gradient = null;
             }
+        }
+    }
+    return abi.jsUndefined(ctx);
+}
+
+fn jsInternalZeroGrad(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    if (argc != 1) return typeError(ctx, "$zero_grad_ expects a parameter Tensor");
+    const parameter = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "$zero_grad_ expects a parameter Tensor");
+    if (autograd_types.State.fromTensor(parameter)) |state| {
+        if (state.gradient) |gradient| {
+            gradient.deinit();
+            state.gradient = null;
         }
     }
     return abi.jsUndefined(ctx);
@@ -1262,7 +1421,7 @@ fn binary(ctx: abi.JSContext, argc: c_int, argv: [*c]abi.JSValueConst, operation
         .div => engine.div(lhs, rhs),
         .dot => engine.dot(lhs, rhs),
         .matmul => engine.matmul(lhs, rhs),
-    } catch return errorValue(ctx, name);
+    } catch |err| return classifiedErrorValue(ctx, std.mem.span(name), err);
     const op_tag: OpTag = switch (operation) {
         .add => .add,
         .sub => .sub,
@@ -1472,7 +1631,7 @@ fn jsSoftmax(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi
 }
 
 fn jsReshape(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
-    if (argc != 2) return typeError(ctx, "reshape expects a Tensor and shape");
+    if (argc < 2 or argc > 3) return typeError(ctx, "reshape expects a Tensor and shape");
     const input = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "reshape expects a Tensor");
     const shape = readShape(ctx, argv[1], "shape") orelse return typeError(ctx, "shape must be an array of non-negative integers");
     defer allocator.free(shape);
@@ -1922,6 +2081,84 @@ fn jsSum(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSV
     return reduction(ctx, argc, argv, .sum, "sum expects a Tensor");
 }
 
+fn validationBytes(value: *const Tensor, bytes: []u8) !void {
+    if (bytes.len != value.shape.numel() * value.dtype.size()) return error.SizeMismatch;
+    try engine_api.Engine.init(allocator, .{}).copyToHost(value, bytes);
+}
+
+fn allBinary(value: *const Tensor) !bool {
+    const bytes = try allocator.alloc(u8, value.shape.numel() * value.dtype.size());
+    defer allocator.free(bytes);
+    try validationBytes(value, bytes);
+    switch (value.dtype) {
+        .f32 => for (std.mem.bytesAsSlice(f32, bytes)) |item| if (item != 0 and item != 1) return false,
+        .f64 => for (std.mem.bytesAsSlice(f64, bytes)) |item| if (item != 0 and item != 1) return false,
+        .i64 => for (std.mem.bytesAsSlice(i64, bytes)) |item| if (item != 0 and item != 1) return false,
+    }
+    return true;
+}
+
+fn allInRange(value: *const Tensor, lower: f64, upper: f64) !bool {
+    const bytes = try allocator.alloc(u8, value.shape.numel() * value.dtype.size());
+    defer allocator.free(bytes);
+    try validationBytes(value, bytes);
+    switch (value.dtype) {
+        .f32 => for (std.mem.bytesAsSlice(f32, bytes)) |item| if (item < lower or item > upper) return false,
+        .f64 => for (std.mem.bytesAsSlice(f64, bytes)) |item| if (item < lower or item > upper) return false,
+        .i64 => for (std.mem.bytesAsSlice(i64, bytes)) |item| {
+            const number: f64 = @floatFromInt(item);
+            if (number < lower or number > upper) return false;
+        },
+    }
+    return true;
+}
+
+fn rowsAreOneHot(value: *const Tensor, eps: f64) !bool {
+    if (value.shape.rank() != 2) return error.ShapeMismatch;
+    const bytes = try allocator.alloc(u8, value.shape.numel() * value.dtype.size());
+    defer allocator.free(bytes);
+    try validationBytes(value, bytes);
+    const rows = value.shape.dims[0];
+    const cols = value.shape.dims[1];
+    for (0..rows) |row| {
+        var hot_count: usize = 0;
+        for (0..cols) |col| {
+            const index = row * cols + col;
+            const item: f64 = switch (value.dtype) {
+                .f32 => @floatCast(std.mem.bytesAsSlice(f32, bytes)[index]),
+                .f64 => std.mem.bytesAsSlice(f64, bytes)[index],
+                .i64 => @floatFromInt(std.mem.bytesAsSlice(i64, bytes)[index]),
+            };
+            if (@abs(item - 1) <= eps) hot_count += 1 else if (@abs(item) > eps) return false;
+        }
+        if (hot_count != 1) return false;
+    }
+    return true;
+}
+
+fn jsAllBinary(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    if (argc < 1) return typeError(ctx, "allBinary expects a Tensor");
+    const value = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "allBinary expects a Tensor");
+    return abi.jsBool(ctx, allBinary(value) catch return errorValue(ctx, "failed to validate binary Tensor"));
+}
+
+fn jsAllInRange(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    if (argc != 3) return typeError(ctx, "allInRange expects a Tensor, lower, and upper");
+    const value = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "allInRange expects a Tensor");
+    var lower: f64 = 0;
+    var upper: f64 = 0;
+    if (abi.jsToFloat64(ctx, &lower, argv[1]) < 0 or abi.jsToFloat64(ctx, &upper, argv[2]) < 0) return typeError(ctx, "allInRange bounds must be numbers");
+    return abi.jsBool(ctx, allInRange(value, lower, upper) catch return errorValue(ctx, "failed to validate Tensor range"));
+}
+
+fn jsRowsAreOneHot(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    if (argc != 2) return typeError(ctx, "rowsAreOneHot expects a Tensor and epsilon");
+    const value = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "rowsAreOneHot expects a Tensor");
+    var epsilon: f64 = 0;
+    if (abi.jsToFloat64(ctx, &epsilon, argv[1]) < 0) return typeError(ctx, "rowsAreOneHot epsilon must be a number");
+    return abi.jsBool(ctx, rowsAreOneHot(value, epsilon) catch return errorValue(ctx, "failed to validate one-hot Tensor"));
+}
+
 const functions = [_]abi.JSFunction{
     .{ .name = "$create_compiled_executable_native", .callback = jsCreateCompiledExecutable, .length = 1 },
     .{ .name = "tensor", .callback = jsTensor, .length = 1 },
@@ -1933,9 +2170,12 @@ const functions = [_]abi.JSFunction{
     .{ .name = "setDevice", .callback = jsSetDevice, .length = 1 },
     .{ .name = "copy", .callback = jsCopy, .length = 2 },
     .{ .name = "$muladd_", .callback = jsInternalMuladd, .length = 3 },
+    .{ .name = "$axpy_", .callback = jsInternalAxpy, .length = 3 },
     .{ .name = "grad", .callback = jsGrad, .length = 2 },
     .{ .name = "clip_grad_norm", .callback = jsClipGradNorm, .length = 2 },
     .{ .name = "clear_grad", .callback = jsClearGrad, .length = 1 },
+    .{ .name = "$zero_grad_", .callback = jsInternalZeroGrad, .length = 1 },
+    .{ .name = "$backward_", .callback = jsTensorBackward, .length = 0 },
     .{ .name = "no_grad", .callback = jsNoGrad, .length = 1 },
     .{ .name = "rand", .callback = jsRand, .length = 1 },
     .{ .name = "randn", .callback = jsRandn, .length = 1 },
@@ -1988,6 +2228,11 @@ const functions = [_]abi.JSFunction{
     .{ .name = "gather", .callback = jsGather, .length = 3 },
     .{ .name = "index_select", .callback = jsIndexSelect, .length = 3 },
     .{ .name = "topk", .callback = jsTopk, .length = 2 },
+    .{ .name = "allBinary", .callback = jsAllBinary, .length = 1 },
+    .{ .name = "allInRange", .callback = jsAllInRange, .length = 3 },
+    .{ .name = "rowsAreOneHot", .callback = jsRowsAreOneHot, .length = 2 },
+    .{ .name = "saveNative", .callback = jsSaveNative, .length = 2 },
+    .{ .name = "loadNative", .callback = jsLoadNative, .length = 1 },
 };
 const function_ptrs = blk: {
     var pointers: [functions.len]*const abi.JSFunction = undefined;

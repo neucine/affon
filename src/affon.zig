@@ -2,6 +2,9 @@ const std = @import("std");
 const hao = @import("hao");
 const config = @import("config.zig");
 const compute_native = @import("js/compute/native.zig");
+const dataset_native = @import("js/dataset/native.zig");
+const qjs = hao.qjs;
+const packages = hao.package;
 
 pub const package_name = "affon";
 pub const compute = @import("compute/core.zig");
@@ -32,18 +35,82 @@ const sources = [_]hao.SourceModule{
         .specifier = "affon:compute/compile.ts",
         .source = @embedFile("js/compute/compile.ts"),
     },
+    .{
+        .specifier = "affon:compute/persistence.ts",
+        .source = @embedFile("js/compute/persistence.ts"),
+    },
+    .{
+        .specifier = "affon:nn",
+        .source = @embedFile("js/nn/index.ts"),
+    },
+    .{
+        .specifier = "affon:checkpoint",
+        .source = @embedFile("js/checkpoint/index.ts"),
+    },
+    .{
+        .specifier = "affon:dataset",
+        .source = @embedFile("js/dataset/index.ts"),
+    },
+    .{
+        .specifier = "affon:dataset/tabular.ts",
+        .source = @embedFile("js/dataset/tabular.ts"),
+    },
+    .{
+        .specifier = "affon:dataset/text.ts",
+        .source = @embedFile("js/dataset/text.ts"),
+    },
+    .{
+        .specifier = "affon:dataset/text_io.ts",
+        .source = @embedFile("js/dataset/text_io.ts"),
+    },
+    .{
+        .specifier = "affon:dataset/text_loader.ts",
+        .source = @embedFile("js/dataset/text_loader.ts"),
+    },
+    .{
+        .specifier = "affon:dataset/text_utils.ts",
+        .source = @embedFile("js/dataset/text_utils.ts"),
+    },
+    .{
+        .specifier = "affon:dataset/token_windows.ts",
+        .source = @embedFile("js/dataset/token_windows.ts"),
+    },
+    .{
+        .specifier = "affon:dataset/tokenizer.ts",
+        .source = @embedFile("js/dataset/tokenizer.ts"),
+    },
 };
 
 const native_modules = [_]hao.NativeModule{.{
     .specifier = compute_native.specifier,
     .load = compute_native.load,
+}, .{
+    .specifier = dataset_native.specifier,
+    .load = dataset_native.load,
 }};
+
+fn installGlobals(context: *packages.PackageContext) !void {
+    const source =
+        \\if (typeof globalThis.AffonError !== 'function') {
+        \\  globalThis.AffonError = class AffonError extends Error {
+        \\    constructor(code, message) {
+        \\      super(code, message);
+        \\      this.name = 'AffonError';
+        \\    }
+        \\  };
+        \\}
+    ;
+    const value = qjs.eval(context.runtime.ctx, source, "<affon:global>", qjs.EvalFlags.global);
+    defer qjs.freeValue(context.runtime.ctx, value);
+    if (qjs.isException(value)) return error.JavaScriptError;
+}
 
 fn packageDefinition() hao.Package {
     return .{
         .name = package_name,
         .sources = &sources,
         .native_modules = &native_modules,
+        .install = installGlobals,
     };
 }
 
@@ -61,7 +128,7 @@ test "registers the Affon package through Hao" {
 
     try register(&environment);
     try environment.evalModuleSource(
-        "import { name } from 'affon:runtime'; globalThis.__affon_name = name;",
+        "import { name } from 'affon:runtime'; globalThis.__affon_name = name; globalThis.__affon_error = new AffonError('invalid_arg', 'test');",
         "<affon-test>",
     );
 
@@ -72,6 +139,14 @@ test "registers the Affon package through Hao" {
     const name = try hao.qjs.valueToStringAlloc(environment.runtime.ctx, value, std.testing.allocator);
     defer std.testing.allocator.free(name);
     try std.testing.expectEqualStrings("affon", name);
+
+    const error_value = hao.qjs.getProperty(environment.runtime.ctx, global, "__affon_error");
+    defer hao.qjs.freeValue(environment.runtime.ctx, error_value);
+    const error_name = hao.qjs.getProperty(environment.runtime.ctx, error_value, "name");
+    defer hao.qjs.freeValue(environment.runtime.ctx, error_name);
+    const error_name_text = try hao.qjs.valueToStringAlloc(environment.runtime.ctx, error_name, std.testing.allocator);
+    defer std.testing.allocator.free(error_name_text);
+    try std.testing.expectEqualStrings("AffonError", error_name_text);
 }
 
 test "compute source binding uses Hao's source ABI" {

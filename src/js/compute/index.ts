@@ -1,6 +1,18 @@
 import native from "affon:compute/native"
 import graphSupport from "affon:compute/graph.ts"
 import { compileWithHelpers } from "affon:compute/compile.ts"
+import { loadStateTree, restorePersistedState, saveStateTree } from "affon:compute/persistence.ts"
+
+if (typeof globalThis.AffonError !== "function") {
+  globalThis.AffonError = class AffonError extends Error {
+    readonly code: string
+    constructor(code: string, message: string) {
+      super(message)
+      this.name = "AffonError"
+      this.code = code
+    }
+  } as any
+}
 
 type Device = "cpu" | "metal"
 type TensorOptions = { dtype?: "f32" | "f64" | "i64"; device?: Device; axes?: readonly string[] }
@@ -137,6 +149,25 @@ function isTensorLike(value: unknown): value is { shape: number[]; dtype: "f32" 
   return !!value && typeof value === "object" && Array.isArray((value as any).shape) && typeof (value as any).dtype === "string"
 }
 
+function isCapturedTensor(value: unknown): boolean {
+  return !!value && typeof value === "object" && (value as any).$graph === true
+}
+
+function requireTensorArgs(args: readonly unknown[], name: string): any[] {
+  const tensors: any[] = []
+  for (const arg of args) {
+    if (graphSupport.isCapturing() && isCapturedTensor(arg)) {
+      tensors.push(arg)
+      continue
+    }
+    if (!isTensorLike(arg) || typeof (arg as any).item !== "function") {
+      throw new AffonError("invalid_arg", `${name} expects compute values/parameters`)
+    }
+    tensors.push(arg)
+  }
+  return tensors
+}
+
 export function compile<F extends (...args: any[]) => any>(fn: F): F {
   return compileWithHelpers(fn, {
     graphSupport,
@@ -245,6 +276,53 @@ function collectModuleParameters(value: any, out: ModuleTensor[]): void {
   }
 }
 
+const reservedModuleKeys = new Set(["state", "restore", "mode", "train", "eval", "save", "load", "metadata", "parameters", "training", "module_path"])
+
+function exposeModuleStateProperties(target: any, state: any): void {
+  if (!state || typeof state !== "object" || Array.isArray(state)) return
+  for (const key of Object.keys(state)) {
+    if (reservedModuleKeys.has(key)) continue
+    Object.defineProperty(target, key, {
+      get: () => state[key],
+      set: (value: any) => { state[key] = value },
+      enumerable: true,
+      configurable: true,
+    })
+  }
+}
+
+function collectNamedModuleParameters(value: any, prefix: string, out: Array<[string, ModuleTensor]>, seen: Set<any>, seenParameters: Set<any>): void {
+  if (!value || (typeof value !== "object" && typeof value !== "function")) return
+  if (isParameter(value)) {
+    if (!seenParameters.has(value)) {
+      seenParameters.add(value)
+      out.push([prefix, value])
+    }
+    return
+  }
+  if (value.__affon_compute_module === true) {
+    collectNamedModuleParameters(value.__affon_compute_state, prefix, out, seen, seenParameters)
+    return
+  }
+  if (seen.has(value)) return
+  seen.add(value)
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => collectNamedModuleParameters(item, prefix ? `${prefix}.${index}` : String(index), out, seen, seenParameters))
+    return
+  }
+  for (const key of Object.keys(value)) collectNamedModuleParameters(value[key], prefix ? `${prefix}.${key}` : key, out, seen, seenParameters)
+}
+
+function moduleParameterCollection(state: any): any[] {
+  const parameters: ModuleTensor[] = []
+  collectModuleParameters(state, parameters)
+  const named: Array<[string, ModuleTensor]> = []
+  collectNamedModuleParameters(state, "", named, new Set<any>(), new Set<any>())
+  const collection = parameters.slice() as any
+  Object.defineProperty(collection, "named", { value: () => Object.freeze(named.map(([name, parameter]) => Object.freeze([name, parameter] as const))) })
+  return Object.freeze(collection)
+}
+
 function visitNestedModules(value: any, visit: (moduleValue: any) => void, seen: Set<any>): void {
   if (!value || (typeof value !== "object" && typeof value !== "function") || seen.has(value)) return
   seen.add(value)
@@ -282,18 +360,20 @@ export function module<Args extends readonly any[] = readonly any[], Out = any>(
 ): any {
   if (typeof apply !== "function" || (evalApply !== undefined && typeof evalApply !== "function")) throw new TypeError("module expects apply and optional eval functions")
   let mode: "train" | "eval" = "train"
-  const callable: any = (...args: Args) => (mode === "eval" && evalApply ? evalApply(state, ...args) : apply(state, ...args))
-  const parameterCollection: ModuleTensor[] = []
-  collectModuleParameters(state, parameterCollection)
-  Object.freeze(parameterCollection)
+  const callable: any = (...args: Args) => {
+    requireTensorArgs(args, "module call")
+    const fn = mode === "eval" && evalApply ? evalApply : apply
+    return graphSupport.withCaptureModulePath(callable.module_path ?? undefined, () => fn(state, ...args))
+  }
   Object.defineProperties(callable, {
     __affon_compute_module: { value: true },
     __affon_compute_state: { value: state },
     __affon_compute_arity: { value: Math.max(0, apply.length - 1, (evalApply?.length ?? 1) - 1) },
     module_path: { enumerable: true, writable: true, value: null },
     training: { enumerable: true, get: () => mode === "train" },
-    parameters: { enumerable: true, value: parameterCollection },
+    parameters: { enumerable: true, get: () => moduleParameterCollection(state) },
   })
+  exposeModuleStateProperties(callable, state)
   callable.state = () => cloneModuleState(state)
   callable.restore = (nextState: any) => restoreModuleState(state, nextState)
   callable.mode = (nextMode?: "train" | "eval") => {
@@ -307,6 +387,8 @@ export function module<Args extends readonly any[] = readonly any[], Out = any>(
   }
   callable.train = () => { callable.mode("train") }
   callable.eval = () => { callable.mode("eval") }
+  callable.save = (path: string) => { saveStateTree(state, path) }
+  callable.load = (path: string) => { restorePersistedState(state, loadStateTree(path)) }
   callable.metadata = (path: string) => {
     if (typeof path !== "string" || path.length === 0) throw new TypeError("module.metadata expects a non-empty path")
     callable.module_path = path
@@ -427,7 +509,7 @@ function makeOptimizerStep(
         for (let index = 0; index < parameters.length; index++) {
           const gradient = parameters[index].grad
           if (gradient == null) continue
-          copy(parameters[index], native.add(parameters[index], native.mul(gradient.to(parameters[index].device), scalarLike(parameters[index], -lrState.value))))
+          native.$axpy_(parameters[index], -lrState.value, gradient.to(parameters[index].device))
         }
         return
       }
@@ -578,9 +660,22 @@ export function parameter(shape: readonly number[], options?: { dtype?: "f32" | 
 export const setDevice = native.setDevice
 ;(globalThis as any).setDevice = setDevice
 export const copy = native.copy
-export const grad = native.grad
 export const clip_grad_norm = native.clip_grad_norm
-export const clear_grad = native.clear_grad
+export function clear_grad(parameters: readonly Tensor[]): void {
+  for (let index = 0; index < parameters.length; index++) native.$zero_grad_(parameters[index])
+}
+
+function internalBackward(loss: Tensor): void {
+  native.$backward_(loss)
+}
+
+export function grad(loss: Tensor, parameters: readonly Tensor[], opts?: { assign?: 'replace' | 'accumulate' }): void {
+  if (!loss || typeof loss !== 'object' || typeof (loss as any).shape === 'undefined') {
+    throw new AffonError('invalid_arg', 'grad(loss, params, opts?) expects a differentiable compute loss value')
+  }
+  if (opts?.assign !== 'accumulate') clear_grad(parameters)
+  internalBackward(loss)
+}
 export function rand(shape: readonly number[], opts?: TensorOptions): Tensor {
   const captured = graphSupport.captureRandom("rand", shape, opts?.dtype ?? "f32")
   if (captured) return captured as Tensor
