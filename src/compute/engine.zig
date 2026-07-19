@@ -124,6 +124,11 @@ pub const Engine = struct {
 
     pub fn copyInto(self: Engine, target: *Tensor, source: *const Tensor) !void {
         if (target.shape.numel() != source.shape.numel()) return error.ShapeMismatch;
+        if (!source.layout.isContiguous(source.shape) or source.layout.offset != 0) {
+            const contiguous_source = try self.contiguous(@constCast(source));
+            defer contiguous_source.deinit();
+            return self.copyInto(target, contiguous_source);
+        }
         if (target.dtype == source.dtype) {
             _ = try transfer.copyValueStorageInto(self.allocator, source, target);
             return;

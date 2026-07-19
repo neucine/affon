@@ -1,5 +1,15 @@
 import native from "affon:compute/native"
 import graphSupport from "affon:compute/graph.ts"
+import { compileWithHelpers } from "affon:compute/compile.ts"
+
+type Device = "cpu" | "metal"
+type TensorOptions = { dtype?: "f32" | "f64" | "i64"; device?: Device; axes?: readonly string[] }
+type Tensor = any
+
+function sameDevice<T extends Tensor>(value: T, device?: Device): T {
+  if (!device || value.device === device) return value
+  return value.to(device) as T
+}
 
 export const all = Object.freeze({ kind: "all" as const })
 export const axes = Object.freeze({
@@ -122,6 +132,189 @@ export const schedules = Object.freeze({
     return result
   },
 })
+
+function isTensorLike(value: unknown): value is { shape: number[]; dtype: "f32" | "f64" | "i64" } {
+  return !!value && typeof value === "object" && Array.isArray((value as any).shape) && typeof (value as any).dtype === "string"
+}
+
+export function compile<F extends (...args: any[]) => any>(fn: F): F {
+  return compileWithHelpers(fn, {
+    graphSupport,
+    isTensorLike,
+    programStateKey: source => source?.training === false ? "eval" : "train",
+    programArity: (source, fallback) => source?.__affon_compute_arity ?? fallback.length,
+    replayCapturedProgram: (source, inputs) => source(...inputs),
+    isProgramSource: source => source?.__affon_compute_module === true,
+    isReplayableProgramSource: () => false,
+    finalizeExecutable: (executable, original) => {
+      if (original?.__affon_compute_module !== true) return executable
+      Object.defineProperties(executable, {
+        __affon_compute_module: { value: true },
+        parameters: { enumerable: true, get: () => original.parameters },
+        training: { enumerable: true, get: () => original.training },
+      })
+      executable.state = () => original.state()
+      executable.restore = (state: any) => original.restore(state)
+      executable.mode = (value?: "train" | "eval") => value === undefined ? original.mode() : (original.mode(value), executable)
+      executable.train = () => original.train()
+      executable.eval = () => original.eval()
+      return executable
+    },
+  }) as F
+}
+
+type ModuleState = any
+type ModuleTensor = { shape: readonly number[]; dtype: "f32" | "f64" | "i64"; device: "cpu" | "metal"; [key: string]: any }
+
+function isParameter(value: unknown): value is ModuleTensor {
+  return !!value && typeof value === "object" && (value as any).$compute?.role === "parameter"
+}
+
+function markParameter<T extends ModuleTensor>(param: T): T {
+  const metadata = (param as any).$compute
+  if (metadata && typeof metadata === "object") return param
+  Object.defineProperty(param, "$compute", { configurable: true, value: { role: "parameter" } })
+  return param
+}
+
+function cloneModuleState(value: any): any {
+  if (value && (typeof value === "object" || typeof value === "function") && value.__affon_compute_module === true) {
+    return cloneModuleState(value.__affon_compute_state)
+  }
+  if (isParameter(value)) {
+    const result = native.parameter([...value.shape])
+    copy(result, value)
+    return markParameter(result as ModuleTensor)
+  }
+  if (isTensorLike(value)) return native.mul(value, scalarLike(value, 1))
+  if (Array.isArray(value)) return value.map(cloneModuleState)
+  if (value && typeof value === "object") {
+    const result: Record<string, any> = {}
+    for (const key of Object.keys(value)) result[key] = cloneModuleState(value[key])
+    return result
+  }
+  return value
+}
+
+function restoreModuleState(target: any, source: any): void {
+  if (target && (typeof target === "object" || typeof target === "function") && target.__affon_compute_module === true) {
+    restoreModuleState(target.__affon_compute_state, source)
+    return
+  }
+  if (isTensorLike(target)) {
+    if (!isTensorLike(source)) throw new TypeError("module.restore expects matching tensor state")
+    copy(target, source)
+    return
+  }
+  if (Array.isArray(target)) {
+    if (!Array.isArray(source)) throw new TypeError("module.restore expects matching array state")
+    target.length = source.length
+    for (let index = 0; index < source.length; index++) {
+      if (index < target.length && (isTensorLike(target[index]) || Array.isArray(target[index]) || (target[index] && (typeof target[index] === "object" || typeof target[index] === "function")))) restoreModuleState(target[index], source[index])
+      else target[index] = cloneModuleState(source[index])
+    }
+    return
+  }
+  if (target && typeof target === "object" && source && typeof source === "object") {
+    for (const key of Object.keys(source)) {
+      if (key in target && (isTensorLike(target[key]) || Array.isArray(target[key]) || (target[key] && (typeof target[key] === "object" || typeof target[key] === "function")))) restoreModuleState(target[key], source[key])
+      else target[key] = cloneModuleState(source[key])
+    }
+    return
+  }
+  throw new TypeError("module.restore expects matching state")
+}
+
+function collectModuleParameters(value: any, out: ModuleTensor[]): void {
+  if (!value || (typeof value !== "object" && typeof value !== "function")) return
+  if (isParameter(value)) {
+    if (!out.includes(value)) out.push(value)
+    return
+  }
+  if (value.__affon_compute_module === true) {
+    collectModuleParameters(value.__affon_compute_state, out)
+    return
+  }
+  for (const key of Object.keys(value)) {
+    const item = value[key]
+    if (isParameter(item)) {
+      if (!out.includes(item)) out.push(item)
+    } else if (!isTensorLike(item) && item && (typeof item === "object" || typeof item === "function")) {
+      collectModuleParameters(item, out)
+    }
+  }
+}
+
+function visitNestedModules(value: any, visit: (moduleValue: any) => void, seen: Set<any>): void {
+  if (!value || (typeof value !== "object" && typeof value !== "function") || seen.has(value)) return
+  seen.add(value)
+  if (value.__affon_compute_module === true) {
+    visit(value)
+    visitNestedModules(value.__affon_compute_state, visit, seen)
+    return
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) visitNestedModules(item, visit, seen)
+    return
+  }
+  for (const key of Object.keys(value)) visitNestedModules(value[key], visit, seen)
+}
+
+function assignNestedModulePaths(value: any, prefix: string, seen: Set<any>): void {
+  if (!value || (typeof value !== "object" && typeof value !== "function") || seen.has(value)) return
+  seen.add(value)
+  if (value.__affon_compute_module === true) {
+    if (value.module_path == null) value.module_path = prefix
+    assignNestedModulePaths(value.__affon_compute_state, value.module_path, seen)
+    return
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => assignNestedModulePaths(item, `${prefix}.${index}`, seen))
+    return
+  }
+  for (const key of Object.keys(value)) assignNestedModulePaths(value[key], `${prefix}.${key}`, seen)
+}
+
+export function module<Args extends readonly any[] = readonly any[], Out = any>(
+  state: ModuleState,
+  apply: (state: any, ...args: Args) => Out,
+  evalApply?: (state: any, ...args: Args) => Out,
+): any {
+  if (typeof apply !== "function" || (evalApply !== undefined && typeof evalApply !== "function")) throw new TypeError("module expects apply and optional eval functions")
+  let mode: "train" | "eval" = "train"
+  const callable: any = (...args: Args) => (mode === "eval" && evalApply ? evalApply(state, ...args) : apply(state, ...args))
+  const parameterCollection: ModuleTensor[] = []
+  collectModuleParameters(state, parameterCollection)
+  Object.freeze(parameterCollection)
+  Object.defineProperties(callable, {
+    __affon_compute_module: { value: true },
+    __affon_compute_state: { value: state },
+    __affon_compute_arity: { value: Math.max(0, apply.length - 1, (evalApply?.length ?? 1) - 1) },
+    module_path: { enumerable: true, writable: true, value: null },
+    training: { enumerable: true, get: () => mode === "train" },
+    parameters: { enumerable: true, value: parameterCollection },
+  })
+  callable.state = () => cloneModuleState(state)
+  callable.restore = (nextState: any) => restoreModuleState(state, nextState)
+  callable.mode = (nextMode?: "train" | "eval") => {
+    if (nextMode === undefined) return mode
+    if (nextMode !== "train" && nextMode !== "eval") throw new TypeError("module.mode expects train or eval")
+    mode = nextMode
+    visitNestedModules(state, nested => {
+      if (nested !== callable) nested.mode(nextMode)
+    }, new Set([callable]))
+    return callable
+  }
+  callable.train = () => { callable.mode("train") }
+  callable.eval = () => { callable.mode("eval") }
+  callable.metadata = (path: string) => {
+    if (typeof path !== "string" || path.length === 0) throw new TypeError("module.metadata expects a non-empty path")
+    callable.module_path = path
+    assignNestedModulePaths(state, path, new Set([callable]))
+    return callable
+  }
+  return callable
+}
 
 export function scheduled(baseStep: ComputeStep, lrSchedule: LRSchedule): ScheduledStep {
   let epochValue = 0
@@ -323,16 +516,104 @@ export const empty = native.empty
 export const zeros = native.zeros
 export const ones = native.ones
 export const full = native.full
-export const parameter = native.parameter
+type ParameterTensor = {
+  shape: readonly number[]
+  ndim: number
+  dtype: "f32" | "f64" | "i64"
+  device: "cpu" | "metal"
+  grad: any
+  [key: string]: any
+}
+
+function fanInOut(param: ParameterTensor): { fan_in: number; fan_out: number } {
+  if (param.ndim < 2) throw new Error("parameter init expects at least 2 dimensions for Xavier/Kaiming initialization")
+  if (param.ndim === 2) return { fan_in: param.shape[0], fan_out: param.shape[1] }
+  let receptive = 1
+  for (let index = 2; index < param.shape.length; index++) receptive *= param.shape[index]
+  return { fan_in: param.shape[1] * receptive, fan_out: param.shape[0] * receptive }
+}
+
+function fillScalar_(param: ParameterTensor, scalar: number): ParameterTensor {
+  const tmp = native.mul(native.ones([...param.shape], { dtype: param.dtype }), native.tensor(scalar, { dtype: param.dtype })).to(param.device)
+  native.$muladd_(param, 0.0, tmp)
+  return param
+}
+
+function fillUniform_(param: ParameterTensor, lower: number, upper: number): ParameterTensor {
+  const span = upper - lower
+  const tmp = native.add(
+    native.mul(native.rand([...param.shape], { dtype: param.dtype }).to(param.device), native.tensor(span, { dtype: param.dtype })),
+    native.tensor(lower, { dtype: param.dtype }),
+  )
+  native.$muladd_(param, 0.0, tmp.to(param.device))
+  return param
+}
+
+function fillNormal_(param: ParameterTensor, standardDeviation: number): ParameterTensor {
+  const tmp = native.mul(native.randn([...param.shape], { dtype: param.dtype }).to(param.device), native.tensor(standardDeviation, { dtype: param.dtype }))
+  native.$muladd_(param, 0.0, tmp.to(param.device))
+  return param
+}
+
+function attachParameterInitMethods(param: ParameterTensor): ParameterTensor {
+  if (typeof param.zeros === "function") return param
+  Object.defineProperties(param, {
+    zeros: { value: () => fillScalar_(param, 0.0) },
+    ones: { value: () => fillScalar_(param, 1.0) },
+    full: { value: (value: number) => fillScalar_(param, value) },
+    rand: { value: () => { const tmp = native.rand([...param.shape], { dtype: param.dtype }).to(param.device); native.$muladd_(param, 0.0, tmp); return param } },
+    randn: { value: () => { const tmp = native.randn([...param.shape], { dtype: param.dtype }).to(param.device); native.$muladd_(param, 0.0, tmp); return param } },
+    xavier_uniform: { value: () => { const { fan_in, fan_out } = fanInOut(param); return fillUniform_(param, -Math.sqrt(6.0 / (fan_in + fan_out)), Math.sqrt(6.0 / (fan_in + fan_out))) } },
+    xavier_normal: { value: () => { const { fan_in, fan_out } = fanInOut(param); return fillNormal_(param, Math.sqrt(2.0 / (fan_in + fan_out))) } },
+    kaiming_uniform: { value: () => { const { fan_in } = fanInOut(param); return fillUniform_(param, -Math.sqrt(6.0 / fan_in), Math.sqrt(6.0 / fan_in)) } },
+    kaiming_normal: { value: () => { const { fan_in } = fanInOut(param); return fillNormal_(param, Math.sqrt(2.0 / fan_in)) } },
+  })
+  return param
+}
+
+export function parameter(shape: readonly number[], options?: { dtype?: "f32" | "f64"; device?: "cpu" | "metal"; axes?: readonly string[] }) {
+  const param = native.parameter([...shape], { dtype: options?.dtype ?? "f32", device: options?.device })
+  return attachParameterInitMethods(markParameter(param as ParameterTensor))
+}
+export const setDevice = native.setDevice
+;(globalThis as any).setDevice = setDevice
 export const copy = native.copy
 export const grad = native.grad
 export const clip_grad_norm = native.clip_grad_norm
 export const clear_grad = native.clear_grad
-export const rand = (shape: readonly number[]) => graphSupport.captureRandom("rand", shape, "f32")
-export const randn = (shape: readonly number[]) => graphSupport.captureRandom("randn", shape, "f32")
+export function rand(shape: readonly number[], opts?: TensorOptions): Tensor {
+  const captured = graphSupport.captureRandom("rand", shape, opts?.dtype ?? "f32")
+  if (captured) return captured as Tensor
+  return sameDevice(native.rand(shape.slice() as number[], { dtype: opts?.dtype ?? "f32", axes: opts?.axes }), opts?.device)
+}
+export function randn(shape: readonly number[], opts?: TensorOptions): Tensor {
+  const captured = graphSupport.captureRandom("randn", shape, opts?.dtype ?? "f32")
+  if (captured) return captured as Tensor
+  return sameDevice(native.randn(shape.slice() as number[], { dtype: opts?.dtype ?? "f32", axes: opts?.axes }), opts?.device)
+}
 export const seed = native.seed
-export const arange = native.arange
-export const linspace = native.linspace
+export function arange(start: number, end?: number, step = 1, opts?: TensorOptions): Tensor {
+  const actualStart = end === undefined ? 0 : start
+  const actualEnd = end === undefined ? start : end
+  if (!Number.isFinite(actualStart) || !Number.isFinite(actualEnd) || !Number.isFinite(step) || step === 0) {
+    throw new Error("arange(start, end?, step?, opts?) expects finite numeric bounds and a non-zero step")
+  }
+  const values: number[] = []
+  if (step > 0) {
+    for (let value = actualStart; value < actualEnd; value += step) values.push(value)
+  } else {
+    for (let value = actualStart; value > actualEnd; value += step) values.push(value)
+  }
+  return tensor(values, opts)
+}
+export function linspace(start: number, end: number, steps = 100, opts?: TensorOptions): Tensor {
+  if (!Number.isInteger(steps) || steps < 0) {
+    throw new Error("linspace(start, end, steps?, opts?) expects steps to be a non-negative integer")
+  }
+  if (steps === 0) return tensor([], opts)
+  const output = native.linspace(start, end, steps, { dtype: opts?.dtype ?? "f32", axes: opts?.axes })
+  return sameDevice(output, opts?.device)
+}
 export function add(lhs: Tensor, rhs: Tensor): Tensor {
   return graphSupport.captureBinary("add", "add", lhs, rhs)
 }
@@ -413,7 +694,8 @@ export const stack = (inputs: any[], dim?: number) => graphSupport.captureStack(
 export const one_hot = (input: any, numClasses: number) => graphSupport.captureOneHot(input, numClasses)
 export const gather = (input: any, dim: number, index: any) => graphSupport.captureGather(input, dim, index)
 export const index_select = (input: any, dim: number, index: any) => graphSupport.captureIndexSelect(input, dim, index)
-export const topk = native.topk
+export const topk = (input: any, k: number, dim?: number) => graphSupport.captureTopK(input, k, dim)
+
 export const where = (cond: any, onTrue: any, onFalse: any) => graphSupport.captureWhere(cond, onTrue, onFalse)
 export const masked_fill = (input: any, mask: any, value: number) => graphSupport.captureMaskedFill(input, mask, value)
 export const cross_entropy_indexed = (logits: any, targets: any, axis = 1) => graphSupport.captureCrossEntropyIndexed(logits, targets, axis)
@@ -511,4 +793,4 @@ export function r2(pred: any, target: any): number {
   return 1 - lhs.reduce((sum, value, index) => sum + (value - rhs[index]) ** 2, 0) / total
 }
 
-export default { axes, all, range, Duration, schedules, scheduled, sgd, adam, adamw, tensor, empty, zeros, ones, full, parameter, copy, grad, clip_grad_norm, clear_grad, rand, randn, seed, arange, linspace, add, sub, mul, div, matmul, dot, square, gt_scalar, cast, abs, exp, log, neg, sqrt, sign, relu, sigmoid, silu, swish, tanh, gelu, clamp, softmax, sum, mean, min, max, variance, std, argmin, argmax, reshape, slice, at, contiguous, permute, transpose, squeeze, unsqueeze, cat, stack, one_hot, gather, index_select, topk, where, masked_fill, cross_entropy_indexed, move, no_grad, finite_summary, finite_abs_max, accuracy, precision, recall, f1, mse, mae, r2 }
+export default { axes, all, range, Duration, schedules, scheduled, compile, module, sgd, adam, adamw, tensor, empty, zeros, ones, full, parameter, setDevice, copy, grad, clip_grad_norm, clear_grad, rand, randn, seed, arange, linspace, add, sub, mul, div, matmul, dot, square, gt_scalar, cast, abs, exp, log, neg, sqrt, sign, relu, sigmoid, silu, swish, tanh, gelu, clamp, softmax, sum, mean, min, max, variance, std, argmin, argmax, reshape, slice, at, contiguous, permute, transpose, squeeze, unsqueeze, cat, stack, one_hot, gather, index_select, topk, where, masked_fill, cross_entropy_indexed, move, no_grad, finite_summary, finite_abs_max, accuracy, precision, recall, f1, mse, mae, r2 }

@@ -1,5 +1,15 @@
 import native from 'affon:compute/native'
 
+class AffonError extends Error {
+  readonly code: string
+
+  constructor(code: string, message: string) {
+    super(message)
+    this.name = 'AffonError'
+    this.code = code
+  }
+}
+
 type NativeTensor = {
   shape: number[]
   dtype: 'f32' | 'f64' | 'i64'
@@ -882,9 +892,18 @@ function canonicalize(nodes: GraphNode[], rootId: number): { nodes: GraphNode[];
       case 'softmax':
       case 'one_hot':
       case 'topk_values':
-      case 'topk_indices':
         mark(node.input)
         break
+      case 'topk_indices': {
+        mark(node.input)
+        const sibling = nodes.find((candidate) =>
+          candidate.kind === 'topk_values'
+          && candidate.input === node.input
+          && candidate.k === node.k
+          && candidate.dim === node.dim)
+        if (sibling) mark(sibling.id)
+        break
+      }
       case 'cross_entropy_indexed':
         mark(node.logits)
         mark(node.targets)
@@ -1984,9 +2003,30 @@ function captureGraph(fn: (...inputs: CapturedValue[]) => CapturedValue, arityOv
   const tryNativeRun = (inputs: NativeTensor[]) => nativeExecutable.run(inputs)
   const exportNativeBundle = (inputs: NativeTensor[], opts?: GraphExportOptions) => nativeExecutable.exportBundle(inputs, opts)
   const extractExecutionPlan = (inputs: NativeTensor[]) => {
-    const bundleJson = exportNativeBundle(inputs, { format: 'json' })
-    const bundle = JSON.parse(bundleJson) as { graph_plan?: ExecutionPlanExport | null }
-    return bundle.graph_plan ?? null
+    createPlan(capturedProgram)
+    return {
+      kind: 'graph_plan',
+      id: 'captured-graph',
+      version: 1,
+      context: { inputCount: inputs.length },
+      steps: capturedProgram.nodes
+        .filter((node) => node.kind !== 'input' && node.kind !== 'constant' && node.kind !== 'rand' && node.kind !== 'randn')
+        .map((node) => {
+          if (node.kind === 'matmul' && node.execution?.hint) {
+            return {
+              nodeId: node.id,
+              matmul: {
+                family: `gemm_${node.execution.hint}`,
+                hint: node.execution.hint,
+                hint_source: node.execution.source ?? 'api_execution_arg',
+              },
+            }
+          }
+          return { nodeId: node.id }
+        }),
+      regions: [],
+      outputs: [capturedProgram.outputId],
+    } satisfies ExecutionPlanExport
   }
   program.run = (...inputs: NativeTensor[]) => {
     if (inputs.length !== arity) {

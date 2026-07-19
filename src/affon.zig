@@ -1,9 +1,14 @@
 const std = @import("std");
 const hao = @import("hao");
+const config = @import("config.zig");
 const compute_native = @import("js/compute/native.zig");
 
 pub const package_name = "affon";
 pub const compute = @import("compute/core.zig");
+
+comptime {
+    _ = config;
+}
 const autograd_types = @import("compute/types/autograd.zig");
 const autograd_execution = @import("compute/execution/autograd.zig");
 
@@ -23,6 +28,10 @@ const sources = [_]hao.SourceModule{
         .specifier = "affon:compute/graph.ts",
         .source = @embedFile("js/compute/graph.ts"),
     },
+    .{
+        .specifier = "affon:compute/compile.ts",
+        .source = @embedFile("js/compute/compile.ts"),
+    },
 };
 
 const native_modules = [_]hao.NativeModule{.{
@@ -30,12 +39,20 @@ const native_modules = [_]hao.NativeModule{.{
     .load = compute_native.load,
 }};
 
-pub fn register(environment: *hao.RuntimeEnvironment) !void {
-    try environment.registerPackage(.{
+fn packageDefinition() hao.Package {
+    return .{
         .name = package_name,
         .sources = &sources,
         .native_modules = &native_modules,
-    });
+    };
+}
+
+pub fn registerPackage(registry: *hao.package.Registry) !void {
+    try registry.register(packageDefinition());
+}
+
+pub fn register(environment: *hao.RuntimeEnvironment) !void {
+    try environment.registerPackage(packageDefinition());
 }
 
 test "registers the Affon package through Hao" {
@@ -63,7 +80,7 @@ test "compute source binding uses Hao's source ABI" {
 
     try register(&environment);
     try environment.evalModuleSource(
-        \\import { tensor, empty, zeros, ones, full, parameter, copy, grad, sgd, adam, adamw, rand, randn, seed, arange, linspace, add, sub, mul, div, matmul, dot, square, gt_scalar, cast, abs, exp, log, neg, sqrt, sign, relu, sigmoid, silu, tanh, gelu, clamp, softmax, sum, mean, min, max, variance, std, argmin, argmax, reshape, slice, at, all, range, Duration, schedules, contiguous, permute, transpose, squeeze, unsqueeze, cat, stack, one_hot, gather, index_select, topk } from 'affon:compute';
+        \\import { tensor, empty, zeros, ones, full, parameter, copy, grad, compile, module, sgd, adam, adamw, rand, randn, seed, arange, linspace, add, sub, mul, div, matmul, dot, square, gt_scalar, cast, abs, exp, log, neg, sqrt, sign, relu, sigmoid, silu, tanh, gelu, clamp, softmax, sum, mean, min, max, variance, std, argmin, argmax, reshape, slice, at, all, range, Duration, schedules, contiguous, permute, transpose, squeeze, unsqueeze, cat, stack, one_hot, gather, index_select, topk } from 'affon:compute';
         \\(() => {
         \\  const lhs = tensor([1, -2, 3]);
         \\  const rhs = tensor([4, 5, 6]);
@@ -85,6 +102,11 @@ test "compute source binding uses Hao's source ABI" {
         \\  const greater = gt_scalar(lhs, 0);
         \\  const copied = copy(lhs, tensor([8, 9, 10]));
         \\  const linear = schedules.linear({ start: 1, end: 3, duration: Duration.steps(4) });
+        \\  const compiled = compile((value) => add(value, value));
+        \\  const compiledResult = compiled(tensor([1, 2]));
+        \\  const model = module({ weight: parameter([1]) }, (state, value) => mul(value, state.weight));
+        \\  const modelResult = model(tensor([3]));
+        \\  const modelParameterCount = model.parameters.length;
         \\  const sequence = schedules.sequence(linear, schedules.constant(3));
         \\  const trainable = parameter([1]);
         \\  grad(sum(mul(trainable, trainable)), [trainable]);
@@ -92,7 +114,7 @@ test "compute source binding uses Hao's source ABI" {
         \\  adam({ lr: 0.001 })([trainable]);
         \\  adamw({ lr: 0.001 })([trainable]);
         \\  void matmul;
-        \\  if (result.shape[0] !== 3 || copied.to_array()[0] !== 8 || linear({ epoch: 0, step: 2 }) !== 2 || sequence({ epoch: 0, step: 5 }) !== 3 || trainable.grad === null || greater.shape[0] !== 3 || matrix.shape[0] !== 2 || matrix.shape[1] !== 2 || typeof matrix.item !== 'function' || matrix.to_array()[1][0] !== 3 || !matrix.toString().includes('Tensor') || indices.dtype !== 'i64' || created.length !== 4 || generated.length !== 5 || shaped.length !== 9 || shaped[8].shape[0] !== 2 || top.values.shape[0] !== 2 || top.indices.shape[0] !== 2 || difference.ndim !== 1 || product.ndim !== 1 || quotient.ndim !== 1 || unary.length !== 11 || reductions.length !== 13 || scalar.shape.length !== 1 || scalar.shape[0] !== 1) throw new Error('invalid compute binding result');
+        \\  if (result.shape[0] !== 3 || modelResult.shape[0] !== 1 || modelParameterCount !== 1 || compiledResult.to_array()[1] !== 4 || copied.to_array()[0] !== 8 || linear({ epoch: 0, step: 2 }) !== 2 || sequence({ epoch: 0, step: 5 }) !== 3 || trainable.grad === null || greater.shape[0] !== 3 || matrix.shape[0] !== 2 || matrix.shape[1] !== 2 || typeof matrix.item !== 'function' || matrix.to_array()[1][0] !== 3 || !matrix.toString().includes('Tensor') || indices.dtype !== 'i64' || created.length !== 4 || generated.length !== 5 || shaped.length !== 9 || shaped[8].shape[0] !== 2 || top.values.shape[0] !== 2 || top.indices.shape[0] !== 2 || difference.ndim !== 1 || product.ndim !== 1 || quotient.ndim !== 1 || unary.length !== 11 || reductions.length !== 13 || scalar.shape.length !== 1 || scalar.shape[0] !== 1) throw new Error('invalid compute binding result');
         \\})();
     ,
         "<compute-binding-test>",
@@ -111,6 +133,26 @@ test "native modules keep one identity across package submodules" {
         \\const right = tensor([3, 4]);
         \\if (typeof graphSupport.graph !== 'function' || left.shape[0] !== 2 || right.shape[0] !== 2) throw new Error('invalid native module identity');
     , "<native-module-identity-test>");
+}
+
+test "compute modules preserve nested state and compiled behavior" {
+    var environment = try hao.RuntimeEnvironment.init(std.testing.allocator, .{ .std = false });
+    defer environment.deinit();
+    try register(&environment);
+    try environment.evalModuleSource(
+        \\import { tensor, parameter, module, compile } from 'affon:compute';
+        \\const child = module({ weight: parameter([1]) }, (state, value) => state.weight);
+        \\const parent = module({ child }, (state, value) => state.child(value));
+        \\parent.metadata('root');
+        \\const saved = parent.state();
+        \\parent.eval();
+        \\const evalResult = parent(tensor([3]));
+        \\parent.train();
+        \\parent.restore(saved);
+        \\const compiled = compile(parent);
+        \\const compiledResult = compiled(tensor([4]));
+        \\if (parent.parameters.length !== 1 || parent.training !== true || child.training !== true || child.module_path !== 'root.child' || evalResult.shape[0] !== 1 || compiledResult.shape[0] !== 1 || compiled.parameters.length !== 1) throw new Error('invalid compute module behavior');
+    , "<compute-module-parity-test>");
 }
 
 test "compute graph captures binary elementwise operations" {
@@ -384,6 +426,19 @@ test "compute graph captures reduction family" {
         \\const result = program.run(tensor([[1, 2], [3, 4]]));
         \\if (result.to_array()[0] !== 1 || result.to_array()[1] !== 1) throw new Error('invalid captured argmax result');
     , "<compute-graph-reduction-family-test>");
+}
+
+test "compute graph captures topk secondary output" {
+    var environment = try hao.RuntimeEnvironment.init(std.testing.allocator, .{ .std = false });
+    defer environment.deinit();
+    try register(&environment);
+    try environment.evalModuleSource(
+        \\import graphSupport from 'affon:compute/graph.ts';
+        \\import { tensor, topk } from 'affon:compute';
+        \\const program = graphSupport.graph((value) => topk(value, 2, 1).indices);
+        \\const result = program.run(tensor([[1, 4, 2], [9, 3, 7]]));
+        \\if (result.shape[0] !== 2 || result.shape[1] !== 2 || result.dtype !== 'i64') throw new Error('invalid captured topk indices');
+    , "<compute-graph-topk-secondary-test>");
 }
 
 test "compute graph captures reshape" {

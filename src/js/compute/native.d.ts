@@ -3,31 +3,36 @@ declare module "affon:compute/native" {
     readonly shape: readonly number[]
     readonly ndim: number
     readonly dtype: "f32" | "f64" | "i64"
-    readonly device: "cpu"
+    readonly device: "cpu" | "metal"
+    readonly grad: Tensor | undefined
+    readonly grad_device: "cpu" | "metal" | undefined
     item(): number
     to_array(): unknown
     toString(): string
     repr(): string
-    to(device: "cpu"): Tensor
+    to(device: "cpu" | "metal"): Tensor
+    backward(): void
   }
 
   const native: {
-    tensor(values: number | readonly number[] | readonly (number | readonly number[])[], options?: { dtype?: "f32" | "f64" | "i64"; device?: "cpu" }): Tensor
-    empty(shape: readonly number[]): Tensor
-    zeros(shape: readonly number[]): Tensor
-    ones(shape: readonly number[]): Tensor
-    full(shape: readonly number[], fill: number): Tensor
-    parameter(shape: readonly number[]): Tensor
+    tensor(values: number | readonly number[] | readonly (number | readonly number[])[], options?: { dtype?: "f32" | "f64" | "i64"; device?: "cpu" | "metal" }): Tensor
+    empty(shape: readonly number[], options?: { dtype?: "f32" | "f64" | "i64"; device?: "cpu" | "metal" }): Tensor
+    zeros(shape: readonly number[], options?: { dtype?: "f32" | "f64" | "i64"; device?: "cpu" | "metal" }): Tensor
+    ones(shape: readonly number[], options?: { dtype?: "f32" | "f64" | "i64"; device?: "cpu" | "metal" }): Tensor
+    full(shape: readonly number[], fill: number, options?: { dtype?: "f32" | "f64" | "i64"; device?: "cpu" | "metal" }): Tensor
+    parameter(shape: readonly number[], options?: { dtype?: "f32" | "f64"; device?: "cpu" | "metal" }): Tensor
+    setDevice(device: "cpu" | "metal"): void
     copy<T extends Tensor>(target: T, source: Tensor): T
+    $muladd_(target: Tensor, scale: number, addend: Tensor): void
     grad(loss: Tensor, parameters: readonly Tensor[]): void
     clip_grad_norm(parameters: readonly Tensor[], max_norm: number, eps?: number): number
     clear_grad(parameters: readonly Tensor[]): void
     no_grad<T>(fn: () => T): T
-    rand(shape: readonly number[]): Tensor
-    randn(shape: readonly number[]): Tensor
+    rand(shape: readonly number[], options?: { dtype?: "f32" | "f64"; axes?: readonly string[] }): Tensor
+    randn(shape: readonly number[], options?: { dtype?: "f32" | "f64"; axes?: readonly string[] }): Tensor
     seed(value: number): void
     arange(start: number, end?: number, step?: number): Tensor
-    linspace(start: number, end: number, steps?: number): Tensor
+    linspace(start: number, end: number, steps?: number, options?: { dtype?: "f32" | "f64" | "i64"; axes?: readonly string[] }): Tensor
     add(lhs: Tensor, rhs: Tensor): Tensor
     sub(lhs: Tensor, rhs: Tensor): Tensor
     mul(lhs: Tensor, rhs: Tensor): Tensor

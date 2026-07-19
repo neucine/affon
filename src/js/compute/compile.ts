@@ -1,3 +1,13 @@
+class AffonError extends Error {
+  readonly code: string
+
+  constructor(code: string, message: string) {
+    super(message)
+    this.name = 'AffonError'
+    this.code = code
+  }
+}
+
 type ComputeTensorLike = {
   shape: number[]
   dtype: 'f32' | 'f64' | 'i64'
@@ -183,6 +193,7 @@ export function compileWithHelpers(programOrFn: any, helpers: CompileHelpers): a
     const lastKnownNativeState = () => graphNativeState(lastSpecializedGraph) ?? graphNativeState(graphProgram)
     const recordNativeEagerFallbackOutcome = (graph: any | null, kind: FallbackKind, reason: string | null, signature: TensorSignature | null) => {
       graph?.$recordNativePlanOutcome?.('eager-forward', kind, reason, tensorSignatureLabel(signature))
+      graph?.$recordNativeFallback?.(kind, reason, tensorSignatureLabel(signature))
     }
     const recordNativeSpecializationCapture = (graph: any | null, signature: TensorSignature | null) => {
       graph?.$recordNativeSpecializationCapture?.(tensorSignatureLabel(signature))

@@ -40,13 +40,12 @@ pub const LoweredCapturedGraph = struct {
     owned_constant_values: std.ArrayList(*compute.tensor.Tensor),
     owned_random_values: std.ArrayList(*compute.tensor.Tensor),
     node_value_ids: std.AutoHashMap(u32, GraphValueId),
-    detached_value: ?*compute.tensor.Tensor = null,
 
     pub fn deinit(self: *LoweredCapturedGraph, allocator: std.mem.Allocator) void {
         self.node_value_ids.deinit();
-        for (self.owned_random_values.items) |value| if (value != self.detached_value) value.deinit();
+        for (self.owned_random_values.items) |value| value.deinit();
         self.owned_random_values.deinit(allocator);
-        for (self.owned_constant_values.items) |value| if (value != self.detached_value) value.deinit();
+        for (self.owned_constant_values.items) |value| value.deinit();
         self.owned_constant_values.deinit(allocator);
         self.input_values.deinit(allocator);
         self.graph.deinit();
@@ -129,16 +128,6 @@ fn capturedNodeInputIds(
         const ids = try allocator.alloc(GraphValueId, 2);
         ids[0] = logits_id;
         ids[1] = targets_id;
-        return ids;
-    }
-    if (std.mem.eql(u8, node.kind, "where")) {
-        const cond = node.cond orelse return error.InvalidGraphPlan;
-        const on_true = node.onTrue orelse return error.InvalidGraphPlan;
-        const on_false = node.onFalse orelse return error.InvalidGraphPlan;
-        const ids = try allocator.alloc(GraphValueId, 3);
-        ids[0] = node_ids.get(cond) orelse return error.InvalidGraphPlan;
-        ids[1] = node_ids.get(on_true) orelse return error.InvalidGraphPlan;
-        ids[2] = node_ids.get(on_false) orelse return error.InvalidGraphPlan;
         return ids;
     }
     if (std.mem.eql(u8, node.kind, "masked_fill")) {
@@ -240,7 +229,6 @@ pub fn nodeTagAndOptions(node: CapturedNodeJson) !OpInfo {
     if (std.mem.eql(u8, node.kind, "cast")) return .{ .tag = .cast, .options = .{ .cast = .{ .to = try parseDType(node.dtype orelse return error.InvalidGraphPlan) } }, .execution_metadata = .{} };
     if (std.mem.eql(u8, node.kind, "one_hot")) return .{ .tag = .one_hot, .options = .{ .one_hot = .{ .num_classes = node.numClasses orelse return error.InvalidGraphPlan } }, .execution_metadata = .{} };
     if (std.mem.eql(u8, node.kind, "clamp")) return .{ .tag = .clamp, .options = .{ .clamp = .{ .min = node.min orelse return error.InvalidGraphPlan, .max = node.max orelse return error.InvalidGraphPlan } }, .execution_metadata = .{} };
-    if (std.mem.eql(u8, node.kind, "where")) return .{ .tag = .where, .options = .{ .none = {} }, .execution_metadata = .{} };
     if (std.mem.eql(u8, node.kind, "gather")) return .{ .tag = .gather, .options = .{ .gather = .{ .axis = node.dim orelse return error.InvalidGraphPlan } }, .execution_metadata = .{} };
     if (std.mem.eql(u8, node.kind, "topk_values") or std.mem.eql(u8, node.kind, "topk_indices")) return .{ .tag = .topk, .options = .{ .topk = .{ .k = node.k orelse return error.InvalidGraphPlan, .axis = node.dim orelse return error.InvalidGraphPlan } }, .execution_metadata = .{} };
     if (std.mem.eql(u8, node.kind, "cat")) return .{ .tag = .cat, .options = .{ .concat = .{ .axis = node.dim orelse return error.InvalidGraphPlan } }, .execution_metadata = .{} };

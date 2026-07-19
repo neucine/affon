@@ -12,6 +12,8 @@ This repository currently uses the sibling Hao checkout for local development:
 
 ```bash
 zig build test
+zig build install
+./zig-out/bin/affon test test/e2e/compute/autograd.test.ts
 ```
 
 The dependency will move to a released Hao source package when the first Hao

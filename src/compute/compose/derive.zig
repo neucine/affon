@@ -460,7 +460,7 @@ pub fn buildFromLossTensor(loss: *Tensor) !DerivedGraph {
     defer visited.deinit();
     try topoSort(loss, &order, &visited);
 
-    const one_id = try ctx.scalarLike(loss, 1.0);
+    const one_id = try ctx.fullLike(loss, 1.0);
     try ctx.grad_ids.put(loss, one_id);
 
     var order_index: usize = order.items.len;

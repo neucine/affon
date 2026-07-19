@@ -1,8 +1,8 @@
 declare module "affon:compute" {
   export type Shape = readonly number[]
   export type AxisName = string
-  export type DType = "f32"
-  export type Device = "cpu"
+  export type DType = "f32" | "f64" | "i64"
+  export type Device = "cpu" | "metal"
   export type Selector = number | { kind: "range"; start: number; end: number; step?: number } | { kind: "all" }
   export type DurationUnit = "step" | "epoch"
   export type DurationValue = { unit: DurationUnit; value: number }
@@ -10,7 +10,7 @@ declare module "affon:compute" {
   export type LRSchedule = ((context: TrainContext) => number) & { __duration?: DurationValue | null; __unit?: DurationUnit | null }
   export type ComputeStep = ((parameters: readonly Parameter[]) => void) & { lr: number; state(): any; restore(state: any): void }
   export type ScheduledStep = ComputeStep & { readonly context: TrainContext; epoch(value: number): void }
-  export const Duration: { steps(value: number): DurationValue; epochs(value: number): DurationValue }
+  export const Duration: { steps(value: number): DurationValue & { unit: "step" }; epochs(value: number): DurationValue & { unit: "epoch" } }
   export const schedules: {
     constant(lr: number): LRSchedule
     linear(options: { start: number; end: number; duration: DurationValue }): LRSchedule
@@ -19,48 +19,89 @@ declare module "affon:compute" {
     sequence(...parts: LRSchedule[]): LRSchedule
   }
   export function scheduled(step: ComputeStep, schedule: LRSchedule): ScheduledStep
+  export type Compiled<F extends (...args: any[]) => any> = F & {
+    run: F
+    summary(...args: any[]): any
+    graph(...args: any[]): any
+    plan(...args: any[]): any
+    capturedProgram(...args: any[]): any
+    captureSummary(...args: any[]): any
+    exportBundle(...args: any[]): any
+    exportReport(...args: any[]): any
+  }
+  export function compile<F extends (...args: any[]) => any>(fn: F): Compiled<F>
+  export interface Module<Args extends readonly any[] = readonly any[], Out = any> {
+    (...args: Args): Out
+    readonly training: boolean
+    readonly parameters: readonly Parameter[]
+    state(): any
+    restore(state: any): void
+    mode(): "train" | "eval"
+    mode(value: "train" | "eval"): this
+    train(): void
+    eval(): void
+    readonly module_path: string | null
+    metadata(path: string): this
+  }
+  export function module<Args extends readonly any[] = readonly any[], Out = any>(state: any, apply: (state: any, ...args: Args) => Out, evalApply?: (state: any, ...args: Args) => Out): Module<Args, Out>
   export function sgd(options?: { lr?: number; momentum?: number }): ComputeStep
   export function adam(options?: { lr?: number; beta1?: number; beta2?: number; eps?: number }): ComputeStep
   export function adamw(options?: { lr?: number; beta1?: number; beta2?: number; eps?: number; weight_decay?: number }): ComputeStep
   export const axes: Readonly<Record<"batch" | "token" | "sequence" | "feature" | "hidden" | "channel" | "height" | "width" | "head" | "vocab", AxisName>>
   export const all: { readonly kind: "all" }
   export function range(start: number, end: number, step?: number): Readonly<{ kind: "range"; start: number; end: number; step: number }>
-  export interface TensorOptions { dtype?: DType; device?: Device }
+  export interface TensorOptions<D extends Device = Device> { dtype?: DType; device?: D; axes?: readonly AxisName[] }
 
-  export interface Tensor<S extends Shape = Shape> {
+  export interface Tensor<S extends Shape = Shape, D extends Device = Device> {
     readonly shape: S
     readonly ndim: number
     readonly dtype: DType
-    readonly device: Device
+    readonly device: D
     readonly axes?: readonly AxisName[]
+    readonly grad: Tensor | null
+    readonly grad_device: Device | undefined
     item(): number
     to_array(): unknown
     toString(): string
     repr(): string
-    to(device: Device): Tensor<S>
+    to<T extends Device>(device: T): Tensor<S, T>
+    backward(): void
   }
 
-  export function tensor(values: number | readonly number[] | readonly (number | readonly number[])[], options?: TensorOptions): Tensor
+  export function tensor<D extends Device = Device>(values: number | readonly number[] | readonly (number | readonly number[])[], options?: TensorOptions<D>): Tensor<Shape, D>
   export function empty(shape: readonly number[]): Tensor
   export function zeros(shape: readonly number[]): Tensor
   export function ones(shape: readonly number[]): Tensor
   export function full(shape: readonly number[], fill: number): Tensor
-  export interface Parameter extends Tensor { readonly grad: Tensor | null }
-  export function parameter(shape: readonly number[]): Parameter
+  export interface Parameter extends Tensor {
+    zeros(): this
+    ones(): this
+    full(value: number): this
+    rand(): this
+    randn(): this
+    xavier_uniform(): this
+    xavier_normal(): this
+    kaiming_uniform(): this
+    kaiming_normal(): this
+  }
+  export function parameter<D extends Device = Device>(shape: readonly number[], options?: TensorOptions<D>): Parameter & Tensor<Shape, D>
+  export function setDevice(device: Device): void
   export function copy<T extends Tensor>(target: T, source: Tensor): T
   export function grad(loss: Tensor, parameters: readonly Parameter[]): void
   export function clip_grad_norm(parameters: readonly Parameter[], max_norm: number, eps?: number): number
   export function clear_grad(parameters: readonly Parameter[]): void
-  export function rand(shape: readonly number[]): Tensor
-  export function randn(shape: readonly number[]): Tensor
+  export function rand<D extends Device = Device>(shape: readonly number[], options?: TensorOptions<D>): Tensor<Shape, D>
+  export function randn<D extends Device = Device>(shape: readonly number[], options?: TensorOptions<D>): Tensor<Shape, D>
   export function seed(value: number): void
-  export function arange(start: number, end?: number, step?: number): Tensor
-  export function linspace(start: number, end: number, steps?: number): Tensor
+  export function arange<D extends Device = Device>(start: number, end?: number, step?: number, options?: TensorOptions<D>): Tensor<Shape, D>
+  export function linspace<D extends Device = Device>(start: number, end: number, steps?: number, options?: TensorOptions<D>): Tensor<Shape, D>
   export function add(lhs: Tensor, rhs: Tensor): Tensor
   export function sub(lhs: Tensor, rhs: Tensor): Tensor
   export function mul(lhs: Tensor, rhs: Tensor): Tensor
   export function div(lhs: Tensor, rhs: Tensor): Tensor
-  export function matmul(lhs: Tensor, rhs: Tensor): Tensor
+  export type MatmulExecutionHint = "projection" | "attention_scores" | "attention_values"
+  export type MatmulExecutionOptions = { hint?: MatmulExecutionHint; source?: "higher_level_module" }
+  export function matmul(lhs: Tensor, rhs: Tensor, execution?: MatmulExecutionOptions): Tensor
   export function dot(lhs: Tensor, rhs: Tensor): Tensor
   export function square(value: Tensor): Tensor
   export function gt_scalar(value: Tensor, threshold: number): Tensor
@@ -78,14 +119,14 @@ declare module "affon:compute" {
   export function gelu(value: Tensor): Tensor
   export function clamp(value: Tensor, min: number, max: number): Tensor
   export function softmax(value: Tensor, axis: number): Tensor
-  export function sum(value: Tensor): Tensor
-  export function mean(value: Tensor, axis?: number): Tensor
-  export function min(value: Tensor, axis?: number): Tensor
-  export function max(value: Tensor, axis?: number): Tensor
-  export function variance(value: Tensor, axis?: number): Tensor
-  export function std(value: Tensor, axis?: number): Tensor
-  export function argmin(value: Tensor, axis?: number): Tensor
-  export function argmax(value: Tensor, axis?: number): Tensor
+  export function sum(value: Tensor, axis?: number, keepdim?: boolean): Tensor
+  export function mean(value: Tensor, axis?: number, keepdim?: boolean): Tensor
+  export function min(value: Tensor, axis?: number, keepdim?: boolean): Tensor
+  export function max(value: Tensor, axis?: number, keepdim?: boolean): Tensor
+  export function variance(value: Tensor, axis?: number, keepdim?: boolean): Tensor
+  export function std(value: Tensor, axis?: number, keepdim?: boolean): Tensor
+  export function argmin(value: Tensor, axis?: number, keepdim?: boolean): Tensor
+  export function argmax(value: Tensor, axis?: number, keepdim?: boolean): Tensor
   export function reshape(value: Tensor, shape: readonly number[]): Tensor
   export function slice(value: Tensor, ...selectors: Selector[]): Tensor
   export function at(value: Tensor, ...selectors: number[]): Tensor
@@ -117,6 +158,8 @@ declare module "affon:compute" {
   export function r2(pred: Tensor, target: Tensor): number
 
   const compute: {
+    compile: typeof compile
+    module: typeof module
     tensor: typeof tensor
     empty: typeof empty
     zeros: typeof zeros

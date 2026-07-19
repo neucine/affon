@@ -6,6 +6,8 @@ const Op = @import("../../types/operation/op.zig").Op;
 const eager = @import("../eager/index.zig");
 const fusion = @import("fusion/index.zig");
 const telemetry = @import("../../telemetry.zig");
+const autograd = @import("../autograd.zig");
+const grad_mode = @import("../../grad_mode.zig");
 
 fn fusionMetric(name: []const u8) void {
     telemetry.addCounter(.execution, name, 1);
@@ -45,9 +47,7 @@ pub const Result = struct {
     outputs: []*Tensor,
 
     pub fn deinit(self: *Result) void {
-        for (self.values, self.owned) |value, is_owned| {
-            if (is_owned) if (value) |owned_value| owned_value.deinit();
-        }
+        for (self.values, self.owned) |value, is_owned| if (is_owned) if (value) |owned_value| owned_value.deinit();
         self.allocator.free(self.outputs);
         self.allocator.free(self.owned);
         self.allocator.free(self.values);
@@ -68,11 +68,12 @@ pub fn execute(
     defer if (!graph_succeeded) graph_scope.endError();
 
     const values = try allocator.alloc(?*Tensor, graph.values.items.len);
-    errdefer allocator.free(values);
+    var result_initialized = false;
+    errdefer if (!result_initialized) allocator.free(values);
     @memset(values, null);
 
     const owned = try allocator.alloc(bool, graph.values.items.len);
-    errdefer allocator.free(owned);
+    errdefer if (!result_initialized) allocator.free(owned);
     @memset(owned, false);
 
     const remaining_uses = try allocator.alloc(usize, graph.values.items.len);
@@ -94,12 +95,13 @@ pub fn execute(
         .owned = owned,
         .outputs = try allocator.alloc(*Tensor, 0),
     };
+    result_initialized = true;
     errdefer result.deinit();
 
     var step_index: usize = 0;
     var region_index: usize = 0;
     while (step_index < plan.steps.items.len) {
-        if (region_index < plan.regions.items.len and plan.regions.items[region_index].step_start == step_index) {
+        if (!grad_mode.isEnabled() and region_index < plan.regions.items.len and plan.regions.items[region_index].step_start == step_index) {
             const region = plan.regions.items[region_index];
             const region_steps = plan.steps.items[region.step_start..region.step_end];
             region_index += 1;
@@ -214,6 +216,7 @@ fn executeStep(
     if (node.outputs.len == 0 or node.outputs.len > 2) return error.InvalidOutputCount;
     if (node.outputs.len == 1 and execution.secondary != null) return error.MultiOutputRequiresExecuteAll;
     if (node.outputs.len == 2 and execution.secondary == null) return error.MissingGraphValue;
+    try autograd.recordOperation(allocator, execution.primary, op);
     values[node.outputs[0]] = execution.primary;
     owned[node.outputs[0]] = true;
     execution.primary = undefined;
@@ -238,7 +241,7 @@ fn consumeInputs(
         for (node.inputs) |value_id| {
             if (remaining_uses[value_id] > 0) remaining_uses[value_id] -= 1;
             if (remaining_uses[value_id] != 0 or is_graph_output[value_id] or !owned[value_id]) continue;
-            if (values[value_id]) |value| value.deinit();
+            if (values[value_id]) |value| autograd.releaseOwnedTensor(value);
             values[value_id] = null;
             owned[value_id] = false;
         }
