@@ -81,13 +81,13 @@ const sources = [_]hao.SourceModule{
     },
 };
 
-const native_modules = [_]hao.NativeModule{.{
+const native_modules = [_]hao.NativeModule{ .{
     .specifier = compute_native.specifier,
     .load = compute_native.load,
 }, .{
     .specifier = dataset_native.specifier,
     .load = dataset_native.load,
-}};
+} };
 
 fn installGlobals(context: *packages.PackageContext) !void {
     const source =

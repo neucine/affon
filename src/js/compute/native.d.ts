@@ -20,10 +20,11 @@ declare module "affon:compute/native" {
     zeros(shape: readonly number[], options?: { dtype?: "f32" | "f64" | "i64"; device?: "cpu" | "metal" }): Tensor
     ones(shape: readonly number[], options?: { dtype?: "f32" | "f64" | "i64"; device?: "cpu" | "metal" }): Tensor
     full(shape: readonly number[], fill: number, options?: { dtype?: "f32" | "f64" | "i64"; device?: "cpu" | "metal" }): Tensor
-    parameter(shape: readonly number[], options?: { dtype?: "f32" | "f64"; device?: "cpu" | "metal" }): Tensor
+    parameter(shape: readonly number[], options?: { dtype?: "f32" | "f64"; device?: "cpu" | "metal"; axes?: readonly string[] }): Tensor
     setDevice(device: "cpu" | "metal"): void
     copy<T extends Tensor>(target: T, source: Tensor): T
     $muladd_(target: Tensor, scale: number, addend: Tensor): void
+    $adam_step_many_(parameters: Tensor[], first: Tensor[], second: Tensor[], gradients: Tensor[], beta1: number, beta2: number, biasCorrection1: number, biasCorrection2: number, eps: number, lr: number, weightDecay: number): void
     grad(loss: Tensor, parameters: readonly Tensor[]): void
     clip_grad_norm(parameters: readonly Tensor[], max_norm: number, eps?: number): number
     clear_grad(parameters: readonly Tensor[]): void

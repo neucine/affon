@@ -299,7 +299,7 @@ describe('compute', () => {
     expect(compiledSummary.graphLoweringAnalysis).toEqual({ lowerable: true })
   })
 
-  test('reports unsupported compiled graphs as native lowering gaps', () => {
+  test('routes compiled where through native graph lowering', () => {
     setDevice('cpu')
 
     const compiled = compile((cond, x, y) => where(cond, x, y))
@@ -307,8 +307,8 @@ describe('compute', () => {
     const x = tensor([[1, 2, 3]], { dtype: 'f32' })
     const y = tensor([[9, 9, 9]], { dtype: 'f32' })
 
-    expect(() => compiled(cond, x, y)).toThrow('where')
-    expect(() => compiled.run(cond, x, y)).toThrow('where')
+    expect((compiled(cond, x, y) as any).to_array()).toEqual([[1, 9, 3]])
+    expect((compiled.run(cond, x, y) as any).to_array()).toEqual([[1, 9, 3]])
 
     const graphProgram = (compiled as any).graph?.()
     expect(graphProgram.executionRuntime()).toBe('native-graph')
@@ -318,16 +318,11 @@ describe('compute', () => {
     expect(summary.summaryKind).toBe('execution')
     expect(summary.regions).toEqual([])
     expect(summary.templates).toEqual([])
-    expect(summary.loweringAnalysis.lowerable).toBe(false)
-    expect(summary.loweringAnalysis.failure.nodeKind).toBe('where')
-    expect(summary.loweringAnalysis.failure.category).toBe('unsupported_captured_node_kind')
-    expect(summary.loweringAnalysis.failure.reason).toContain('not yet lowerable')
+    expect(summary.loweringAnalysis).toEqual({ lowerable: true })
 
     const compiledSummary = (compiled as any).summary()
     expect(compiledSummary.graphRuntime).toBe('native-graph')
-    expect(compiledSummary.graphLoweringAnalysis.lowerable).toBe(false)
-    expect(compiledSummary.graphLoweringAnalysis.failure.nodeKind).toBe('where')
-    expect(compiledSummary.graphLoweringAnalysis.failure.category).toBe('unsupported_captured_node_kind')
+    expect(compiledSummary.graphLoweringAnalysis).toEqual({ lowerable: true })
   })
 
   test('routes compiled softmax through native graph lowering', () => {

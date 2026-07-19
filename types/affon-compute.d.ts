@@ -311,7 +311,7 @@ declare module "affon:compute" {
     /** Logical module-tree path used by graph export and diagnostics. */
     readonly module_path: string | null;
     /** Trainable parameter view. */
-    readonly parameters: readonly Parameter[];
+    readonly parameters: ParameterCollection;
     /** Materialize the full persistent state tree. */
     state(): ComputeState;
     /** Restore a previously captured state tree. */
@@ -1118,7 +1118,7 @@ declare module "affon:compute" {
    * style. When `end` is omitted, the single argument form is treated as
    * `arange(0, start)`.
    */
-  function arange<D extends DType = DType>(start: number, end?: number, step?: number, opts?: TensorOptions<D>): Tensor<[number], D>;
+  function arange<D extends DType = DType, V extends Device = Device>(start: number, end?: number, step?: number, opts?: TensorOptions<D, V>): Tensor<[number], D, V>;
   /**
    * @summary Construct a one-dimensional linear interpolation.
    * @category Creation
@@ -1129,7 +1129,7 @@ declare module "affon:compute" {
    * @param steps Number of interpolation steps.
    * @param opts Optional dtype and device placement.
    */
-  function linspace<D extends DType = DType>(start: number, end: number, steps?: number, opts?: TensorOptions<D>): Tensor<[number], D>;
+  function linspace<D extends DType = DType, V extends Device = Device>(start: number, end: number, steps?: number, opts?: TensorOptions<D, V>): Tensor<[number], D, V>;
   /**
    * @summary Seed the public random constructors.
    * @category Creation
@@ -1153,7 +1153,10 @@ declare module "affon:compute" {
    * @example
    * const weight = parameter([128, 64]).xavier_uniform()
    */
-  function parameter<S extends Shape = number[], D extends DType = DType>(shape: S, opts?: TensorOptions<D>): Parameter<S, D>;
+  function parameter<S extends Shape = number[], D extends DType = DType, V extends Device = Device>(shape: S, opts?: TensorOptions<D, V>): Parameter<S, D, V>;
+
+  /** Set the default device used by subsequent tensor constructors. */
+  function setDevice(device: Device): void;
 
   /**
    * @summary Change tensor dtype without changing shape or device.
@@ -1168,7 +1171,7 @@ declare module "affon:compute" {
    * @input One tensor and the destination device.
    * @output A tensor with the same shape and dtype on the target device.
    */
-  function move<S extends Shape = Shape, D extends DType = DType>(x: Tensor<S, D>, device: Device): Tensor<S, D>;
+  function move<S extends Shape = Shape, D extends DType = DType, V extends Device = Device>(x: Tensor<S, D>, device: V): Tensor<S, D, V>;
 
   /**
    * @summary Negate a tensor elementwise.
@@ -1300,6 +1303,18 @@ declare module "affon:compute" {
    * @axis Normalizes along `dim`.
    */
   function softmax<S extends Shape = Shape, D extends DType = DType>(x: Tensor<S, D>, dim: number): Tensor<S, D>;
+
+  /**
+   * @summary Indexed cross-entropy loss.
+   * @category Loss
+   * @semantics Computes cross-entropy from class logits and integer class
+   * targets along the selected class axis.
+   */
+  function cross_entropy_indexed<S extends Shape = Shape, D extends DType = DType>(
+    logits: Tensor<S, D>,
+    targets: Tensor,
+    axis?: number,
+  ): Tensor;
 
   /**
    * @summary Sum reduction.
@@ -1764,6 +1779,7 @@ declare module "affon:compute" {
     arange: typeof arange;
     linspace: typeof linspace;
     seed: typeof seed;
+    setDevice: typeof setDevice;
     parameter: typeof parameter;
     cast: typeof cast;
     move: typeof move;
@@ -1783,6 +1799,8 @@ declare module "affon:compute" {
     clamp: typeof clamp;
     relu: typeof relu;
     gelu: typeof gelu;
+    silu: typeof silu;
+    swish: typeof swish;
     sigmoid: typeof sigmoid;
     tanh: typeof tanh;
     softmax: typeof softmax;
@@ -1796,6 +1814,7 @@ declare module "affon:compute" {
     argmax: typeof argmax;
     where: typeof where;
     masked_fill: typeof masked_fill;
+    cross_entropy_indexed: typeof cross_entropy_indexed;
     cat: typeof cat;
     stack: typeof stack;
     one_hot: typeof one_hot;
@@ -1849,6 +1868,7 @@ declare module "affon:compute" {
     type ModuleMode,
     type Tensor,
     type Parameter,
+    type ParameterCollection,
     type RangeSelector,
     type AllSelector,
     type Selector,
@@ -1917,6 +1937,7 @@ declare module "affon:compute" {
     arange,
     linspace,
     seed,
+    setDevice,
     parameter,
     cast,
     move,
@@ -1941,6 +1962,7 @@ declare module "affon:compute" {
     swish,
     tanh,
     softmax,
+    cross_entropy_indexed,
     sum,
     mean,
     max,

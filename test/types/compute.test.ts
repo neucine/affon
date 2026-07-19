@@ -42,7 +42,7 @@ assertType<IsExact<typeof duration.unit, "step">>()
 assertType<IsExact<typeof scheduledOptimizer.context.step, number>>()
 assertType<IsExact<ReturnType<typeof compiled.run>, typeof input>>()
 assertType<IsExact<typeof layer.training, boolean>>()
-assertType<IsExact<typeof layer.parameters, readonly import("affon:compute").Parameter[]>>()
+assertType<IsExact<typeof layer.parameters, import("affon:compute").ParameterCollection>>()
 
 void compiled
 void layer

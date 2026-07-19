@@ -5,6 +5,7 @@ const tensor_types = @import("../../compute/types/tensor/index.zig");
 const dispatch = @import("../../compute/backend/dispatch.zig");
 const config = @import("../../config.zig");
 const metal_backend = @import("../../compute/backend/metal/common.zig");
+const metal_update = @import("../../compute/backend/metal/update.zig");
 const autograd_types = @import("../../compute/types/autograd.zig");
 const autograd_execution = @import("../../compute/execution/autograd.zig");
 const autograd_compose = @import("../../compute/compose/derive.zig");
@@ -23,7 +24,6 @@ const allocator = std.heap.c_allocator;
 const Tensor = engine_api.Tensor;
 const AxisName = tensor_types.AxisName;
 var random_state = std.Random.DefaultPrng.init(0xA66F_0001);
-
 
 const tensor_type_id: u32 = 1;
 const compiled_executable_type_id: u32 = 2;
@@ -133,8 +133,16 @@ fn jsCompiledExecutableSummary(ctx: abi.JSContext, this_value: abi.JSValueConst,
     var parsed = parseCapturedProgram(executable) catch return errorValue(ctx, "failed to parse captured program");
     defer parsed.deinit();
     const result = abi.jsNewObject(ctx);
-    const mode: [:0]const u8 = switch (executable.mode) { .none => "none", .graph => "graph", .eager_forward => "eager-forward" };
-    const outcome: [:0]const u8 = switch (executable.plan_outcome) { .none => "none", .native_graph => "native-graph", .eager_forward => "eager-forward" };
+    const mode: [:0]const u8 = switch (executable.mode) {
+        .none => "none",
+        .graph => "graph",
+        .eager_forward => "eager-forward",
+    };
+    const outcome: [:0]const u8 = switch (executable.plan_outcome) {
+        .none => "none",
+        .native_graph => "native-graph",
+        .eager_forward => "eager-forward",
+    };
     if (abi.jsSetProperty(ctx, result, "inputCount", abi.jsInt32(ctx, @intCast(parsed.value.inputArity))) < 0 or
         abi.jsSetProperty(ctx, result, "nodeCount", abi.jsInt32(ctx, @intCast(parsed.value.nodes.len))) < 0 or
         abi.jsSetProperty(ctx, result, "mode", abi.jsString(ctx, mode)) < 0 or
@@ -158,11 +166,6 @@ fn jsCompiledExecutableRun(ctx: abi.JSContext, this_value: abi.JSValueConst, arg
     defer parsed.deinit();
     const analysis = captured_lowering.analyzeLowerability(parsed.value, parseCapturedDType);
     if (!analysis.lowerable) {
-        if (analysis.failure) |failure| {
-            if (failure.node_kind) |kind| {
-                if (std.mem.eql(u8, kind, "where")) return errorValue(ctx, "compiled graph is not lowerable: where");
-            }
-        }
         return errorValue(ctx, "compiled graph is not lowerable");
     }
     var lowered = captured_lowering.lowerToGraph(allocator, parsed.value, inputs, parseCapturedDType, createCapturedScalar, createCapturedRandom) catch return errorValue(ctx, "failed to lower captured graph");
@@ -179,6 +182,7 @@ fn jsCompiledExecutableRun(ctx: abi.JSContext, this_value: abi.JSValueConst, arg
             break;
         }
     }
+    _ = lowered.takeOwnedValue(output);
     result.deinit();
     executable.mode = .graph;
     executable.plan_outcome = .native_graph;
@@ -372,11 +376,54 @@ fn errorValue(ctx: abi.JSContext, message: [*:0]const u8) abi.JSValue {
 
 fn classifiedErrorValue(ctx: abi.JSContext, message: []const u8, err: anyerror) abi.JSValue {
     return switch (err) {
+        error.InvalidArgument,
+        error.InvalidAxis,
+        error.IndexOutOfBounds,
+        error.AxisOutOfBounds,
+        error.InvalidSliceStep,
+        error.EmptyInput,
+        error.TooManySliceDimensions,
+        error.UnsupportedDevice,
+        error.InvalidInputCount,
+        error.InputCountMismatch,
+        error.InvalidOpOptions,
+        error.InvalidOutputCount,
+        error.InvalidClampBounds,
+        error.InvalidIndexDType,
+        error.InvalidTopK,
+        error.UnknownOp,
+        error.InvalidNumericValue,
+        => abi.jsThrowConstructedError(ctx, "AffonError", "invalid_arg", message),
         error.ShapeMismatch, error.IncompatibleShapes, error.SizeMismatch => abi.jsThrowConstructedError(ctx, "AffonError", "shape_mismatch", message),
+        error.JaggedArray,
+        error.NotContiguous,
+        error.DimensionNotSingleton,
+        error.MatmulRequires2D,
+        error.DotRequires1D,
+        error.UnsupportedNDim,
+        error.UnsupportedShape,
+        => abi.jsThrowConstructedError(ctx, "AffonError", "invalid_shape", message),
         error.DTypeMismatch, error.TypeMismatch, error.UnsupportedDType => abi.jsThrowConstructedError(ctx, "AffonError", "invalid_dtype", message),
-        error.InvalidArgument, error.InvalidAxis, error.AxisOutOfBounds, error.IndexOutOfBounds => abi.jsThrowConstructedError(ctx, "AffonError", "invalid_arg", message),
-        error.JaggedArray, error.NotContiguous, error.UnsupportedShape => abi.jsThrowConstructedError(ctx, "AffonError", "invalid_shape", message),
-        else => abi.jsThrowError(ctx, "native compute operation failed"),
+        error.DeviceMismatch, error.MixedDeviceUnsupported => abi.jsThrowConstructedError(ctx, "AffonError", "device_mismatch", message),
+        error.MetalKernelFailed,
+        error.MetalTransferFailed,
+        error.MetalUnavailable,
+        error.MetalKernelLaunchFailed,
+        => abi.jsThrowConstructedError(ctx, "AffonError", "device_error", message),
+        error.NoGradientGraph, error.BackwardRequiresScalar, error.GradUnsupported => abi.jsThrowConstructedError(ctx, "AffonError", "grad_error", message),
+        error.ExecutionNotImplemented,
+        error.InvalidExecutionPlan,
+        error.InvalidGraphPlan,
+        error.UnsupportedGraphLowering,
+        error.UnboundGraphInput,
+        error.UnboundGraphOutput,
+        error.InputNotMaterialized,
+        error.InputNotContiguous,
+        error.MultiOutputRequiresExecuteAll,
+        error.OpNotImplemented,
+        => abi.jsThrowConstructedError(ctx, "AffonError", "invalid_state", message),
+        error.OutOfMemory => abi.jsThrowConstructedError(ctx, "AffonError", "out_of_memory", message),
+        else => abi.jsThrowConstructedError(ctx, "AffonError", "internal", message),
     };
 }
 
@@ -387,7 +434,11 @@ fn typeError(ctx: abi.JSContext, message: [*:0]const u8) abi.JSValue {
 const CheckpointEntry = struct { name: []u8, value: *Tensor };
 
 fn checkpointDTypeName(dtype: engine_api.DType) []const u8 {
-    return switch (dtype) { .f32 => "F32", .f64 => "F64", .i64 => "I64" };
+    return switch (dtype) {
+        .f32 => "F32",
+        .f64 => "F64",
+        .i64 => "I64",
+    };
 }
 
 fn checkpointDType(text: []const u8) ?engine_api.DType {
@@ -476,7 +527,8 @@ fn jsLoadNative(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]
     defer parsed.deinit();
     const result = abi.jsNewObject(ctx);
     if (abi.jsIsException(result)) return result;
-    const raw = file[8 + @as(usize, @intCast(header_size))..];
+    errdefer abi.jsFreeValue(ctx, result);
+    const raw = file[8 + @as(usize, @intCast(header_size)) ..];
     const root = parsed.value.object;
     for (root.keys(), root.values()) |name, metadata| {
         const object = metadata.object;
@@ -496,10 +548,16 @@ fn jsLoadNative(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]
         if (writable.len != end - start) return errorValue(ctx, "checkpoint.load tensor byte length mismatch");
         @memcpy(writable, raw[start..end]);
         const js_value = createTensorObject(ctx, value);
-        if (abi.jsIsException(js_value)) { value.deinit(); return js_value; }
+        if (abi.jsIsException(js_value)) {
+            value.deinit();
+            return js_value;
+        }
+        var owns_js_value = true;
+        defer if (owns_js_value) abi.jsFreeValue(ctx, js_value);
         const name_z = allocator.dupeZ(u8, name) catch return errorValue(ctx, "checkpoint.load out of memory");
         defer allocator.free(name_z);
         if (abi.jsSetProperty(ctx, result, name_z.ptr, js_value) < 0) return abi.jsThrowError(ctx, "checkpoint.load failed to create result");
+        owns_js_value = false;
     }
     return result;
 }
@@ -891,7 +949,10 @@ fn jsTensor(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.
             break :blk Tensor.fromSliceI64(allocator, shape.items, converted);
         },
     } catch return errorValue(ctx, "failed to create Tensor");
-    cpu_tensor.setAxesCopy(axes) catch return errorValue(ctx, "failed to set Tensor axes");
+    cpu_tensor.setAxesCopy(axes) catch {
+        cpu_tensor.deinit();
+        return errorValue(ctx, "failed to set Tensor axes");
+    };
     if (device == .cpu) return createTensorObject(ctx, cpu_tensor);
     defer cpu_tensor.deinit();
     const tensor = Tensor.createContiguous(allocator, shape.items, dtype, device, false) catch return errorValue(ctx, "failed to create device Tensor");
@@ -913,16 +974,12 @@ fn createFilledTensor(ctx: abi.JSContext, shape_value: abi.JSValueConst, options
         const dtype_value = abi.jsGetProperty(ctx, options_value, "dtype");
         defer abi.jsFreeValue(ctx, dtype_value);
         if (!abi.jsIsUndefined(dtype_value)) {
-            if (abi.jsStringEquals(ctx, dtype_value, "f64")) dtype = .f64
-            else if (abi.jsStringEquals(ctx, dtype_value, "i64")) dtype = .i64
-            else if (!abi.jsStringEquals(ctx, dtype_value, "f32")) return typeError(ctx, "unsupported tensor dtype");
+            if (abi.jsStringEquals(ctx, dtype_value, "f64")) dtype = .f64 else if (abi.jsStringEquals(ctx, dtype_value, "i64")) dtype = .i64 else if (!abi.jsStringEquals(ctx, dtype_value, "f32")) return typeError(ctx, "unsupported tensor dtype");
         }
         const device_value = abi.jsGetProperty(ctx, options_value, "device");
         defer abi.jsFreeValue(ctx, device_value);
         if (!abi.jsIsUndefined(device_value)) {
-            if (abi.jsStringEquals(ctx, device_value, "metal")) device = .metal
-            else if (abi.jsStringEquals(ctx, device_value, "cpu")) device = .cpu
-            else return typeError(ctx, "device must be 'cpu' or 'metal'");
+            if (abi.jsStringEquals(ctx, device_value, "metal")) device = .metal else if (abi.jsStringEquals(ctx, device_value, "cpu")) device = .cpu else return typeError(ctx, "device must be 'cpu' or 'metal'");
         }
     }
     const axes = readAxesOption(ctx, options_value, shape.len) catch return typeError(ctx, "axes must be a string array whose length matches tensor rank");
@@ -1003,7 +1060,10 @@ fn jsParameter(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]a
     const axes = readAxesOption(ctx, if (argc == 2) argv[1] else abi.jsUndefined(ctx), shape.len) catch return typeError(ctx, "axes must be a string array whose length matches parameter rank");
     defer freeAxes(axes);
     const tensor = Tensor.createContiguous(allocator, shape, dtype, device, false) catch return errorValue(ctx, "failed to create Parameter");
-    tensor.setAxesCopy(axes) catch return errorValue(ctx, "failed to set Parameter axes");
+    tensor.setAxesCopy(axes) catch {
+        tensor.deinit();
+        return errorValue(ctx, "failed to set Parameter axes");
+    };
     _ = autograd_types.State.create(allocator, tensor, true) catch {
         tensor.deinit();
         return errorValue(ctx, "failed to create Parameter state");
@@ -1068,6 +1128,111 @@ fn jsInternalAxpy(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*
     const target_storage = target.storage orelse return errorValue(ctx, "$axpy_ target has no storage");
     const addend_storage = addend.storage orelse return errorValue(ctx, "$axpy_ addend has no storage");
     dispatch.update(target.device() orelse .cpu, .axpy, target.dtype, target_storage, addend_storage, scale) catch return errorValue(ctx, "$axpy_ failed");
+    return abi.jsUndefined(ctx);
+}
+
+fn jsInternalAdamStepMany(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    if (argc != 11) return typeError(ctx, "$adam_step_many_ expects four Tensor arrays and seven numeric arguments");
+    const parameters = readTensorList(ctx, argv[0], "parameters") orelse return typeError(ctx, "$adam_step_many_ expects Tensor arrays");
+    defer allocator.free(parameters);
+    const first = readTensorList(ctx, argv[1], "first moments") orelse return typeError(ctx, "$adam_step_many_ expects Tensor arrays");
+    defer allocator.free(first);
+    const second = readTensorList(ctx, argv[2], "second moments") orelse return typeError(ctx, "$adam_step_many_ expects Tensor arrays");
+    defer allocator.free(second);
+    const gradients = readTensorList(ctx, argv[3], "gradients") orelse return typeError(ctx, "$adam_step_many_ expects Tensor arrays");
+    defer allocator.free(gradients);
+    if (parameters.len != first.len or parameters.len != second.len or parameters.len != gradients.len) {
+        return typeError(ctx, "$adam_step_many_ Tensor arrays must have equal length");
+    }
+
+    var beta1: f64 = 0;
+    var beta2: f64 = 0;
+    var bias_correction1: f64 = 0;
+    var bias_correction2: f64 = 0;
+    var eps: f64 = 0;
+    var lr: f64 = 0;
+    var weight_decay: f64 = 0;
+    const numeric = [_]*f64{ &beta1, &beta2, &bias_correction1, &bias_correction2, &eps, &lr, &weight_decay };
+    for (numeric, 4..) |target, index| {
+        if (abi.jsToFloat64(ctx, target, argv[index]) < 0) return typeError(ctx, "$adam_step_many_ expects numeric arguments");
+    }
+
+    for (parameters, 0..) |parameter, index| {
+        const m = first[index];
+        const v = second[index];
+        const gradient = gradients[index];
+        const device = parameter.device() orelse return errorValue(ctx, "$adam_step_many_ parameter has no device");
+        if (m.device() != device or v.device() != device or gradient.device() != device) return errorValue(ctx, "$adam_step_many_ requires matching devices");
+        if (parameter.dtype != m.dtype or parameter.dtype != v.dtype or parameter.dtype != gradient.dtype) {
+            return errorValue(ctx, "$adam_step_many_ requires matching tensor dtypes");
+        }
+        if (parameter.shape.numel() != m.shape.numel() or parameter.shape.numel() != v.shape.numel() or parameter.shape.numel() != gradient.shape.numel()) {
+            return errorValue(ctx, "$adam_step_many_ requires matching tensor shapes");
+        }
+        if (device == .metal) {
+            metal_update.adamStepInplace(
+                parameter.dtype,
+                parameter.storage orelse return errorValue(ctx, "$adam_step_many_ parameter has no storage"),
+                m.storage orelse return errorValue(ctx, "$adam_step_many_ moment has no storage"),
+                v.storage orelse return errorValue(ctx, "$adam_step_many_ moment has no storage"),
+                gradient.storage orelse return errorValue(ctx, "$adam_step_many_ gradient has no storage"),
+                beta1,
+                beta2,
+                bias_correction1,
+                bias_correction2,
+                eps,
+                lr,
+                weight_decay,
+            ) catch return errorValue(ctx, "$adam_step_many_ Metal update failed");
+            continue;
+        }
+        const parameter_bytes = parameter.storage.?.writableBytes() catch return errorValue(ctx, "$adam_step_many_ failed to access parameter storage");
+        const m_bytes = m.storage.?.writableBytes() catch return errorValue(ctx, "$adam_step_many_ failed to access moment storage");
+        const v_bytes = v.storage.?.writableBytes() catch return errorValue(ctx, "$adam_step_many_ failed to access moment storage");
+        const gradient_bytes = gradient.storage.?.readableBytes() catch return errorValue(ctx, "$adam_step_many_ failed to access gradient storage");
+        switch (parameter.dtype) {
+            .f32 => {
+                const p = std.mem.bytesAsSlice(f32, parameter_bytes);
+                const m_values = std.mem.bytesAsSlice(f32, m_bytes);
+                const v_values = std.mem.bytesAsSlice(f32, v_bytes);
+                const g = std.mem.bytesAsSlice(f32, gradient_bytes);
+                const b1: f32 = @floatCast(beta1);
+                const b2: f32 = @floatCast(beta2);
+                const one_minus_b1: f32 = @floatCast(1.0 - beta1);
+                const one_minus_b2: f32 = @floatCast(1.0 - beta2);
+                const bc1: f32 = @floatCast(bias_correction1);
+                const bc2: f32 = @floatCast(bias_correction2);
+                const eps32: f32 = @floatCast(eps);
+                const lr32: f32 = @floatCast(lr);
+                const wd32: f32 = @floatCast(weight_decay);
+                for (p, 0..) |*value, item| {
+                    var parameter_value = value.*;
+                    if (weight_decay != 0) parameter_value -= lr32 * wd32 * parameter_value;
+                    const next_m = b1 * m_values[item] + one_minus_b1 * g[item];
+                    const next_v = b2 * v_values[item] + one_minus_b2 * g[item] * g[item];
+                    m_values[item] = next_m;
+                    v_values[item] = next_v;
+                    value.* = parameter_value - lr32 * ((next_m / bc1) / (@sqrt(next_v / bc2) + eps32));
+                }
+            },
+            .f64 => {
+                const p = std.mem.bytesAsSlice(f64, parameter_bytes);
+                const m_values = std.mem.bytesAsSlice(f64, m_bytes);
+                const v_values = std.mem.bytesAsSlice(f64, v_bytes);
+                const g = std.mem.bytesAsSlice(f64, gradient_bytes);
+                for (p, 0..) |*value, item| {
+                    var parameter_value = value.*;
+                    if (weight_decay != 0) parameter_value -= lr * weight_decay * parameter_value;
+                    const next_m = beta1 * m_values[item] + (1.0 - beta1) * g[item];
+                    const next_v = beta2 * v_values[item] + (1.0 - beta2) * g[item] * g[item];
+                    m_values[item] = next_m;
+                    v_values[item] = next_v;
+                    value.* = parameter_value - lr * ((next_m / bias_correction1) / (@sqrt(next_v / bias_correction2) + eps));
+                }
+            },
+            .i64 => return errorValue(ctx, "$adam_step_many_ does not support i64 tensors"),
+        }
+    }
     return abi.jsUndefined(ctx);
 }
 
@@ -1320,7 +1485,7 @@ fn jsCast(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JS
     const input = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "cast expects a Tensor");
     var dtype: engine_api.DType = .f32;
     if (abi.jsStringEquals(ctx, argv[1], "f64")) dtype = .f64 else if (abi.jsStringEquals(ctx, argv[1], "i64")) dtype = .i64 else if (!abi.jsStringEquals(ctx, argv[1], "f32")) return typeError(ctx, "unsupported tensor dtype");
-    const result = engine_api.Engine.init(allocator, .{}).cast(input, dtype) catch return errorValue(ctx, "cast failed");
+    const result = engine_api.Engine.init(allocator, .{}).cast(input, dtype) catch |err| return classifiedErrorValue(ctx, "cast failed", err);
     trackResult(result, &.{input}, .cast, null, null, null) catch {
         result.deinit();
         return errorValue(ctx, "failed to record autograd state");
@@ -1352,7 +1517,7 @@ fn jsGtScalar(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]ab
             scalar.storage.?.writeFromHost(std.mem.asBytes(&value)) catch return errorValue(ctx, "gt_scalar failed");
         },
     }
-    const result = engine_api.Engine.init(allocator, .{}).gt(input, scalar) catch return errorValue(ctx, "gt_scalar failed");
+    const result = engine_api.Engine.init(allocator, .{}).gt(input, scalar) catch |err| return classifiedErrorValue(ctx, "gt_scalar failed", err);
     scalar.deinit();
     return createTensorObject(ctx, result);
 }
@@ -1362,7 +1527,7 @@ fn jsWhere(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.J
     const condition = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "where expects Tensor values");
     const on_true = tensorFromValue(ctx, argv[1]) orelse return typeError(ctx, "where expects Tensor values");
     const on_false = tensorFromValue(ctx, argv[2]) orelse return typeError(ctx, "where expects Tensor values");
-    const result = engine_api.Engine.init(allocator, .{}).whereSelect(condition, on_true, on_false) catch return errorValue(ctx, "where failed");
+    const result = engine_api.Engine.init(allocator, .{}).whereSelect(condition, on_true, on_false) catch |err| return classifiedErrorValue(ctx, "where failed", err);
     trackResult(result, &.{ condition, on_true, on_false }, .where, null, null, null) catch {
         result.deinit();
         return errorValue(ctx, "failed to record autograd state");
@@ -1380,7 +1545,7 @@ fn jsMaskedFill(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]
     defer if (mask.owned) mask.tensor.deinit();
     var fill: f64 = 0;
     if (abi.jsToFloat64(ctx, &fill, argv[2]) < 0) return typeError(ctx, "masked_fill value must be a number");
-    const result = engine_api.Engine.init(allocator, .{}).maskedFill(input, mask.tensor, fill) catch return errorValue(ctx, "masked_fill failed");
+    const result = engine_api.Engine.init(allocator, .{}).maskedFill(input, mask.tensor, fill) catch |err| return classifiedErrorValue(ctx, "masked_fill failed", err);
     trackResult(result, &.{ input, mask.tensor }, .masked_fill, null, fill, null) catch {
         result.deinit();
         return errorValue(ctx, "failed to record autograd state");
@@ -1395,7 +1560,7 @@ fn jsCrossEntropyIndexed(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, a
     const logits = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "cross_entropy_indexed expects Tensor values");
     const targets = tensorFromValue(ctx, argv[1]) orelse return typeError(ctx, "cross_entropy_indexed expects Tensor values");
     const axis = if (argc == 3) integerArgument(ctx, argv[2], "axis") orelse return typeError(ctx, "axis must be a non-negative integer") else 1;
-    const result = engine_api.Engine.init(allocator, .{}).crossEntropyIndexed(logits, targets, axis) catch return errorValue(ctx, "cross_entropy_indexed failed");
+    const result = engine_api.Engine.init(allocator, .{}).crossEntropyIndexed(logits, targets, axis) catch |err| return classifiedErrorValue(ctx, "cross_entropy_indexed failed", err);
     trackResultWithSavedInputs(result, &.{logits}, &.{ logits, targets }, .cross_entropy_indexed, axis, null, false, null, null) catch {
         result.deinit();
         return errorValue(ctx, "failed to record autograd state");
@@ -1469,7 +1634,7 @@ fn jsMatmul(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.
         } else metadata.hint_source = .api_execution_arg;
     }
     const op = Op.initWithExecutionMetadata(.matmul, &.{ lhs, rhs }, .{ .none = {} }, metadata) catch return errorValue(ctx, "matmul failed");
-    var result = engine_api.Engine.init(allocator, .{}).executeRaw(op) catch return errorValue(ctx, "matmul failed");
+    var result = engine_api.Engine.init(allocator, .{}).executeRaw(op) catch |err| return classifiedErrorValue(ctx, "matmul failed", err);
     errdefer result.deinit();
     trackResult(result.primary, &.{ lhs, rhs }, .matmul, null, null, null) catch return errorValue(ctx, "failed to record autograd state");
     const output = result.primary;
@@ -1526,7 +1691,7 @@ fn jsClamp(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.J
     var minimum: f64 = 0;
     var maximum: f64 = 0;
     if (abi.jsToFloat64(ctx, &minimum, argv[1]) < 0 or abi.jsToFloat64(ctx, &maximum, argv[2]) < 0) return typeError(ctx, "clamp bounds must be numbers");
-    const result = engine_api.Engine.init(allocator, .{}).clamp(input, minimum, maximum) catch return errorValue(ctx, "clamp failed");
+    const result = engine_api.Engine.init(allocator, .{}).clamp(input, minimum, maximum) catch |err| return classifiedErrorValue(ctx, "clamp failed", err);
     trackResult(result, &.{input}, .clamp, null, minimum, maximum) catch {
         result.deinit();
         return errorValue(ctx, "failed to record autograd state");
@@ -1555,7 +1720,7 @@ fn reduction(ctx: abi.JSContext, argc: c_int, argv: [*c]abi.JSValueConst, operat
         .std => engine.reduce(.std, input, axis, keepdim),
         .argmin => engine.reduce(.argmin, input, axis, keepdim),
         .argmax => engine.reduce(.argmax, input, axis, keepdim),
-    } catch return errorValue(ctx, name);
+    } catch |err| return classifiedErrorValue(ctx, std.mem.span(name), err);
     const op_tag: OpTag = switch (operation) {
         .sum => if (axis == null) .sum_all else .sum_axis,
         .mean => if (axis == null) .mean_all else .mean_axis,
@@ -1581,14 +1746,30 @@ fn instanceReduction(ctx: abi.JSContext, this_value: abi.JSValueConst, argc: c_i
     return reduction(ctx, argc + 1, &args, operation, name);
 }
 
-fn jsTensorSum(ctx: abi.JSContext, this_value: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue { return instanceReduction(ctx, this_value, argc, argv, .sum, "sum failed"); }
-fn jsTensorMean(ctx: abi.JSContext, this_value: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue { return instanceReduction(ctx, this_value, argc, argv, .mean, "mean failed"); }
-fn jsTensorMin(ctx: abi.JSContext, this_value: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue { return instanceReduction(ctx, this_value, argc, argv, .min, "min failed"); }
-fn jsTensorMax(ctx: abi.JSContext, this_value: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue { return instanceReduction(ctx, this_value, argc, argv, .max, "max failed"); }
-fn jsTensorVariance(ctx: abi.JSContext, this_value: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue { return instanceReduction(ctx, this_value, argc, argv, .variance, "variance failed"); }
-fn jsTensorStd(ctx: abi.JSContext, this_value: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue { return instanceReduction(ctx, this_value, argc, argv, .std, "std failed"); }
-fn jsTensorArgmin(ctx: abi.JSContext, this_value: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue { return instanceReduction(ctx, this_value, argc, argv, .argmin, "argmin failed"); }
-fn jsTensorArgmax(ctx: abi.JSContext, this_value: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue { return instanceReduction(ctx, this_value, argc, argv, .argmax, "argmax failed"); }
+fn jsTensorSum(ctx: abi.JSContext, this_value: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    return instanceReduction(ctx, this_value, argc, argv, .sum, "sum failed");
+}
+fn jsTensorMean(ctx: abi.JSContext, this_value: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    return instanceReduction(ctx, this_value, argc, argv, .mean, "mean failed");
+}
+fn jsTensorMin(ctx: abi.JSContext, this_value: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    return instanceReduction(ctx, this_value, argc, argv, .min, "min failed");
+}
+fn jsTensorMax(ctx: abi.JSContext, this_value: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    return instanceReduction(ctx, this_value, argc, argv, .max, "max failed");
+}
+fn jsTensorVariance(ctx: abi.JSContext, this_value: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    return instanceReduction(ctx, this_value, argc, argv, .variance, "variance failed");
+}
+fn jsTensorStd(ctx: abi.JSContext, this_value: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    return instanceReduction(ctx, this_value, argc, argv, .std, "std failed");
+}
+fn jsTensorArgmin(ctx: abi.JSContext, this_value: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    return instanceReduction(ctx, this_value, argc, argv, .argmin, "argmin failed");
+}
+fn jsTensorArgmax(ctx: abi.JSContext, this_value: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    return instanceReduction(ctx, this_value, argc, argv, .argmax, "argmax failed");
+}
 
 fn jsMean(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
     return reduction(ctx, argc, argv, .mean, "mean expects a Tensor");
@@ -1622,7 +1803,7 @@ fn jsSoftmax(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi
     if (argc != 2) return typeError(ctx, "softmax expects a Tensor and axis");
     const input = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "softmax expects a Tensor");
     const axis = integerArgument(ctx, argv[1], "axis") orelse return typeError(ctx, "axis must be a non-negative integer");
-    const result = engine_api.Engine.init(allocator, .{}).softmax(input, axis) catch return errorValue(ctx, "softmax failed");
+    const result = engine_api.Engine.init(allocator, .{}).softmax(input, axis) catch |err| return classifiedErrorValue(ctx, "softmax failed", err);
     trackResult(result, &.{input}, .softmax, axis, null, null) catch {
         result.deinit();
         return errorValue(ctx, "failed to record autograd state");
@@ -1635,7 +1816,7 @@ fn jsReshape(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi
     const input = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "reshape expects a Tensor");
     const shape = readShape(ctx, argv[1], "shape") orelse return typeError(ctx, "shape must be an array of non-negative integers");
     defer allocator.free(shape);
-    const result = engine_api.Engine.init(allocator, .{}).reshape(input, shape) catch return errorValue(ctx, "reshape failed");
+    const result = engine_api.Engine.init(allocator, .{}).reshape(input, shape) catch |err| return classifiedErrorValue(ctx, "reshape failed", err);
     trackResult(result, &.{input}, .reshape, null, null, null) catch {
         result.deinit();
         return errorValue(ctx, "failed to record autograd state");
@@ -1714,7 +1895,7 @@ fn jsSlice(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.J
         };
         ranges.append(allocator, range) catch return errorValue(ctx, "out of memory");
     }
-    var result = engine_api.Engine.init(allocator, .{}).slice(input, ranges.items) catch return errorValue(ctx, "slice failed");
+    var result = engine_api.Engine.init(allocator, .{}).slice(input, ranges.items) catch |err| return classifiedErrorValue(ctx, "slice failed", err);
     errdefer result.deinit();
     for (reverse_axes.items) |axis| {
         const axis_size = result.shape.dims[axis];
@@ -1724,7 +1905,7 @@ fn jsSlice(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.J
         defer allocator.free(host_indices);
         for (host_indices, 0..) |*index, position| index.* = @intCast(axis_size - 1 - position);
         indices.storage.?.writeFromHost(std.mem.sliceAsBytes(host_indices)) catch return errorValue(ctx, "slice failed");
-        const reversed = engine_api.Engine.init(allocator, .{}).indexSelect(result, axis, indices) catch return errorValue(ctx, "slice failed");
+        const reversed = engine_api.Engine.init(allocator, .{}).indexSelect(result, axis, indices) catch |err| return classifiedErrorValue(ctx, "slice failed", err);
         result.deinit();
         result = reversed;
     }
@@ -1737,7 +1918,7 @@ fn jsSlice(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.J
 fn jsContiguous(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
     if (argc != 1) return typeError(ctx, "contiguous expects one Tensor");
     const input = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "contiguous expects a Tensor");
-    const result = engine_api.Engine.init(allocator, .{}).contiguous(input) catch return errorValue(ctx, "contiguous failed");
+    const result = engine_api.Engine.init(allocator, .{}).contiguous(input) catch |err| return classifiedErrorValue(ctx, "contiguous failed", err);
     trackResult(result, &.{input}, .contiguous, null, null, null) catch {
         result.deinit();
         return errorValue(ctx, "failed to record autograd state");
@@ -1750,7 +1931,7 @@ fn jsPermute(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi
     const input = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "permute expects a Tensor");
     const axes = readShape(ctx, argv[1], "axes") orelse return typeError(ctx, "axes must be an array of non-negative integers");
     defer allocator.free(axes);
-    const result = engine_api.Engine.init(allocator, .{}).permute(input, axes) catch return errorValue(ctx, "permute failed");
+    const result = engine_api.Engine.init(allocator, .{}).permute(input, axes) catch |err| return classifiedErrorValue(ctx, "permute failed", err);
     trackResultWithSavedInputs(result, &.{input}, &.{input}, .permute, null, axes, false, null, null) catch {
         result.deinit();
         return errorValue(ctx, "failed to record autograd state");
@@ -1763,7 +1944,7 @@ fn jsTranspose(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]a
     const input = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "transpose expects a Tensor");
     const axis_a = integerArgument(ctx, argv[1], "axis") orelse return typeError(ctx, "axis must be a non-negative integer");
     const axis_b = integerArgument(ctx, argv[2], "axis") orelse return typeError(ctx, "axis must be a non-negative integer");
-    const result = engine_api.Engine.init(allocator, .{}).transpose(input, axis_a, axis_b) catch return errorValue(ctx, "transpose failed");
+    const result = engine_api.Engine.init(allocator, .{}).transpose(input, axis_a, axis_b) catch |err| return classifiedErrorValue(ctx, "transpose failed", err);
     trackResult(result, &.{input}, .transpose, null, null, null) catch {
         result.deinit();
         return errorValue(ctx, "failed to record autograd state");
@@ -1775,7 +1956,7 @@ fn jsSqueeze(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi
     if (argc < 1 or argc > 2) return typeError(ctx, "squeeze expects a Tensor and optional axis");
     const input = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "squeeze expects a Tensor");
     const axis = if (argc == 2) integerArgument(ctx, argv[1], "axis") orelse return typeError(ctx, "axis must be a non-negative integer") else null;
-    const result = engine_api.Engine.init(allocator, .{}).squeeze(input, axis) catch return errorValue(ctx, "squeeze failed");
+    const result = engine_api.Engine.init(allocator, .{}).squeeze(input, axis) catch |err| return classifiedErrorValue(ctx, "squeeze failed", err);
     trackResult(result, &.{input}, .squeeze, axis, null, null) catch {
         result.deinit();
         return errorValue(ctx, "failed to record autograd state");
@@ -1787,7 +1968,7 @@ fn jsUnsqueeze(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]a
     if (argc != 2) return typeError(ctx, "unsqueeze expects a Tensor and axis");
     const input = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "unsqueeze expects a Tensor");
     const axis = integerArgument(ctx, argv[1], "axis") orelse return typeError(ctx, "axis must be a non-negative integer");
-    const result = engine_api.Engine.init(allocator, .{}).unsqueeze(input, axis) catch return errorValue(ctx, "unsqueeze failed");
+    const result = engine_api.Engine.init(allocator, .{}).unsqueeze(input, axis) catch |err| return classifiedErrorValue(ctx, "unsqueeze failed", err);
     trackResult(result, &.{input}, .unsqueeze, axis, null, null) catch {
         result.deinit();
         return errorValue(ctx, "failed to record autograd state");
@@ -1904,7 +2085,7 @@ fn jsOneHot(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.
     const input = normalizeIndexTensor(raw_input) catch return errorValue(ctx, "one_hot failed: InvalidArgument");
     defer if (input.owned) input.tensor.deinit();
     validateIndexBounds(input.tensor, classes) catch return errorValue(ctx, "one_hot failed: IndexOutOfBounds");
-    const result = engine_api.Engine.init(allocator, .{}).oneHot(input.tensor, classes) catch return errorValue(ctx, "one_hot failed");
+    const result = engine_api.Engine.init(allocator, .{}).oneHot(input.tensor, classes) catch |err| return classifiedErrorValue(ctx, "one_hot failed", err);
     return createTensorObject(ctx, result);
 }
 
@@ -1917,7 +2098,7 @@ fn jsGather(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.
     const index = normalizeIndexTensor(raw_index) catch return errorValue(ctx, "gather failed: InvalidArgument");
     defer if (index.owned) index.tensor.deinit();
     validateIndexBounds(index.tensor, input.shape.dims[axis]) catch return errorValue(ctx, "gather failed: IndexOutOfBounds");
-    const result = engine_api.Engine.init(allocator, .{}).gather(input, axis, index.tensor) catch return errorValue(ctx, "gather failed");
+    const result = engine_api.Engine.init(allocator, .{}).gather(input, axis, index.tensor) catch |err| return classifiedErrorValue(ctx, "gather failed", err);
     trackResult(result, &.{ input, index.tensor }, .gather, axis, null, null) catch {
         result.deinit();
         return errorValue(ctx, "failed to record autograd state");
@@ -1934,7 +2115,7 @@ fn jsIndexSelect(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c
     const index = normalizeIndexTensor(raw_index) catch return errorValue(ctx, "index_select failed: InvalidArgument");
     defer if (index.owned) index.tensor.deinit();
     validateIndexBounds(index.tensor, input.shape.dims[axis]) catch return errorValue(ctx, "index_select failed: IndexOutOfBounds");
-    const result = engine_api.Engine.init(allocator, .{}).indexSelect(input, axis, index.tensor) catch return errorValue(ctx, "index_select failed");
+    const result = engine_api.Engine.init(allocator, .{}).indexSelect(input, axis, index.tensor) catch |err| return classifiedErrorValue(ctx, "index_select failed", err);
     trackResult(result, &.{ input, index.tensor }, .index_select, axis, null, null) catch {
         result.deinit();
         return errorValue(ctx, "failed to record autograd state");
@@ -1949,7 +2130,7 @@ fn jsTopk(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JS
     const axis = if (argc == 3) integerArgument(ctx, argv[2], "axis") orelse return typeError(ctx, "axis must be a non-negative integer") else 0;
     if (axis >= input.shape.rank()) return errorValue(ctx, "topk failed: InvalidAxis");
     if (k == 0 or k > input.shape.dims[axis]) return errorValue(ctx, "topk failed: InvalidTopK");
-    var outputs = engine_api.Engine.init(allocator, .{}).topK(input, k, axis) catch return errorValue(ctx, "topk failed");
+    var outputs = engine_api.Engine.init(allocator, .{}).topK(input, k, axis) catch |err| return classifiedErrorValue(ctx, "topk failed", err);
     const indices_for_tracking = outputs.secondary orelse {
         outputs.deinit();
         return errorValue(ctx, "topk did not produce indices");
@@ -2171,6 +2352,7 @@ const functions = [_]abi.JSFunction{
     .{ .name = "copy", .callback = jsCopy, .length = 2 },
     .{ .name = "$muladd_", .callback = jsInternalMuladd, .length = 3 },
     .{ .name = "$axpy_", .callback = jsInternalAxpy, .length = 3 },
+    .{ .name = "$adam_step_many_", .callback = jsInternalAdamStepMany, .length = 11 },
     .{ .name = "grad", .callback = jsGrad, .length = 2 },
     .{ .name = "clip_grad_norm", .callback = jsClipGradNorm, .length = 2 },
     .{ .name = "clear_grad", .callback = jsClearGrad, .length = 1 },

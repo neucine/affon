@@ -2192,8 +2192,8 @@ function captureContiguous(value: unknown): NativeTensor | CapturedValue {
 }
 
 function captureCast(value: unknown, dtype: unknown): NativeTensor | CapturedValue {
-  if (dtype !== 'f32' && dtype !== 'f64') {
-    throw graphCaptureAdapterError('cast graph capture currently supports f32 and f64 dtypes only')
+  if (dtype !== 'f32' && dtype !== 'f64' && dtype !== 'i64') {
+    throw graphCaptureAdapterError('cast graph capture currently supports f32, f64, and i64 dtypes only')
   }
   if (isCapturedTensor(value)) return pushCast(getCaptureState('cast'), value, dtype)
   return native.cast(value as any, dtype as any)

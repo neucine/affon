@@ -168,11 +168,40 @@ function requireTensorArgs(args: readonly unknown[], name: string): any[] {
   return tensors
 }
 
+function collectProgramStateParts(value: any, seen: Set<any>, out: string[]): void {
+  if (!value || (typeof value !== "object" && typeof value !== "function") || seen.has(value)) return
+  seen.add(value)
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => {
+      const nested: string[] = []
+      collectProgramStateParts(item, seen, nested)
+      if (nested.length > 0) out.push(`${index}(${nested.join("|")})`)
+    })
+    return
+  }
+  if (typeof value.training === "boolean") out.push(value.training ? "train" : "eval")
+  if (value.__affon_compute_module === true) {
+    collectProgramStateParts(value.__affon_compute_state, seen, out)
+    return
+  }
+  for (const key of Object.keys(value)) {
+    const nested: string[] = []
+    collectProgramStateParts(value[key], seen, nested)
+    if (nested.length > 0) out.push(`${key}(${nested.join("|")})`)
+  }
+}
+
+function programStateKey(source: any): string {
+  const parts: string[] = []
+  collectProgramStateParts(source, new Set<any>(), parts)
+  return parts.length > 0 ? parts.join("|") : "default"
+}
+
 export function compile<F extends (...args: any[]) => any>(fn: F): F {
   return compileWithHelpers(fn, {
     graphSupport,
     isTensorLike,
-    programStateKey: source => source?.training === false ? "eval" : "train",
+    programStateKey,
     programArity: (source, fallback) => source?.__affon_compute_arity ?? fallback.length,
     replayCapturedProgram: (source, inputs) => source(...inputs),
     isProgramSource: source => source?.__affon_compute_module === true,
@@ -213,7 +242,7 @@ function cloneModuleState(value: any): any {
     return cloneModuleState(value.__affon_compute_state)
   }
   if (isParameter(value)) {
-    const result = native.parameter([...value.shape])
+    const result = native.parameter([...value.shape], { dtype: value.dtype, device: value.device })
     copy(result, value)
     return markParameter(result as ModuleTensor)
   }
@@ -498,9 +527,8 @@ function makeOptimizerStep(
           const gradient = parameters[index].grad
           if (gradient == null) continue
           const velocity = first![index]
-          const nextVelocity = native.add(native.mul(velocity, scalarLike(velocity, momentum)), gradient.to(parameters[index].device))
-          copy(velocity, nextVelocity)
-          copy(parameters[index], native.add(parameters[index], native.mul(velocity, scalarLike(velocity, -lrState.value))))
+          native.$muladd_(velocity, momentum, gradient.to(parameters[index].device))
+          native.$axpy_(parameters[index], -lrState.value, velocity)
         }
         return
       }
@@ -515,6 +543,10 @@ function makeOptimizerStep(
       }
 
       stepCount += 1
+      const updateParameters: any[] = []
+      const updateMoments: any[] = []
+      const updateSecondMoments: any[] = []
+      const updateGradients: any[] = []
       for (let index = 0; index < parameters.length; index++) {
         const parameter = parameters[index]
         const gradient = parameter.grad
@@ -522,9 +554,32 @@ function makeOptimizerStep(
           if (weightDecay !== undefined && weightDecay !== 0) copy(parameter, native.sub(parameter, native.mul(parameter, scalarLike(parameter, lrState.value * weightDecay))))
           continue
         }
-        const updateGradient = gradient.to(parameter.device)
-        const m = first![index]
-        const v = second[index]
+        updateParameters.push(parameter)
+        updateMoments.push(first![index])
+        updateSecondMoments.push(second[index])
+        updateGradients.push(gradient.to(parameter.device))
+      }
+      if (updateParameters.length > 0 && updateParameters.every(parameter => parameter.dtype === "f32" || parameter.dtype === "f64")) {
+        native.$adam_step_many_(
+          updateParameters,
+          updateMoments,
+          updateSecondMoments,
+          updateGradients,
+          beta1!,
+          beta2!,
+          1 - Math.pow(beta1!, stepCount),
+          1 - Math.pow(beta2!, stepCount),
+          eps!,
+          lrState.value,
+          weightDecay ?? 0,
+        )
+        return
+      }
+      for (let index = 0; index < updateParameters.length; index++) {
+        const parameter = updateParameters[index]
+        const updateGradient = updateGradients[index]
+        const m = updateMoments[index]
+        const v = updateSecondMoments[index]
         const nextM = native.add(native.mul(m, scalarLike(m, beta1!)), native.mul(updateGradient, scalarLike(m, 1 - beta1!)))
         const nextV = native.add(native.mul(v, scalarLike(v, beta2!)), native.mul(native.mul(updateGradient, updateGradient), scalarLike(v, 1 - beta2!)))
         copy(m, nextM)
@@ -549,20 +604,36 @@ function makeOptimizerStep(
   })
   step.state = () => {
     const tensors: Record<string, any> = {}
-    if (first) first.forEach((value, index) => { tensors[`first_${index}`] = cloneTensor(value) })
-    second.forEach((value, index) => { tensors[`second_${index}`] = cloneTensor(value) })
-    return { kind, scalars: { lr: lrState.value, step: stepCount }, tensors }
+    if (beta1 === undefined) {
+      if (first) first.forEach((value, index) => { tensors[`velocity_${index}`] = cloneTensor(value) })
+      return { kind, scalars: { lr: lrState.value, momentum: momentum ?? 0 }, tensors }
+    }
+    first?.forEach((value, index) => { tensors[`m_${index}`] = cloneTensor(value) })
+    second.forEach((value, index) => { tensors[`v_${index}`] = cloneTensor(value) })
+    const scalars: Record<string, number> = {
+      lr: lrState.value,
+      beta1,
+      beta2: beta2!,
+      eps: eps!,
+      t: stepCount,
+    }
+    if (weightDecay !== undefined) scalars.weight_decay = weightDecay
+    return { kind, scalars, tensors }
   }
   step.restore = (state: OptimizerState) => {
     if (!state || state.kind !== kind) throw new TypeError(`optimizer.restore expected ${kind} state`)
     lrState.value = state.scalars.lr
-    stepCount = state.scalars.step ?? 0
+    stepCount = state.scalars.t ?? state.scalars.step ?? 0
     if (bound === null) {
       pendingState = state
       return
     }
-    if (first) first.forEach((value, index) => copy(value, optimizerStateTensor(state, `first_${index}`)))
-    second.forEach((value, index) => copy(value, optimizerStateTensor(state, `second_${index}`)))
+    if (beta1 === undefined) {
+      if (first) first.forEach((value, index) => copy(value, optimizerStateTensor(state, `velocity_${index}`)))
+      return
+    }
+    first?.forEach((value, index) => copy(value, optimizerStateTensor(state, `m_${index}`)))
+    second.forEach((value, index) => copy(value, optimizerStateTensor(state, `v_${index}`)))
   }
   return step
 }
@@ -654,12 +725,21 @@ function attachParameterInitMethods(param: ParameterTensor): ParameterTensor {
 }
 
 export function parameter(shape: readonly number[], options?: { dtype?: "f32" | "f64"; device?: "cpu" | "metal"; axes?: readonly string[] }) {
-  const param = native.parameter([...shape], { dtype: options?.dtype ?? "f32", device: options?.device })
+  const param = native.parameter([...shape], { dtype: options?.dtype ?? "f32", device: options?.device, axes: options?.axes })
   return attachParameterInitMethods(markParameter(param as ParameterTensor))
 }
 export const setDevice = native.setDevice
 ;(globalThis as any).setDevice = setDevice
-export const copy = native.copy
+function copyTensorValue(target: any, source: any): void {
+  const adapted = source.dtype === target.dtype
+    ? (source.device === target.device ? source : source.to(target.device))
+    : native.cast(source, target.dtype).to(target.device)
+  native.$muladd_(target, 0.0, adapted)
+}
+export function copy<T extends Tensor>(target: T, source: Tensor): T {
+  copyTensorValue(target, source)
+  return target
+}
 export const clip_grad_norm = native.clip_grad_norm
 export function clear_grad(parameters: readonly Tensor[]): void {
   for (let index = 0; index < parameters.length; index++) native.$zero_grad_(parameters[index])
@@ -728,7 +808,7 @@ export const matmul = (lhs: any, rhs: any, execution?: any) => graphSupport.capt
 export const dot = (lhs: any, rhs: any) => graphSupport.captureDot(lhs, rhs)
 export function square(value: any) { return mul(value, value) }
 export const gt_scalar = (value: any, threshold: number) => graphSupport.captureBinary("gt", "gt_scalar", value, threshold)
-export const cast = (value: any, dtype: "f32" | "f64") => graphSupport.captureCast(value, dtype)
+export const cast = (value: any, dtype: "f32" | "f64" | "i64") => graphSupport.captureCast(value, dtype)
 export const abs = (value: any) => graphSupport.captureUnary("abs", "abs", value)
 export const exp = (value: any) => graphSupport.captureUnary("exp", "exp", value)
 export const log = (value: any) => graphSupport.captureUnary("log", "log", value)
@@ -794,7 +874,7 @@ export const topk = (input: any, k: number, dim?: number) => graphSupport.captur
 export const where = (cond: any, onTrue: any, onFalse: any) => graphSupport.captureWhere(cond, onTrue, onFalse)
 export const masked_fill = (input: any, mask: any, value: number) => graphSupport.captureMaskedFill(input, mask, value)
 export const cross_entropy_indexed = (logits: any, targets: any, axis = 1) => graphSupport.captureCrossEntropyIndexed(logits, targets, axis)
-export function move(value: any, device: "cpu") {
+export function move(value: any, device: Device) {
   return value.to(device)
 }
 export function no_grad<T>(fn: () => T): T {
@@ -832,7 +912,7 @@ function pairedValues(left: any, right: any): [number[], number[]] {
 export function accuracy(pred: any, target: any, options?: { threshold?: number }): number {
   const [lhs, rhs] = pairedValues(pred, target)
   const threshold = options?.threshold ?? 0.5
-  return lhs.length === 0 ? 0 : lhs.reduce((sum, value, index) => sum + ((value >= threshold) === (rhs[index] >= threshold) ? 1 : 0), 0) / lhs.length
+  return lhs.length === 0 ? 0 : lhs.reduce((sum, value, index) => sum + ((value > threshold) === (rhs[index] !== 0) ? 1 : 0), 0) / lhs.length
 }
 
 export function mse(pred: any, target: any): number {
@@ -851,8 +931,8 @@ export function precision(pred: any, target: any, options?: { threshold?: number
   let truePositive = 0
   let falsePositive = 0
   lhs.forEach((value, index) => {
-    const predicted = value >= threshold
-    const actual = rhs[index] >= threshold
+    const predicted = value > threshold
+    const actual = rhs[index] !== 0
     if (predicted && actual) truePositive++
     else if (predicted) falsePositive++
   })
@@ -865,8 +945,8 @@ export function recall(pred: any, target: any, options?: { threshold?: number })
   let truePositive = 0
   let falseNegative = 0
   lhs.forEach((value, index) => {
-    const predicted = value >= threshold
-    const actual = rhs[index] >= threshold
+    const predicted = value > threshold
+    const actual = rhs[index] !== 0
     if (predicted && actual) truePositive++
     else if (!predicted && actual) falseNegative++
   })
@@ -884,7 +964,7 @@ export function r2(pred: any, target: any): number {
   if (rhs.length === 0) return 0
   const mean = rhs.reduce((sum, value) => sum + value, 0) / rhs.length
   const total = rhs.reduce((sum, value) => sum + (value - mean) ** 2, 0)
-  if (total === 0) return lhs.every((value, index) => value === rhs[index]) ? 1 : 0
+  if (total === 0) return 0
   return 1 - lhs.reduce((sum, value, index) => sum + (value - rhs[index]) ** 2, 0) / total
 }
 
