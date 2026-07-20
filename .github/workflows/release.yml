@@ -16,20 +16,20 @@ jobs:
       - name: Check out Affon
         uses: actions/checkout@v4
         with:
-          path: affon-next
+          path: affon
 
       - name: Check out Hao
         uses: actions/checkout@v4
         with:
           repository: neucine/hao
-          ref: 50bdf15b1d210af867dff9580408d9e388a495ea
+          ref: b51da58a1f4e750bcc24ef589fce9a8780e7e210
           path: hao
 
       - name: Check out shared Zig libraries
         uses: actions/checkout@v4
         with:
           repository: neucine/zig-libs
-          ref: 5af63d6c395eb8d2956643fc342eb9e2e806f433
+          ref: 3d04e038b375a4716011166decda25c45289e0f8
           path: zig-libs
 
       - name: Set up Zig
@@ -38,7 +38,7 @@ jobs:
           version: 0.16.0
 
       - name: Verify version
-        working-directory: affon-next
+        working-directory: affon
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
@@ -46,32 +46,32 @@ jobs:
           test "v$version" = "$RELEASE_TAG"
 
       - name: Verify release build
-        working-directory: affon-next
+        working-directory: affon
         run: |
           zig build test -Doptimize=ReleaseSafe
           zig build -Doptimize=ReleaseSafe
 
       - name: Package source release
-        working-directory: affon-next
+        working-directory: affon
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          archive="affon-next-${RELEASE_TAG#v}.tar.gz"
+          archive="affon-${RELEASE_TAG#v}.tar.gz"
           mkdir -p package-source verify-source
-          git archive --format=tar --prefix="affon-next/" "$GITHUB_SHA" \
-            build.zig build.zig.zon README.md src types | tar -C verify-source -xf -
+          git archive --format=tar --prefix="affon/" "$GITHUB_SHA" \
+            build.zig build.zig.zon README.md src tools types | tar -C verify-source -xf -
           git -C hao archive --format=tar --prefix="hao/" HEAD -- build.zig build.zig.zon include src libs/transpiler | tar -C verify-source -xf -
           git -C zig-libs archive --format=tar --prefix="zig-libs/" HEAD -- build.zig build.zig.zon README.md src .gitignore | tar -C verify-source -xf -
-          zig build --build-file verify-source/affon-next/build.zig -Doptimize=ReleaseSafe
+          zig build --build-file verify-source/affon/build.zig -Doptimize=ReleaseSafe
 
-          git archive --format=tar --prefix="affon-next/" "$GITHUB_SHA" \
-            build.zig build.zig.zon README.md src types | tar -C package-source -xf -
+          git archive --format=tar --prefix="affon/" "$GITHUB_SHA" \
+            build.zig build.zig.zon README.md src tools types | tar -C package-source -xf -
           git -C hao archive --format=tar --prefix="hao/" HEAD -- build.zig build.zig.zon include src libs/transpiler | tar -C package-source -xf -
           git -C zig-libs archive --format=tar --prefix="zig-libs/" HEAD -- build.zig build.zig.zon README.md src .gitignore | tar -C package-source -xf -
-          tar -C package-source -czf "$archive" affon-next hao zig-libs
+          tar -C package-source -czf "$archive" affon hao zig-libs
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: affon-next/affon-next-*.tar.gz
+          files: affon/affon-*.tar.gz

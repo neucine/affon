@@ -81,4 +81,4 @@ plans, backend transfer churn, or graph fusion behavior.
 
 See:
 
-- [packages/lm/test/memory.test.ts](/Users/chao.yang/Private/affon-next/packages/lm/test/memory.test.ts)
+- [packages/lm/test/memory.test.ts](../../packages/lm/test/memory.test.ts)
