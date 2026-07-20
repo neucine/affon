@@ -3,37 +3,18 @@ const zig_libs = @import("zig_libs");
 const mm = @import("compute/memory.zig");
 
 const cfg = zig_libs.config;
-const c = @cImport({
-    @cInclude("stdlib.h");
-});
-
 pub const Device = enum {
     cpu,
     metal,
 };
 
 pub const Config = struct {
-    quickjs: QuickJS = .{},
-    libuv: Libuv = .{},
     debug: Debug = .{},
     device: DeviceConfig = .{},
     csv: Csv = .{},
     repr: Repr = .{},
     observer: Observer = .{},
 
-    pub const QuickJS = struct {
-        stack_size: cfg.Startup(usize, .{
-            .env = "AFFON_QJS_STACK_SIZE",
-            .default = 8 * 1024 * 1024,
-            .parser = .positive_int,
-        }) = .{},
-    };
-    pub const Libuv = struct {
-        thread_pool_size: cfg.Startup(?usize, .{
-            .env = "AFFON_LIBUV_THREADPOOL_SIZE",
-            .parser = .positive_int,
-        }) = .{},
-    };
     pub const Debug = struct {
         native_stack_trace: cfg.Runtime(bool, .{
             .env = "AFFON_NATIVE_STACK_TRACE",
@@ -118,15 +99,10 @@ pub const Config = struct {
 
 pub var config = cfg.Store(Config).init();
 
-pub fn syncLibuvThreadPoolEnv() !void {
-    try cfg.syncOptionalUsizeEnv("UV_THREADPOOL_SIZE", config.read().libuv.thread_pool_size.get());
-}
-
 pub fn loadFromEnv() !void {
     _ = try config.loadEnv();
     config.freezeStartup();
     mm.setPoolOversizeThreshold(config.read().device.metal.pool_oversize_threshold_bytes.get());
-    try syncLibuvThreadPoolEnv();
 }
 
 // C accessor for metal_bridge.m (ObjC cannot import Zig directly).
@@ -146,8 +122,6 @@ pub fn getDefaultDevice() Device {
 test "Config defaults are correct" {
     const def = Config{};
     try std.testing.expectEqual(Device.cpu, def.device.default.get());
-    try std.testing.expectEqual(@as(usize, 8 * 1024 * 1024), def.quickjs.stack_size.get());
-    try std.testing.expectEqual(@as(?usize, null), def.libuv.thread_pool_size.get());
     try std.testing.expectEqual(false, def.debug.native_stack_trace.get());
     try std.testing.expectEqual(@as(usize, 256), def.device.metal.threadgroup_size.get());
     try std.testing.expectEqual(@as(usize, 512), def.device.metal.reduce_all_threshold.get());
@@ -163,19 +137,16 @@ test "Config defaults are correct" {
 }
 
 test "loadFromEnv reads schema-backed values" {
+    const c = @cImport({
+        @cInclude("stdlib.h");
+    });
     const old_device = cfg.getenv("AFFON_DEVICE");
-    const old_stack = cfg.getenv("AFFON_QJS_STACK_SIZE");
     const old_trace = cfg.getenv("AFFON_NATIVE_STACK_TRACE");
     defer {
         if (old_device) |value| {
             _ = c.setenv("AFFON_DEVICE", value.ptr, 1);
         } else {
             _ = c.unsetenv("AFFON_DEVICE");
-        }
-        if (old_stack) |value| {
-            _ = c.setenv("AFFON_QJS_STACK_SIZE", value.ptr, 1);
-        } else {
-            _ = c.unsetenv("AFFON_QJS_STACK_SIZE");
         }
         if (old_trace) |value| {
             _ = c.setenv("AFFON_NATIVE_STACK_TRACE", value.ptr, 1);
@@ -186,18 +157,19 @@ test "loadFromEnv reads schema-backed values" {
     }
 
     try cfg.setProcessEnv("AFFON_DEVICE", "metal");
-    try cfg.setProcessEnv("AFFON_QJS_STACK_SIZE", "16");
     try cfg.setProcessEnv("AFFON_NATIVE_STACK_TRACE", "yes");
 
     config = cfg.Store(Config).init();
     _ = try config.loadEnv();
 
     try std.testing.expectEqual(Device.metal, config.read().device.default.get());
-    try std.testing.expectEqual(@as(usize, 16), config.read().quickjs.stack_size.get());
     try std.testing.expectEqual(true, config.read().debug.native_stack_trace.get());
 }
 
 test "legacy repr aliases populate canonical fields" {
+    const c = @cImport({
+        @cInclude("stdlib.h");
+    });
     const old_new = cfg.getenv("AFFON_REPR_MAX_ROWS");
     const old_legacy = cfg.getenv("AFFON_NDARRAY_REPR_MAX_ROWS");
     defer {
@@ -226,20 +198,4 @@ test "legacy repr aliases populate canonical fields" {
         if (std.mem.eql(u8, item.path, "repr.repr_max_rows")) saw_deprecated_alias = item.deprecated_alias;
     }
     try std.testing.expect(saw_deprecated_alias);
-}
-
-test "syncLibuvThreadPoolEnv mirrors config into UV_THREADPOOL_SIZE" {
-    const old = cfg.getenv("UV_THREADPOOL_SIZE");
-    defer {
-        if (old) |value| {
-            _ = c.setenv("UV_THREADPOOL_SIZE", value.ptr, 1);
-        } else {
-            _ = c.unsetenv("UV_THREADPOOL_SIZE");
-        }
-        config = cfg.Store(Config).init();
-    }
-
-    try config.set("libuv.thread_pool_size", @as(?usize, 7));
-    try syncLibuvThreadPoolEnv();
-    try std.testing.expectEqualStrings("7", cfg.getenv("UV_THREADPOOL_SIZE").?);
 }
