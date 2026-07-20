@@ -62,7 +62,6 @@ console.log(loss.item());
 - `affon:nn` is the model-building layer on top of `affon:compute`.
 - `affon:dataset` is the ingest, preprocessing, batching, text-record, and tokenizer surface.
 - `affon:checkpoint` is the training-state persistence and restore surface.
-- `affon:test` provides built-in test helpers.
 
 Runtime/system modules such as filesystem, process, and telemetry are provided
 by the underlying runtime under `std:*` specifiers.

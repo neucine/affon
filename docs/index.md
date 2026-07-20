@@ -21,7 +21,6 @@ Affon keeps the public runtime surface intentionally small:
 - `affon:nn` provides model-building layers and losses on top of `affon:compute`.
 - `affon:dataset` provides ingest, preprocessing, batching, text records, and tensor export.
 - `affon:checkpoint` provides training-state persistence and restoration.
-- `affon:test` provides built-in test helpers.
 - `std:*` runtime modules provide filesystem, process, telemetry, and other runtime services.
 
 First-party packages under `packages/` provide reusable higher-level building
