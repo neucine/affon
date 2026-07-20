@@ -71,19 +71,16 @@ pub const Config = struct {
             .env = "AFFON_REPR_MAX_ITEMS",
             .default = 6,
             .parser = .positive_int,
-            .aliases = &.{cfg.deprecatedAlias("AFFON_NDARRAY_FORMAT_MAX_ITEMS")},
         }) = .{},
         repr_max_rows: cfg.Runtime(usize, .{
             .env = "AFFON_REPR_MAX_ROWS",
             .default = 20,
             .parser = .positive_int,
-            .aliases = &.{cfg.deprecatedAlias("AFFON_NDARRAY_REPR_MAX_ROWS")},
         }) = .{},
         repr_max_cols: cfg.Runtime(usize, .{
             .env = "AFFON_REPR_MAX_COLS",
             .default = 12,
             .parser = .positive_int,
-            .aliases = &.{cfg.deprecatedAlias("AFFON_NDARRAY_REPR_MAX_COLS")},
         }) = .{},
     };
     pub const Observer = struct {
@@ -164,38 +161,4 @@ test "loadFromEnv reads schema-backed values" {
 
     try std.testing.expectEqual(Device.metal, config.read().device.default.get());
     try std.testing.expectEqual(true, config.read().debug.native_stack_trace.get());
-}
-
-test "legacy repr aliases populate canonical fields" {
-    const c = @cImport({
-        @cInclude("stdlib.h");
-    });
-    const old_new = cfg.getenv("AFFON_REPR_MAX_ROWS");
-    const old_legacy = cfg.getenv("AFFON_NDARRAY_REPR_MAX_ROWS");
-    defer {
-        if (old_new) |value| {
-            _ = c.setenv("AFFON_REPR_MAX_ROWS", value.ptr, 1);
-        } else {
-            _ = c.unsetenv("AFFON_REPR_MAX_ROWS");
-        }
-        if (old_legacy) |value| {
-            _ = c.setenv("AFFON_NDARRAY_REPR_MAX_ROWS", value.ptr, 1);
-        } else {
-            _ = c.unsetenv("AFFON_NDARRAY_REPR_MAX_ROWS");
-        }
-        config = cfg.Store(Config).init();
-    }
-
-    _ = c.unsetenv("AFFON_REPR_MAX_ROWS");
-    try cfg.setProcessEnv("AFFON_NDARRAY_REPR_MAX_ROWS", "31");
-
-    config = cfg.Store(Config).init();
-    const report = try config.loadEnv();
-
-    try std.testing.expectEqual(@as(usize, 31), config.read().repr.repr_max_rows.get());
-    var saw_deprecated_alias = false;
-    for (report.items()) |item| {
-        if (std.mem.eql(u8, item.path, "repr.repr_max_rows")) saw_deprecated_alias = item.deprecated_alias;
-    }
-    try std.testing.expect(saw_deprecated_alias);
 }

@@ -551,7 +551,7 @@ Rich display works automatically:
 | `lib.sqrt(16.0)` | `lib.sqrt(16.0)` |
 
 ```typescript
-import { dlopen } from 'affon:ffi'
+import { dlopen } from 'std:ffi'
 
 const lib = dlopen('libm', {
   sqrt: { args: ['f64'], returns: 'f64' },

@@ -15,10 +15,9 @@ const metalPoolBytes = snapshot.find(
 )?.value ?? 0
 ```
 
-The old `src/obs` API has been retired in this package boundary. Runtime
-metrics and traces are exposed through Hao's `std:telemetry` module, using
-`scope` strings such as `runtime.memory`, `compute.storage`, and
-`compute.execution`.
+Runtime metrics and traces are exposed through the telemetry console and
+Hao's `std:telemetry` module, using `scope` strings such as `runtime.memory`,
+`compute.storage`, and `compute.execution`.
 
 ## Quick Workflow
 

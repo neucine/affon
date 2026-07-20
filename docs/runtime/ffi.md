@@ -2,14 +2,14 @@
 
 Affon currently exposes one native interop module with two abstraction levels:
 
-- `affon:ffi` for raw C ABI calls
-- the `c` export on `affon:ffi` for constrained, more ergonomic C-library binding on top of raw FFI
+- `std:ffi` for raw C ABI calls
+- the `c` export on `std:ffi` for constrained, more ergonomic C-library binding on top of raw FFI
 
-Use `affon:ffi` root exports when you want exact low-level control. Use the `c` export on `affon:ffi` when you are writing a normal wrapper for a C library and want declaration parsing, opaque handles, and common policy-driven behavior.
+Use `std:ffi` root exports when you want exact low-level control. Use the `c` export on `std:ffi` when you are writing a normal wrapper for a C library and want declaration parsing, opaque handles, and common policy-driven behavior.
 
-## `affon:ffi`
+## `std:ffi`
 
-`affon:ffi` currently exposes:
+`std:ffi` currently exposes:
 
 - `dlopen(name, symbols)`
 - `c.decl(name, declarations, opts?)`
@@ -19,7 +19,7 @@ Use `affon:ffi` root exports when you want exact low-level control. Use the `c` 
 Example:
 
 ```ts
-import { dlopen } from 'affon:ffi'
+import { dlopen } from 'std:ffi'
 
 const lib = dlopen('libm', {
   sqrt: { args: ['f64'], returns: 'f64' },
@@ -57,7 +57,7 @@ lib.close()
 
 ### Raw FFI Limits
 
-`affon:ffi` is intentionally narrow. It does not promise:
+`std:ffi` is intentionally narrow. It does not promise:
 
 - struct layout support
 - callbacks from native code into JavaScript
@@ -68,11 +68,11 @@ lib.close()
 
 Users are responsible for matching the native ABI correctly and for native memory lifetime unless a higher-level wrapper handles it.
 
-## `affon:ffi` `c` Export
+## `std:ffi` `c` Export
 
-The `c` export on `affon:ffi` is a constrained wrapper-author layer that builds on top of raw `affon:ffi`.
+The `c` export on `std:ffi` is a constrained wrapper-author layer that builds on top of raw `std:ffi`.
 
-At the TypeScript level, the `c` export on `affon:ffi` uses the declaration string plus explicit
+At the TypeScript level, the `c` export on `std:ffi` uses the declaration string plus explicit
 function policies to infer:
 
 - known bound symbol names
@@ -103,7 +103,7 @@ It currently supports:
 Example:
 
 ```ts
-import { c } from 'affon:ffi'
+import { c } from 'std:ffi'
 
 const sqlite = c.decl('sqlite3', `
   typedef struct sqlite3 sqlite3;
@@ -135,7 +135,7 @@ sqlite.close()
 Buffer-policy example:
 
 ```ts
-import { c } from 'affon:ffi'
+import { c } from 'std:ffi'
 
 const libc = c.decl('c', `
   void* memcpy(void* dest, const void* src, size_t n);
@@ -158,7 +158,7 @@ libc.memcpy(dest, src)
 POD struct pointer example:
 
 ```ts
-import { c } from 'affon:ffi'
+import { c } from 'std:ffi'
 
 const libc = c.decl('c', `
   typedef struct {
@@ -177,7 +177,7 @@ console.log(tv.tv_sec, tv.tv_usec)
 Search override example:
 
 ```ts
-import { c } from 'affon:ffi'
+import { c } from 'std:ffi'
 
 const lib = c.decl('System.B', `
   size_t strlen(const char* s);
@@ -211,7 +211,7 @@ The current parser explicitly rejects:
 
 ### Current Limits
 
-The `c` export on `affon:ffi` is still a constrained C layer, not general native integration. It does not yet promise:
+The `c` export on `std:ffi` is still a constrained C layer, not general native integration. It does not yet promise:
 
 - arbitrary header compatibility
 - callback-heavy APIs

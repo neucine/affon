@@ -51,7 +51,7 @@ Complete runnable workflows live under `apps/`.
 ## Runtime & Interop
 
 - [Install](./runtime/install.md)
-- [Configuration](./runtime/configuration.md) - environment variables, startup/runtime mutability, and legacy aliases
+- [Configuration](./runtime/configuration.md) - environment variables and startup/runtime mutability
 - [Module Loader](./runtime/module-loader.md) - supported ESM/package subset and current compatibility boundary
 - [Memory Debugging](./runtime/memory-debugging.md) - metrics, trace collection, and cache trimming
 - [FFI](./runtime/ffi.md) - native interop boundary and ownership notes

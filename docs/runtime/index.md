@@ -5,7 +5,7 @@ modules, inspecting memory/telemetry, and understanding the native interop
 boundary.
 
 - [Install](./install.md)
-- [Configuration](./configuration.md) - environment variables, startup/runtime mutability, and legacy aliases
+- [Configuration](./configuration.md) - environment variables and startup/runtime mutability
 - [Module Loader](./module-loader.md) - built-in `affon:*` modules, ESM package resolution, and compatibility limits
 - [Memory Debugging](./memory-debugging.md) - `std:telemetry.metrics()`, traces, and memory signals
 - [FFI](./ffi.md) - native interop boundary and ownership notes
