@@ -15,6 +15,8 @@
 - [ ] `bun x tsc -p packages/transformers/tsconfig.json --noEmit`
 - [ ] `bun x tsc -p packages/lm/tsconfig.json --noEmit`
 - [ ] `bun x tsc -p packages/tokenizers/tsconfig.json --noEmit`
+- [ ] `bun x tsc -p packages/cnn/tsconfig.json --noEmit`
+- [ ] `bun x tsc -p packages/vision/tsconfig.json --noEmit`
 
 ## Public contract
 

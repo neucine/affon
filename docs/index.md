@@ -1,14 +1,32 @@
 # Affon Docs
 
-This folder contains the public user documentation for Affon.
+This folder contains the public user documentation for Affon. The docs are
+organized around the runtime surfaces users import from code, then the packages
+and apps that build on those surfaces.
 
-Current public module taxonomy:
-- `affon:compute` for tensors, autograd, and training control
-- `affon:nn` for model-building on top of compute
-- `affon:dataset` for ingest, preprocessing, and batching
-- `affon:checkpoint` for training-state persistence and restoration
-- `affon:test` for built-in test helpers
-- `std:*` runtime modules for filesystem, process, telemetry, and other runtime services
+## Start Here
+
+- New to Affon from Python or PyTorch: read [Python to AFFON](./getting-started/python-to-affon.md).
+- Installing the runtime: read [Install](./runtime/install.md).
+- Building tensor or autograd code: read [Compute Concepts](./core/compute.md).
+- Building models: read [NN Concepts](./ml/nn/index.md).
+- Loading text or tabular data: read [Text Datasets](./ml/text-datasets.md).
+- Saving training state: read [Checkpoints](./ml/checkpoints.md).
+
+## Public Modules
+
+Affon keeps the public runtime surface intentionally small:
+
+- `affon:compute` provides tensors, autograd, optimizers, schedules, modules, graph compilation, and metrics.
+- `affon:nn` provides model-building layers and losses on top of `affon:compute`.
+- `affon:dataset` provides ingest, preprocessing, batching, text records, and tensor export.
+- `affon:checkpoint` provides training-state persistence and restoration.
+- `affon:test` provides built-in test helpers.
+- `std:*` runtime modules provide filesystem, process, telemetry, and other runtime services.
+
+First-party packages under `packages/` provide reusable higher-level building
+blocks, such as tokenizers, transformer blocks, and language-model helpers.
+Complete runnable workflows live under `apps/`.
 
 ## Getting Started
 
@@ -23,6 +41,7 @@ Current public module taxonomy:
 ## Machine Learning
 
 - [Illustrated Learning Coverage](./learn/illustrated/index.md)
+- [ML Overview](./ml/index.md)
 - [ML Glossary](./ml/glossary.md)
 - [Metrics Concepts](./ml/metrics.md)
 - [Optim Concepts](./ml/optim.md)
@@ -36,3 +55,10 @@ Current public module taxonomy:
 - [Configuration](./runtime/configuration.md) - environment variables, startup/runtime mutability, and legacy aliases
 - [Module Loader](./runtime/module-loader.md) - supported ESM/package subset and current compatibility boundary
 - [Memory Debugging](./runtime/memory-debugging.md) - metrics, trace collection, and cache trimming
+- [FFI](./runtime/ffi.md) - native interop boundary and ownership notes
+
+## Documentation Conventions
+
+The public docs focus on stable imports, commands, examples, and documented
+behavior. When implementation details are mentioned, they are labeled as
+implementation boundaries rather than alternative public APIs.

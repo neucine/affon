@@ -1,4 +1,4 @@
-import fs from 'affon:fs'
+import fs from 'std:fs'
 import dataset from 'affon:dataset'
 
 import type { Tokenizer, TokenizerEncodeOptions } from '../../tokenizers/src/index.ts'

@@ -1,14 +1,10 @@
 # Installing AFFON
 
-The recommended install path is:
+The recommended install path is the hosted installer:
 
 ```bash
 curl -fsSL https://affon.ai/install.sh | bash
 ```
-
-The website copy at `https://affon.ai/install.sh` should stay byte-for-byte aligned with the canonical installer script in this repo:
-
-- [install.sh](/Users/chao.yang/Private/affon/install.sh)
 
 The installer:
 
@@ -22,5 +18,36 @@ For manual inspection before running, download the script first:
 
 ```bash
 curl -fsSL https://affon.ai/install.sh -o install.sh
+less install.sh
 sh install.sh
 ```
+
+Run a script after installation:
+
+```sh
+affon script.ts
+```
+
+Verify the installed runtime:
+
+```sh
+affon --version
+```
+
+## Path Setup
+
+If a new shell cannot find `affon`, ensure `~/.affon/bin` is on `PATH`:
+
+```sh
+export PATH="$HOME/.affon/bin:$PATH"
+```
+
+Add that line to your shell profile if the installer could not update it
+automatically.
+
+## Install Notes
+
+- The hosted installer is the public entry point for release asset selection
+  and shell integration behavior.
+- If you need to audit the installer, download it first, inspect it locally, and
+  then run the downloaded copy.

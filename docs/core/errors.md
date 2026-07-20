@@ -42,7 +42,7 @@ The `code` property uses a union type `AffonErrorCode` for type-safe handling:
 - `out_of_memory`: Native allocation failed.
 - `internal`: Unexpected runtime bug.
 
-For the full list, see the [global type definitions](../types/globals.d.ts).
+For the full list, see the [global type definitions](../../types/globals.d.ts).
 
 ## Native Stack Traces
 

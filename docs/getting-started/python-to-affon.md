@@ -13,7 +13,7 @@ Naming note:
 | Python | AFFON |
 |--------|------|
 | `pip install numpy torch scikit-learn` | Single binary — `zig build` |
-| `python train.py` | `affon run train.ts` |
+| `python train.py` | `affon train.ts` |
 | Virtual environments, pip, conda | No dependency management needed |
 
 ---

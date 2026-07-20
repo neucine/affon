@@ -1,5 +1,5 @@
-import fs from 'affon:fs'
-import { getEnv } from 'affon:process'
+import fs from 'std:fs'
+import { getEnv } from 'std:process'
 
 type HistoryEntry = {
   epoch?: unknown

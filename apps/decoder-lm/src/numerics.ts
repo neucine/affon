@@ -1,7 +1,7 @@
 import { finite_abs_max, finite_summary } from 'affon:compute'
 import type { Tensor } from 'affon:compute'
 import nn from 'affon:nn'
-import process from 'affon:process'
+import process from 'std:process'
 
 type FiniteSummary = {
   ok: boolean

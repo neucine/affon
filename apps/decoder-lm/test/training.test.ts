@@ -1,8 +1,8 @@
-import fs from 'affon:fs'
+import fs from 'std:fs'
 import checkpoint from 'affon:checkpoint'
 import { describe, expect, test } from 'affon:test'
 import { seed, tensor } from 'affon:compute'
-import { run } from 'affon:process'
+import { run } from 'std:process'
 import type { Tensor } from 'affon:compute'
 
 import { DecoderModel } from '../../../packages/lm/src/model.ts'
@@ -363,13 +363,13 @@ describe('@affon/decoder-lm training', () => {
 
     const good = await run({
       cmd: 'sh',
-      args: ['-c', `AFFON_WIKITEXT_CANARY_SUMMARY="${goodPath}" ./zig-out/bin/affon run apps/decoder-lm/check-wikitext-canary.ts`],
+      args: ['-c', `AFFON_WIKITEXT_CANARY_SUMMARY="${goodPath}" ./zig-out/bin/affon apps/decoder-lm/check-wikitext-canary.ts`],
     })
     expect(good.stdout.includes('WikiText canary passed')).toBe(true)
 
     const bad = await run({
       cmd: 'sh',
-      args: ['-c', `AFFON_WIKITEXT_CANARY_SUMMARY="${badPath}" ./zig-out/bin/affon run apps/decoder-lm/check-wikitext-canary.ts`],
+      args: ['-c', `AFFON_WIKITEXT_CANARY_SUMMARY="${badPath}" ./zig-out/bin/affon apps/decoder-lm/check-wikitext-canary.ts`],
       check: false,
     })
     expect(bad.exitCode === 0).toBe(false)

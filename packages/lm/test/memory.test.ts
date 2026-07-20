@@ -14,10 +14,11 @@ function metricValue(
   return entry?.value ?? 0
 }
 
-describe.skip(() => !metalAvailable())('@affon/lm memory', () => {
+describe.skip(() => !metalAvailable() || typeof (globalThis as any).Affon?.trimMemory !== 'function')('@affon/lm memory', () => {
   test('decoder forward churn reuses Metal buffers and trims back near baseline', () => {
+    const trimMemory = (globalThis as any).Affon.trimMemory as () => number
     setDevice('cpu')
-    Affon.trimMemory()
+    trimMemory()
     seed(7)
 
     setDevice('metal')
@@ -46,7 +47,7 @@ describe.skip(() => !metalAvailable())('@affon/lm memory', () => {
     })
 
     const during = telemetry.metrics()
-    const trimmed = Affon.trimMemory()
+    const trimmed = trimMemory()
     const after = telemetry.metrics()
     setDevice('cpu')
 

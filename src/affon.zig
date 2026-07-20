@@ -26,26 +26,6 @@ const sources = [_]hao.SourceModule{
         ,
     },
     .{
-        .specifier = "affon:fs",
-        .source =
-        \\import * as native from 'std:fs/native';
-        \\export const existsSync = native.existsSync;
-        \\export const readFileSync = native.readFileSync;
-        \\export const writeFileSync = native.writeFileSync;
-        \\export const statSync = native.statSync;
-        \\export default { existsSync, readFileSync, writeFileSync, statSync };
-        ,
-    },
-    .{
-        .specifier = "affon:process",
-        .source =
-        \\import process, { getEnv } from 'std:process';
-        \\export const run = process.run;
-        \\export { getEnv };
-        \\export default { getEnv, run };
-        ,
-    },
-    .{
         .specifier = "affon:test",
         .source =
         \\import testModule from 'std:test';

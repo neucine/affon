@@ -1,4 +1,4 @@
-import fs from 'affon:fs'
+import fs from 'std:fs'
 import dataset from 'affon:dataset'
 import { describe, expect, test } from 'affon:test'
 import { createLookupTokenizer } from '../../tokenizers/src/index.ts'

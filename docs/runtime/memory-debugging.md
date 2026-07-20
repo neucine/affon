@@ -1,10 +1,8 @@
 # Memory Debugging
 
-Affon exposes runtime and compute diagnostics through `std:telemetry` and cache
-trimming through `Affon.trimMemory()`.
+Affon exposes runtime and compute diagnostics through `std:telemetry`.
 
 - `telemetry.metrics()` returns a flat metric snapshot (`id`, `scope`, `name`, `kind`, `unit`, `value`, `count`, `sum`, `min`, `max`).
-- `Affon.trimMemory()` trims internal caches and returns released bytes.
 
 Example:
 
@@ -27,7 +25,7 @@ metrics and traces are exposed through Hao's `std:telemetry` module, using
 1. Capture a metrics snapshot (`before`).
 2. Run workload.
 3. Capture another snapshot (`after`).
-4. Optionally call `Affon.trimMemory()` and snapshot again.
+4. Compare the snapshots and investigate growing live-byte or peak-byte metrics.
 
 Example:
 
@@ -37,11 +35,8 @@ import telemetry from 'std:telemetry'
 const before = telemetry.metrics();
 runWork();
 const after = telemetry.metrics();
-const trimmed = Affon.trimMemory();
-const postTrim = telemetry.metrics();
 
-console.log('trimmed bytes', trimmed);
-console.log(before.length, after.length, postTrim.length);
+console.log(before.length, after.length);
 ```
 
 ## Recommended Memory Signals

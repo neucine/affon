@@ -1,4 +1,4 @@
-import { getEnv } from 'affon:process'
+import { getEnv } from 'std:process'
 import telemetry from 'std:telemetry'
 
 import { loadDecoderLMWorkflowConfig, trainDecoderLMFromConfig } from './src/index.ts'

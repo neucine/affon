@@ -4,7 +4,7 @@ import {
   createHFTokenizerFromFile,
   createHFTokenizerFromJSON,
   createSentencePieceTokenizer,
-} from 'tokenizers'
+} from '../../../packages/tokenizers/src/index.ts'
 
 describe('dataset tokenizer adapters', () => {
   test('hf tokenizer adapter satisfies the generic text tokenizer interface', () => {

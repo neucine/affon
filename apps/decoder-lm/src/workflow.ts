@@ -1,4 +1,4 @@
-import fs from 'affon:fs'
+import fs from 'std:fs'
 import telemetry from 'std:telemetry'
 import { axes, compile, exportBundleFile, tensor } from 'affon:compute'
 import type { Tensor } from 'affon:compute'

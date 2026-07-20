@@ -87,7 +87,7 @@ by the underlying runtime under `std:*` specifiers.
 - **Optimizers and schedules** including SGD, Adam, AdamW, gradient clipping, and scheduled training loops
 - **Dataset pipelines** for tabular and text workflows, including token windows and tokenizer adapters
 - **Checkpoint persistence** for model and optimizer state
-- **Runtime diagnostics** with `std:telemetry.metrics()`, traces, memory signals, and `Affon.trimMemory()`
+- **Runtime diagnostics** with `std:telemetry.metrics()`, traces, and memory signals
 - **First-party packages** for transformers, language-model workflows, tokenizers, CNN, and vision work
 - **Runnable apps** including the decoder language-model reference workload
 
@@ -116,7 +116,7 @@ cases.
 - Getting started: [Python to AFFON](docs/getting-started/python-to-affon.md)
 - Core numerics: [Compute Concepts](docs/core/compute.md), [Compute Kernel Matrix](docs/core/kernel-matrix.md), [Error Handling](docs/core/errors.md)
 - Machine learning: [NN Concepts](docs/ml/nn/index.md), [Metrics Concepts](docs/ml/metrics.md), [Optim Concepts](docs/ml/optim.md), [Checkpoints](docs/ml/checkpoints.md), [Text Datasets](docs/ml/text-datasets.md), [ML Glossary](docs/ml/glossary.md)
-- Runtime: [Configuration](docs/runtime/configuration.md), [Module Loader](docs/runtime/module-loader.md), [Memory Debugging](docs/runtime/memory-debugging.md)
+- Runtime: [Install](docs/runtime/install.md), [Configuration](docs/runtime/configuration.md), [Module Loader](docs/runtime/module-loader.md), [Memory Debugging](docs/runtime/memory-debugging.md)
 - Apps: [apps/](apps/), [Decoder LM](apps/decoder-lm/README.md)
 - Packages: [packages/](packages/), [Transformers](packages/transformers/README.md), [LM](packages/lm/README.md), [Tokenizers](packages/tokenizers/README.md)
 - Editor: [Affon for VS Code](https://github.com/neucine/affon-vscode)

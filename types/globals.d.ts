@@ -1,5 +1,13 @@
 declare function setDevice(device: "cpu" | "metal"): void
 
+interface Console {
+  log(...args: unknown[]): void
+  error(...args: unknown[]): void
+  warn(...args: unknown[]): void
+}
+
+declare var console: Console
+
 type RuntimeErrorCode =
   | "invalid_arg"
   | "missing_arg"
