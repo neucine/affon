@@ -7,6 +7,7 @@ const qjs = hao.qjs;
 const packages = hao.package;
 
 pub const package_name = "affon";
+pub const version = "0.2.0";
 pub const compute = @import("compute");
 
 comptime {
@@ -21,9 +22,8 @@ const sources = [_]hao.SourceModule{
     .{
         .specifier = "affon:runtime",
         .source =
-        \\export const name = "affon";
-        \\export const version = "0.1.0";
-        ,
+        "export const name = \"affon\";\n" ++
+        "export const version = \"" ++ version ++ "\";\n",
     },
     .{
         .specifier = "affon:test",

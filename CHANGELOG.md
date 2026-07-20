@@ -6,13 +6,30 @@ The format is based on Keep a Changelog and the project follows Semantic Version
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-21
+
+### Added
+
+- added first-party package and app coverage to CI, including runtime e2e suites
+  and TypeScript contract checks
+- added public TypeScript declarations for `affon:test`, `std:fs`,
+  `std:process`, and `std:telemetry`
+- added `affon --version` and `affon version`
+
 ### Changed
 
 - moved the next Affon package boundary onto the Hao runtime and shared `zig-libs`
   helpers
+- made `affon <file.ts|file.js>` the default script execution form while
+  keeping `affon run <file.ts|file.js>` available
+- moved filesystem and process usage to the underlying `std:fs` and
+  `std:process` runtime modules instead of Affon-specific aliases
 - refreshed runtime diagnostics docs around `std:telemetry.metrics()` and
   `scope`-based metric snapshots
 - documented schema-backed runtime configuration environment variables
+- enriched public docs indexes and install guidance
+- updated dataset and LM tests to match the current tokenizer package and graph
+  plan metadata surfaces
 
 ## [0.1.0] - 2026-05-20
 

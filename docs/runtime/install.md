@@ -6,10 +6,16 @@ The recommended install path is the hosted installer:
 curl -fsSL https://affon.ai/install.sh | bash
 ```
 
+The website copy at `https://affon.ai/install.sh` should stay byte-for-byte
+aligned with the canonical installer script in this repo:
+
+- [install.sh](../../install.sh)
+
 The installer:
 
 - detects the current OS and CPU architecture
-- downloads the latest matching release asset from the AFFON downloads endpoint
+- downloads the matching release asset for its bundled `AFFON_RELEASE_VERSION`
+  from the AFFON downloads endpoint
 - installs `affon` into `~/.affon/bin`
 - adds `~/.affon/bin` to the user's shell `PATH`
 - prints the installed `affon --version`
@@ -49,5 +55,7 @@ automatically.
 
 - The hosted installer is the public entry point for release asset selection
   and shell integration behavior.
+- The installer carries a default `AFFON_RELEASE_VERSION`; override it only when
+  testing a different hosted release metadata file.
 - If you need to audit the installer, download it first, inspect it locally, and
   then run the downloaded copy.

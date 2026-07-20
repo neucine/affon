@@ -4,7 +4,7 @@ const hao = @import("hao");
 
 fn usage() void {
     std.debug.print(
-        "Usage:\n  affon <file.ts|file.js>\n  affon run <file.ts|file.js>\n  affon test [--grep pattern] <file.ts|directory>...\n",
+        "Usage:\n  affon <file.ts|file.js>\n  affon run <file.ts|file.js>\n  affon test [--grep pattern] <file.ts|directory>...\n  affon --version\n",
         .{},
     );
 }
@@ -36,6 +36,14 @@ pub fn main(init: std.process.Init) !void {
         usage();
         std.process.exit(2);
     };
+    if (std.mem.eql(u8, command, "--version") or std.mem.eql(u8, command, "version")) {
+        if (args.next() != null) {
+            usage();
+            std.process.exit(2);
+        }
+        std.debug.print("affon {s}\n", .{affon.version});
+        return;
+    }
     if (std.mem.eql(u8, command, "run")) {
         const path = args.next() orelse {
             usage();
