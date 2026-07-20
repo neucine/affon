@@ -5,7 +5,6 @@ modules, inspecting memory/telemetry, and understanding the native interop
 boundary.
 
 - [Install](./install.md)
-- [Releasing](./releasing.md) - maintainer release flow, CI publishing, and local R2 upload
 - [Configuration](./configuration.md) - environment variables, startup/runtime mutability, and legacy aliases
 - [Module Loader](./module-loader.md) - built-in `affon:*` modules, ESM package resolution, and compatibility limits
 - [Memory Debugging](./memory-debugging.md) - `std:telemetry.metrics()`, traces, and memory signals
