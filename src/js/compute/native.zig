@@ -3,6 +3,7 @@ const hao = @import("hao");
 const engine_api = @import("../../compute/engine.zig");
 const tensor_types = @import("../../compute/types/tensor/index.zig");
 const dispatch = @import("../../compute/backend/dispatch.zig");
+const metal_index = @import("../../compute/backend/metal/index.zig");
 const config = @import("../../config.zig");
 const metal_backend = @import("../../compute/backend/metal/common.zig");
 const metal_update = @import("../../compute/backend/metal/update.zig");
@@ -1286,15 +1287,22 @@ fn jsClipGradNorm(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*
         const state = autograd_types.State.fromTensor(parameter) orelse continue;
         const gradient = state.gradient orelse continue;
         if (gradient.dtype == .i64) return typeError(ctx, "clip_grad_norm requires differentiable gradients");
-        const cpu_gradient = Tensor.createContiguous(allocator, gradient.shape.dims, gradient.dtype, .cpu, false) catch return errorValue(ctx, "clip_grad_norm failed to read gradient");
-        defer cpu_gradient.deinit();
-        engineFor(ctx).copyInto(cpu_gradient, gradient) catch return errorValue(ctx, "clip_grad_norm failed to read gradient");
-        const squared = engineFor(ctx).mul(cpu_gradient, cpu_gradient) catch return errorValue(ctx, "clip_grad_norm failed to read gradient");
-        defer squared.deinit();
-        const summed = engineFor(ctx).sum(squared) catch return errorValue(ctx, "clip_grad_norm failed to read gradient");
+        const engine = engineFor(ctx);
+        const summed = if (gradient.device() == .metal and gradient.dtype == .f32) blk: {
+            const squared = engine.mul(gradient, gradient) catch return errorValue(ctx, "clip_grad_norm failed to read gradient");
+            defer squared.deinit();
+            break :blk engine.sum(squared) catch return errorValue(ctx, "clip_grad_norm failed to read gradient");
+        } else blk: {
+            const cpu_gradient = Tensor.createContiguous(allocator, gradient.shape.dims, gradient.dtype, .cpu, false) catch return errorValue(ctx, "clip_grad_norm failed to read gradient");
+            defer cpu_gradient.deinit();
+            engine.copyInto(cpu_gradient, gradient) catch return errorValue(ctx, "clip_grad_norm failed to read gradient");
+            const squared = engine.mul(cpu_gradient, cpu_gradient) catch return errorValue(ctx, "clip_grad_norm failed to read gradient");
+            defer squared.deinit();
+            break :blk engine.sum(squared) catch return errorValue(ctx, "clip_grad_norm failed to read gradient");
+        };
         defer summed.deinit();
         var scalar_bytes: [8]u8 = undefined;
-        engineFor(ctx).copyToHost(summed, scalar_bytes[0..gradient.dtype.size()]) catch return errorValue(ctx, "clip_grad_norm failed to read gradient");
+        engine.copyToHost(summed, scalar_bytes[0..gradient.dtype.size()]) catch return errorValue(ctx, "clip_grad_norm failed to read gradient");
         sum_squared += switch (gradient.dtype) {
             .f32 => @as(f64, std.mem.bytesAsSlice(f32, scalar_bytes[0..4])[0]),
             .f64 => std.mem.bytesAsSlice(f64, scalar_bytes[0..8])[0],
@@ -2026,6 +2034,31 @@ const NormalizedIndex = struct {
 fn normalizeIndexTensor(engine: *engine_api.Engine, input: *Tensor) !NormalizedIndex {
     if (input.dtype == .i64) return .{ .tensor = input, .owned = false };
     if (input.dtype != .f32 and input.dtype != .f64) return error.InvalidArgument;
+
+    if (input.device() == .metal and input.dtype == .f32) {
+        var source = input;
+        var owned_source: ?*Tensor = null;
+        defer if (owned_source) |value| value.deinit();
+        const byte_len = input.shape.numel() * input.dtype.size();
+        const storage = input.requireRuntimeBacking() catch return error.InputNotMaterialized;
+        if (input.layout.offset != 0 or
+            !input.layout.isContiguous(input.shape) or
+            storage.bytes != byte_len)
+        {
+            owned_source = try engine.contiguous(input);
+            source = owned_source.?;
+        }
+
+        const output = try Tensor.createContiguous(allocator, input.shape.dims, .i64, .metal, false);
+        errdefer output.deinit();
+        try metal_index.validate_cast_index(
+            try source.requireRuntimeBacking(),
+            try output.requireRuntimeBacking(),
+            input.shape.numel(),
+        );
+        return .{ .tensor = output, .owned = true };
+    }
+
     var host_input: ?*Tensor = null;
     defer if (host_input) |value| value.deinit();
     const source_tensor = if (input.device() == .metal) blk: {
