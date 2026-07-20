@@ -60,6 +60,10 @@ const sources = [_]hao.SourceModule{
         .source = @embedFile("js/compute/graph.ts"),
     },
     .{
+        .specifier = "affon:compute/captured/shadow_metadata.ts",
+        .source = @embedFile("js/compute/captured/shadow_metadata.ts"),
+    },
+    .{
         .specifier = "affon:compute/compile.ts",
         .source = @embedFile("js/compute/compile.ts"),
     },

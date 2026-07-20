@@ -1,4 +1,5 @@
 import native from 'affon:compute/native'
+import { normalizeCoreMeta, sameStaticMeta, shadowCapturedMeta, type StaticTensorMeta } from 'affon:compute/captured/shadow_metadata.ts'
 
 class AffonError extends Error {
   readonly code: string
@@ -13,10 +14,15 @@ class AffonError extends Error {
 type NativeTensor = {
   shape: number[]
   dtype: 'f32' | 'f64' | 'i64'
+  device?: 'cpu' | 'metal'
 }
 type TensorDType = 'f32' | 'f64' | 'i64'
 type Nested = number | Nested[]
 type SliceRangeSpec = number | string
+type SliceSelectorSpec =
+  | { kind: 'all' }
+  | { kind: 'index'; index: number }
+  | { kind: 'range'; start?: number; stop?: number; step?: number }
 
 const GRAPH_VALUE = Symbol.for('affon.tensor.graph_value')
 
@@ -28,7 +34,6 @@ type MatmulExecutionHint = 'projection' | 'attention_scores' | 'attention_values
 type MatmulExecutionSource = 'higher_level_module'
 type MatmulExecutionOptions = { hint?: MatmulExecutionHint; source?: MatmulExecutionSource }
 type GraphNodeMetadata = { module_path?: string }
-type CanonicalSliceRange = { start: number; stop: number; step: number }
 
 type GraphNode =
   | ({ id: number; kind: 'input'; index: number } & GraphNodeMetadata)
@@ -37,7 +42,7 @@ type GraphNode =
   | ({ id: number; kind: UnaryKind; input: number } & GraphNodeMetadata)
   | ({ id: number; kind: 'clamp'; input: number; min: number; max: number } & GraphNodeMetadata)
   | ({ id: number; kind: 'reshape'; input: number; shape: number[] } & GraphNodeMetadata)
-  | ({ id: number; kind: 'slice'; input: number; ranges: SliceRangeSpec[]; slice_ranges?: CanonicalSliceRange[] } & GraphNodeMetadata)
+  | ({ id: number; kind: 'slice'; input: number; ranges: SliceRangeSpec[]; slice_selectors: SliceSelectorSpec[] } & GraphNodeMetadata)
   | ({ id: number; kind: 'squeeze'; input: number; axis?: number } & GraphNodeMetadata)
   | ({ id: number; kind: 'unsqueeze'; input: number; axis: number } & GraphNodeMetadata)
   | ({ id: number; kind: 'transpose'; input: number } & GraphNodeMetadata)
@@ -64,6 +69,7 @@ type GraphNode =
 
 interface CaptureState {
   readonly nodes: GraphNode[]
+  readonly inferenceConflicts: GraphInferenceConflict[]
   nextId: number
   inputArity: number
   boundInputs: Array<() => NativeTensor>
@@ -71,9 +77,11 @@ interface CaptureState {
   modulePathStack: string[]
 }
 
-interface StaticTensorMeta {
-  shape: number[]
-  dtype: TensorDType
+interface GraphInferenceConflict {
+  nodeId: number
+  kind: string
+  ts: StaticTensorMeta
+  core: StaticTensorMeta
 }
 
 const GRAPH_META = Symbol.for('affon.tensor.graph_meta')
@@ -90,6 +98,7 @@ interface CapturedProgram {
   inputCount: number
   outputId: number
   nodes: GraphNode[]
+  inferenceConflicts: GraphInferenceConflict[]
 }
 
 type GraphExportBoundary = 'ad_hoc' | 'run' | 'epoch' | 'step' | 'forward' | 'backward'
@@ -129,9 +138,10 @@ interface GraphSummary {
   inputCount: number
   output: number
   nodes: ReturnType<typeof summarizeNodes>
+  inferenceConflicts: GraphInferenceConflict[]
   staticMetadata: {
     kind: 'provisional_capture_metadata'
-    source: 'ts_capture'
+    source: 'compute_core_with_ts_shadow'
     fields: string[]
   }
   stats: ReturnType<typeof summarizeStats>
@@ -162,6 +172,7 @@ interface CapturedProgramSummary {
   outputId: number
   nodeCount: number
   nodeKinds: string[]
+  inferenceConflicts: GraphInferenceConflict[]
 }
 
 interface ExecutionPlanExport {
@@ -381,53 +392,36 @@ function reduceShape(shape: readonly number[], axis?: number, keepdim?: boolean)
   return out.length === 0 ? [1] : out
 }
 
-function normalizeSliceIndex(index: number, dim: number): number | null {
-  const normalized = index < 0 ? dim + index : index
-  if (!Number.isInteger(normalized) || normalized < 0 || normalized > dim) return null
-  return normalized
-}
-
-function canonicalizeSliceRange(dim: number, range: SliceRangeSpec): CanonicalSliceRange | null {
+function parseSliceSelector(range: SliceRangeSpec): SliceSelectorSpec | null {
   if (Number.isInteger(range)) {
-    const index = normalizeSliceIndex(range, dim)
-    return index == null || index >= dim ? null : { start: index, stop: index + 1, step: 1 }
+    return { kind: 'index', index: range }
   }
   if (typeof range !== 'string') return null
   const trimmed = range.trim()
-  if (trimmed === ':') return { start: 0, stop: dim, step: 1 }
+  if (trimmed === ':') return { kind: 'all' }
   if (!trimmed.includes(':')) {
     const index = Number(trimmed)
-    const normalized = Number.isInteger(index) ? normalizeSliceIndex(index, dim) : null
-    return normalized == null || normalized >= dim ? null : { start: normalized, stop: normalized + 1, step: 1 }
+    return Number.isInteger(index) ? { kind: 'index', index } : null
   }
 
   const parts = trimmed.split(':')
   if (parts.length > 3) return null
-  const parsePart = (part: string, fallback: number): number | null => {
-    if (part === '') return fallback
+  const parsePart = (part: string): number | undefined | null => {
+    if (part === '') return undefined
     const value = Number(part)
-    return Number.isInteger(value) ? normalizeSliceIndex(value, dim) : null
+    return Number.isInteger(value) ? value : null
   }
   const step = parts[2] == null || parts[2] === '' ? 1 : Number(parts[2])
-  if (!Number.isInteger(step) || step <= 0) return null
-  const start = parsePart(parts[0]!, 0)
-  const stop = parsePart(parts[1]!, dim)
-  if (start == null || stop == null || stop < start) return null
-  return { start, stop, step }
-}
-
-function inferSliceMeta(shape: readonly number[], ranges: readonly SliceRangeSpec[]): { shape: number[]; ranges: CanonicalSliceRange[] } | null {
-  if (ranges.length > shape.length) return null
-  const out: number[] = []
-  const canonical: CanonicalSliceRange[] = []
-  for (let i = 0; i < shape.length; i++) {
-    const range = ranges[i] ?? ':'
-    const normalized = canonicalizeSliceRange(shape[i]!, range)
-    if (!normalized) return null
-    canonical.push(normalized)
-    out.push(Math.ceil((normalized.stop - normalized.start) / normalized.step))
+  if (!Number.isInteger(step)) return null
+  const start = parsePart(parts[0]!)
+  const stop = parsePart(parts[1]!)
+  if (start === null || stop === null) return null
+  return {
+    kind: 'range',
+    ...(start !== undefined ? { start } : {}),
+    ...(stop !== undefined ? { stop } : {}),
+    step,
   }
-  return { shape: out, ranges: canonical }
 }
 
 function getCaptureState(opName: string): CaptureState {
@@ -441,6 +435,35 @@ function getStaticMeta(value: unknown): StaticTensorMeta | null {
   const meta = (value as any)[GRAPH_META] as StaticTensorMeta | undefined
   if (!meta) return null
   return { shape: [...meta.shape], dtype: meta.dtype }
+}
+
+function resolveCapturedMeta(
+  state: CaptureState,
+  nodeId: number,
+  kind: string,
+  inputs: readonly CapturedValue[],
+  options: unknown,
+): StaticTensorMeta | undefined {
+  const inputMetas = inputs.map(getStaticMeta)
+  if (inputMetas.some((meta) => meta == null)) return undefined
+  const tsMeta = shadowCapturedMeta(kind, inputMetas as StaticTensorMeta[], options)
+  const infer = (native as any).inferCapturedOp
+  if (typeof infer !== 'function') return tsMeta
+  try {
+    const core = normalizeCoreMeta(infer(kind, inputMetas, options))
+    if (!core) return tsMeta
+    if (tsMeta && !sameStaticMeta(tsMeta, core)) {
+      state.inferenceConflicts.push({
+        nodeId,
+        kind,
+        ts: { shape: [...tsMeta.shape], dtype: tsMeta.dtype },
+        core: { shape: [...core.shape], dtype: core.dtype },
+      })
+    }
+    return core
+  } catch {
+    return tsMeta
+  }
 }
 
 function unsupportedGraphOp(opName: string): never {
@@ -470,7 +493,7 @@ function makeBoundInput(state: CaptureState, key: unknown, resolve: () => Native
 function pushUnary(state: CaptureState, kind: UnaryKind, input: CapturedValue): CapturedValue {
   const id = state.nextId++
   pushNode(state, { id, kind, input: input.id })
-  return new CapturedValue(id, getStaticMeta(input) ?? undefined)
+  return new CapturedValue(id, resolveCapturedMeta(state, id, kind, [input], undefined))
 }
 
 function pushRandom(state: CaptureState, kind: 'rand' | 'randn', shape: readonly number[], dtype: TensorDType): CapturedValue {
@@ -482,202 +505,138 @@ function pushRandom(state: CaptureState, kind: 'rand' | 'randn', shape: readonly
 function pushClamp(state: CaptureState, input: CapturedValue, min: number, max: number): CapturedValue {
   const id = state.nextId++
   pushNode(state, { id, kind: 'clamp', input: input.id, min, max })
-  return new CapturedValue(id, getStaticMeta(input) ?? undefined)
+  return new CapturedValue(id, resolveCapturedMeta(state, id, 'clamp', [input], { min, max }))
 }
 
 function pushReshape(state: CaptureState, input: CapturedValue, shape: number[]): CapturedValue {
   const id = state.nextId++
   pushNode(state, { id, kind: 'reshape', input: input.id, shape: [...shape] })
-  const meta = getStaticMeta(input)
-  return new CapturedValue(id, meta ? { shape: [...shape], dtype: meta.dtype } : undefined)
+  return new CapturedValue(id, resolveCapturedMeta(state, id, 'reshape', [input], { shape: [...shape] }))
 }
 
 function pushSlice(state: CaptureState, input: CapturedValue, ranges: readonly SliceRangeSpec[]): CapturedValue {
   const id = state.nextId++
-  const meta = getStaticMeta(input)
-  const sliceMeta = meta ? inferSliceMeta(meta.shape, ranges) : null
+  const selectors = ranges.map((range) => {
+    const selector = parseSliceSelector(range)
+    if (!selector) throw graphCaptureError('capture_adapter', 'invalid_arg', 'slice selector is invalid')
+    return selector
+  })
   pushNode(state, {
     id,
     kind: 'slice',
     input: input.id,
     ranges: [...ranges],
-    ...(sliceMeta ? { slice_ranges: sliceMeta.ranges } : {}),
+    slice_selectors: selectors,
   })
-  return new CapturedValue(id, meta && sliceMeta ? { shape: sliceMeta.shape, dtype: meta.dtype } : undefined)
+  return new CapturedValue(id, resolveCapturedMeta(state, id, 'slice', [input], { slice_selectors: selectors }))
 }
 
 function pushSqueeze(state: CaptureState, input: CapturedValue, axis?: number): CapturedValue {
   const id = state.nextId++
   pushNode(state, { id, kind: 'squeeze', input: input.id, axis })
-  const meta = getStaticMeta(input)
-  let squeezed: StaticTensorMeta | undefined
-  if (meta) {
-    let shape: number[]
-    if (axis == null) {
-      shape = meta.shape.filter((dim) => dim !== 1)
-      if (shape.length === 0) shape = [1]
-    } else if (axis >= 0 && axis < meta.shape.length && meta.shape[axis] === 1) {
-      shape = meta.shape.filter((_, index) => index !== axis)
-      if (shape.length === 0) shape = [1]
-    } else {
-      shape = [...meta.shape]
-    }
-    squeezed = { shape, dtype: meta.dtype }
-  }
-  return new CapturedValue(id, squeezed)
+  return new CapturedValue(id, resolveCapturedMeta(state, id, 'squeeze', [input], { axis }))
 }
 
 function pushUnsqueeze(state: CaptureState, input: CapturedValue, axis: number): CapturedValue {
   const id = state.nextId++
   pushNode(state, { id, kind: 'unsqueeze', input: input.id, axis })
-  const meta = getStaticMeta(input)
-  let expanded: StaticTensorMeta | undefined
-  if (meta && axis >= 0 && axis <= meta.shape.length) {
-    const shape = meta.shape.slice()
-    shape.splice(axis, 0, 1)
-    expanded = { shape, dtype: meta.dtype }
-  }
-  return new CapturedValue(id, expanded)
+  return new CapturedValue(id, resolveCapturedMeta(state, id, 'unsqueeze', [input], { axis }))
 }
 
 function pushTranspose(state: CaptureState, input: CapturedValue): CapturedValue {
   const id = state.nextId++
   pushNode(state, { id, kind: 'transpose', input: input.id })
-  const meta = getStaticMeta(input)
-  return new CapturedValue(id, meta && meta.shape.length === 2
-    ? { shape: [meta.shape[1]!, meta.shape[0]!], dtype: meta.dtype }
-    : undefined)
+  return new CapturedValue(id, resolveCapturedMeta(state, id, 'transpose', [input], undefined))
 }
 
 function pushPermute(state: CaptureState, input: CapturedValue, axes: number[]): CapturedValue {
   const id = state.nextId++
   pushNode(state, { id, kind: 'permute', input: input.id, axes: [...axes] })
-  const meta = getStaticMeta(input)
-  return new CapturedValue(id, meta && axes.length === meta.shape.length
-    ? { shape: axes.map((axis) => meta.shape[axis]!), dtype: meta.dtype }
-    : undefined)
+  return new CapturedValue(id, resolveCapturedMeta(state, id, 'permute', [input], { axes: [...axes] }))
 }
 
 function pushContiguous(state: CaptureState, input: CapturedValue): CapturedValue {
   const id = state.nextId++
   pushNode(state, { id, kind: 'contiguous', input: input.id })
-  return new CapturedValue(id, getStaticMeta(input) ?? undefined)
+  return new CapturedValue(id, resolveCapturedMeta(state, id, 'contiguous', [input], undefined))
 }
 
 function pushCast(state: CaptureState, input: CapturedValue, dtype: TensorDType): CapturedValue {
   const id = state.nextId++
   pushNode(state, { id, kind: 'cast', input: input.id, dtype })
-  const meta = getStaticMeta(input)
-  return new CapturedValue(id, meta ? { shape: [...meta.shape], dtype } : undefined)
+  return new CapturedValue(id, resolveCapturedMeta(state, id, 'cast', [input], { dtype }))
 }
 
 function pushGelu(state: CaptureState, input: CapturedValue): CapturedValue {
   const id = state.nextId++
   pushNode(state, { id, kind: 'gelu', input: input.id })
-  return new CapturedValue(id, getStaticMeta(input) ?? undefined)
+  return new CapturedValue(id, resolveCapturedMeta(state, id, 'gelu', [input], undefined))
 }
 
 function pushDot(state: CaptureState, left: CapturedValue, right: CapturedValue): CapturedValue {
   const id = state.nextId++
   pushNode(state, { id, kind: 'dot', left: left.id, right: right.id })
-  const leftMeta = getStaticMeta(left)
-  const rightMeta = getStaticMeta(right)
-  return new CapturedValue(id, leftMeta && rightMeta ? { shape: [], dtype: leftMeta.dtype } : undefined)
+  return new CapturedValue(id, resolveCapturedMeta(state, id, 'dot', [left, right], undefined))
 }
 
 function pushMatmul(state: CaptureState, left: CapturedValue, right: CapturedValue, execution?: MatmulExecutionOptions): CapturedValue {
   const id = state.nextId++
   pushNode(state, { id, kind: 'matmul', left: left.id, right: right.id, execution: normalizeMatmulExecution(execution) })
-  const leftMeta = getStaticMeta(left)
-  const rightMeta = getStaticMeta(right)
-  let meta: StaticTensorMeta | undefined
-  if (leftMeta && rightMeta) {
-    const shape = inferMatmulShape(leftMeta.shape, rightMeta.shape)
-    if (shape) {
-      meta = { shape, dtype: leftMeta.dtype }
-    }
-  }
-  return new CapturedValue(id, meta)
+  return new CapturedValue(id, resolveCapturedMeta(state, id, 'matmul', [left, right], undefined))
 }
 
 function pushCat(state: CaptureState, inputs: readonly CapturedValue[], dim: number): CapturedValue {
   const id = state.nextId++
   pushNode(state, { id, kind: 'cat', inputs: inputs.map((input) => input.id), dim })
-  return new CapturedValue(id)
+  return new CapturedValue(id, resolveCapturedMeta(state, id, 'cat', inputs, { dim }))
 }
 
 function pushStack(state: CaptureState, inputs: readonly CapturedValue[], dim: number): CapturedValue {
   const id = state.nextId++
   pushNode(state, { id, kind: 'stack', inputs: inputs.map((input) => input.id), dim })
-  return new CapturedValue(id)
+  return new CapturedValue(id, resolveCapturedMeta(state, id, 'stack', inputs, { dim }))
 }
 
 function pushWhere(state: CaptureState, cond: CapturedValue, onTrue: CapturedValue, onFalse: CapturedValue): CapturedValue {
   const id = state.nextId++
   pushNode(state, { id, kind: 'where', cond: cond.id, onTrue: onTrue.id, onFalse: onFalse.id })
-  const condMeta = getStaticMeta(cond)
-  const trueMeta = getStaticMeta(onTrue)
-  const falseMeta = getStaticMeta(onFalse)
-  let meta: StaticTensorMeta | undefined
-  if (condMeta && trueMeta && falseMeta) {
-    const condTrue = broadcastShapeRightAligned(condMeta.shape, trueMeta.shape)
-    const shape = condTrue ? broadcastShapeRightAligned(condTrue, falseMeta.shape) : null
-    if (shape) meta = { shape, dtype: trueMeta.dtype }
-  }
-  return new CapturedValue(id, meta)
+  return new CapturedValue(id, resolveCapturedMeta(state, id, 'where', [cond, onTrue, onFalse], undefined))
 }
 
 function pushMaskedFill(state: CaptureState, input: CapturedValue, mask: CapturedValue, value: number): CapturedValue {
   const id = state.nextId++
   pushNode(state, { id, kind: 'masked_fill', input: input.id, mask: mask.id, value })
-  const inputMeta = getStaticMeta(input)
-  const maskMeta = getStaticMeta(mask)
-  let meta: StaticTensorMeta | undefined
-  if (inputMeta && maskMeta) {
-    const shape = broadcastShapeRightAligned(inputMeta.shape, maskMeta.shape)
-    if (shape) meta = { shape, dtype: inputMeta.dtype }
-  }
-  return new CapturedValue(id, meta)
+  return new CapturedValue(id, resolveCapturedMeta(state, id, 'masked_fill', [input, mask], { value }))
 }
 
 function pushSoftmax(state: CaptureState, input: CapturedValue, dim: number): CapturedValue {
   const id = state.nextId++
   pushNode(state, { id, kind: 'softmax', input: input.id, dim })
-  return new CapturedValue(id, getStaticMeta(input) ?? undefined)
+  return new CapturedValue(id, resolveCapturedMeta(state, id, 'softmax', [input], { dim }))
 }
 
 function pushCrossEntropyIndexed(state: CaptureState, logits: CapturedValue, targets: CapturedValue, axis: number): CapturedValue {
   const id = state.nextId++
   pushNode(state, { id, kind: 'cross_entropy_indexed', logits: logits.id, targets: targets.id, axis })
-  return new CapturedValue(id, { shape: [1], dtype: 'f32' })
+  return new CapturedValue(id, resolveCapturedMeta(state, id, 'cross_entropy_indexed', [logits, targets], { axis }))
 }
 
 function pushOneHot(state: CaptureState, input: CapturedValue, numClasses: number): CapturedValue {
   const id = state.nextId++
   pushNode(state, { id, kind: 'one_hot', input: input.id, numClasses })
-  const meta = getStaticMeta(input)
-  return new CapturedValue(id, meta ? { shape: [...meta.shape, numClasses], dtype: 'f32' } : undefined)
+  return new CapturedValue(id, resolveCapturedMeta(state, id, 'one_hot', [input], { numClasses }))
 }
 
 function pushIndexSelect(state: CaptureState, input: CapturedValue, dim: number, index: CapturedValue): CapturedValue {
   const id = state.nextId++
   pushNode(state, { id, kind: 'index_select', input: input.id, dim, index: index.id })
-  const inputMeta = getStaticMeta(input)
-  const indexMeta = getStaticMeta(index)
-  let meta: StaticTensorMeta | undefined
-  if (inputMeta && indexMeta && Number.isInteger(dim) && dim >= 0 && dim < inputMeta.shape.length) {
-    const shape = inputMeta.shape.slice(0, dim).concat(indexMeta.shape, inputMeta.shape.slice(dim + 1))
-    meta = { shape, dtype: inputMeta.dtype }
-  }
-  return new CapturedValue(id, meta)
+  return new CapturedValue(id, resolveCapturedMeta(state, id, 'index_select', [input, index], { dim }))
 }
 
 function pushGather(state: CaptureState, input: CapturedValue, dim: number, index: CapturedValue): CapturedValue {
   const id = state.nextId++
   pushNode(state, { id, kind: 'gather', input: input.id, dim, index: index.id })
-  const indexMeta = getStaticMeta(index)
-  const inputMeta = getStaticMeta(input)
-  return new CapturedValue(id, indexMeta && inputMeta ? { shape: [...indexMeta.shape], dtype: inputMeta.dtype } : undefined)
+  return new CapturedValue(id, resolveCapturedMeta(state, id, 'gather', [input, index], { dim }))
 }
 
 function pushTopK(state: CaptureState, input: CapturedValue, k: number, dim: number): { values: CapturedValue; indices: CapturedValue } {
@@ -686,8 +645,8 @@ function pushTopK(state: CaptureState, input: CapturedValue, k: number, dim: num
   const indicesId = state.nextId++
   pushNode(state, { id: indicesId, kind: 'topk_indices', input: input.id, k, dim })
   return {
-    values: new CapturedValue(valuesId),
-    indices: new CapturedValue(indicesId),
+    values: new CapturedValue(valuesId, resolveCapturedMeta(state, valuesId, 'topk_values', [input], { k, dim })),
+    indices: new CapturedValue(indicesId, resolveCapturedMeta(state, indicesId, 'topk_indices', [input], { k, dim })),
   }
 }
 
@@ -700,13 +659,7 @@ function pushReduction(
 ): CapturedValue {
   const id = state.nextId++
   pushNode(state, { id, kind, input: input.id, axis, keepdim })
-  const meta = getStaticMeta(input)
-  let reduced: StaticTensorMeta | undefined
-  if (meta) {
-    const shape = reduceShape(meta.shape, axis, keepdim)
-    if (shape) reduced = { shape, dtype: meta.dtype }
-  }
-  return new CapturedValue(id, reduced)
+  return new CapturedValue(id, resolveCapturedMeta(state, id, kind, [input], { axis, keepdim }))
 }
 
 function pushIndexReduction(
@@ -718,26 +671,13 @@ function pushIndexReduction(
 ): CapturedValue {
   const id = state.nextId++
   pushNode(state, { id, kind, input: input.id, axis, keepdim })
-  const meta = getStaticMeta(input)
-  let reduced: StaticTensorMeta | undefined
-  if (meta) {
-    const shape = reduceShape(meta.shape, axis, keepdim)
-    if (shape) reduced = { shape, dtype: 'i64' as TensorDType }
-  }
-  return new CapturedValue(id, reduced)
+  return new CapturedValue(id, resolveCapturedMeta(state, id, kind, [input], { axis, keepdim }))
 }
 
 function pushBinary(state: CaptureState, kind: BinaryKind, left: CapturedValue, right: CapturedValue): CapturedValue {
   const id = state.nextId++
   pushNode(state, { id, kind, left: left.id, right: right.id })
-  const leftMeta = getStaticMeta(left)
-  const rightMeta = getStaticMeta(right)
-  let meta: StaticTensorMeta | undefined
-  if (leftMeta && rightMeta) {
-    const shape = broadcastShapeRightAligned(leftMeta.shape, rightMeta.shape)
-    if (shape) meta = { shape, dtype: kind === 'gt' ? 'i64' : leftMeta.dtype }
-  }
-  return new CapturedValue(id, meta)
+  return new CapturedValue(id, resolveCapturedMeta(state, id, kind, [left, right], undefined))
 }
 
 function pushConstant(state: CaptureState, data: Nested, dtype: TensorDType): CapturedValue {
@@ -1025,7 +965,9 @@ function summarizeNodes(nodes: GraphNode[]) {
   for (const node of nodes) byId.set(node.id, node)
 
   const shapeCache = new Map<number, number[] | null>()
-  function inferNodeShape(nodeId: number): number[] | null {
+  // Best-effort reporting metadata only. Captured tensor metadata is resolved
+  // through compute core with the TS shadow fallback in captured/shadow_metadata.
+  function inferReportingNodeShape(nodeId: number): number[] | null {
     const cached = shapeCache.get(nodeId)
     if (cached !== undefined || shapeCache.has(nodeId)) return cached ?? null
 
@@ -1054,7 +996,7 @@ function summarizeNodes(nodes: GraphNode[]) {
       case 'contiguous':
       case 'cast':
       case 'gelu':
-        shape = inferNodeShape(node.input)
+        shape = inferReportingNodeShape(node.input)
         break
       case 'reshape':
         shape = [...node.shape]
@@ -1063,7 +1005,7 @@ function summarizeNodes(nodes: GraphNode[]) {
         shape = null
         break
       case 'squeeze': {
-        const inputShape = inferNodeShape(node.input)
+        const inputShape = inferReportingNodeShape(node.input)
         if (inputShape) {
           if (node.axis == null) {
             const squeezed = inputShape.filter((dim) => dim !== 1)
@@ -1078,30 +1020,7 @@ function summarizeNodes(nodes: GraphNode[]) {
         break
       }
       case 'unsqueeze': {
-        const inputShape = inferNodeShape(node.input)
-        if (inputShape && node.axis >= 0 && node.axis <= inputShape.length) {
-          shape = [...inputShape]
-          shape.splice(node.axis, 0, 1)
-        }
-        break
-      }
-      case 'squeeze': {
-        const inputShape = inferNodeShape(node.input)
-        if (inputShape) {
-          if (node.axis == null) {
-            const squeezed = inputShape.filter((dim) => dim !== 1)
-            shape = squeezed.length === 0 ? [1] : squeezed
-          } else if (node.axis >= 0 && node.axis < inputShape.length) {
-            if (inputShape[node.axis] === 1) {
-              const squeezed = inputShape.filter((_, index) => index !== node.axis)
-              shape = squeezed.length === 0 ? [1] : squeezed
-            }
-          }
-        }
-        break
-      }
-      case 'unsqueeze': {
-        const inputShape = inferNodeShape(node.input)
+        const inputShape = inferReportingNodeShape(node.input)
         if (inputShape && node.axis >= 0 && node.axis <= inputShape.length) {
           shape = [...inputShape]
           shape.splice(node.axis, 0, 1)
@@ -1109,12 +1028,12 @@ function summarizeNodes(nodes: GraphNode[]) {
         break
       }
       case 'transpose': {
-        const inputShape = inferNodeShape(node.input)
+        const inputShape = inferReportingNodeShape(node.input)
         shape = inputShape ? [...inputShape].reverse() : null
         break
       }
       case 'permute': {
-        const inputShape = inferNodeShape(node.input)
+        const inputShape = inferReportingNodeShape(node.input)
         shape = inputShape && inputShape.length === node.axes.length
           ? node.axes.map((axis) => inputShape[axis]!)
           : null
@@ -1124,8 +1043,8 @@ function summarizeNodes(nodes: GraphNode[]) {
       case 'sub':
       case 'mul':
       case 'div': {
-        const leftShape = inferNodeShape(node.left)
-        const rightShape = inferNodeShape(node.right)
+        const leftShape = inferReportingNodeShape(node.left)
+        const rightShape = inferReportingNodeShape(node.right)
         if (leftShape && rightShape) {
           if (sameShape(leftShape, rightShape)) {
             shape = [...leftShape]
@@ -1139,23 +1058,23 @@ function summarizeNodes(nodes: GraphNode[]) {
         break
       }
       case 'matmul': {
-        const leftShape = inferNodeShape(node.left)
-        const rightShape = inferNodeShape(node.right)
+        const leftShape = inferReportingNodeShape(node.left)
+        const rightShape = inferReportingNodeShape(node.right)
         if (leftShape && rightShape && leftShape.length === 2 && rightShape.length === 2 && leftShape[1] === rightShape[0]) {
           shape = [leftShape[0]!, rightShape[1]!]
         }
         break
       }
       case 'dot': {
-        const leftShape = inferNodeShape(node.left)
-        const rightShape = inferNodeShape(node.right)
+        const leftShape = inferReportingNodeShape(node.left)
+        const rightShape = inferReportingNodeShape(node.right)
         if (leftShape && rightShape && leftShape.length === 1 && rightShape.length === 1 && leftShape[0] === rightShape[0]) {
           shape = [1]
         }
         break
       }
       case 'cat': {
-        const inputShapes = node.inputs.map((input) => inferNodeShape(input))
+        const inputShapes = node.inputs.map((input) => inferReportingNodeShape(input))
         if (inputShapes.every((s): s is number[] => Array.isArray(s)) && inputShapes.length > 0) {
           const rank = inputShapes[0]!.length
           if (node.dim >= 0 && node.dim < rank && inputShapes.every((s) => s.length === rank)) {
@@ -1178,49 +1097,7 @@ function summarizeNodes(nodes: GraphNode[]) {
         break
       }
       case 'stack': {
-        const inputShapes = node.inputs.map((input) => inferNodeShape(input))
-        if (inputShapes.every((s): s is number[] => Array.isArray(s)) && inputShapes.length > 0) {
-          const base = inputShapes[0]!
-          if (inputShapes.every((s) => sameShape(s, base)) && node.dim >= 0 && node.dim <= base.length) {
-            shape = [...base]
-            shape.splice(node.dim, 0, inputShapes.length)
-          }
-        }
-        break
-      }
-      case 'dot': {
-        const leftShape = inferNodeShape(node.left)
-        const rightShape = inferNodeShape(node.right)
-        if (leftShape && rightShape && leftShape.length === 1 && rightShape.length === 1 && leftShape[0] === rightShape[0]) {
-          shape = [1]
-        }
-        break
-      }
-      case 'cat': {
-        const inputShapes = node.inputs.map((input) => inferNodeShape(input))
-        if (inputShapes.every((s): s is number[] => Array.isArray(s)) && inputShapes.length > 0) {
-          const rank = inputShapes[0]!.length
-          if (node.dim >= 0 && node.dim < rank && inputShapes.every((s) => s.length === rank)) {
-            const out = [...inputShapes[0]!]
-            let compatible = true
-            let dimSize = 0
-            for (const s of inputShapes) {
-              dimSize += s[node.dim]!
-              for (let i = 0; i < rank; i++) {
-                if (i === node.dim) continue
-                if (s[i] !== out[i]) compatible = false
-              }
-            }
-            if (compatible) {
-              out[node.dim] = dimSize
-              shape = out
-            }
-          }
-        }
-        break
-      }
-      case 'stack': {
-        const inputShapes = node.inputs.map((input) => inferNodeShape(input))
+        const inputShapes = node.inputs.map((input) => inferReportingNodeShape(input))
         if (inputShapes.every((s): s is number[] => Array.isArray(s)) && inputShapes.length > 0) {
           const base = inputShapes[0]!
           if (inputShapes.every((s) => sameShape(s, base)) && node.dim >= 0 && node.dim <= base.length) {
@@ -1231,9 +1108,9 @@ function summarizeNodes(nodes: GraphNode[]) {
         break
       }
       case 'where': {
-        const condShape = inferNodeShape(node.cond)
-        const trueShape = inferNodeShape(node.onTrue)
-        const falseShape = inferNodeShape(node.onFalse)
+        const condShape = inferReportingNodeShape(node.cond)
+        const trueShape = inferReportingNodeShape(node.onTrue)
+        const falseShape = inferReportingNodeShape(node.onFalse)
         if (condShape && trueShape && falseShape) {
           const condTrue = broadcastShapeRightAligned(condShape, trueShape)
           shape = condTrue ? broadcastShapeRightAligned(condTrue, falseShape) : null
@@ -1241,19 +1118,19 @@ function summarizeNodes(nodes: GraphNode[]) {
         break
       }
       case 'softmax':
-        shape = inferNodeShape(node.input)
+        shape = inferReportingNodeShape(node.input)
         break
       case 'cross_entropy_indexed':
         shape = [1]
         break
       case 'one_hot': {
-        const inputShape = inferNodeShape(node.input)
+        const inputShape = inferReportingNodeShape(node.input)
         shape = inputShape ? [...inputShape, node.numClasses] : null
         break
       }
       case 'index_select': {
-        const inputShape = inferNodeShape(node.input)
-        const indexShape = inferNodeShape(node.index)
+        const inputShape = inferReportingNodeShape(node.input)
+        const indexShape = inferReportingNodeShape(node.index)
         if (inputShape && indexShape && indexShape.length === 1 && node.dim >= 0 && node.dim < inputShape.length) {
           shape = [...inputShape]
           shape[node.dim] = indexShape[0]!
@@ -1261,21 +1138,15 @@ function summarizeNodes(nodes: GraphNode[]) {
         break
       }
       case 'gather':
-        shape = inferNodeShape(node.index)
+        shape = inferReportingNodeShape(node.index)
         break
       case 'topk_values':
       case 'topk_indices': {
-        const inputShape = inferNodeShape(node.input)
+        const inputShape = inferReportingNodeShape(node.input)
         if (inputShape && node.dim >= 0 && node.dim < inputShape.length) {
           shape = [...inputShape]
           shape[node.dim] = node.k
         }
-        break
-      }
-      case 'argmin':
-      case 'argmax': {
-        const inputShape = inferNodeShape(node.input)
-        shape = inputShape ? reduceShape(inputShape, node.axis, node.keepdim) : null
         break
       }
       case 'sum':
@@ -1286,65 +1157,14 @@ function summarizeNodes(nodes: GraphNode[]) {
       case 'max':
       case 'argmin':
       case 'argmax': {
-        const inputShape = inferNodeShape(node.input)
+        const inputShape = inferReportingNodeShape(node.input)
         shape = inputShape ? reduceShape(inputShape, node.axis, node.keepdim) : null
         break
       }
-      case 'masked_fill':
-        {
-          const inputShape = inferNodeShape(node.input)
-          const maskShape = inferNodeShape(node.mask)
-          shape = inputShape && maskShape ? broadcastShapeRightAligned(inputShape, maskShape) : null
-        }
-        break
-      case 'softmax':
-        shape = inferNodeShape(node.input)
-        break
-      case 'cross_entropy_indexed':
-        shape = [1]
-        break
-      case 'one_hot': {
-        const inputShape = inferNodeShape(node.input)
-        shape = inputShape ? [...inputShape, node.numClasses] : null
-        break
-      }
-      case 'index_select': {
-        const inputShape = inferNodeShape(node.input)
-        const indexShape = inferNodeShape(node.index)
-        if (inputShape && indexShape && indexShape.length === 1 && node.dim >= 0 && node.dim < inputShape.length) {
-          shape = [...inputShape]
-          shape[node.dim] = indexShape[0]!
-        }
-        break
-      }
-      case 'gather':
-        shape = inferNodeShape(node.index)
-        break
-      case 'topk_values':
-      case 'topk_indices': {
-        const inputShape = inferNodeShape(node.input)
-        if (inputShape && node.dim >= 0 && node.dim < inputShape.length) {
-          shape = [...inputShape]
-          shape[node.dim] = node.k
-        }
-        break
-      }
-      case 'argmin':
-      case 'argmax': {
-        const inputShape = inferNodeShape(node.input)
-        shape = inputShape ? reduceShape(inputShape, node.axis, node.keepdim) : null
-        break
-      }
-      case 'sum':
-      case 'mean':
-      case 'std':
-      case 'variance':
-      case 'min':
-      case 'max':
-      case 'argmin':
-      case 'argmax': {
-        const inputShape = inferNodeShape(node.input)
-        shape = inputShape ? reduceShape(inputShape, node.axis, node.keepdim) : null
+      case 'masked_fill': {
+        const inputShape = inferReportingNodeShape(node.input)
+        const maskShape = inferReportingNodeShape(node.mask)
+        shape = inputShape && maskShape ? broadcastShapeRightAligned(inputShape, maskShape) : null
         break
       }
     }
@@ -1360,7 +1180,7 @@ function summarizeNodes(nodes: GraphNode[]) {
           id: node.id,
           kind: node.kind,
           shape: inferShape(node.data),
-          outputShape: inferNodeShape(node.id),
+          outputShape: inferReportingNodeShape(node.id),
           dtype: node.dtype,
         }
       case 'input':
@@ -1368,7 +1188,7 @@ function summarizeNodes(nodes: GraphNode[]) {
           id: node.id,
           kind: node.kind,
           index: node.index,
-          outputShape: inferNodeShape(node.id),
+          outputShape: inferReportingNodeShape(node.id),
         }
       case 'neg':
       case 'relu':
@@ -1384,7 +1204,7 @@ function summarizeNodes(nodes: GraphNode[]) {
           id: node.id,
           kind: node.kind,
           input: node.input,
-          outputShape: inferNodeShape(node.id),
+          outputShape: inferReportingNodeShape(node.id),
         }
       case 'clamp':
         return {
@@ -1393,7 +1213,7 @@ function summarizeNodes(nodes: GraphNode[]) {
           input: node.input,
           min: node.min,
           max: node.max,
-          outputShape: inferNodeShape(node.id),
+          outputShape: inferReportingNodeShape(node.id),
         }
       case 'reshape':
         return {
@@ -1401,7 +1221,7 @@ function summarizeNodes(nodes: GraphNode[]) {
           kind: node.kind,
           input: node.input,
           shape: [...node.shape],
-          outputShape: inferNodeShape(node.id),
+          outputShape: inferReportingNodeShape(node.id),
         }
       case 'slice':
         return {
@@ -1409,7 +1229,7 @@ function summarizeNodes(nodes: GraphNode[]) {
           kind: node.kind,
           input: node.input,
           ranges: [...node.ranges],
-          outputShape: inferNodeShape(node.id),
+          outputShape: inferReportingNodeShape(node.id),
         }
       case 'squeeze':
         return {
@@ -1417,7 +1237,7 @@ function summarizeNodes(nodes: GraphNode[]) {
           kind: node.kind,
           input: node.input,
           axis: node.axis,
-          outputShape: inferNodeShape(node.id),
+          outputShape: inferReportingNodeShape(node.id),
         }
       case 'unsqueeze':
         return {
@@ -1425,14 +1245,14 @@ function summarizeNodes(nodes: GraphNode[]) {
           kind: node.kind,
           input: node.input,
           axis: node.axis,
-          outputShape: inferNodeShape(node.id),
+          outputShape: inferReportingNodeShape(node.id),
         }
       case 'transpose':
         return {
           id: node.id,
           kind: node.kind,
           input: node.input,
-          outputShape: inferNodeShape(node.id),
+          outputShape: inferReportingNodeShape(node.id),
         }
       case 'permute':
         return {
@@ -1440,7 +1260,7 @@ function summarizeNodes(nodes: GraphNode[]) {
           kind: node.kind,
           input: node.input,
           axes: [...node.axes],
-          outputShape: inferNodeShape(node.id),
+          outputShape: inferReportingNodeShape(node.id),
         }
       case 'contiguous':
       case 'cast':
@@ -1449,7 +1269,7 @@ function summarizeNodes(nodes: GraphNode[]) {
           id: node.id,
           kind: node.kind,
           input: node.input,
-          outputShape: inferNodeShape(node.id),
+          outputShape: inferReportingNodeShape(node.id),
         }
       case 'add':
       case 'sub':
@@ -1461,7 +1281,7 @@ function summarizeNodes(nodes: GraphNode[]) {
           kind: node.kind,
           left: node.left,
           right: node.right,
-          outputShape: inferNodeShape(node.id),
+          outputShape: inferReportingNodeShape(node.id),
         }
       case 'matmul':
       case 'dot':
@@ -1470,7 +1290,7 @@ function summarizeNodes(nodes: GraphNode[]) {
           kind: node.kind,
           left: node.left,
           right: node.right,
-          outputShape: inferNodeShape(node.id),
+          outputShape: inferReportingNodeShape(node.id),
         }
       case 'cat':
       case 'stack':
@@ -1479,7 +1299,7 @@ function summarizeNodes(nodes: GraphNode[]) {
           kind: node.kind,
           inputs: [...node.inputs],
           dim: node.dim,
-          outputShape: inferNodeShape(node.id),
+          outputShape: inferReportingNodeShape(node.id),
         }
       case 'where':
         return {
@@ -1488,7 +1308,7 @@ function summarizeNodes(nodes: GraphNode[]) {
           cond: node.cond,
           onTrue: node.onTrue,
           onFalse: node.onFalse,
-          outputShape: inferNodeShape(node.id),
+          outputShape: inferReportingNodeShape(node.id),
         }
       case 'masked_fill':
         return {
@@ -1497,7 +1317,7 @@ function summarizeNodes(nodes: GraphNode[]) {
           input: node.input,
           mask: node.mask,
           value: node.value,
-          outputShape: inferNodeShape(node.id),
+          outputShape: inferReportingNodeShape(node.id),
         }
       case 'softmax':
         return {
@@ -1505,7 +1325,7 @@ function summarizeNodes(nodes: GraphNode[]) {
           kind: node.kind,
           input: node.input,
           dim: node.dim,
-          outputShape: inferNodeShape(node.id),
+          outputShape: inferReportingNodeShape(node.id),
         }
       case 'cross_entropy_indexed':
         return {
@@ -1514,7 +1334,7 @@ function summarizeNodes(nodes: GraphNode[]) {
           logits: node.logits,
           targets: node.targets,
           axis: node.axis,
-          outputShape: inferNodeShape(node.id),
+          outputShape: inferReportingNodeShape(node.id),
         }
       case 'one_hot':
         return {
@@ -1522,7 +1342,7 @@ function summarizeNodes(nodes: GraphNode[]) {
           kind: node.kind,
           input: node.input,
           numClasses: node.numClasses,
-          outputShape: inferNodeShape(node.id),
+          outputShape: inferReportingNodeShape(node.id),
         }
       case 'index_select':
         return {
@@ -1531,7 +1351,7 @@ function summarizeNodes(nodes: GraphNode[]) {
           input: node.input,
           dim: node.dim,
           index: node.index,
-          outputShape: inferNodeShape(node.id),
+          outputShape: inferReportingNodeShape(node.id),
         }
       case 'gather':
         return {
@@ -1540,7 +1360,7 @@ function summarizeNodes(nodes: GraphNode[]) {
           input: node.input,
           dim: node.dim,
           index: node.index,
-          outputShape: inferNodeShape(node.id),
+          outputShape: inferReportingNodeShape(node.id),
         }
       case 'topk_values':
       case 'topk_indices':
@@ -1550,7 +1370,7 @@ function summarizeNodes(nodes: GraphNode[]) {
           input: node.input,
           k: node.k,
           dim: node.dim,
-          outputShape: inferNodeShape(node.id),
+          outputShape: inferReportingNodeShape(node.id),
         }
       case 'sum':
       case 'mean':
@@ -1566,7 +1386,7 @@ function summarizeNodes(nodes: GraphNode[]) {
           input: node.input,
           axis: node.axis,
           keepdim: node.keepdim,
-          outputShape: inferNodeShape(node.id),
+          outputShape: inferReportingNodeShape(node.id),
         }
     }
   })
@@ -1915,6 +1735,12 @@ function createCapturedProgram(state: CaptureState, output: CapturedValue): Capt
     inputCount: state.inputArity + state.boundInputs.length,
     outputId: canonical.rootId,
     nodes: canonical.nodes,
+    inferenceConflicts: state.inferenceConflicts.map((conflict) => ({
+      nodeId: conflict.nodeId,
+      kind: conflict.kind,
+      ts: { shape: [...conflict.ts.shape], dtype: conflict.ts.dtype },
+      core: { shape: [...conflict.core.shape], dtype: conflict.core.dtype },
+    })),
   }
 }
 
@@ -1928,6 +1754,20 @@ function createPlan(program: CapturedProgram): GraphPlan {
   return plan
 }
 
+function serializeNativeCapturedProgram(program: CapturedProgram): string {
+  return JSON.stringify({
+    inputArity: program.inputArity,
+    boundInputCount: program.boundInputCount,
+    inputCount: program.inputCount,
+    outputId: program.outputId,
+    nodes: program.nodes.map((node) => {
+      if (node.kind !== 'slice') return node
+      const { ranges: _ranges, ...nativeNode } = node
+      return nativeNode
+    }),
+  })
+}
+
 function summarizeCapturedProgram(program: CapturedProgram): CapturedProgramSummary {
   return {
     inputArity: program.inputArity,
@@ -1936,6 +1776,12 @@ function summarizeCapturedProgram(program: CapturedProgram): CapturedProgramSumm
     outputId: program.outputId,
     nodeCount: program.nodes.length,
     nodeKinds: Array.from(new Set(program.nodes.map((node) => node.kind))),
+    inferenceConflicts: program.inferenceConflicts.map((conflict) => ({
+      nodeId: conflict.nodeId,
+      kind: conflict.kind,
+      ts: { shape: [...conflict.ts.shape], dtype: conflict.ts.dtype },
+      core: { shape: [...conflict.core.shape], dtype: conflict.core.dtype },
+    })),
   }
 }
 
@@ -1945,9 +1791,15 @@ function summarizeExecutionGraph(program: CapturedProgram, specialized: boolean,
     inputCount: plan.inputCount,
     output: plan.outputId,
     nodes: summarizeNodes(plan.nodes),
+    inferenceConflicts: program.inferenceConflicts.map((conflict) => ({
+      nodeId: conflict.nodeId,
+      kind: conflict.kind,
+      ts: { shape: [...conflict.ts.shape], dtype: conflict.ts.dtype },
+      core: { shape: [...conflict.core.shape], dtype: conflict.core.dtype },
+    })),
     staticMetadata: {
       kind: 'provisional_capture_metadata',
-      source: 'ts_capture',
+      source: 'compute_core_with_ts_shadow',
       fields: ['nodes.outputShape'],
     },
     stats: summarizeStats(plan.nodes),
@@ -1972,6 +1824,7 @@ function captureGraph(fn: (...inputs: CapturedValue[]) => CapturedValue, arityOv
 
   const state: CaptureState = {
     nodes: [],
+    inferenceConflicts: [],
     nextId: 0,
     inputArity: arity,
     boundInputs: [],
@@ -1993,7 +1846,7 @@ function captureGraph(fn: (...inputs: CapturedValue[]) => CapturedValue, arityOv
   }
 
   const capturedProgram = createCapturedProgram(state, output)
-  const capturedProgramJson = JSON.stringify(capturedProgram)
+  const capturedProgramJson = serializeNativeCapturedProgram(capturedProgram)
   const nativeExecutable = (native as any).$create_compiled_executable_native(capturedProgramJson)
   const program: any = {}
   const materializeInputs = (inputs: NativeTensor[]) => inputs.concat(state.boundInputs.map((resolve) => resolve()))
@@ -2082,6 +1935,12 @@ function captureGraph(fn: (...inputs: CapturedValue[]) => CapturedValue, arityOv
     inputCount: capturedProgram.inputCount,
     outputId: capturedProgram.outputId,
     nodes: capturedProgram.nodes.map((node) => ({ ...node })),
+    inferenceConflicts: capturedProgram.inferenceConflicts.map((conflict) => ({
+      nodeId: conflict.nodeId,
+      kind: conflict.kind,
+      ts: { shape: [...conflict.ts.shape], dtype: conflict.ts.dtype },
+      core: { shape: [...conflict.core.shape], dtype: conflict.core.dtype },
+    })),
   })
   program.captureSummary = () => summarizeCapturedProgram(capturedProgram)
   return Object.freeze(program)

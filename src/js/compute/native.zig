@@ -17,6 +17,7 @@ const SliceRange = @import("../../compute/shared/types/operation/options.zig").S
 const grad_mode = @import("../../compute/grad_mode.zig");
 const captured_schema = @import("captured/schema.zig");
 const captured_lowering = @import("captured/lowering.zig");
+const captured_inference = @import("captured/inference.zig");
 const repr_common = @import("../../compute/shared/repr.zig");
 const compat = @import("../../support/compat.zig");
 
@@ -2383,6 +2384,7 @@ fn jsRowsAreOneHot(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [
 
 const functions = [_]abi.JSFunction{
     .{ .name = "$create_compiled_executable_native", .callback = jsCreateCompiledExecutable, .length = 1 },
+    .{ .name = "inferCapturedOp", .callback = captured_inference.jsInferCapturedOp, .length = 2 },
     .{ .name = "tensor", .callback = jsTensor, .length = 1 },
     .{ .name = "empty", .callback = jsEmpty, .length = 1 },
     .{ .name = "zeros", .callback = jsZeros, .length = 1 },

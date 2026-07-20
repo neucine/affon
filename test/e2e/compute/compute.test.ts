@@ -289,9 +289,10 @@ describe('compute', () => {
     expect(summary.templates).toEqual([])
     expect(summary.staticMetadata).toEqual({
       kind: 'provisional_capture_metadata',
-      source: 'ts_capture',
+      source: 'compute_core_with_ts_shadow',
       fields: ['nodes.outputShape'],
     })
+    expect(summary.inferenceConflicts).toEqual([])
     expect(summary.loweringAnalysis).toEqual({ lowerable: true })
 
     const compiledSummary = (compiled as any).summary()
@@ -323,6 +324,21 @@ describe('compute', () => {
     const compiledSummary = (compiled as any).summary()
     expect(compiledSummary.graphRuntime).toBe('native-graph')
     expect(compiledSummary.graphLoweringAnalysis).toEqual({ lowerable: true })
+  })
+
+  test('routes compiled negative slice selectors through native graph lowering', () => {
+    setDevice('cpu')
+
+    const compiled = compile((x) => x.slice(['-1:', ':']))
+    const x = tensor([[1, 2, 3], [4, 5, 6]], { dtype: 'f32' })
+
+    expect((compiled(x) as any).to_array()).toEqual([[4, 5, 6]])
+    expect((compiled.run(x) as any).to_array()).toEqual([[4, 5, 6]])
+
+    const graphProgram = (compiled as any).graph?.()
+    const summary = graphProgram.summary(x) as any
+    expect(summary.runtime).toBe('native-graph')
+    expect(summary.inferenceConflicts).toEqual([])
   })
 
   test('routes compiled softmax through native graph lowering', () => {

@@ -1,5 +1,6 @@
 const spec = @import("spec.zig");
 const infer_mod = @import("infer.zig");
+pub const slice = @import("slice.zig");
 
 pub const ExecutionKind = spec.ExecutionKind;
 pub const AllocationIntent = spec.AllocationIntent;
@@ -19,4 +20,5 @@ pub const inferFromSpecs = infer_mod.inferFromSpecs;
 test {
     _ = spec;
     _ = infer_mod;
+    _ = slice;
 }

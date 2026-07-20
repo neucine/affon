@@ -7,6 +7,14 @@ pub const CapturedMatmulExecutionJson = struct {
 
 pub const CapturedSliceRangeJson = @import("../../../compute/shared/types/operation/options.zig").SliceRange;
 
+pub const CapturedSliceSelectorJson = struct {
+    kind: []const u8,
+    index: ?i64 = null,
+    start: ?i64 = null,
+    stop: ?i64 = null,
+    step: ?isize = null,
+};
+
 pub const CapturedNodeJson = struct {
     id: u32,
     kind: []const u8,
@@ -28,6 +36,7 @@ pub const CapturedNodeJson = struct {
     shape: ?[]usize = null,
     axes: ?[]usize = null,
     inputs: ?[]u32 = null,
+    slice_selectors: ?[]CapturedSliceSelectorJson = null,
     slice_ranges: ?[]CapturedSliceRangeJson = null,
     data: ?f64 = null,
     value: ?f64 = null,

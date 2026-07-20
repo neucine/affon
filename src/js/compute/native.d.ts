@@ -15,6 +15,7 @@ declare module "affon:compute/native" {
   }
 
   const native: {
+    inferCapturedOp(kind: string, inputs: readonly { shape: readonly number[]; dtype: "f32" | "f64" | "i64"; device?: "cpu" | "metal" }[], options?: unknown): { shape: readonly number[]; dtype: "f32" | "f64" | "i64"; device: "cpu" | "metal" }
     tensor(values: number | readonly number[] | readonly (number | readonly number[])[], options?: { dtype?: "f32" | "f64" | "i64"; device?: "cpu" | "metal" }): Tensor
     empty(shape: readonly number[], options?: { dtype?: "f32" | "f64" | "i64"; device?: "cpu" | "metal" }): Tensor
     zeros(shape: readonly number[], options?: { dtype?: "f32" | "f64" | "i64"; device?: "cpu" | "metal" }): Tensor

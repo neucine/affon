@@ -6,6 +6,9 @@ const TensorSpec = @import("../shared/types/tensor/tensor_spec.zig").TensorSpec;
 const Shape = @import("../shared/types/tensor/shape.zig").Shape;
 const Layout = @import("../shared/types/tensor/layout.zig").Layout;
 const Op = @import("../shared/types/operation/op.zig").Op;
+const OpTag = @import("../shared/types/operation/tag.zig").OpTag;
+const OpOptions = @import("../shared/types/operation/options.zig").OpOptions;
+const ExecutionMetadata = @import("../shared/types/operation/execution_metadata.zig").ExecutionMetadata;
 const semantic = @import("../shared/sema/index.zig");
 
 pub fn addOpFromOp(
@@ -36,6 +39,44 @@ pub fn addOpFromOp(
     }
 
     const out = try graph.addOpWithExecutionMetadata(op.tag, input_ids, op.options, op.execution_metadata, primary);
+    const ids = try allocator.alloc(TensorId, 1);
+    ids[0] = out;
+    return ids;
+}
+
+pub fn addOpFromSpecs(
+    allocator: std.mem.Allocator,
+    graph: *Graph,
+    tag: OpTag,
+    input_ids: []const TensorId,
+    input_specs: []const TensorSpec,
+    options: OpOptions,
+    execution_metadata: ExecutionMetadata,
+) ![]TensorId {
+    if (input_ids.len != input_specs.len) return error.InputCountMismatch;
+    var info = try semantic.inferFromSpecs(allocator, tag, input_specs, options);
+    defer info.deinit();
+
+    const primary = TensorSpec{
+        .shape = info.shape,
+        .dtype = info.dtype,
+        .layout = info.layout,
+        .device = info.device,
+        .axes = info.axes,
+    };
+
+    if (info.secondary_output) |secondary| {
+        const secondary_spec = TensorSpec{
+            .shape = secondary.shape,
+            .dtype = secondary.dtype,
+            .layout = secondary.layout,
+            .device = info.device,
+            .axes = secondary.axes,
+        };
+        return graph.addOpMultiWithExecutionMetadata(tag, input_ids, options, execution_metadata, &.{ primary, secondary_spec });
+    }
+
+    const out = try graph.addOpWithExecutionMetadata(tag, input_ids, options, execution_metadata, primary);
     const ids = try allocator.alloc(TensorId, 1);
     ids[0] = out;
     return ids;

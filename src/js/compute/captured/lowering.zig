@@ -2,7 +2,9 @@ const std = @import("std");
 const compute = @import("../../../compute/core.zig");
 const diagnostic = @import("zig_libs").diagnostic;
 const schema = @import("schema.zig");
-const semantic = @import("../../../compute/shared/sema/index.zig");
+const slice_semantics = @import("../../../compute/shared/sema/slice.zig");
+const compose_builder = @import("../../../compute/compose/builder.zig");
+const captured_op_info = @import("op_info.zig");
 const ExecutionMetadata = @import("../../../compute/shared/types/operation/execution_metadata.zig").ExecutionMetadata;
 const HintSource = @import("../../../compute/plan/matmul.zig").HintSource;
 const GraphValueId = @import("../../../compute/shared/types/ir/index.zig").TensorId;
@@ -69,11 +71,7 @@ pub const LoweredCapturedGraph = struct {
     }
 };
 
-pub const OpInfo = struct {
-    tag: @import("../../../compute/shared/types/operation/tag.zig").OpTag,
-    options: @import("../../../compute/shared/types/operation/options.zig").OpOptions,
-    execution_metadata: ExecutionMetadata,
-};
+pub const OpInfo = captured_op_info.OpInfo;
 
 const lowering_failure_unsupported_node_kind = "unsupported_captured_node_kind";
 const lowering_failure_invalid_adapter_metadata = "invalid_adapter_metadata";
@@ -201,70 +199,74 @@ fn capturedNodeInputIds(
 }
 
 pub fn nodeTagAndOptions(node: CapturedNodeJson) !OpInfo {
-    if (std.mem.eql(u8, node.kind, "neg")) return .{ .tag = .neg, .options = .{ .none = {} }, .execution_metadata = .{} };
-    if (std.mem.eql(u8, node.kind, "relu")) return .{ .tag = .relu, .options = .{ .none = {} }, .execution_metadata = .{} };
-    if (std.mem.eql(u8, node.kind, "abs")) return .{ .tag = .abs, .options = .{ .none = {} }, .execution_metadata = .{} };
-    if (std.mem.eql(u8, node.kind, "exp")) return .{ .tag = .exp, .options = .{ .none = {} }, .execution_metadata = .{} };
-    if (std.mem.eql(u8, node.kind, "log")) return .{ .tag = .log, .options = .{ .none = {} }, .execution_metadata = .{} };
-    if (std.mem.eql(u8, node.kind, "sqrt")) return .{ .tag = .sqrt, .options = .{ .none = {} }, .execution_metadata = .{} };
-    if (std.mem.eql(u8, node.kind, "sigmoid")) return .{ .tag = .sigmoid, .options = .{ .none = {} }, .execution_metadata = .{} };
-    if (std.mem.eql(u8, node.kind, "silu")) return .{ .tag = .silu, .options = .{ .none = {} }, .execution_metadata = .{} };
-    if (std.mem.eql(u8, node.kind, "tanh")) return .{ .tag = .tanh, .options = .{ .none = {} }, .execution_metadata = .{} };
-    if (std.mem.eql(u8, node.kind, "sign")) return .{ .tag = .sign, .options = .{ .none = {} }, .execution_metadata = .{} };
-    if (std.mem.eql(u8, node.kind, "gelu")) return .{ .tag = .gelu, .options = .{ .none = {} }, .execution_metadata = .{} };
-    if (std.mem.eql(u8, node.kind, "add")) return .{ .tag = .add, .options = .{ .none = {} }, .execution_metadata = .{} };
-    if (std.mem.eql(u8, node.kind, "sub")) return .{ .tag = .sub, .options = .{ .none = {} }, .execution_metadata = .{} };
-    if (std.mem.eql(u8, node.kind, "mul")) return .{ .tag = .mul, .options = .{ .none = {} }, .execution_metadata = .{} };
-    if (std.mem.eql(u8, node.kind, "div")) return .{ .tag = .div, .options = .{ .none = {} }, .execution_metadata = .{} };
-    if (std.mem.eql(u8, node.kind, "gt")) return .{ .tag = .gt, .options = .{ .none = {} }, .execution_metadata = .{} };
-    if (std.mem.eql(u8, node.kind, "dot")) return .{ .tag = .dot, .options = .{ .none = {} }, .execution_metadata = .{} };
+    if (captured_op_info.noOptionKind(node.kind)) |info| return info;
     if (std.mem.eql(u8, node.kind, "reshape")) return .{ .tag = .reshape, .options = .{ .reshape = .{ .shape = node.shape orelse return error.InvalidGraphPlan } }, .execution_metadata = .{} };
-    if (std.mem.eql(u8, node.kind, "slice")) return .{ .tag = .slice, .options = .{ .slice = .{ .ranges = node.slice_ranges orelse return error.InvalidGraphPlan } }, .execution_metadata = .{} };
+    if (std.mem.eql(u8, node.kind, "slice")) return .{ .tag = .slice, .options = .{ .slice = .{ .ranges = node.slice_ranges orelse if (node.slice_selectors != null) &.{} else return error.InvalidGraphPlan } }, .execution_metadata = .{} };
     if (std.mem.eql(u8, node.kind, "squeeze")) return .{ .tag = .squeeze, .options = .{ .squeeze = .{ .axis = node.axis } }, .execution_metadata = .{} };
     if (std.mem.eql(u8, node.kind, "unsqueeze")) return .{ .tag = .unsqueeze, .options = .{ .unsqueeze = .{ .axis = node.axis orelse return error.InvalidGraphPlan } }, .execution_metadata = .{} };
-    if (std.mem.eql(u8, node.kind, "softmax")) return .{ .tag = .softmax, .options = .{ .softmax = .{ .axis = node.dim orelse node.axis orelse return error.InvalidGraphPlan } }, .execution_metadata = .{} };
-    if (std.mem.eql(u8, node.kind, "mean")) {
-        const keepdim = node.keepdim orelse false;
-        if (node.axis) |axis| return .{ .tag = .mean_axis, .options = .{ .reduce_axis = .{ .axis = axis, .keepdim = keepdim } }, .execution_metadata = .{} };
-        return .{ .tag = .mean_all, .options = .{ .reduce_all = .{ .keepdim = keepdim } }, .execution_metadata = .{} };
-    }
-    if (std.mem.eql(u8, node.kind, "variance")) {
-        const keepdim = node.keepdim orelse false;
-        if (node.axis) |axis| return .{ .tag = .variance_axis, .options = .{ .reduce_axis = .{ .axis = axis, .keepdim = keepdim } }, .execution_metadata = .{} };
-        return .{ .tag = .variance_all, .options = .{ .reduce_all = .{ .keepdim = keepdim } }, .execution_metadata = .{} };
-    }
-    if (std.mem.eql(u8, node.kind, "sum") or std.mem.eql(u8, node.kind, "min") or std.mem.eql(u8, node.kind, "max") or std.mem.eql(u8, node.kind, "std")) {
-        const keepdim = node.keepdim orelse false;
-        const OpTag = @import("../../../compute/shared/types/operation/tag.zig").OpTag;
-        const tag_all: OpTag = if (std.mem.eql(u8, node.kind, "sum")) .sum_all else if (std.mem.eql(u8, node.kind, "min")) .min_all else if (std.mem.eql(u8, node.kind, "max")) .max_all else .std_all;
-        const tag_axis: OpTag = if (std.mem.eql(u8, node.kind, "sum")) .sum_axis else if (std.mem.eql(u8, node.kind, "min")) .min_axis else if (std.mem.eql(u8, node.kind, "max")) .max_axis else .std_axis;
-        if (node.axis) |axis| return .{ .tag = tag_axis, .options = .{ .reduce_axis = .{ .axis = axis, .keepdim = keepdim } }, .execution_metadata = .{} };
-        return .{ .tag = tag_all, .options = .{ .reduce_all = .{ .keepdim = keepdim } }, .execution_metadata = .{} };
-    }
-    if (std.mem.eql(u8, node.kind, "argmin") or std.mem.eql(u8, node.kind, "argmax")) {
-        const keepdim = node.keepdim orelse false;
-        const OpTag = @import("../../../compute/shared/types/operation/tag.zig").OpTag;
-        const tag_all: OpTag = if (std.mem.eql(u8, node.kind, "argmin")) .argmin_all else .argmax_all;
-        const tag_axis: OpTag = if (std.mem.eql(u8, node.kind, "argmin")) .argmin_axis else .argmax_axis;
-        if (node.axis) |axis| return .{ .tag = tag_axis, .options = .{ .reduce_axis = .{ .axis = axis, .keepdim = keepdim } }, .execution_metadata = .{} };
-        return .{ .tag = tag_all, .options = .{ .reduce_all = .{ .keepdim = keepdim } }, .execution_metadata = .{} };
-    }
-    if (std.mem.eql(u8, node.kind, "transpose")) return .{ .tag = .transpose, .options = .{ .transpose = .{} }, .execution_metadata = .{} };
+    if (std.mem.eql(u8, node.kind, "softmax")) return captured_op_info.softmax(node.dim orelse node.axis orelse return error.InvalidGraphPlan);
+    if (captured_op_info.reduction(node.kind, node.axis, node.keepdim orelse false)) |info| return info;
+    if (std.mem.eql(u8, node.kind, "transpose")) return captured_op_info.transpose();
     if (std.mem.eql(u8, node.kind, "permute")) return .{ .tag = .permute, .options = .{ .permute = .{ .axes = node.axes orelse return error.InvalidGraphPlan } }, .execution_metadata = .{} };
-    if (std.mem.eql(u8, node.kind, "contiguous")) return .{ .tag = .contiguous, .options = .{ .none = {} }, .execution_metadata = .{} };
     if (std.mem.eql(u8, node.kind, "cast")) return .{ .tag = .cast, .options = .{ .cast = .{ .to = try parseDType(node.dtype orelse return error.InvalidGraphPlan) } }, .execution_metadata = .{} };
     if (std.mem.eql(u8, node.kind, "one_hot")) return .{ .tag = .one_hot, .options = .{ .one_hot = .{ .num_classes = node.numClasses orelse return error.InvalidGraphPlan } }, .execution_metadata = .{} };
     if (std.mem.eql(u8, node.kind, "clamp")) return .{ .tag = .clamp, .options = .{ .clamp = .{ .min = node.min orelse return error.InvalidGraphPlan, .max = node.max orelse return error.InvalidGraphPlan } }, .execution_metadata = .{} };
-    if (std.mem.eql(u8, node.kind, "where")) return .{ .tag = .where, .options = .{ .none = {} }, .execution_metadata = .{} };
-    if (std.mem.eql(u8, node.kind, "gather")) return .{ .tag = .gather, .options = .{ .gather = .{ .axis = node.dim orelse return error.InvalidGraphPlan } }, .execution_metadata = .{} };
-    if (std.mem.eql(u8, node.kind, "topk_values") or std.mem.eql(u8, node.kind, "topk_indices")) return .{ .tag = .topk, .options = .{ .topk = .{ .k = node.k orelse return error.InvalidGraphPlan, .axis = node.dim orelse return error.InvalidGraphPlan } }, .execution_metadata = .{} };
-    if (std.mem.eql(u8, node.kind, "cat")) return .{ .tag = .cat, .options = .{ .concat = .{ .axis = node.dim orelse return error.InvalidGraphPlan } }, .execution_metadata = .{} };
-    if (std.mem.eql(u8, node.kind, "stack")) return .{ .tag = .stack, .options = .{ .stack = .{ .axis = node.dim orelse return error.InvalidGraphPlan } }, .execution_metadata = .{} };
+    if (std.mem.eql(u8, node.kind, "gather")) return captured_op_info.gather(node.dim orelse return error.InvalidGraphPlan);
+    if (std.mem.eql(u8, node.kind, "topk_values") or std.mem.eql(u8, node.kind, "topk_indices")) {
+        return captured_op_info.topk(
+            node.kind,
+            node.k orelse return error.InvalidGraphPlan,
+            node.dim orelse return error.InvalidGraphPlan,
+            true,
+            true,
+        ) orelse error.UnsupportedGraphLowering;
+    }
+    if (std.mem.eql(u8, node.kind, "cat")) return captured_op_info.concat(node.dim orelse return error.InvalidGraphPlan);
+    if (std.mem.eql(u8, node.kind, "stack")) return captured_op_info.stack(node.dim orelse return error.InvalidGraphPlan);
     if (std.mem.eql(u8, node.kind, "masked_fill")) return .{ .tag = .masked_fill, .options = .{ .masked_fill = .{ .value = node.value orelse return error.InvalidGraphPlan } }, .execution_metadata = .{} };
-    if (std.mem.eql(u8, node.kind, "index_select")) return .{ .tag = .index_select, .options = .{ .index_select = .{ .axis = node.dim orelse return error.InvalidGraphPlan } }, .execution_metadata = .{} };
+    if (std.mem.eql(u8, node.kind, "index_select")) return captured_op_info.indexSelect(node.dim orelse return error.InvalidGraphPlan);
     if (std.mem.eql(u8, node.kind, "matmul")) return .{ .tag = .matmul, .options = .{ .none = {} }, .execution_metadata = try capturedMatmulExecutionMetadata(node.execution) };
-    if (std.mem.eql(u8, node.kind, "cross_entropy_indexed")) return .{ .tag = .cross_entropy_indexed, .options = .{ .cross_entropy_indexed = .{ .axis = node.axis orelse return error.InvalidGraphPlan } }, .execution_metadata = .{} };
+    if (std.mem.eql(u8, node.kind, "cross_entropy_indexed")) return captured_op_info.crossEntropyIndexed(node.axis orelse return error.InvalidGraphPlan);
     return error.UnsupportedGraphLowering;
+}
+
+fn readSliceSelectors(allocator: std.mem.Allocator, node: CapturedNodeJson) ![]slice_semantics.SliceSelector {
+    const source = node.slice_selectors orelse return error.InvalidGraphPlan;
+    const selectors = try allocator.alloc(slice_semantics.SliceSelector, source.len);
+    errdefer allocator.free(selectors);
+    for (source, selectors) |selector, *out| {
+        if (std.mem.eql(u8, selector.kind, "all")) {
+            out.* = .all;
+        } else if (std.mem.eql(u8, selector.kind, "index")) {
+            out.* = .{ .index = selector.index orelse return error.InvalidGraphPlan };
+        } else if (std.mem.eql(u8, selector.kind, "range")) {
+            out.* = .{ .range = .{
+                .start = selector.start,
+                .stop = selector.stop,
+                .step = selector.step orelse 1,
+            } };
+        } else {
+            return error.InvalidGraphPlan;
+        }
+    }
+    return selectors;
+}
+
+fn sliceOptionsForNode(allocator: std.mem.Allocator, node: CapturedNodeJson, input_shape: []const usize) !compute.operation.OpOptions {
+    if (node.slice_selectors != null) {
+        const selectors = try readSliceSelectors(allocator, node);
+        defer allocator.free(selectors);
+        const ranges = try slice_semantics.normalizeSelectors(allocator, input_shape, selectors);
+        return .{ .slice = .{ .ranges = ranges } };
+    }
+    return .{ .slice = .{ .ranges = try allocator.dupe(compute.operation.SliceRange, node.slice_ranges orelse return error.InvalidGraphPlan) } };
+}
+
+fn deinitLoweringOpOptions(allocator: std.mem.Allocator, options: compute.operation.OpOptions) void {
+    switch (options) {
+        .slice => |slice| allocator.free(slice.ranges),
+        else => {},
+    }
 }
 
 pub fn analyzeLowerability(
@@ -373,25 +375,9 @@ pub fn lowerToGraph(
             const input_specs = try allocator.alloc(compute.tensor.TensorSpec, node_inputs.len);
             defer allocator.free(input_specs);
             for (node_inputs, 0..) |input_id, i| input_specs[i] = lowered.graph.values.items[input_id].spec;
-            var inferred = try semantic.inferFromSpecs(allocator, op_info.tag, input_specs, op_info.options);
-            defer inferred.deinit();
-            const primary_spec = compute.tensor.TensorSpec{
-                .shape = inferred.shape,
-                .dtype = inferred.dtype,
-                .layout = inferred.layout,
-                .device = inferred.device,
-                .axes = inferred.axes,
-            };
-            const secondary = inferred.secondary_output orelse return error.InvalidGraphPlan;
-            const secondary_spec = compute.tensor.TensorSpec{
-                .shape = secondary.shape,
-                .dtype = secondary.dtype,
-                .layout = secondary.layout,
-                .device = inferred.device,
-                .axes = secondary.axes,
-            };
-            const output_ids = try lowered.graph.addOpMultiWithExecutionMetadata(op_info.tag, node_inputs, op_info.options, op_info.execution_metadata, &.{ primary_spec, secondary_spec });
+            const output_ids = try compose_builder.addOpFromSpecs(allocator, &lowered.graph, op_info.tag, node_inputs, input_specs, op_info.options, op_info.execution_metadata);
             defer allocator.free(output_ids);
+            if (output_ids.len != 2) return error.InvalidGraphPlan;
             try lowered.node_value_ids.put(node.id, output_ids[0]);
             try lowered.node_value_ids.put(node.id + 1, output_ids[1]);
             continue;
@@ -461,39 +447,28 @@ pub fn lowerToGraph(
             }
         }
 
-        const op_info = try nodeTagAndOptions(node);
         const input_specs = try allocator.alloc(compute.tensor.TensorSpec, node_inputs.len);
         defer allocator.free(input_specs);
         for (node_inputs, 0..) |input_id, i| input_specs[i] = lowered.graph.values.items[input_id].spec;
+        var owns_op_options = false;
+        const op_info: OpInfo = if (std.mem.eql(u8, node.kind, "slice")) blk: {
+            if (input_specs.len != 1) return error.InvalidGraphPlan;
+            const options = try sliceOptionsForNode(allocator, node, input_specs[0].shape.dims);
+            owns_op_options = true;
+            break :blk .{ .tag = .slice, .options = options, .execution_metadata = .{} };
+        } else try nodeTagAndOptions(node);
+        defer if (owns_op_options) deinitLoweringOpOptions(allocator, op_info.options);
 
-        var inferred = semantic.inferFromSpecs(allocator, op_info.tag, input_specs, op_info.options) catch |err| {
+        const output_ids = compose_builder.addOpFromSpecs(allocator, &lowered.graph, op_info.tag, node_inputs, input_specs, op_info.options, op_info.execution_metadata) catch |err| {
             return diagnostic.withError(
                 err,
-                "captured.lowering: infer failed for node {d} kind={s} op={s}",
+                "captured.lowering: add op failed for node {d} kind={s} op={s}",
                 .{ node.id, node.kind, @tagName(op_info.tag) },
             );
         };
-        defer inferred.deinit();
-        const output_spec = compute.tensor.TensorSpec{
-            .shape = inferred.shape,
-            .dtype = inferred.dtype,
-            .layout = inferred.layout,
-            .device = inferred.device,
-            .axes = inferred.axes,
-        };
-        const graph_value_id = lowered.graph.addOpWithExecutionMetadata(
-            op_info.tag,
-            node_inputs,
-            op_info.options,
-            op_info.execution_metadata,
-            output_spec,
-        ) catch |err| {
-            return diagnostic.withError(
-                err,
-                "captured.lowering: graph addOp failed for node {d} kind={s} op={s}",
-                .{ node.id, node.kind, @tagName(op_info.tag) },
-            );
-        };
+        defer allocator.free(output_ids);
+        if (output_ids.len != 1) return error.InvalidGraphPlan;
+        const graph_value_id = output_ids[0];
         if (node.module_path) |module_path| {
             lowered.graph.nodes.items[lowered.graph.nodes.items.len - 1].module_path = try allocator.dupe(u8, module_path);
         }

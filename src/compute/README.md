@@ -81,3 +81,23 @@ language bindings should enter through engine or sanctioned compose/capture APIs
 
 `engine` should not own local sema calls directly. It should ask compose or plan
 to produce the next pipeline artifact.
+
+## Binding Boundary
+
+Language bindings adapt their host representation into compute vocabulary; they
+do not own compute semantics.
+
+- TS capture owns syntax and graph-node construction for the JS surface.
+- Captured lowering owns conversion from captured JSON into compose inputs.
+- Captured op-name mapping is shared inside the binding adapter so JS inference
+  and JSON lowering cannot drift on basic vocabulary.
+- `shared/sema` is the metadata authority. Captured metadata should be resolved
+  by compute core through the native inference bridge when input metadata is
+  available.
+- TS shadow metadata is compatibility fallback only. If it disagrees with
+  compute core, the binding records `inferenceConflicts` rather than silently
+  choosing the TS answer.
+- Summary/export shape fields are reporting metadata. They may provide
+  best-effort display shapes, but they are not graph construction semantics.
+- Captured lowering should add operations through compose APIs such as the graph
+  builder, not by directly rebuilding output specs in the binding layer.
