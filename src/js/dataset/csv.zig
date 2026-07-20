@@ -32,7 +32,7 @@ const CSVParser = struct {
         return CSVParser{
             .allocator = allocator,
             .source = source,
-            .buf = try page_alloc.alloc(u8, cfg.config.csv.chunk_size),
+            .buf = try page_alloc.alloc(u8, cfg.config.read().csv.chunk_size.get()),
             .buf_len = 0,
             .buf_pos = 0,
             .source_pos = 0,

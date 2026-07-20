@@ -13,7 +13,7 @@ function trackedF32(data: number[][][]): any {
 
 function metricValue(group: string, name: string): number {
   return telemetry.metrics()
-    .filter((metric: any) => metric.group === group && metric.name === name)
+    .filter((metric: any) => metric.scope === group && metric.name === name)
     .reduce((sum: number, metric: any) => sum + metric.value, 0)
 }
 

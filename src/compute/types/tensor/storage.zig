@@ -59,6 +59,8 @@ var live_objects = std.atomic.Value(i64).init(0);
 var peak_bytes = std.atomic.Value(i64).init(0);
 var live_cpu_bytes = std.atomic.Value(i64).init(0);
 var live_metal_bytes = std.atomic.Value(i64).init(0);
+var peak_cpu_bytes = std.atomic.Value(i64).init(0);
+var peak_metal_bytes = std.atomic.Value(i64).init(0);
 
 fn updateMax(target: *std.atomic.Value(i64), value: i64) void {
     var current = target.load(.monotonic);
@@ -77,10 +79,19 @@ fn updateStorageMetrics(device: Device, delta: i64) void {
         .cpu => live_cpu_bytes.fetchAdd(delta, .monotonic) + delta,
         .metal => live_metal_bytes.fetchAdd(delta, .monotonic) + delta,
     };
+    const device_peak = switch (device) {
+        .cpu => &peak_cpu_bytes,
+        .metal => &peak_metal_bytes,
+    };
+    updateMax(device_peak, device_live);
     telemetry.set(switch (device) {
         .cpu => telemetry.metrics.storage.live_cpu_bytes,
         .metal => telemetry.metrics.storage.live_metal_bytes,
     }, device_live);
+    telemetry.set(switch (device) {
+        .cpu => telemetry.metrics.storage.peak_cpu_bytes,
+        .metal => telemetry.metrics.storage.peak_metal_bytes,
+    }, device_peak.load(.monotonic));
 }
 
 fn recordEvent(event: Event) void {

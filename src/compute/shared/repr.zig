@@ -25,13 +25,13 @@ pub const ReprOpts = struct {
 
 pub fn defaultOpts() ReprOpts {
     return .{
-        .max_rows = cfg.config.repr.repr_max_rows,
-        .max_cols = cfg.config.repr.repr_max_cols,
+        .max_rows = cfg.config.read().repr.repr_max_rows.get(),
+        .max_cols = cfg.config.read().repr.repr_max_cols.get(),
     };
 }
 
 pub fn compactMaxItems() usize {
-    return cfg.config.repr.max_items;
+    return cfg.config.read().repr.max_items.get();
 }
 
 pub fn formatCompact(data: *Tensor, is_tensor: bool, requires_grad: bool) ![]u8 {

@@ -21,10 +21,19 @@ var mu: compat.Mutex = .{};
 var pool = std.AutoHashMapUnmanaged(usize, std.ArrayListUnmanaged(*anyopaque)){};
 var pooled_bytes = std.atomic.Value(usize).init(0);
 var pooled_buffers = std.atomic.Value(usize).init(0);
+var peak_pooled_bytes = std.atomic.Value(usize).init(0);
 
 fn publishPoolGauges() void {
     telemetry.set(telemetry.metrics.memory.pool_live_bytes, @intCast(pooled_bytes.load(.monotonic)));
     telemetry.set(telemetry.metrics.memory.pool_live_buffers, @intCast(pooled_buffers.load(.monotonic)));
+    telemetry.set(telemetry.metrics.memory.pool_peak_bytes, @intCast(peak_pooled_bytes.load(.monotonic)));
+}
+
+fn updatePoolPeak(value: usize) void {
+    var current = peak_pooled_bytes.load(.monotonic);
+    while (value > current) {
+        current = peak_pooled_bytes.cmpxchgWeak(current, value, .monotonic, .monotonic) orelse return;
+    }
 }
 
 pub fn resolveRegion(device: Device, policy: AllocationPolicy) !Region {
@@ -217,6 +226,7 @@ fn returnPooled(byte_len: usize, handle: *anyopaque) bool {
 
     _ = pooled_bytes.fetchAdd(byte_len, .monotonic);
     _ = pooled_buffers.fetchAdd(1, .monotonic);
+    updatePoolPeak(pooled_bytes.load(.monotonic));
     telemetry.add(telemetry.metrics.memory.pool_stores, 1);
     publishPoolGauges();
     return true;

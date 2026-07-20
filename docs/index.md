@@ -7,11 +7,8 @@ Current public module taxonomy:
 - `affon:nn` for model-building on top of compute
 - `affon:dataset` for ingest, preprocessing, and batching
 - `affon:checkpoint` for training-state persistence and restoration
-- `affon:embed` for embedding-model inference
-- `affon:plot` for plotting
-- `affon:ffi` for raw C ABI calls and the higher-level `c.decl(...)` C binding layer
-- `affon:process`, `affon:fs`, and `affon:http` for focused runtime/system interop
-- `affon:test` and `affon:util` for built-in test and utility helpers
+- `affon:test` for built-in test helpers
+- `std:*` runtime modules for filesystem, process, telemetry, and other runtime services
 
 ## Getting Started
 
@@ -36,6 +33,6 @@ Current public module taxonomy:
 ## Runtime & Interop
 
 - [Install](./runtime/install.md)
-- [FFI](./runtime/ffi.md) - raw `affon:ffi` plus its higher-level `c` C interop export
+- [Configuration](./runtime/configuration.md) - environment variables, startup/runtime mutability, and legacy aliases
 - [Module Loader](./runtime/module-loader.md) - supported ESM/package subset and current compatibility boundary
-- [Memory Debugging](./runtime/memory-debugging.md) - metrics, trace collection, observer endpoints, and cache trimming
+- [Memory Debugging](./runtime/memory-debugging.md) - metrics, trace collection, and cache trimming

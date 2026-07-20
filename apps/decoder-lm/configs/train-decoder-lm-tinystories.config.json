@@ -1,0 +1,67 @@
+{
+  "device": "cpu",
+  "tokenizer": {
+    "family": "hf-tokenizer-json",
+    "path": "apps/decoder-lm/data/tinystories-tokenizer.json",
+    "specialTokens": {
+      "eos": "<|endoftext|>",
+      "pad": "<|padding|>"
+    }
+  },
+  "corpus": {
+    "paths": [
+      "apps/decoder-lm/data/tinystories-train.txt"
+    ],
+    "validationPaths": [
+      "apps/decoder-lm/data/tinystories-validation.txt"
+    ],
+    "tokenCachePath": "apps/decoder-lm/artifacts/tinystories/train-cache.json",
+    "validationTokenCachePath": "apps/decoder-lm/artifacts/tinystories/validation-cache.json",
+    "addBos": false,
+    "addEos": true,
+    "seqLen": 128,
+    "stride": 64,
+    "shuffle": true
+  },
+  "model": {
+    "dModel": 128,
+    "numLayers": 4,
+    "numHeads": 4,
+    "hiddenDim": 512,
+    "causal": true,
+    "positional": "learned",
+    "maxSeqLen": 128,
+    "tieEmbeddings": true
+  },
+  "training": {
+    "epochs": 10,
+    "batchSize": 8,
+    "lr": 0.0003
+  },
+  "checkpoint": {
+    "prefix": "apps/decoder-lm/artifacts/tinystories/run",
+    "everyNEpochs": 2,
+    "resumeFrom": "apps/decoder-lm/artifacts/tinystories/run-epoch-30",
+    "metadata": {
+      "dataset": "TinyStories"
+    }
+  },
+  "report": {
+    "progress": {
+      "trainPhase": true,
+      "trainLossEveryBatches": 1,
+      "evalEveryBatches": 10,
+      "epochSummary": true
+    },
+    "sample": {
+      "prompt": "Once upon a time",
+      "max_new_tokens": 32,
+      "everyNEpochs": 1,
+      "temperature": 0.8,
+      "top_k": 20,
+      "addBos": false,
+      "skipSpecialTokens": true,
+      "banSpecialTokens": true
+    }
+  }
+}

@@ -1,0 +1,95 @@
+{
+  "device": "metal",
+  "tokenizer": {
+    "family": "hf-tokenizer-json",
+    "path": "apps/decoder-lm/data/wikitext-gpt2-tokenizer.json",
+    "specialTokens": {
+      "eos": "<|endoftext|>"
+    }
+  },
+  "corpus": {
+    "paths": [
+      "apps/decoder-lm/data/wikitext-2-train.txt"
+    ],
+    "validationPaths": [
+      "apps/decoder-lm/data/wikitext-2-validation.txt"
+    ],
+    "tokenCachePath": "apps/decoder-lm/artifacts/wikitext/train-clean-cache.json",
+    "tokenCacheKey": "wikitext-2-gpt2-clean-v1",
+    "validationTokenCachePath": "apps/decoder-lm/artifacts/wikitext/validation-clean-cache.json",
+    "validationTokenCacheKey": "wikitext-2-gpt2-clean-v1",
+    "preprocess": {
+      "replacements": [
+        { "from": " @-@ ", "to": "-" },
+        { "from": " @,@ ", "to": "," },
+        { "from": "<unk>", "to": "" }
+      ],
+      "normalizeWhitespace": true
+    },
+    "addBos": false,
+    "addEos": true,
+    "seqLen": 256,
+    "stride": 128,
+    "shuffle": true
+  },
+  "model": {
+    "dModel": 256,
+    "numLayers": 6,
+    "numHeads": 8,
+    "hiddenDim": 1024,
+    "causal": true,
+    "positional": "learned",
+    "maxSeqLen": 256,
+    "tieEmbeddings": true
+  },
+  "training": {
+    "epochs": 5,
+    "batchSize": 4,
+    "compileModelForward": true,
+    "validationBatchSize": 8,
+    "lrSchedule": {
+      "kind": "warmup_cosine",
+      "start": 0.00001,
+      "peak": 0.0001,
+      "end": 0.000002,
+      "warmup": {
+        "unit": "step",
+        "value": 500
+      },
+      "total": {
+        "unit": "step",
+        "value": 37888
+      }
+    },
+    "maxGradNorm": 1.0,
+    "maxTrainBatchesPerEpoch": 1250,
+    "maxEvalBatches": 20,
+    "shuffleSeed": 123
+  },
+  "checkpoint": {
+    "prefix": "apps/decoder-lm/artifacts/wikitext/wikitext-canary",
+    "resumeStrategy": "exact",
+    "restoreOptimizerState": false,
+    "everyNEpochs": 0,
+    "everyNSteps": 0,
+    "metadata": {
+      "dataset": "WikiText-2",
+      "run": "wikitext-canary"
+    }
+  },
+  "report": {
+    "progress": {
+      "trainPhase": false,
+      "trainLossEveryBatches": 25,
+      "runtimeStatsEveryBatches": 25,
+      "evalEveryBatches": 10,
+      "epochSummary": true
+    },
+    "summaryPath": "apps/decoder-lm/artifacts/wikitext/wikitext-canary-summary.json",
+    "monitor": {
+      "everyBatches": 25,
+      "maxSamples": 256,
+      "path": "apps/decoder-lm/artifacts/wikitext/wikitext-canary-monitor.json"
+    }
+  }
+}

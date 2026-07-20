@@ -10,7 +10,7 @@ function metricValue(
   group: string,
   name: string,
 ): number {
-  const entry = metrics.find((metric) => metric.group === group && metric.name === name)
+  const entry = metrics.find((metric) => metric.scope === group && metric.name === name)
   return entry?.value ?? 0
 }
 

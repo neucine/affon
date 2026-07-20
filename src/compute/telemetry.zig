@@ -69,6 +69,8 @@ pub const metrics = struct {
         pub const peak_bytes = gauge(.storage, "peak_bytes", .bytes);
         pub const live_cpu_bytes = gauge(.storage, "live_cpu_bytes", .bytes);
         pub const live_metal_bytes = gauge(.storage, "live_metal_bytes", .bytes);
+        pub const peak_cpu_bytes = gauge(.storage, "peak_cpu_bytes", .bytes);
+        pub const peak_metal_bytes = gauge(.storage, "peak_metal_bytes", .bytes);
     };
 
     pub const memory = struct {
@@ -79,6 +81,7 @@ pub const metrics = struct {
         pub const pool_trims = counter(.memory, "metal_pool_trims");
         pub const pool_live_bytes = gauge(.memory, "metal_pool_live_bytes", .bytes);
         pub const pool_live_buffers = gauge(.memory, "metal_pool_live_buffers", .count);
+        pub const pool_peak_bytes = gauge(.memory, "metal_pool_peak_bytes", .bytes);
         pub const pool_trim_bytes = counter(.memory, "metal_pool_trim_bytes");
         pub const region_host_owned_bytes = gauge(.memory, "region_compute_host_owned_bytes", .bytes);
         pub const region_host_scratch_bytes = gauge(.memory, "region_compute_host_scratch_bytes", .bytes);

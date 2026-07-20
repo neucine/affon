@@ -1,132 +1,26 @@
 # Memory Debugging
 
-Affon now exposes memory diagnostics through `Affon.metrics()` and cache trimming through `Affon.trimMemory()`.
+Affon exposes runtime and compute diagnostics through `std:telemetry` and cache
+trimming through `Affon.trimMemory()`.
 
-- `Affon.metrics()` returns a flat metric snapshot (`domain`, `group`, `name`, `kind`, `unit`, `value`).
+- `telemetry.metrics()` returns a flat metric snapshot (`id`, `scope`, `name`, `kind`, `unit`, `value`, `count`, `sum`, `min`, `max`).
 - `Affon.trimMemory()` trims internal caches and returns released bytes.
 
-For long-running CLI jobs, Affon can also expose a local read-only observer:
-
-- enable with `AFFON_OBSERVER_ENABLED=1`
-- optional port override with `AFFON_OBSERVER_PORT=<port>`
-- if the port is `0` or omitted, Affon binds an ephemeral local port on `127.0.0.1`
-
-The local HTTP observer depends on the native networking substrate being enabled in the build. If that substrate is unavailable, `Affon.metrics()`, `Affon.trace(...)`, and `Affon.span(...)` remain available in-process, but the HTTP observer endpoint is not started.
-
-Current Phase 1 endpoints:
-
-- `GET /health`
-- `GET /runtime`
-- `GET /metrics`
-- `GET /traces?since=<cursor>&limit=<n>`
-- `PATCH /runtime`
-
 Example:
 
-```sh
-AFFON_OBSERVER_ENABLED=1 AFFON_OBSERVER_PORT=0 affon run script.ts
+```ts
+import telemetry from 'std:telemetry'
+
+const snapshot = telemetry.metrics()
+const metalPoolBytes = snapshot.find(
+  (metric) => metric.scope === 'compute.memory' && metric.name === 'metal_pool_live_bytes',
+)?.value ?? 0
 ```
 
-Affon prints the bound URL to stderr, for example:
-
-```txt
-Affon observer listening on http://127.0.0.1:56513
-```
-
-Then you can poll it externally:
-
-```sh
-curl http://127.0.0.1:56513/metrics
-```
-
-Inspect current runtime state and runtime-mutable config:
-
-```sh
-curl http://127.0.0.1:56513/runtime
-```
-
-Or use the repo helper for periodic polling:
-
-```sh
-tools/observe_runtime.py http://127.0.0.1:56513 --endpoint metrics --interval 2
-```
-
-For recent completed spans:
-
-```sh
-curl "http://127.0.0.1:56513/traces?since=0&limit=64"
-```
-
-The trace response includes:
-
-- `events`: recent completed spans
-- `next_cursor`: the next cursor to use for incremental polling
-- `dropped_before_cursor`: whether the requested cursor was older than the bounded in-memory window
-
-Trace filters are optional and apply after the bounded recent-span snapshot is copied:
-
-- `domain=<runtime|compute|memory|support>`
-- `group=<group>`
-- `name=<span-name>`
-- `min_elapsed_ns=<threshold>`
-
-Example:
-
-```sh
-curl "http://127.0.0.1:56513/traces?since=120&limit=32&domain=compute&group=execution&min_elapsed_ns=1000000"
-```
-
-The same filters work through the helper:
-
-```sh
-tools/observe_runtime.py http://127.0.0.1:56513 --endpoint traces --interval 1 --limit 32 --domain compute --group execution --min-elapsed-ns 1000000
-```
-
-## Runtime Config Control
-
-`GET /runtime` returns:
-
-- process/runtime metadata
-- observer bind info
-- current runtime-mutable config
-
-Today the returned config includes:
-
-- `device`
-- `csv`
-- `repr`
-- `trace`
-
-`PATCH /runtime` supports controlled live mutation of the runtime-mutable trace
-emit policy.
-
-Example:
-
-```sh
-curl -X PATCH http://127.0.0.1:56513/runtime \
-  -H 'Content-Type: application/json' \
-  --data '{
-    "config": {
-      "trace": {
-        "enabled": true,
-        "min_elapsed_ns": 1000000,
-        "sample_rate": 0.25
-      }
-    }
-  }'
-```
-
-Current writable trace fields:
-
-- `enabled`
-- `min_elapsed_ns`
-- `sample_rate`
-
-Rules:
-
-- `sample_rate` must be between `0` and `1`
-- `min_elapsed_ns` must be a non-negative integer
-- bootstrap-only settings are not writable through `/runtime`
+The old `src/obs` API has been retired in this package boundary. Runtime
+metrics and traces are exposed through Hao's `std:telemetry` module, using
+`scope` strings such as `runtime.memory`, `compute.storage`, and
+`compute.execution`.
 
 ## Quick Workflow
 
@@ -138,11 +32,13 @@ Rules:
 Example:
 
 ```ts
-const before = Affon.metrics();
+import telemetry from 'std:telemetry'
+
+const before = telemetry.metrics();
 runWork();
-const after = Affon.metrics();
+const after = telemetry.metrics();
 const trimmed = Affon.trimMemory();
-const postTrim = Affon.metrics();
+const postTrim = telemetry.metrics();
 
 console.log('trimmed bytes', trimmed);
 console.log(before.length, after.length, postTrim.length);
@@ -152,22 +48,37 @@ console.log(before.length, after.length, postTrim.length);
 
 Look for metrics with:
 
-- `domain === "memory"`
-- `group === "owned.current_bytes"`
-- `group === "observed.current_bytes"`
-- `group === "allocator.events"`
+- `scope === "runtime.memory"` for Hao runtime allocator/process memory
+- `scope === "compute.storage"` for tensor storage allocations and live bytes
+- `scope === "compute.memory"` for Affon compute memory regions and Metal pool activity
 
-Typical examples include CPU/Metal live bytes, pool bytes, process footprint, and allocator event counters.
+Typical examples include CPU/Metal live bytes, CPU/Metal peak bytes, pool bytes,
+process footprint, and allocator event counters.
 
-Additional useful categories:
+Useful compute storage metrics:
 
-- `group === "owned.current_count"`
-- `group === "observed.current_count"`
-- `group === "owned.peak_bytes"`
-- compute-domain `execution.graph_fusion` counters when checking graph execution plans against fusion execution
+- `scope === "compute.storage" && name === "live_bytes"`
+- `scope === "compute.storage" && name === "peak_bytes"`
+- `scope === "compute.storage" && name === "live_cpu_bytes"`
+- `scope === "compute.storage" && name === "peak_cpu_bytes"`
+- `scope === "compute.storage" && name === "live_metal_bytes"`
+- `scope === "compute.storage" && name === "peak_metal_bytes"`
+
+Useful compute memory metrics:
+
+- `scope === "compute.memory" && name === "metal_pool_live_bytes"`
+- `scope === "compute.memory" && name === "metal_pool_peak_bytes"`
+- `scope === "compute.memory" && name === "metal_pool_live_buffers"`
+- `scope === "compute.memory" && name === "metal_pool_hits"`
+- `scope === "compute.memory" && name === "metal_pool_misses"`
+- `scope === "compute.memory" && name === "metal_pool_trim_bytes"`
+
+Use `scope === "compute.execution"` counters such as `fusion_fallback`,
+`transfer_to_host_bytes`, and `contiguity_fixup_bytes` when checking execution
+plans, backend transfer churn, or graph fusion behavior.
 
 ## Regression Fixture
 
 See:
 
-- [test/e2e/config/memory-regression.test.ts](/Users/chao.yang/Private/affon/test/e2e/config/memory-regression.test.ts)
+- [packages/lm/test/memory.test.ts](/Users/chao.yang/Private/affon-next/packages/lm/test/memory.test.ts)
