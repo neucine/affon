@@ -4,7 +4,7 @@ const hao = @import("hao");
 
 fn usage() void {
     std.debug.print(
-        "Usage:\n  affon test [--grep pattern] <file.ts|directory>...\n",
+        "Usage:\n  affon run <file.ts|file.js>\n  affon test [--grep pattern] <file.ts|directory>...\n",
         .{},
     );
 }
@@ -22,6 +22,28 @@ pub fn main(init: std.process.Init) !void {
         usage();
         std.process.exit(2);
     };
+    if (std.mem.eql(u8, command, "run")) {
+        const path = args.next() orelse {
+            usage();
+            std.process.exit(2);
+        };
+        if (args.next() != null) {
+            usage();
+            std.process.exit(2);
+        }
+        var environment = try hao.RuntimeEnvironment.initWithIo(allocator, init.io, .{ .std = true });
+        defer environment.deinit();
+        try affon.register(&environment);
+        environment.runFile(path) catch |err| {
+            if (hao.module.lastError()) |message| std.debug.print("{s}\n", .{message});
+            return err;
+        };
+        environment.runUntilIdle() catch |err| {
+            if (hao.module.lastError()) |message| std.debug.print("{s}\n", .{message});
+            return err;
+        };
+        return;
+    }
     if (!std.mem.eql(u8, command, "test")) {
         usage();
         std.process.exit(2);

@@ -5,7 +5,7 @@ const Storage = @import("../../types/tensor/storage.zig").Storage;
 const telemetry = @import("../../telemetry.zig");
 const Op = @import("../../types/operation/op.zig").Op;
 const Device = @import("../../types/tensor/device.zig").Device;
-const errors = @import("../../errors.zig");
+const diagnostic = @import("zig_libs").diagnostic;
 const Shape = @import("../../types/tensor/shape.zig").Shape;
 const Layout = @import("../../types/tensor/layout.zig").Layout;
 const TensorSpec = @import("../../types/tensor/tensor_spec.zig").TensorSpec;
@@ -28,7 +28,7 @@ fn metricAdd(definition: telemetry.MetricDefinition, delta: i64) void {
 }
 
 fn metricSink() execution_metrics.Sink {
-    return .{ .telemetry = telemetry.current() };
+    return .{};
 }
 
 fn recordTransferSummary(summary: transfer_execution.TransferSummary) void {
@@ -252,7 +252,7 @@ fn dispatchScatterAdd(op: Op, plan: *const EagerOpPlan, output: *Storage) !void 
 
 fn validateInputsForPlan(op: Op, plan: *const EagerOpPlan) !void {
     if (op.inputs.len != plan.inputs.len) {
-        return errors.nativeErrorWithCurrent(
+        return diagnostic.withError(
             error.InputCountMismatch,
             "eager.plan: input count mismatch (op={d}, plan={d})",
             .{ op.inputs.len, plan.inputs.len },
@@ -260,7 +260,7 @@ fn validateInputsForPlan(op: Op, plan: *const EagerOpPlan) !void {
     }
     switch (inputLayoutDecisionForPlan(plan)) {
         .accept, .pack_to_dense => {},
-        .unsupported => return errors.nativeErrorWithCurrent(
+        .unsupported => return diagnostic.withError(
             error.ExecutionNotImplemented,
             "eager.plan: input layout unsupported by kernel capability",
             .{},
@@ -270,42 +270,42 @@ fn validateInputsForPlan(op: Op, plan: *const EagerOpPlan) !void {
     for (op.inputs, 0..) |input, i| {
         const spec = plan.inputs[i];
         const device = input.device() orelse {
-            return errors.nativeErrorWithCurrent(
+            return diagnostic.withError(
                 error.InputNotMaterialized,
                 "eager.plan: input[{d}] not materialized",
                 .{i},
             );
         };
         if (device != plan.device or device != spec.device) {
-            return errors.nativeErrorWithCurrent(
+            return diagnostic.withError(
                 error.DeviceMismatch,
                 "eager.plan: input[{d}] device mismatch (input={s}, plan={s}, spec={s})",
                 .{ i, @tagName(device), @tagName(plan.device), @tagName(spec.device) },
             );
         }
         if (input.dtype != spec.dtype) {
-            return errors.nativeErrorWithCurrent(
+            return diagnostic.withError(
                 error.DTypeMismatch,
                 "eager.plan: input[{d}] dtype mismatch (input={s}, spec={s})",
                 .{ i, @tagName(input.dtype), @tagName(spec.dtype) },
             );
         }
         if (!@import("../../types/tensor/shape.zig").Shape.eql(input.shape, spec.shape)) {
-            return errors.nativeErrorWithCurrent(
+            return diagnostic.withError(
                 error.ShapeMismatch,
                 "eager.plan: input[{d}] shape mismatch",
                 .{i},
             );
         }
         if (plan.input_requirement == .require_contiguous_input and !input.layout.isContiguous(input.shape)) {
-            return errors.nativeErrorWithCurrent(
+            return diagnostic.withError(
                 error.InputNotContiguous,
                 "eager.plan: input[{d}] must be contiguous",
                 .{i},
             );
         }
         if (plan.input_requirement == .require_storage and input.storage == null) {
-            return errors.nativeErrorWithCurrent(
+            return diagnostic.withError(
                 error.InputNotMaterialized,
                 "eager.plan: input[{d}] requires storage",
                 .{i},

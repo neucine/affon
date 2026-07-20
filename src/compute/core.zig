@@ -9,7 +9,6 @@ pub const eager = execution.eager;
 pub const graph = execution.graph;
 pub const Engine = @import("engine.zig").Engine;
 pub const telemetry = @import("telemetry.zig");
-pub const Telemetry = telemetry.Interface;
 pub const telemetry_types = telemetry;
 
 test {

@@ -7,7 +7,6 @@ pub const Tensor = engine.Tensor;
 pub const TensorSpec = @import("compute/types/tensor/index.zig").TensorSpec;
 pub const ComputeGraph = @import("compute/types/ir/index.zig").ComputeGraph;
 pub const Operation = engine.Operation;
-pub const Telemetry = engine.Telemetry;
 
 comptime {
     _ = config;

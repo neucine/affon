@@ -24,6 +24,18 @@ const allocator = std.heap.c_allocator;
 const Tensor = engine_api.Tensor;
 const AxisName = tensor_types.AxisName;
 var random_state = std.Random.DefaultPrng.init(0xA66F_0001);
+var runtime_engine: ?engine_api.Engine = null;
+var runtime_engine_id: ?usize = null;
+
+fn engineFor(ctx: abi.JSContext) *engine_api.Engine {
+    const runtime = abi.jsRuntime(ctx) orelse unreachable;
+    const runtime_id = @intFromPtr(runtime);
+    if (runtime_engine == null or runtime_engine_id != runtime_id) {
+        runtime_engine = engine_api.Engine.init(allocator, .{});
+        runtime_engine_id = runtime_id;
+    }
+    return &runtime_engine.?;
+}
 
 const tensor_type_id: u32 = 1;
 const compiled_executable_type_id: u32 = 2;
@@ -170,7 +182,7 @@ fn jsCompiledExecutableRun(ctx: abi.JSContext, this_value: abi.JSValueConst, arg
     }
     var lowered = captured_lowering.lowerToGraph(allocator, parsed.value, inputs, parseCapturedDType, createCapturedScalar, createCapturedRandom) catch return errorValue(ctx, "failed to lower captured graph");
     defer lowered.deinit(allocator);
-    var result = engine_api.Engine.init(allocator, .{}).executeGraph(&lowered.graph, lowered.input_values.items) catch return errorValue(ctx, "failed to execute captured graph");
+    var result = engineFor(ctx).executeGraph(&lowered.graph, lowered.input_values.items) catch return errorValue(ctx, "failed to execute captured graph");
     if (result.outputs.len != 1) {
         result.deinit();
         return errorValue(ctx, "captured graph produced an unsupported output count");
@@ -507,7 +519,7 @@ fn jsSaveNative(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]
     for (entries) |entry| {
         const bytes = allocator.alloc(u8, entry.value.shape.numel() * entry.value.dtype.size()) catch return errorValue(ctx, "checkpoint.save out of memory");
         defer allocator.free(bytes);
-        engine_api.Engine.init(allocator, .{}).copyToHost(entry.value, bytes) catch return errorValue(ctx, "checkpoint.save failed to read Tensor");
+        engineFor(ctx).copyToHost(entry.value, bytes) catch return errorValue(ctx, "checkpoint.save failed to read Tensor");
         output.appendSlice(allocator, bytes) catch return errorValue(ctx, "checkpoint.save out of memory");
     }
     compat.writeFile(path, output.items) catch return errorValue(ctx, "checkpoint.save failed to write file");
@@ -789,7 +801,7 @@ fn jsTensorItem(ctx: abi.JSContext, this_value: abi.JSValueConst, argc: c_int, _
     const source = if (input.layout.isContiguous(input.shape) and input.layout.offset == 0)
         input
     else blk: {
-        const value = engine_api.Engine.init(allocator, .{}).contiguous(input) catch return errorValue(ctx, "failed to read Tensor");
+        const value = engineFor(ctx).contiguous(input) catch return errorValue(ctx, "failed to read Tensor");
         contiguous = value;
         break :blk value;
     };
@@ -797,7 +809,7 @@ fn jsTensorItem(ctx: abi.JSContext, this_value: abi.JSValueConst, argc: c_int, _
     defer if (host) |value| value.deinit();
     const readable = if (source.device() == .metal) blk: {
         const value = Tensor.createContiguous(allocator, source.shape.dims, source.dtype, .cpu, false) catch return errorValue(ctx, "failed to read Tensor");
-        engine_api.Engine.init(allocator, .{}).copyInto(value, source) catch {
+        engineFor(ctx).copyInto(value, source) catch {
             value.deinit();
             return errorValue(ctx, "failed to read Tensor");
         };
@@ -815,7 +827,7 @@ fn jsTensorToArray(ctx: abi.JSContext, this_value: abi.JSValueConst, argc: c_int
     const source = if (input.layout.isContiguous(input.shape) and input.layout.offset == 0)
         input
     else blk: {
-        const value = engine_api.Engine.init(allocator, .{}).contiguous(input) catch return errorValue(ctx, "failed to read Tensor");
+        const value = engineFor(ctx).contiguous(input) catch return errorValue(ctx, "failed to read Tensor");
         contiguous = value;
         break :blk value;
     };
@@ -823,7 +835,7 @@ fn jsTensorToArray(ctx: abi.JSContext, this_value: abi.JSValueConst, argc: c_int
     defer if (host) |value| value.deinit();
     const readable = if (source.device() == .metal) blk: {
         const value = Tensor.createContiguous(allocator, source.shape.dims, source.dtype, .cpu, false) catch return errorValue(ctx, "failed to read Tensor");
-        engine_api.Engine.init(allocator, .{}).copyInto(value, source) catch {
+        engineFor(ctx).copyInto(value, source) catch {
             value.deinit();
             return errorValue(ctx, "failed to read Tensor");
         };
@@ -883,7 +895,7 @@ fn jsTensorTo(ctx: abi.JSContext, this_value: abi.JSValueConst, argc: c_int, arg
         return typeError(ctx, "device must be 'cpu' or 'metal'");
     const target = Tensor.createContiguous(allocator, input.shape.dims, input.dtype, target_device, false) catch return errorValue(ctx, "failed to create device Tensor");
     errdefer target.deinit();
-    engine_api.Engine.init(allocator, .{}).copyInto(target, input) catch return errorValue(ctx, "failed to transfer Tensor");
+    engineFor(ctx).copyInto(target, input) catch return errorValue(ctx, "failed to transfer Tensor");
     target.setAxesCopy(input.axes) catch return errorValue(ctx, "failed to transfer Tensor axes");
     switch (autograd_types.State.trackingState(input)) {
         .plain => {},
@@ -957,7 +969,7 @@ fn jsTensor(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.
     defer cpu_tensor.deinit();
     const tensor = Tensor.createContiguous(allocator, shape.items, dtype, device, false) catch return errorValue(ctx, "failed to create device Tensor");
     errdefer tensor.deinit();
-    engine_api.Engine.init(allocator, .{}).copyInto(tensor, cpu_tensor) catch return errorValue(ctx, "failed to transfer Tensor");
+    engineFor(ctx).copyInto(tensor, cpu_tensor) catch return errorValue(ctx, "failed to transfer Tensor");
     tensor.setAxesCopy(axes) catch return errorValue(ctx, "failed to set Tensor axes");
     return createTensorObject(ctx, tensor);
 }
@@ -997,7 +1009,7 @@ fn createFilledTensor(ctx: abi.JSContext, shape_value: abi.JSValueConst, options
     defer cpu_tensor.deinit();
     const tensor = Tensor.createContiguous(allocator, shape, dtype, device, false) catch return errorValue(ctx, "failed to create device Tensor");
     errdefer tensor.deinit();
-    engine_api.Engine.init(allocator, .{}).copyInto(tensor, cpu_tensor) catch return errorValue(ctx, "failed to transfer Tensor");
+    engineFor(ctx).copyInto(tensor, cpu_tensor) catch return errorValue(ctx, "failed to transfer Tensor");
     tensor.setAxesCopy(axes) catch return errorValue(ctx, "failed to set Tensor axes");
     return createTensorObject(ctx, tensor);
 }
@@ -1098,7 +1110,7 @@ fn jsCopy(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JS
     if (argc != 2) return typeError(ctx, "copy expects a target and source Tensor");
     const target = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "copy expects a target Tensor");
     const source = tensorFromValue(ctx, argv[1]) orelse return typeError(ctx, "copy expects a source Tensor");
-    engine_api.Engine.init(allocator, .{}).copyInto(target, source) catch |err| return switch (err) {
+    engineFor(ctx).copyInto(target, source) catch |err| return switch (err) {
         error.ShapeMismatch => typeError(ctx, "copy requires tensors with the same number of elements"),
         else => errorValue(ctx, "copy failed"),
     };
@@ -1273,17 +1285,21 @@ fn jsClipGradNorm(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*
     for (parameters) |parameter| {
         const state = autograd_types.State.fromTensor(parameter) orelse continue;
         const gradient = state.gradient orelse continue;
-        const bytes = gradient.storage orelse continue;
-        const readable = bytes.readableBytes() catch return errorValue(ctx, "clip_grad_norm failed to read gradient");
-        switch (gradient.dtype) {
-            .f32 => for (std.mem.bytesAsSlice(f32, readable)) |value| {
-                sum_squared += @as(f64, value) * @as(f64, value);
-            },
-            .f64 => for (std.mem.bytesAsSlice(f64, readable)) |value| {
-                sum_squared += value * value;
-            },
-            .i64 => return typeError(ctx, "clip_grad_norm requires differentiable gradients"),
-        }
+        if (gradient.dtype == .i64) return typeError(ctx, "clip_grad_norm requires differentiable gradients");
+        const cpu_gradient = Tensor.createContiguous(allocator, gradient.shape.dims, gradient.dtype, .cpu, false) catch return errorValue(ctx, "clip_grad_norm failed to read gradient");
+        defer cpu_gradient.deinit();
+        engineFor(ctx).copyInto(cpu_gradient, gradient) catch return errorValue(ctx, "clip_grad_norm failed to read gradient");
+        const squared = engineFor(ctx).mul(cpu_gradient, cpu_gradient) catch return errorValue(ctx, "clip_grad_norm failed to read gradient");
+        defer squared.deinit();
+        const summed = engineFor(ctx).sum(squared) catch return errorValue(ctx, "clip_grad_norm failed to read gradient");
+        defer summed.deinit();
+        var scalar_bytes: [8]u8 = undefined;
+        engineFor(ctx).copyToHost(summed, scalar_bytes[0..gradient.dtype.size()]) catch return errorValue(ctx, "clip_grad_norm failed to read gradient");
+        sum_squared += switch (gradient.dtype) {
+            .f32 => @as(f64, std.mem.bytesAsSlice(f32, scalar_bytes[0..4])[0]),
+            .f64 => std.mem.bytesAsSlice(f64, scalar_bytes[0..8])[0],
+            .i64 => unreachable,
+        };
     }
     const total_norm = @sqrt(sum_squared);
     if (!std.math.isFinite(total_norm) or total_norm <= max_norm) return abi.jsFloat64(ctx, total_norm);
@@ -1291,17 +1307,7 @@ fn jsClipGradNorm(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*
     for (parameters) |parameter| {
         const state = autograd_types.State.fromTensor(parameter) orelse continue;
         const gradient = state.gradient orelse continue;
-        const storage = gradient.storage orelse continue;
-        const writable = storage.writableBytes() catch return errorValue(ctx, "clip_grad_norm failed to update gradient");
-        switch (gradient.dtype) {
-            .f32 => for (std.mem.bytesAsSlice(f32, writable)) |*value| {
-                value.* = @floatCast(@as(f64, value.*) * scale);
-            },
-            .f64 => for (std.mem.bytesAsSlice(f64, writable)) |*value| {
-                value.* *= scale;
-            },
-            .i64 => unreachable,
-        }
+        engineFor(ctx).scaleInPlace(gradient, scale) catch return errorValue(ctx, "clip_grad_norm failed to update gradient");
     }
     return abi.jsFloat64(ctx, total_norm);
 }
@@ -1485,7 +1491,7 @@ fn jsCast(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JS
     const input = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "cast expects a Tensor");
     var dtype: engine_api.DType = .f32;
     if (abi.jsStringEquals(ctx, argv[1], "f64")) dtype = .f64 else if (abi.jsStringEquals(ctx, argv[1], "i64")) dtype = .i64 else if (!abi.jsStringEquals(ctx, argv[1], "f32")) return typeError(ctx, "unsupported tensor dtype");
-    const result = engine_api.Engine.init(allocator, .{}).cast(input, dtype) catch |err| return classifiedErrorValue(ctx, "cast failed", err);
+    const result = engineFor(ctx).cast(input, dtype) catch |err| return classifiedErrorValue(ctx, "cast failed", err);
     trackResult(result, &.{input}, .cast, null, null, null) catch {
         result.deinit();
         return errorValue(ctx, "failed to record autograd state");
@@ -1517,7 +1523,7 @@ fn jsGtScalar(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]ab
             scalar.storage.?.writeFromHost(std.mem.asBytes(&value)) catch return errorValue(ctx, "gt_scalar failed");
         },
     }
-    const result = engine_api.Engine.init(allocator, .{}).gt(input, scalar) catch |err| return classifiedErrorValue(ctx, "gt_scalar failed", err);
+    const result = engineFor(ctx).gt(input, scalar) catch |err| return classifiedErrorValue(ctx, "gt_scalar failed", err);
     scalar.deinit();
     return createTensorObject(ctx, result);
 }
@@ -1527,7 +1533,7 @@ fn jsWhere(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.J
     const condition = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "where expects Tensor values");
     const on_true = tensorFromValue(ctx, argv[1]) orelse return typeError(ctx, "where expects Tensor values");
     const on_false = tensorFromValue(ctx, argv[2]) orelse return typeError(ctx, "where expects Tensor values");
-    const result = engine_api.Engine.init(allocator, .{}).whereSelect(condition, on_true, on_false) catch |err| return classifiedErrorValue(ctx, "where failed", err);
+    const result = engineFor(ctx).whereSelect(condition, on_true, on_false) catch |err| return classifiedErrorValue(ctx, "where failed", err);
     trackResult(result, &.{ condition, on_true, on_false }, .where, null, null, null) catch {
         result.deinit();
         return errorValue(ctx, "failed to record autograd state");
@@ -1541,11 +1547,11 @@ fn jsMaskedFill(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]
     if (argc != 3) return typeError(ctx, "masked_fill expects input, mask, and value");
     const input = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "masked_fill expects Tensor values");
     const raw_mask = tensorFromValue(ctx, argv[1]) orelse return typeError(ctx, "masked_fill expects Tensor values");
-    const mask = normalizeMaskTensor(raw_mask) catch return errorValue(ctx, "masked_fill failed: InvalidArgument");
+    const mask = normalizeMaskTensor(engineFor(ctx), raw_mask) catch return errorValue(ctx, "masked_fill failed: InvalidArgument");
     defer if (mask.owned) mask.tensor.deinit();
     var fill: f64 = 0;
     if (abi.jsToFloat64(ctx, &fill, argv[2]) < 0) return typeError(ctx, "masked_fill value must be a number");
-    const result = engine_api.Engine.init(allocator, .{}).maskedFill(input, mask.tensor, fill) catch |err| return classifiedErrorValue(ctx, "masked_fill failed", err);
+    const result = engineFor(ctx).maskedFill(input, mask.tensor, fill) catch |err| return classifiedErrorValue(ctx, "masked_fill failed", err);
     trackResult(result, &.{ input, mask.tensor }, .masked_fill, null, fill, null) catch {
         result.deinit();
         return errorValue(ctx, "failed to record autograd state");
@@ -1558,10 +1564,12 @@ fn jsMaskedFill(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]
 fn jsCrossEntropyIndexed(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
     if (argc < 2 or argc > 3) return typeError(ctx, "cross_entropy_indexed expects logits, targets, and optional axis");
     const logits = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "cross_entropy_indexed expects Tensor values");
-    const targets = tensorFromValue(ctx, argv[1]) orelse return typeError(ctx, "cross_entropy_indexed expects Tensor values");
+    const raw_targets = tensorFromValue(ctx, argv[1]) orelse return typeError(ctx, "cross_entropy_indexed expects Tensor values");
     const axis = if (argc == 3) integerArgument(ctx, argv[2], "axis") orelse return typeError(ctx, "axis must be a non-negative integer") else 1;
-    const result = engine_api.Engine.init(allocator, .{}).crossEntropyIndexed(logits, targets, axis) catch |err| return classifiedErrorValue(ctx, "cross_entropy_indexed failed", err);
-    trackResultWithSavedInputs(result, &.{logits}, &.{ logits, targets }, .cross_entropy_indexed, axis, null, false, null, null) catch {
+    const targets = normalizeIndexTensor(engineFor(ctx), raw_targets) catch |err| return classifiedErrorValue(ctx, "cross_entropy_indexed failed", err);
+    defer if (targets.owned) targets.tensor.deinit();
+    const result = engineFor(ctx).crossEntropyIndexed(logits, targets.tensor, axis) catch |err| return classifiedErrorValue(ctx, "cross_entropy_indexed failed", err);
+    trackResultWithSavedInputs(result, &.{logits}, &.{ logits, targets.tensor }, .cross_entropy_indexed, axis, null, false, null, null) catch {
         result.deinit();
         return errorValue(ctx, "failed to record autograd state");
     };
@@ -1578,7 +1586,7 @@ fn binary(ctx: abi.JSContext, argc: c_int, argv: [*c]abi.JSValueConst, operation
     if (argc != 2) return typeError(ctx, "binary operation expects two tensors");
     const lhs = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "add expects Tensor values");
     const rhs = tensorFromValue(ctx, argv[1]) orelse return typeError(ctx, "add expects Tensor values");
-    const engine = engine_api.Engine.init(allocator, .{});
+    const engine = engineFor(ctx);
     const result = switch (operation) {
         .add => engine.add(lhs, rhs),
         .sub => engine.sub(lhs, rhs),
@@ -1634,7 +1642,7 @@ fn jsMatmul(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.
         } else metadata.hint_source = .api_execution_arg;
     }
     const op = Op.initWithExecutionMetadata(.matmul, &.{ lhs, rhs }, .{ .none = {} }, metadata) catch return errorValue(ctx, "matmul failed");
-    var result = engine_api.Engine.init(allocator, .{}).executeRaw(op) catch |err| return classifiedErrorValue(ctx, "matmul failed", err);
+    var result = engineFor(ctx).executeRaw(op) catch |err| return classifiedErrorValue(ctx, "matmul failed", err);
     errdefer result.deinit();
     trackResult(result.primary, &.{ lhs, rhs }, .matmul, null, null, null) catch return errorValue(ctx, "failed to record autograd state");
     const output = result.primary;
@@ -1691,7 +1699,7 @@ fn jsClamp(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.J
     var minimum: f64 = 0;
     var maximum: f64 = 0;
     if (abi.jsToFloat64(ctx, &minimum, argv[1]) < 0 or abi.jsToFloat64(ctx, &maximum, argv[2]) < 0) return typeError(ctx, "clamp bounds must be numbers");
-    const result = engine_api.Engine.init(allocator, .{}).clamp(input, minimum, maximum) catch |err| return classifiedErrorValue(ctx, "clamp failed", err);
+    const result = engineFor(ctx).clamp(input, minimum, maximum) catch |err| return classifiedErrorValue(ctx, "clamp failed", err);
     trackResult(result, &.{input}, .clamp, null, minimum, maximum) catch {
         result.deinit();
         return errorValue(ctx, "failed to record autograd state");
@@ -1710,7 +1718,7 @@ fn reduction(ctx: abi.JSContext, argc: c_int, argv: [*c]abi.JSValueConst, operat
     if (argc > 2 and !abi.jsIsUndefined(argv[2]) and !abi.jsIsNull(argv[2])) {
         if (abi.jsToBool(ctx, &keepdim, argv[2]) < 0) return typeError(ctx, "keepdim must be boolean");
     }
-    const engine = engine_api.Engine.init(allocator, .{});
+    const engine = engineFor(ctx);
     const result = switch (operation) {
         .sum => engine.reduce(.sum, input, axis, keepdim),
         .mean => engine.reduce(.mean, input, axis, keepdim),
@@ -1803,7 +1811,7 @@ fn jsSoftmax(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi
     if (argc != 2) return typeError(ctx, "softmax expects a Tensor and axis");
     const input = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "softmax expects a Tensor");
     const axis = integerArgument(ctx, argv[1], "axis") orelse return typeError(ctx, "axis must be a non-negative integer");
-    const result = engine_api.Engine.init(allocator, .{}).softmax(input, axis) catch |err| return classifiedErrorValue(ctx, "softmax failed", err);
+    const result = engineFor(ctx).softmax(input, axis) catch |err| return classifiedErrorValue(ctx, "softmax failed", err);
     trackResult(result, &.{input}, .softmax, axis, null, null) catch {
         result.deinit();
         return errorValue(ctx, "failed to record autograd state");
@@ -1816,7 +1824,7 @@ fn jsReshape(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi
     const input = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "reshape expects a Tensor");
     const shape = readShape(ctx, argv[1], "shape") orelse return typeError(ctx, "shape must be an array of non-negative integers");
     defer allocator.free(shape);
-    const result = engine_api.Engine.init(allocator, .{}).reshape(input, shape) catch |err| return classifiedErrorValue(ctx, "reshape failed", err);
+    const result = engineFor(ctx).reshape(input, shape) catch |err| return classifiedErrorValue(ctx, "reshape failed", err);
     trackResult(result, &.{input}, .reshape, null, null, null) catch {
         result.deinit();
         return errorValue(ctx, "failed to record autograd state");
@@ -1895,7 +1903,7 @@ fn jsSlice(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.J
         };
         ranges.append(allocator, range) catch return errorValue(ctx, "out of memory");
     }
-    var result = engine_api.Engine.init(allocator, .{}).slice(input, ranges.items) catch |err| return classifiedErrorValue(ctx, "slice failed", err);
+    var result = engineFor(ctx).slice(input, ranges.items) catch |err| return classifiedErrorValue(ctx, "slice failed", err);
     errdefer result.deinit();
     for (reverse_axes.items) |axis| {
         const axis_size = result.shape.dims[axis];
@@ -1905,7 +1913,7 @@ fn jsSlice(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.J
         defer allocator.free(host_indices);
         for (host_indices, 0..) |*index, position| index.* = @intCast(axis_size - 1 - position);
         indices.storage.?.writeFromHost(std.mem.sliceAsBytes(host_indices)) catch return errorValue(ctx, "slice failed");
-        const reversed = engine_api.Engine.init(allocator, .{}).indexSelect(result, axis, indices) catch |err| return classifiedErrorValue(ctx, "slice failed", err);
+        const reversed = engineFor(ctx).indexSelect(result, axis, indices) catch |err| return classifiedErrorValue(ctx, "slice failed", err);
         result.deinit();
         result = reversed;
     }
@@ -1918,7 +1926,7 @@ fn jsSlice(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.J
 fn jsContiguous(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
     if (argc != 1) return typeError(ctx, "contiguous expects one Tensor");
     const input = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "contiguous expects a Tensor");
-    const result = engine_api.Engine.init(allocator, .{}).contiguous(input) catch |err| return classifiedErrorValue(ctx, "contiguous failed", err);
+    const result = engineFor(ctx).contiguous(input) catch |err| return classifiedErrorValue(ctx, "contiguous failed", err);
     trackResult(result, &.{input}, .contiguous, null, null, null) catch {
         result.deinit();
         return errorValue(ctx, "failed to record autograd state");
@@ -1931,7 +1939,7 @@ fn jsPermute(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi
     const input = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "permute expects a Tensor");
     const axes = readShape(ctx, argv[1], "axes") orelse return typeError(ctx, "axes must be an array of non-negative integers");
     defer allocator.free(axes);
-    const result = engine_api.Engine.init(allocator, .{}).permute(input, axes) catch |err| return classifiedErrorValue(ctx, "permute failed", err);
+    const result = engineFor(ctx).permute(input, axes) catch |err| return classifiedErrorValue(ctx, "permute failed", err);
     trackResultWithSavedInputs(result, &.{input}, &.{input}, .permute, null, axes, false, null, null) catch {
         result.deinit();
         return errorValue(ctx, "failed to record autograd state");
@@ -1944,7 +1952,7 @@ fn jsTranspose(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]a
     const input = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "transpose expects a Tensor");
     const axis_a = integerArgument(ctx, argv[1], "axis") orelse return typeError(ctx, "axis must be a non-negative integer");
     const axis_b = integerArgument(ctx, argv[2], "axis") orelse return typeError(ctx, "axis must be a non-negative integer");
-    const result = engine_api.Engine.init(allocator, .{}).transpose(input, axis_a, axis_b) catch |err| return classifiedErrorValue(ctx, "transpose failed", err);
+    const result = engineFor(ctx).transpose(input, axis_a, axis_b) catch |err| return classifiedErrorValue(ctx, "transpose failed", err);
     trackResult(result, &.{input}, .transpose, null, null, null) catch {
         result.deinit();
         return errorValue(ctx, "failed to record autograd state");
@@ -1956,7 +1964,7 @@ fn jsSqueeze(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi
     if (argc < 1 or argc > 2) return typeError(ctx, "squeeze expects a Tensor and optional axis");
     const input = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "squeeze expects a Tensor");
     const axis = if (argc == 2) integerArgument(ctx, argv[1], "axis") orelse return typeError(ctx, "axis must be a non-negative integer") else null;
-    const result = engine_api.Engine.init(allocator, .{}).squeeze(input, axis) catch |err| return classifiedErrorValue(ctx, "squeeze failed", err);
+    const result = engineFor(ctx).squeeze(input, axis) catch |err| return classifiedErrorValue(ctx, "squeeze failed", err);
     trackResult(result, &.{input}, .squeeze, axis, null, null) catch {
         result.deinit();
         return errorValue(ctx, "failed to record autograd state");
@@ -1968,7 +1976,7 @@ fn jsUnsqueeze(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]a
     if (argc != 2) return typeError(ctx, "unsqueeze expects a Tensor and axis");
     const input = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "unsqueeze expects a Tensor");
     const axis = integerArgument(ctx, argv[1], "axis") orelse return typeError(ctx, "axis must be a non-negative integer");
-    const result = engine_api.Engine.init(allocator, .{}).unsqueeze(input, axis) catch |err| return classifiedErrorValue(ctx, "unsqueeze failed", err);
+    const result = engineFor(ctx).unsqueeze(input, axis) catch |err| return classifiedErrorValue(ctx, "unsqueeze failed", err);
     trackResult(result, &.{input}, .unsqueeze, axis, null, null) catch {
         result.deinit();
         return errorValue(ctx, "failed to record autograd state");
@@ -1981,7 +1989,7 @@ fn jsCat(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSV
     const tensors = readTensorList(ctx, argv[0], "tensors") orelse return typeError(ctx, "cat expects an array of Tensors");
     defer allocator.free(tensors);
     const axis = if (argc == 2) integerArgument(ctx, argv[1], "axis") orelse return typeError(ctx, "axis must be a non-negative integer") else 0;
-    const result = engine_api.Engine.init(allocator, .{}).cat(tensors, axis) catch |err| return switch (err) {
+    const result = engineFor(ctx).cat(tensors, axis) catch |err| return switch (err) {
         error.ShapeMismatch => errorValue(ctx, "cat() failed: shape mismatch"),
         error.DeviceMismatch => errorValue(ctx, "cat() failed: DeviceMismatch"),
         else => errorValue(ctx, "cat() failed"),
@@ -1998,7 +2006,7 @@ fn jsStack(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.J
     const tensors = readTensorList(ctx, argv[0], "tensors") orelse return typeError(ctx, "stack expects an array of Tensors");
     defer allocator.free(tensors);
     const axis = if (argc == 2) integerArgument(ctx, argv[1], "axis") orelse return typeError(ctx, "axis must be a non-negative integer") else 0;
-    const result = engine_api.Engine.init(allocator, .{}).stack(tensors, axis) catch |err| return switch (err) {
+    const result = engineFor(ctx).stack(tensors, axis) catch |err| return switch (err) {
         error.ShapeMismatch => errorValue(ctx, "stack() failed: shape mismatch"),
         error.DeviceMismatch => errorValue(ctx, "stack() failed: DeviceMismatch"),
         else => errorValue(ctx, "stack() failed"),
@@ -2015,7 +2023,7 @@ const NormalizedIndex = struct {
     owned: bool,
 };
 
-fn normalizeIndexTensor(input: *Tensor) !NormalizedIndex {
+fn normalizeIndexTensor(engine: *engine_api.Engine, input: *Tensor) !NormalizedIndex {
     if (input.dtype == .i64) return .{ .tensor = input, .owned = false };
     if (input.dtype != .f32 and input.dtype != .f64) return error.InvalidArgument;
     var host_input: ?*Tensor = null;
@@ -2023,7 +2031,7 @@ fn normalizeIndexTensor(input: *Tensor) !NormalizedIndex {
     const source_tensor = if (input.device() == .metal) blk: {
         const value = try Tensor.createContiguous(allocator, input.shape.dims, input.dtype, .cpu, false);
         errdefer value.deinit();
-        engine_api.Engine.init(allocator, .{}).copyInto(value, input) catch {
+        engine.copyInto(value, input) catch {
             value.deinit();
             return error.DeviceTransfer;
         };
@@ -2048,18 +2056,18 @@ fn normalizeIndexTensor(input: *Tensor) !NormalizedIndex {
     if (input.device() != .metal) return .{ .tensor = output_cpu, .owned = true };
     const output = try Tensor.createContiguous(allocator, input.shape.dims, .i64, .metal, false);
     errdefer output.deinit();
-    engine_api.Engine.init(allocator, .{}).copyInto(output, output_cpu) catch return error.DeviceTransfer;
+    engine.copyInto(output, output_cpu) catch return error.DeviceTransfer;
     output_cpu.deinit();
     return .{ .tensor = output, .owned = true };
 }
 
-fn validateIndexBounds(index: *Tensor, limit: usize) !void {
+fn validateIndexBounds(engine: *engine_api.Engine, index: *Tensor, limit: usize) !void {
     var host_index: ?*Tensor = null;
     defer if (host_index) |value| value.deinit();
     const source = if (index.device() == .metal) blk: {
         const value = try Tensor.createContiguous(allocator, index.shape.dims, .i64, .cpu, false);
         errdefer value.deinit();
-        engine_api.Engine.init(allocator, .{}).copyInto(value, index) catch {
+        engine.copyInto(value, index) catch {
             value.deinit();
             return error.DeviceTransfer;
         };
@@ -2072,20 +2080,20 @@ fn validateIndexBounds(index: *Tensor, limit: usize) !void {
     }
 }
 
-fn normalizeMaskTensor(input: *Tensor) !NormalizedIndex {
+fn normalizeMaskTensor(engine: *engine_api.Engine, input: *Tensor) !NormalizedIndex {
     if (input.dtype == .i64) return .{ .tensor = input, .owned = false };
     if (input.dtype != .f32 and input.dtype != .f64) return error.InvalidArgument;
-    return .{ .tensor = try engine_api.Engine.init(allocator, .{}).cast(input, .i64), .owned = true };
+    return .{ .tensor = try engine.cast(input, .i64), .owned = true };
 }
 
 fn jsOneHot(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
     if (argc != 2) return typeError(ctx, "one_hot expects indices and class count");
     const raw_input = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "one_hot expects a Tensor");
     const classes = integerArgument(ctx, argv[1], "class count") orelse return typeError(ctx, "class count must be a non-negative integer");
-    const input = normalizeIndexTensor(raw_input) catch return errorValue(ctx, "one_hot failed: InvalidArgument");
+    const input = normalizeIndexTensor(engineFor(ctx), raw_input) catch return errorValue(ctx, "one_hot failed: InvalidArgument");
     defer if (input.owned) input.tensor.deinit();
-    validateIndexBounds(input.tensor, classes) catch return errorValue(ctx, "one_hot failed: IndexOutOfBounds");
-    const result = engine_api.Engine.init(allocator, .{}).oneHot(input.tensor, classes) catch |err| return classifiedErrorValue(ctx, "one_hot failed", err);
+    validateIndexBounds(engineFor(ctx), input.tensor, classes) catch return errorValue(ctx, "one_hot failed: IndexOutOfBounds");
+    const result = engineFor(ctx).oneHot(input.tensor, classes) catch |err| return classifiedErrorValue(ctx, "one_hot failed", err);
     return createTensorObject(ctx, result);
 }
 
@@ -2095,10 +2103,10 @@ fn jsGather(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.
     const axis = integerArgument(ctx, argv[1], "axis") orelse return typeError(ctx, "axis must be a non-negative integer");
     const raw_index = tensorFromValue(ctx, argv[2]) orelse return typeError(ctx, "gather expects a Tensor index");
     if (axis >= input.shape.rank()) return errorValue(ctx, "gather failed: InvalidAxis");
-    const index = normalizeIndexTensor(raw_index) catch return errorValue(ctx, "gather failed: InvalidArgument");
+    const index = normalizeIndexTensor(engineFor(ctx), raw_index) catch return errorValue(ctx, "gather failed: InvalidArgument");
     defer if (index.owned) index.tensor.deinit();
-    validateIndexBounds(index.tensor, input.shape.dims[axis]) catch return errorValue(ctx, "gather failed: IndexOutOfBounds");
-    const result = engine_api.Engine.init(allocator, .{}).gather(input, axis, index.tensor) catch |err| return classifiedErrorValue(ctx, "gather failed", err);
+    validateIndexBounds(engineFor(ctx), index.tensor, input.shape.dims[axis]) catch return errorValue(ctx, "gather failed: IndexOutOfBounds");
+    const result = engineFor(ctx).gather(input, axis, index.tensor) catch |err| return classifiedErrorValue(ctx, "gather failed", err);
     trackResult(result, &.{ input, index.tensor }, .gather, axis, null, null) catch {
         result.deinit();
         return errorValue(ctx, "failed to record autograd state");
@@ -2112,10 +2120,10 @@ fn jsIndexSelect(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c
     const axis = integerArgument(ctx, argv[1], "axis") orelse return typeError(ctx, "axis must be a non-negative integer");
     const raw_index = tensorFromValue(ctx, argv[2]) orelse return typeError(ctx, "index_select expects a Tensor index");
     if (axis >= input.shape.rank()) return errorValue(ctx, "index_select failed: InvalidAxis");
-    const index = normalizeIndexTensor(raw_index) catch return errorValue(ctx, "index_select failed: InvalidArgument");
+    const index = normalizeIndexTensor(engineFor(ctx), raw_index) catch return errorValue(ctx, "index_select failed: InvalidArgument");
     defer if (index.owned) index.tensor.deinit();
-    validateIndexBounds(index.tensor, input.shape.dims[axis]) catch return errorValue(ctx, "index_select failed: IndexOutOfBounds");
-    const result = engine_api.Engine.init(allocator, .{}).indexSelect(input, axis, index.tensor) catch |err| return classifiedErrorValue(ctx, "index_select failed", err);
+    validateIndexBounds(engineFor(ctx), index.tensor, input.shape.dims[axis]) catch return errorValue(ctx, "index_select failed: IndexOutOfBounds");
+    const result = engineFor(ctx).indexSelect(input, axis, index.tensor) catch |err| return classifiedErrorValue(ctx, "index_select failed", err);
     trackResult(result, &.{ input, index.tensor }, .index_select, axis, null, null) catch {
         result.deinit();
         return errorValue(ctx, "failed to record autograd state");
@@ -2130,7 +2138,7 @@ fn jsTopk(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JS
     const axis = if (argc == 3) integerArgument(ctx, argv[2], "axis") orelse return typeError(ctx, "axis must be a non-negative integer") else 0;
     if (axis >= input.shape.rank()) return errorValue(ctx, "topk failed: InvalidAxis");
     if (k == 0 or k > input.shape.dims[axis]) return errorValue(ctx, "topk failed: InvalidTopK");
-    var outputs = engine_api.Engine.init(allocator, .{}).topK(input, k, axis) catch |err| return classifiedErrorValue(ctx, "topk failed", err);
+    var outputs = engineFor(ctx).topK(input, k, axis) catch |err| return classifiedErrorValue(ctx, "topk failed", err);
     const indices_for_tracking = outputs.secondary orelse {
         outputs.deinit();
         return errorValue(ctx, "topk did not produce indices");
@@ -2180,7 +2188,7 @@ const UnaryOperation = enum { abs, exp, log, neg, sqrt, sign, relu, sigmoid, sil
 fn unary(ctx: abi.JSContext, argc: c_int, argv: [*c]abi.JSValueConst, operation: UnaryOperation, name: [*:0]const u8) abi.JSValue {
     if (argc != 1) return typeError(ctx, "unary operation expects one tensor");
     const input = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, name);
-    const engine = engine_api.Engine.init(allocator, .{});
+    const engine = engineFor(ctx);
     const result = switch (operation) {
         .abs => engine.abs(input),
         .exp => engine.exp(input),
@@ -2262,15 +2270,15 @@ fn jsSum(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSV
     return reduction(ctx, argc, argv, .sum, "sum expects a Tensor");
 }
 
-fn validationBytes(value: *const Tensor, bytes: []u8) !void {
+fn validationBytes(engine: *engine_api.Engine, value: *const Tensor, bytes: []u8) !void {
     if (bytes.len != value.shape.numel() * value.dtype.size()) return error.SizeMismatch;
-    try engine_api.Engine.init(allocator, .{}).copyToHost(value, bytes);
+    try engine.copyToHost(value, bytes);
 }
 
-fn allBinary(value: *const Tensor) !bool {
+fn allBinary(engine: *engine_api.Engine, value: *const Tensor) !bool {
     const bytes = try allocator.alloc(u8, value.shape.numel() * value.dtype.size());
     defer allocator.free(bytes);
-    try validationBytes(value, bytes);
+    try validationBytes(engine, value, bytes);
     switch (value.dtype) {
         .f32 => for (std.mem.bytesAsSlice(f32, bytes)) |item| if (item != 0 and item != 1) return false,
         .f64 => for (std.mem.bytesAsSlice(f64, bytes)) |item| if (item != 0 and item != 1) return false,
@@ -2279,10 +2287,10 @@ fn allBinary(value: *const Tensor) !bool {
     return true;
 }
 
-fn allInRange(value: *const Tensor, lower: f64, upper: f64) !bool {
+fn allInRange(engine: *engine_api.Engine, value: *const Tensor, lower: f64, upper: f64) !bool {
     const bytes = try allocator.alloc(u8, value.shape.numel() * value.dtype.size());
     defer allocator.free(bytes);
-    try validationBytes(value, bytes);
+    try validationBytes(engine, value, bytes);
     switch (value.dtype) {
         .f32 => for (std.mem.bytesAsSlice(f32, bytes)) |item| if (item < lower or item > upper) return false,
         .f64 => for (std.mem.bytesAsSlice(f64, bytes)) |item| if (item < lower or item > upper) return false,
@@ -2294,11 +2302,11 @@ fn allInRange(value: *const Tensor, lower: f64, upper: f64) !bool {
     return true;
 }
 
-fn rowsAreOneHot(value: *const Tensor, eps: f64) !bool {
+fn rowsAreOneHot(engine: *engine_api.Engine, value: *const Tensor, eps: f64) !bool {
     if (value.shape.rank() != 2) return error.ShapeMismatch;
     const bytes = try allocator.alloc(u8, value.shape.numel() * value.dtype.size());
     defer allocator.free(bytes);
-    try validationBytes(value, bytes);
+    try validationBytes(engine, value, bytes);
     const rows = value.shape.dims[0];
     const cols = value.shape.dims[1];
     for (0..rows) |row| {
@@ -2320,7 +2328,7 @@ fn rowsAreOneHot(value: *const Tensor, eps: f64) !bool {
 fn jsAllBinary(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
     if (argc < 1) return typeError(ctx, "allBinary expects a Tensor");
     const value = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "allBinary expects a Tensor");
-    return abi.jsBool(ctx, allBinary(value) catch return errorValue(ctx, "failed to validate binary Tensor"));
+    return abi.jsBool(ctx, allBinary(engineFor(ctx), value) catch return errorValue(ctx, "failed to validate binary Tensor"));
 }
 
 fn jsAllInRange(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
@@ -2329,7 +2337,7 @@ fn jsAllInRange(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]
     var lower: f64 = 0;
     var upper: f64 = 0;
     if (abi.jsToFloat64(ctx, &lower, argv[1]) < 0 or abi.jsToFloat64(ctx, &upper, argv[2]) < 0) return typeError(ctx, "allInRange bounds must be numbers");
-    return abi.jsBool(ctx, allInRange(value, lower, upper) catch return errorValue(ctx, "failed to validate Tensor range"));
+    return abi.jsBool(ctx, allInRange(engineFor(ctx), value, lower, upper) catch return errorValue(ctx, "failed to validate Tensor range"));
 }
 
 fn jsRowsAreOneHot(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
@@ -2337,7 +2345,7 @@ fn jsRowsAreOneHot(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [
     const value = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "rowsAreOneHot expects a Tensor");
     var epsilon: f64 = 0;
     if (abi.jsToFloat64(ctx, &epsilon, argv[1]) < 0) return typeError(ctx, "rowsAreOneHot epsilon must be a number");
-    return abi.jsBool(ctx, rowsAreOneHot(value, epsilon) catch return errorValue(ctx, "failed to validate one-hot Tensor"));
+    return abi.jsBool(ctx, rowsAreOneHot(engineFor(ctx), value, epsilon) catch return errorValue(ctx, "failed to validate one-hot Tensor"));
 }
 
 const functions = [_]abi.JSFunction{

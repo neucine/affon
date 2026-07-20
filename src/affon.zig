@@ -24,6 +24,34 @@ const sources = [_]hao.SourceModule{
         ,
     },
     .{
+        .specifier = "affon:fs",
+        .source =
+        \\import * as native from 'std:fs/native';
+        \\export const existsSync = native.existsSync;
+        \\export const readFileSync = native.readFileSync;
+        \\export const writeFileSync = native.writeFileSync;
+        \\export const statSync = native.statSync;
+        \\export default { existsSync, readFileSync, writeFileSync, statSync };
+        ,
+    },
+    .{
+        .specifier = "affon:process",
+        .source =
+        \\import process, { getEnv } from 'std:process';
+        \\export const run = process.run;
+        \\export { getEnv };
+        \\export default { getEnv, run };
+        ,
+    },
+    .{
+        .specifier = "affon:test",
+        .source =
+        \\import testModule from 'std:test';
+        \\export * from 'std:test';
+        \\export default testModule;
+        ,
+    },
+    .{
         .specifier = "affon:compute",
         .source = @embedFile("js/compute/index.ts"),
     },
@@ -81,6 +109,7 @@ const sources = [_]hao.SourceModule{
     },
 };
 
+
 const native_modules = [_]hao.NativeModule{ .{
     .specifier = compute_native.specifier,
     .load = compute_native.load,
@@ -94,8 +123,9 @@ fn installGlobals(context: *packages.PackageContext) !void {
         \\if (typeof globalThis.AffonError !== 'function') {
         \\  globalThis.AffonError = class AffonError extends Error {
         \\    constructor(code, message) {
-        \\      super(code, message);
+        \\      super(message);
         \\      this.name = 'AffonError';
+        \\      this.code = code;
         \\    }
         \\  };
         \\}

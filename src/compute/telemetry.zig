@@ -1,6 +1,5 @@
 const std = @import("std");
-const compat = @import("../support/compat.zig");
-const shared = @import("zig_libs").telemetry.interface;
+const shared = @import("zig_libs").telemetry;
 
 pub const MetricKind = shared.MetricKind;
 pub const MetricUnit = shared.MetricUnit;
@@ -10,7 +9,7 @@ pub const Group = enum {
     memory,
 };
 pub const MetricDefinition = shared.MetricDefinition;
-pub const Interface = shared.Interface;
+pub const Backend = shared.Backend;
 pub const Scope = shared.Scope;
 pub const TraceContext = shared.TraceContext;
 pub const TraceId = shared.TraceId;
@@ -29,9 +28,9 @@ pub const traces = struct {
 
 pub fn groupName(group: Group) []const u8 {
     return switch (group) {
-        .execution => "execution",
-        .storage => "storage",
-        .memory => "memory",
+        .execution => "compute.execution",
+        .storage => "compute.storage",
+        .memory => "compute.memory",
     };
 }
 
@@ -90,22 +89,20 @@ pub const metrics = struct {
     };
 };
 
-var active: Interface = .{};
-
-pub fn init(next: Interface) void {
-    active = next;
+pub fn install(next: Backend) void {
+    shared.install(next);
 }
 
-pub fn current() Interface {
-    return active;
+pub fn current() Backend {
+    return shared.current();
 }
 
 pub fn add(definition: MetricDefinition, delta: i64) void {
-    active.add(definition, delta);
+    shared.add(definition, delta);
 }
 
 pub fn set(definition: MetricDefinition, value: i64) void {
-    active.set(definition, value);
+    shared.set(definition, value);
 }
 
 pub fn addCounter(group: Group, name: []const u8, delta: i64) void {
@@ -128,7 +125,7 @@ pub fn startSpan(
     kind: SpanKind,
     attributes: []const Attribute,
 ) Scope {
-    return active.startSpan(parent, compat.nanoTimestamp(), name, kind, attributes);
+    return shared.startSpan(parent, name, kind, attributes);
 }
 
 test "telemetry forwards counter, gauge, and span operations" {
@@ -169,7 +166,7 @@ test "telemetry forwards counter, gauge, and span operations" {
             _ = timestamp_ns;
             _ = kind;
             _ = attributes;
-            std.debug.assert(std.mem.eql(u8, "execution/run", name));
+            std.debug.assert(std.mem.eql(u8, "compute.execution/run", name));
             return .{ .id = 7, .context = .root };
         }
 
@@ -198,20 +195,20 @@ test "telemetry forwards counter, gauge, and span operations" {
     };
 
     var collector = Collector{};
-    const vtable = Interface.VTable{
+    const vtable = Backend.VTable{
         .metric_add = Collector.metricAdd,
         .metric_set = Collector.metricSet,
         .start_span = Collector.startSpan,
         .add_event = Collector.addEvent,
         .end_span = Collector.endSpan,
     };
-    init(.{ .context = &collector, .vtable = &vtable });
-    defer init(.{});
+    install(.{ .context = &collector, .vtable = &vtable });
+    defer install(.{});
 
     add(metrics.execution.fusion_fallback, 2);
     try std.testing.expectEqual(@as(usize, 1), collector.adds);
     try std.testing.expectEqual(@as(i64, 2), collector.last_value);
-    try std.testing.expectEqualStrings("execution", collector.last_definition.?.group);
+    try std.testing.expectEqualStrings("compute.execution", collector.last_definition.?.group);
 
     set(metrics.storage.live_bytes, 1024);
     try std.testing.expectEqual(@as(usize, 1), collector.sets);

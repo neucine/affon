@@ -531,7 +531,7 @@ pub fn executeEager(loss_tensor: *Tensor, derived: *const DerivedGraph) !void {
                 inputs[i] = values[input_id] orelse return error.UnboundGraphInput;
             }
             const op = try op_mod.Op.initWithExecutionMetadata(tag, inputs, node.options, node.execution_metadata);
-            var result = try Engine.initWithCurrentTelemetry(loss_tensor.allocator).executeRaw(op);
+            var result = try Engine.init(loss_tensor.allocator, .{}).executeRaw(op);
             errdefer result.deinit();
             values[node.outputs[0]] = result.primary;
             owned[node.outputs[0]] = true;
@@ -561,7 +561,7 @@ pub fn executeEager(loss_tensor: *Tensor, derived: *const DerivedGraph) !void {
 }
 
 fn executeGraph(loss_tensor: *Tensor, derived: *const DerivedGraph) !void {
-    const runtime = Engine.initWithCurrentTelemetry(loss_tensor.allocator);
+    const runtime = Engine.init(loss_tensor.allocator, .{});
     var result = try runtime.executeGraph(&derived.graph, derived.bound_inputs);
     defer result.deinit();
 

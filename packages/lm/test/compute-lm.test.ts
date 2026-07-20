@@ -1,5 +1,6 @@
 import { describe, expect, test, values } from 'affon:test'
 import { axes, compile, grad, sum, tensor } from 'affon:compute'
+import telemetry from 'std:telemetry'
 import type { Tensor } from 'affon:compute'
 
 import { CausalLMLoss, DecoderModel, causal_lm_eval_loss_forward, generate } from '../src/index.ts'
@@ -11,7 +12,7 @@ function trackedF32(data: number[][][]): any {
 }
 
 function metricValue(group: string, name: string): number {
-  return Affon.metrics()
+  return telemetry.metrics()
     .filter((metric: any) => metric.group === group && metric.name === name)
     .reduce((sum: number, metric: any) => sum + metric.value, 0)
 }

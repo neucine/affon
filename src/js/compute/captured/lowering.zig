@@ -1,6 +1,6 @@
 const std = @import("std");
 const compute = @import("../../../compute/core.zig");
-const errors = @import("../../../compute/errors.zig");
+const diagnostic = @import("zig_libs").diagnostic;
 const schema = @import("schema.zig");
 const semantic = @import("../../../compute/plan/sema/index.zig");
 const ExecutionMetadata = @import("../../../compute/types/operation/execution_metadata.zig").ExecutionMetadata;
@@ -467,7 +467,7 @@ pub fn lowerToGraph(
         for (node_inputs, 0..) |input_id, i| input_specs[i] = lowered.graph.values.items[input_id].spec;
 
         var inferred = semantic.inferFromSpecs(allocator, op_info.tag, input_specs, op_info.options) catch |err| {
-            return errors.nativeErrorWithCurrent(
+            return diagnostic.withError(
                 err,
                 "captured.lowering: infer failed for node {d} kind={s} op={s}",
                 .{ node.id, node.kind, @tagName(op_info.tag) },
@@ -488,7 +488,7 @@ pub fn lowerToGraph(
             op_info.execution_metadata,
             output_spec,
         ) catch |err| {
-            return errors.nativeErrorWithCurrent(
+            return diagnostic.withError(
                 err,
                 "captured.lowering: graph addOp failed for node {d} kind={s} op={s}",
                 .{ node.id, node.kind, @tagName(op_info.tag) },

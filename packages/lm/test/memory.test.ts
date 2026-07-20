@@ -1,11 +1,12 @@
 import { describe, expect, test } from 'affon:test'
 import { axes, no_grad, seed, tensor } from 'affon:compute'
+import telemetry from 'std:telemetry'
 
 import { DecoderModel } from '../src/index.ts'
 import { metalAvailable } from './support/metal.ts'
 
 function metricValue(
-  metrics: ReturnType<typeof Affon.metrics>,
+  metrics: ReturnType<typeof telemetry.metrics>,
   group: string,
   name: string,
 ): number {
@@ -34,7 +35,7 @@ describe.skip(() => !metalAvailable())('@affon/lm memory', () => {
       [8, 7, 6, 5, 4, 3, 2, 1],
     ], { dtype: 'f32', axes: [axes.batch, axes.token] }).to('metal')
 
-    const baseline = Affon.metrics()
+    const baseline = telemetry.metrics()
     no_grad(() => {
       for (let i = 0; i < 16; i += 1) {
         let logits = model(tokens)
@@ -44,16 +45,16 @@ describe.skip(() => !metalAvailable())('@affon/lm memory', () => {
       }
     })
 
-    const during = Affon.metrics()
+    const during = telemetry.metrics()
     const trimmed = Affon.trimMemory()
-    const after = Affon.metrics()
+    const after = telemetry.metrics()
     setDevice('cpu')
 
-    expect(metricValue(during, 'allocator.events', 'allocations') > metricValue(baseline, 'allocator.events', 'allocations')).toBe(true)
-    expect(metricValue(during, 'allocator.events', 'hits') >= metricValue(baseline, 'allocator.events', 'hits')).toBe(true)
-    expect(metricValue(during, 'allocator.events', 'reuses') >= metricValue(baseline, 'allocator.events', 'reuses')).toBe(true)
+  expect(metricValue(during, 'compute.storage', 'allocations') > metricValue(baseline, 'compute.storage', 'allocations')).toBe(true)
+  expect(metricValue(during, 'compute.memory', 'metal_pool_hits') >= metricValue(baseline, 'compute.memory', 'metal_pool_hits')).toBe(true)
+  expect(metricValue(during, 'compute.storage', 'reuses') >= metricValue(baseline, 'compute.storage', 'reuses')).toBe(true)
     expect(trimmed >= 0).toBe(true)
-    expect(metricValue(after, 'owned.current_bytes', 'live_bytes') <= metricValue(during, 'owned.current_bytes', 'live_bytes')).toBe(true)
-    expect(metricValue(after, 'owned.current_bytes', 'live_metal_bytes') <= metricValue(baseline, 'owned.current_bytes', 'live_metal_bytes') + 1024 * 1024).toBe(true)
+  expect(metricValue(after, 'compute.memory', 'metal_pool_live_bytes') <= metricValue(during, 'compute.memory', 'metal_pool_live_bytes')).toBe(true)
+  expect(metricValue(after, 'compute.storage', 'live_metal_bytes') <= metricValue(baseline, 'compute.storage', 'live_metal_bytes') + 1024 * 1024).toBe(true)
   })
 })

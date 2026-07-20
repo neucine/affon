@@ -861,7 +861,13 @@ export function at(value: any, ...selectors: number[]) {
 }
 export const contiguous = (value: any) => graphSupport.captureContiguous(value)
 export const permute = (value: any, axes: number[]) => graphSupport.capturePermute(value, axes)
-export const transpose = native.transpose
+export function transpose(value: any, dim1: number, dim2: number) {
+  const dims = Array.from({ length: value.ndim }, (_, index) => index)
+  const first = dims[dim1]
+  dims[dim1] = dims[dim2]
+  dims[dim2] = first
+  return graphSupport.capturePermute(value, dims)
+}
 export const squeeze = (value: any, axis?: number) => graphSupport.captureSqueeze(value, axis)
 export const unsqueeze = (value: any, axis: number) => graphSupport.captureUnsqueeze(value, axis)
 export const cat = (inputs: any[], dim?: number) => graphSupport.captureCat(inputs, dim)
@@ -879,6 +885,12 @@ export function move(value: any, device: Device) {
 }
 export function no_grad<T>(fn: () => T): T {
   return native.no_grad(fn) as T
+}
+
+// Export/report plumbing is intentionally deferred, but keep the declared
+// surface loadable for workflows that only train and checkpoint.
+export function exportBundleFile(..._args: any[]): never {
+  throw new AffonError('not_implemented', 'compute bundle export is not implemented yet')
 }
 
 function flatValues(value: any): number[] {

@@ -211,7 +211,7 @@ pub fn releaseOwnedTensor(tensor: *Tensor) void {
 pub fn accumulateGradient(state: *State, gradient: *Tensor) !void {
     if (state.gradient) |existing| {
         const op = try Op.init(.add, &.{ existing, gradient }, .{ .none = {} });
-        var result = try Engine.initWithCurrentTelemetry(state.allocator).executeRaw(op);
+        var result = try Engine.init(state.allocator, .{}).executeRaw(op);
         errdefer result.deinit();
         existing.deinit();
         gradient.deinit();

@@ -8,6 +8,7 @@ const eager_planning = @import("plan/eager.zig");
 const graph_planning = @import("plan/graph.zig");
 const graph_execution = @import("execution/graph/index.zig");
 const transfer = @import("execution/transfer.zig");
+const backend_dispatch = @import("backend/dispatch.zig");
 const ir = @import("types/ir/index.zig");
 const telemetry = @import("telemetry.zig");
 
@@ -17,7 +18,6 @@ pub const GraphResult = graph_execution.Result;
 pub const EagerResult = eager.ExecutionResult;
 pub const DType = tensor.DType;
 pub const Device = tensor.Device;
-pub const Telemetry = telemetry.Interface;
 
 /// Operations exposed by the language-neutral compute engine.
 /// Backend selection, semantic validation, planning, and fusion happen below
@@ -84,16 +84,9 @@ pub const Outputs = struct {
 pub const Engine = struct {
     allocator: std.mem.Allocator,
 
-    pub const Config = struct {
-        telemetry: Telemetry = .{},
-    };
+    pub const Config = struct {};
 
-    pub fn init(allocator: std.mem.Allocator, config: Config) Engine {
-        telemetry.init(config.telemetry);
-        return .{ .allocator = allocator };
-    }
-
-    pub fn initWithCurrentTelemetry(allocator: std.mem.Allocator) Engine {
+    pub fn init(allocator: std.mem.Allocator, _: Config) Engine {
         return .{ .allocator = allocator };
     }
 
@@ -120,6 +113,12 @@ pub const Engine = struct {
     pub fn copyToHost(self: Engine, value: *const Tensor, out: []u8) !void {
         _ = self;
         try (try value.requireRuntimeBacking()).copyToHost(out);
+    }
+
+    pub fn scaleInPlace(self: Engine, value: *Tensor, scale: f64) !void {
+        _ = self;
+        const backing = try value.requireRuntimeBacking();
+        try backend_dispatch.update(value.device() orelse .cpu, .scale, value.dtype, backing, null, scale);
     }
 
     pub fn copyInto(self: Engine, target: *Tensor, source: *const Tensor) !void {
