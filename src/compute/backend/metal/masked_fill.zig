@@ -1,5 +1,5 @@
-const DType = @import("../../types/tensor/dtype.zig").DType;
-const Storage = @import("../../types/tensor/storage.zig").Storage;
+const DType = @import("../../shared/types/tensor/dtype.zig").DType;
+const Storage = @import("../../shared/types/tensor/storage.zig").Storage;
 const common = @import("common.zig");
 
 extern fn affon_metal_masked_fill_i64_f32(input_handle: *anyopaque, mask_handle: *anyopaque, out_handle: *anyopaque, fill_value: f32, len: usize) c_int;

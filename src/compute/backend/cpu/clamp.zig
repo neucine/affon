@@ -1,6 +1,6 @@
 const std = @import("std");
-const DType = @import("../../types/tensor/dtype.zig").DType;
-const Storage = @import("../../types/tensor/storage.zig").Storage;
+const DType = @import("../../shared/types/tensor/dtype.zig").DType;
+const Storage = @import("../../shared/types/tensor/storage.zig").Storage;
 
 pub fn run(dtype: DType, input: *const Storage, out: *Storage, min_val: f64, max_val: f64) !void {
     switch (dtype) {

@@ -1,6 +1,6 @@
-const DType = @import("../../types/tensor/dtype.zig").DType;
-const Storage = @import("../../types/tensor/storage.zig").Storage;
-const OpTag = @import("../../types/operation/tag.zig").OpTag;
+const DType = @import("../../shared/types/tensor/dtype.zig").DType;
+const Storage = @import("../../shared/types/tensor/storage.zig").Storage;
+const OpTag = @import("../../shared/types/operation/tag.zig").OpTag;
 const common = @import("common.zig");
 extern fn affon_metal_reduce_sum_f32(a_handle: *anyopaque, out_handle: *anyopaque, len: usize) c_int;
 extern fn affon_metal_reduce_sum_i64(a_handle: *anyopaque, out_handle: *anyopaque, len: usize) c_int;

@@ -1,7 +1,7 @@
 const std = @import("std");
-const DType = @import("../../types/tensor/dtype.zig").DType;
-const Storage = @import("../../types/tensor/storage.zig").Storage;
-const SliceRange = @import("../../types/operation/options.zig").SliceRange;
+const DType = @import("../../shared/types/tensor/dtype.zig").DType;
+const Storage = @import("../../shared/types/tensor/storage.zig").Storage;
+const SliceRange = @import("../../shared/types/operation/options.zig").SliceRange;
 
 pub fn run(dtype: DType, input: *const Storage, out: *Storage, in_shape: []const usize, ranges: []const SliceRange) !void {
     switch (dtype) {

@@ -12,7 +12,7 @@ pub const compute = @import("compute/core.zig");
 comptime {
     _ = config;
 }
-const autograd_types = @import("compute/types/autograd.zig");
+const autograd_types = @import("compute/shared/types/autograd.zig");
 const autograd_execution = @import("compute/execution/autograd.zig");
 
 const sources = [_]hao.SourceModule{
@@ -108,7 +108,6 @@ const sources = [_]hao.SourceModule{
         .source = @embedFile("js/dataset/tokenizer.ts"),
     },
 };
-
 
 const native_modules = [_]hao.NativeModule{ .{
     .specifier = compute_native.specifier,

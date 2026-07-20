@@ -1,6 +1,6 @@
 const std = @import("std");
-const DType = @import("../../types/tensor/dtype.zig").DType;
-const Storage = @import("../../types/tensor/storage.zig").Storage;
+const DType = @import("../../shared/types/tensor/dtype.zig").DType;
+const Storage = @import("../../shared/types/tensor/storage.zig").Storage;
 
 pub fn run(dtype: DType, input: *const Storage, out: *Storage, shape: []const usize, axis: usize, eps: f64) !void {
     if (axis >= shape.len) return error.InvalidAxis;

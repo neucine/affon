@@ -1,4 +1,4 @@
-const Storage = @import("../../types/tensor/storage.zig").Storage;
+const Storage = @import("../../shared/types/tensor/storage.zig").Storage;
 const common = @import("common.zig");
 
 extern fn affon_metal_one_hot_i64_f32(index_handle: *anyopaque, out_handle: *anyopaque, num_indices: usize, num_classes: usize) c_int;

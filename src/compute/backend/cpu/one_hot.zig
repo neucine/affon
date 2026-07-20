@@ -1,5 +1,5 @@
 const std = @import("std");
-const Storage = @import("../../types/tensor/storage.zig").Storage;
+const Storage = @import("../../shared/types/tensor/storage.zig").Storage;
 
 pub fn run(index: *const Storage, out: *Storage, num_classes: usize) !void {
     const src = std.mem.bytesAsSlice(i64, try index.readableBytes());

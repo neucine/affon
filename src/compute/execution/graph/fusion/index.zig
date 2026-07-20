@@ -1,11 +1,11 @@
 const std = @import("std");
-const Tensor = @import("../../../types/tensor/tensor.zig").Tensor;
-const Shape = @import("../../../types/tensor/shape.zig").Shape;
-const Device = @import("../../../types/tensor/device.zig").Device;
-const Graph = @import("../../../types/ir/graph.zig").Graph;
-const Region = @import("../../../types/ir/plan.zig").Region;
-const Step = @import("../../../types/ir/plan.zig").Step;
-const OpTag = @import("../../../types/operation/tag.zig").OpTag;
+const Tensor = @import("../../../shared/types/tensor/tensor.zig").Tensor;
+const Shape = @import("../../../shared/types/tensor/shape.zig").Shape;
+const Device = @import("../../../shared/types/tensor/device.zig").Device;
+const Graph = @import("../../../shared/types/ir/graph.zig").Graph;
+const Region = @import("../../../shared/types/ir/plan.zig").Region;
+const Step = @import("../../../shared/types/ir/plan.zig").Step;
+const OpTag = @import("../../../shared/types/operation/tag.zig").OpTag;
 const backend_dispatch = @import("../../../backend/dispatch.zig");
 const logsumexp_loss = @import("logsumexp_loss.zig");
 const gather_logsumexp_loss = @import("gather_logsumexp_loss.zig");
@@ -189,10 +189,22 @@ fn executeAttentionScores(
     const scale_node = graph.nodes.items[steps[1].node_id];
     const mask_node = graph.nodes.items[steps[2].node_id];
     const softmax_node = graph.nodes.items[steps[3].node_id];
-    const matmul_tag = switch (matmul_node.kind) { .op => |tag| tag, else => return false };
-    const scale_tag = switch (scale_node.kind) { .op => |tag| tag, else => return false };
-    const mask_tag = switch (mask_node.kind) { .op => |tag| tag, else => return false };
-    const softmax_tag = switch (softmax_node.kind) { .op => |tag| tag, else => return false };
+    const matmul_tag = switch (matmul_node.kind) {
+        .op => |tag| tag,
+        else => return false,
+    };
+    const scale_tag = switch (scale_node.kind) {
+        .op => |tag| tag,
+        else => return false,
+    };
+    const mask_tag = switch (mask_node.kind) {
+        .op => |tag| tag,
+        else => return false,
+    };
+    const softmax_tag = switch (softmax_node.kind) {
+        .op => |tag| tag,
+        else => return false,
+    };
     if (matmul_tag != .matmul or scale_tag != .mul or mask_tag != .masked_fill or softmax_tag != .softmax) return false;
     if (matmul_node.inputs.len != 2 or matmul_node.outputs.len != 1 or
         scale_node.inputs.len != 2 or scale_node.outputs.len != 1 or

@@ -6,9 +6,9 @@ const DType = @import("../tensor/dtype.zig").DType;
 const Layout = @import("../tensor/layout.zig").Layout;
 const Shape = @import("../tensor/shape.zig").Shape;
 const OpTag = @import("../operation/tag.zig").OpTag;
-const semantic = @import("../../plan/sema/index.zig");
-const execution_layout = @import("../../plan/layout.zig");
-const execution_spec = @import("../../plan/spec.zig");
+const semantic = @import("../../sema/index.zig");
+const execution_layout = @import("../../../plan/layout.zig");
+const execution_spec = @import("../../../plan/spec.zig");
 
 pub const ExecutionInputRequirement = execution_spec.InputRequirement;
 pub const ReduceToShapeSpec = semantic.ReduceToShapeSpec;

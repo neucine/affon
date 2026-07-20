@@ -1,8 +1,8 @@
 const std = @import("std");
-const Device = @import("../../types/tensor/device.zig").Device;
-const DType = @import("../../types/tensor/dtype.zig").DType;
-const Storage = @import("../../types/tensor/storage.zig").Storage;
-const Tensor = @import("../../types/tensor/tensor.zig").Tensor;
+const Device = @import("../../shared/types/tensor/device.zig").Device;
+const DType = @import("../../shared/types/tensor/dtype.zig").DType;
+const Storage = @import("../../shared/types/tensor/storage.zig").Storage;
+const Tensor = @import("../../shared/types/tensor/tensor.zig").Tensor;
 const kernel_dispatch = @import("../../backend/dispatch.zig");
 
 pub fn dispatchGather(

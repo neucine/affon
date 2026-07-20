@@ -1,4 +1,4 @@
-const semantic = @import("sema/index.zig");
+const semantic = @import("../shared/sema/index.zig");
 
 pub const ExecutionKind = enum {
     elementwise_binary,

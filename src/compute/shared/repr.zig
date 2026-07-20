@@ -1,7 +1,7 @@
 const std = @import("std");
 const cfg = @import("../../config.zig");
-const Tensor = @import("../types/tensor/tensor.zig").Tensor;
-const DType = @import("../types/tensor/dtype.zig").DType;
+const Tensor = @import("types/tensor/tensor.zig").Tensor;
+const DType = @import("types/tensor/dtype.zig").DType;
 
 fn reprAlloc() std.mem.Allocator {
     return std.heap.c_allocator;

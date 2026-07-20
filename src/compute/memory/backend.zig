@@ -1,6 +1,6 @@
 const std = @import("std");
 const compat = @import("../../support/compat.zig");
-const Device = @import("../types/tensor/device.zig").Device;
+const Device = @import("../shared/types/tensor/device.zig").Device;
 const telemetry = @import("../telemetry.zig");
 const policy_mod = @import("policy.zig");
 const region_mod = @import("region.zig");

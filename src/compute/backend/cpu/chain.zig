@@ -1,7 +1,7 @@
 const std = @import("std");
-const DType = @import("../../types/tensor/dtype.zig").DType;
-const Storage = @import("../../types/tensor/storage.zig").Storage;
-const OpTag = @import("../../types/operation/tag.zig").OpTag;
+const DType = @import("../../shared/types/tensor/dtype.zig").DType;
+const Storage = @import("../../shared/types/tensor/storage.zig").Storage;
+const OpTag = @import("../../shared/types/operation/tag.zig").OpTag;
 
 pub const UnaryStage = struct {
     tag: OpTag,

@@ -1,18 +1,36 @@
 const std = @import("std");
-const tensor = @import("../types/tensor/index.zig");
+const tensor = @import("../shared/types/tensor/index.zig");
 const Layout = tensor.Layout;
 const Shape = tensor.Shape;
-const Op = @import("../types/operation/op.zig").Op;
-const semantic = @import("sema/index.zig");
-const ir_plan = @import("../types/ir/plan.zig");
+const Op = @import("../shared/types/operation/op.zig").Op;
+const semantic = @import("../shared/sema/index.zig");
+const ir_plan = @import("../shared/types/ir/plan.zig");
 const execution_layout = @import("layout.zig");
 const execution_spec = @import("spec.zig");
 const matmul_planning = @import("matmul.zig");
-const ExecutionMetadata = @import("../types/operation/execution_metadata.zig").ExecutionMetadata;
+const ExecutionMetadata = @import("../shared/types/operation/execution_metadata.zig").ExecutionMetadata;
+const telemetry = @import("../telemetry.zig");
 
 pub const Plan = ir_plan.EagerPlan;
 
-pub fn create(allocator: std.mem.Allocator, op: Op, info: semantic.OpSpec) !Plan {
+pub fn create(allocator: std.mem.Allocator, op: Op) !Plan {
+    var info = try semantic.infer(allocator, op);
+    defer info.deinit();
+    return createFromSemantic(allocator, op, info);
+}
+
+pub fn createWithTrace(allocator: std.mem.Allocator, op: Op, parent: telemetry.Scope) !Plan {
+    var infer_scope = parent.child("plan/infer", .internal, &.{});
+    var info = semantic.infer(allocator, op) catch |err| {
+        infer_scope.endError();
+        return err;
+    };
+    infer_scope.end();
+    defer info.deinit();
+    return createFromSemantic(allocator, op, info);
+}
+
+pub fn createFromSemantic(allocator: std.mem.Allocator, op: Op, info: semantic.OpSpec) !Plan {
     const input_specs = try allocator.alloc(tensor.TensorSpec, op.inputs.len);
     defer allocator.free(input_specs);
     for (op.inputs, 0..) |input, i| input_specs[i] = try input.spec();
@@ -21,7 +39,7 @@ pub fn create(allocator: std.mem.Allocator, op: Op, info: semantic.OpSpec) !Plan
 
 pub fn createFromSpecs(
     allocator: std.mem.Allocator,
-    op_tag: @import("../types/operation/tag.zig").OpTag,
+    op_tag: @import("../shared/types/operation/tag.zig").OpTag,
     input_specs: []const tensor.TensorSpec,
     info: semantic.OpSpec,
     metadata: ExecutionMetadata,
@@ -88,7 +106,7 @@ pub fn createFromSpecs(
 }
 
 fn createMatmulDecision(
-    op_tag: @import("../types/operation/tag.zig").OpTag,
+    op_tag: @import("../shared/types/operation/tag.zig").OpTag,
     input_specs: []const tensor.TensorSpec,
     info: semantic.OpSpec,
     metadata: ExecutionMetadata,

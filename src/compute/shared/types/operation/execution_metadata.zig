@@ -1,4 +1,4 @@
-const matmul_planning = @import("../../plan/matmul.zig");
+const matmul_planning = @import("../../../plan/matmul.zig");
 
 pub const ExecutionMetadata = struct {
     matmul_hint: matmul_planning.MatmulHint = .none,

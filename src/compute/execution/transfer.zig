@@ -1,5 +1,5 @@
 const std = @import("std");
-const Tensor = @import("../types/tensor/tensor.zig").Tensor;
+const Tensor = @import("../shared/types/tensor/tensor.zig").Tensor;
 const kernel_dispatch = @import("../backend/dispatch.zig");
 
 pub const TransferSummary = struct {

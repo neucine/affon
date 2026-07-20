@@ -1,12 +1,12 @@
 const std = @import("std");
-const Graph = @import("../types/ir/index.zig").Graph;
-const TensorId = @import("../types/ir/index.zig").TensorId;
-const Tensor = @import("../types/tensor/tensor.zig").Tensor;
-const TensorSpec = @import("../types/tensor/tensor_spec.zig").TensorSpec;
-const Shape = @import("../types/tensor/shape.zig").Shape;
-const Layout = @import("../types/tensor/layout.zig").Layout;
-const Op = @import("../types/operation/op.zig").Op;
-const semantic = @import("../plan/sema/index.zig");
+const Graph = @import("../shared/types/ir/index.zig").Graph;
+const TensorId = @import("../shared/types/ir/index.zig").TensorId;
+const Tensor = @import("../shared/types/tensor/tensor.zig").Tensor;
+const TensorSpec = @import("../shared/types/tensor/tensor_spec.zig").TensorSpec;
+const Shape = @import("../shared/types/tensor/shape.zig").Shape;
+const Layout = @import("../shared/types/tensor/layout.zig").Layout;
+const Op = @import("../shared/types/operation/op.zig").Op;
+const semantic = @import("../shared/sema/index.zig");
 
 pub fn addOpFromOp(
     allocator: std.mem.Allocator,

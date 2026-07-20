@@ -349,7 +349,7 @@ pub fn deriveParentGrad(ctx: anytype, grad_out: anytype, step: anytype, input_sl
             var start: usize = 0;
             for (0..input_slot) |i| start += step.saved.inputs[i].shape.dims[axis];
             const stop = start + step.saved.inputs[input_slot].shape.dims[axis];
-            const ranges = try ctx.getAllocator().alloc(@import("../types/operation/options.zig").SliceRange, rank);
+            const ranges = try ctx.getAllocator().alloc(@import("../shared/types/operation/options.zig").SliceRange, rank);
             defer ctx.getAllocator().free(ranges);
             const grad_shape = ctx.valueSpec(grad_out).shape.dims;
             for (0..rank) |d| {
@@ -365,7 +365,7 @@ pub fn deriveParentGrad(ctx: anytype, grad_out: anytype, step: anytype, input_sl
             const axis = step.axis orelse return error.GradUnsupported;
             const rank = ctx.valueSpec(grad_out).shape.dims.len;
             if (axis >= rank) return error.GradUnsupported;
-            const ranges = try ctx.getAllocator().alloc(@import("../types/operation/options.zig").SliceRange, rank);
+            const ranges = try ctx.getAllocator().alloc(@import("../shared/types/operation/options.zig").SliceRange, rank);
             defer ctx.getAllocator().free(ranges);
             const grad_shape = ctx.valueSpec(grad_out).shape.dims;
             for (0..rank) |d| {

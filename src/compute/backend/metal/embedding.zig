@@ -1,5 +1,5 @@
-const DType = @import("../../types/tensor/dtype.zig").DType;
-const Storage = @import("../../types/tensor/storage.zig").Storage;
+const DType = @import("../../shared/types/tensor/dtype.zig").DType;
+const Storage = @import("../../shared/types/tensor/storage.zig").Storage;
 const common = @import("common.zig");
 
 extern fn affon_metal_embedding_i64_f32(table_handle: *anyopaque, index_handle: *anyopaque, out_handle: *anyopaque, vocab: usize, emb_dim: usize, index_count: usize) c_int;

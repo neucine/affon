@@ -1,10 +1,10 @@
 const std = @import("std");
 const compat = @import("../../../../support/compat.zig");
-const Graph = @import("../../../types/ir/index.zig").Graph;
-const Node = @import("../../../types/ir/index.zig").Node;
-const Step = @import("../../../types/ir/plan.zig").Step;
-const OpTag = @import("../../../types/operation/tag.zig").OpTag;
-const Tensor = @import("../../../types/tensor/tensor.zig").Tensor;
+const Graph = @import("../../../shared/types/ir/index.zig").Graph;
+const Node = @import("../../../shared/types/ir/index.zig").Node;
+const Step = @import("../../../shared/types/ir/plan.zig").Step;
+const OpTag = @import("../../../shared/types/operation/tag.zig").OpTag;
+const Tensor = @import("../../../shared/types/tensor/tensor.zig").Tensor;
 const kernel_dispatch = @import("../../../backend/dispatch.zig");
 const value_helpers = @import("value_helpers.zig");
 const metal_common = @import("../../../backend/metal/common.zig");
@@ -178,7 +178,7 @@ fn findLossNode(graph: *const Graph, group: []const Step) ?Node {
     };
 }
 
-fn findRegionContainingProducer(plan: *const @import("../../../types/ir/plan.zig").GraphPlan, producer_id: u32) ?@import("../../../types/ir/plan.zig").Region {
+fn findRegionContainingProducer(plan: *const @import("../../../shared/types/ir/plan.zig").GraphPlan, producer_id: u32) ?@import("../../../shared/types/ir/plan.zig").Region {
     for (plan.regions.items) |region| {
         for (plan.steps.items[region.step_start..region.step_end]) |step| {
             if (step.node_id == producer_id) return region;
@@ -271,10 +271,10 @@ pub fn tryExecute(
 
 test "lm head cross entropy indexed matcher recognizes tied-head indexed loss shape" {
     const allocator = std.testing.allocator;
-    const TensorSpec = @import("../../../types/tensor/tensor_spec.zig").TensorSpec;
-    const Layout = @import("../../../types/tensor/layout.zig").Layout;
-    const Shape = @import("../../../types/tensor/shape.zig").Shape;
-    const SliceRange = @import("../../../types/operation/options.zig").SliceRange;
+    const TensorSpec = @import("../../../shared/types/tensor/tensor_spec.zig").TensorSpec;
+    const Layout = @import("../../../shared/types/tensor/layout.zig").Layout;
+    const Shape = @import("../../../shared/types/tensor/shape.zig").Shape;
+    const SliceRange = @import("../../../shared/types/operation/options.zig").SliceRange;
 
     var weight_shape = try Shape.initCopy(allocator, &.{ 3, 2 });
     defer weight_shape.deinit();
@@ -379,10 +379,10 @@ test "lm head cross entropy indexed matcher recognizes tied-head indexed loss sh
 
 test "lm head cross entropy indexed fused execution matches dense indexed loss" {
     const allocator = std.testing.allocator;
-    const TensorSpec = @import("../../../types/tensor/tensor_spec.zig").TensorSpec;
-    const Layout = @import("../../../types/tensor/layout.zig").Layout;
-    const Shape = @import("../../../types/tensor/shape.zig").Shape;
-    const SliceRange = @import("../../../types/operation/options.zig").SliceRange;
+    const TensorSpec = @import("../../../shared/types/tensor/tensor_spec.zig").TensorSpec;
+    const Layout = @import("../../../shared/types/tensor/layout.zig").Layout;
+    const Shape = @import("../../../shared/types/tensor/shape.zig").Shape;
+    const SliceRange = @import("../../../shared/types/operation/options.zig").SliceRange;
 
     var weight_shape = try Shape.initCopy(allocator, &.{ 3, 2 });
     defer weight_shape.deinit();
@@ -573,8 +573,8 @@ test "lm head cross entropy indexed transposed benchmark (opt-in)" {
     const transposed_storage = transposed.storage orelse return error.InputNotMaterialized;
     transposed_storage.retain();
     defer transposed_storage.release();
-    const flat_view_shape = try @import("../../../types/tensor/shape.zig").Shape.initCopy(allocator, &.{ rows, classes });
-    const flat_view_layout = try @import("../../../types/tensor/layout.zig").Layout.initCopy(allocator, &.{ 1, @as(isize, @intCast(rows)) }, 0);
+    const flat_view_shape = try @import("../../../shared/types/tensor/shape.zig").Shape.initCopy(allocator, &.{ rows, classes });
+    const flat_view_layout = try @import("../../../shared/types/tensor/layout.zig").Layout.initCopy(allocator, &.{ 1, @as(isize, @intCast(rows)) }, 0);
     const flat_view = try allocator.create(Tensor);
     defer {
         flat_view.storage = null;

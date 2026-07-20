@@ -1,5 +1,5 @@
 const std = @import("std");
-const tensor = @import("../types/tensor/index.zig");
+const tensor = @import("../shared/types/tensor/index.zig");
 const TensorSpec = tensor.TensorSpec;
 const DType = tensor.DType;
 const Device = tensor.Device;

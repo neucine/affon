@@ -1,5 +1,6 @@
-pub const types = @import("types/index.zig");
+pub const types = @import("shared/types/index.zig");
 pub const compose = @import("compose/index.zig");
+pub const sema = @import("shared/sema/index.zig");
 pub const tensor = types.tensor;
 pub const operation = types.operation;
 pub const ir = types.ir;
@@ -16,6 +17,7 @@ test {
     _ = operation;
     _ = ir;
     _ = backend;
+    _ = sema;
     _ = execution;
     _ = eager;
     _ = graph;

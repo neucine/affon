@@ -1,6 +1,6 @@
 const std = @import("std");
-const DType = @import("../../types/tensor/dtype.zig").DType;
-const Storage = @import("../../types/tensor/storage.zig").Storage;
+const DType = @import("../../shared/types/tensor/dtype.zig").DType;
+const Storage = @import("../../shared/types/tensor/storage.zig").Storage;
 
 pub fn run(dtype: DType, base: *const Storage, index: *const Storage, updates: *const Storage, out: *Storage, shape: []const usize, axis: usize) !void {
     const idx = std.mem.bytesAsSlice(i64, try index.readableBytes());

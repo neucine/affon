@@ -1,20 +1,20 @@
 const std = @import("std");
-const graph_mod = @import("../types/ir/index.zig");
+const graph_mod = @import("../shared/types/ir/index.zig");
 const NodeId = graph_mod.NodeId;
 const TensorId = graph_mod.TensorId;
 const Graph = graph_mod.Graph;
-const tensor = @import("../types/tensor/index.zig");
+const tensor = @import("../shared/types/tensor/index.zig");
 const TensorSpec = tensor.TensorSpec;
 const DType = tensor.DType;
 const Device = tensor.Device;
 const Shape = tensor.Shape;
 const Layout = tensor.Layout;
-const semantic = @import("sema/index.zig");
+const semantic = @import("../shared/sema/index.zig");
 const ExecutionKind = execution_spec.ExecutionKind;
-const SliceRange = @import("../types/operation/options.zig").SliceRange;
+const SliceRange = @import("../shared/types/operation/options.zig").SliceRange;
 const execution_layout = @import("layout.zig");
 const execution_spec = @import("spec.zig");
-const ir_plan = @import("../types/ir/plan.zig");
+const ir_plan = @import("../shared/types/ir/plan.zig");
 const eager_planning = @import("eager.zig");
 
 pub const StepKind = ir_plan.StepKind;
@@ -217,7 +217,7 @@ fn matchesStepTags(
     graph: *const Graph,
     steps: []const Step,
     start: usize,
-    comptime tags: []const @import("../types/operation/tag.zig").OpTag,
+    comptime tags: []const @import("../shared/types/operation/tag.zig").OpTag,
 ) bool {
     if (start + tags.len > steps.len) return false;
     for (tags, 0..) |expected, offset| {
@@ -296,7 +296,7 @@ fn classifyMatmulEpilogueRegion(plan: *const Plan, graph: *const Graph, start: u
     };
 }
 
-fn nodeOpTag(node: graph_mod.Node) ?@import("../types/operation/tag.zig").OpTag {
+fn nodeOpTag(node: graph_mod.Node) ?@import("../shared/types/operation/tag.zig").OpTag {
     return switch (node.kind) {
         .op => |tag| tag,
         else => null,

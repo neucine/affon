@@ -1,9 +1,9 @@
 const std = @import("std");
-const compat = @import("../../../support/compat.zig");
+const compat = @import("../../../../support/compat.zig");
 const Device = @import("device.zig").Device;
-const mm = @import("../../memory.zig");
-const telemetry = @import("../../telemetry.zig");
-const metal_common = @import("../../backend/metal/common.zig");
+const mm = @import("../../../memory.zig");
+const telemetry = @import("../../../telemetry.zig");
+const metal_common = @import("../../../backend/metal/common.zig");
 
 // Runtime backing for tensor values.
 //

@@ -1,21 +1,21 @@
 const std = @import("std");
-const tensor_value = @import("../../types/tensor/tensor.zig");
+const tensor_value = @import("../../shared/types/tensor/tensor.zig");
 const Tensor = tensor_value.Tensor;
-const Storage = @import("../../types/tensor/storage.zig").Storage;
+const Storage = @import("../../shared/types/tensor/storage.zig").Storage;
 const telemetry = @import("../../telemetry.zig");
-const Op = @import("../../types/operation/op.zig").Op;
-const Device = @import("../../types/tensor/device.zig").Device;
+const Op = @import("../../shared/types/operation/op.zig").Op;
+const Device = @import("../../shared/types/tensor/device.zig").Device;
 const diagnostic = @import("zig_libs").diagnostic;
-const Shape = @import("../../types/tensor/shape.zig").Shape;
-const Layout = @import("../../types/tensor/layout.zig").Layout;
-const TensorSpec = @import("../../types/tensor/tensor_spec.zig").TensorSpec;
+const Shape = @import("../../shared/types/tensor/shape.zig").Shape;
+const Layout = @import("../../shared/types/tensor/layout.zig").Layout;
+const TensorSpec = @import("../../shared/types/tensor/tensor_spec.zig").TensorSpec;
 const prepared_execution = @import("../prepared.zig");
 const reduction_execution = @import("../dispatch/reduction.zig");
 const materialization_execution = @import("../materialization.zig");
 const transfer_execution = @import("../transfer.zig");
 const execution_metrics = @import("../metrics.zig");
 const execution_layout = @import("../../plan/layout.zig");
-const eager_plan = @import("../../types/ir/plan.zig");
+const eager_plan = @import("../../shared/types/ir/plan.zig");
 const conversion_execution = @import("../dispatch/conversion.zig");
 const elementwise_execution = @import("../dispatch/elementwise.zig");
 const linalg_execution = @import("../dispatch/linalg.zig");
@@ -315,7 +315,7 @@ fn validateInputsForPlan(op: Op, plan: *const EagerOpPlan) !void {
                 .{ i, @tagName(input.dtype), @tagName(spec.dtype) },
             );
         }
-        if (!@import("../../types/tensor/shape.zig").Shape.eql(input.shape, spec.shape)) {
+        if (!@import("../../shared/types/tensor/shape.zig").Shape.eql(input.shape, spec.shape)) {
             return diagnostic.withError(
                 error.ShapeMismatch,
                 "eager.plan: input[{d}] shape mismatch",

@@ -1,5 +1,5 @@
-const DType = @import("../../types/tensor/dtype.zig").DType;
-const Storage = @import("../../types/tensor/storage.zig").Storage;
+const DType = @import("../../shared/types/tensor/dtype.zig").DType;
+const Storage = @import("../../shared/types/tensor/storage.zig").Storage;
 const common = @import("common.zig");
 
 extern fn affon_metal_gather_i64_f32(input_handle: *anyopaque, index_handle: *anyopaque, out_handle: *anyopaque, ndim: usize, shape: [*]const u32, input_strides: [*]const u32, axis: usize, axis_size: usize, len: usize) c_int;

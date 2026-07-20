@@ -1,6 +1,6 @@
 const std = @import("std");
-const DType = @import("../../types/tensor/dtype.zig").DType;
-const Storage = @import("../../types/tensor/storage.zig").Storage;
+const DType = @import("../../shared/types/tensor/dtype.zig").DType;
+const Storage = @import("../../shared/types/tensor/storage.zig").Storage;
 
 pub fn run(allocator: std.mem.Allocator, dtype: DType, input: *const Storage, values_out: *Storage, indices_out: *Storage, shape: []const usize, axis: usize, k: usize, largest: bool) !void {
     switch (dtype) {

@@ -1,5 +1,5 @@
-const DType = @import("../../types/tensor/dtype.zig").DType;
-const Storage = @import("../../types/tensor/storage.zig").Storage;
+const DType = @import("../../shared/types/tensor/dtype.zig").DType;
+const Storage = @import("../../shared/types/tensor/storage.zig").Storage;
 const common = @import("common.zig");
 
 extern fn affon_metal_dot_f32(a_handle: *anyopaque, b_handle: *anyopaque, out_handle: *anyopaque, len: usize) c_int;

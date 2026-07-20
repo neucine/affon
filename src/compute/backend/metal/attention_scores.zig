@@ -1,5 +1,5 @@
-const DType = @import("../../types/tensor/dtype.zig").DType;
-const Storage = @import("../../types/tensor/storage.zig").Storage;
+const DType = @import("../../shared/types/tensor/dtype.zig").DType;
+const Storage = @import("../../shared/types/tensor/storage.zig").Storage;
 const common = @import("common.zig");
 
 extern fn affon_metal_attention_scores_f32(q_handle: *anyopaque, k_t_handle: *anyopaque, scale_handle: *anyopaque, mask_handle: *anyopaque, out_handle: *anyopaque, mask_fill_value: f32, m: usize, n: usize, k: usize) c_int;

@@ -1,6 +1,6 @@
 const std = @import("std");
-const DType = @import("../../types/tensor/dtype.zig").DType;
-const Storage = @import("../../types/tensor/storage.zig").Storage;
+const DType = @import("../../shared/types/tensor/dtype.zig").DType;
+const Storage = @import("../../shared/types/tensor/storage.zig").Storage;
 
 pub fn run(input_dtype: DType, mask_dtype: DType, input: *const Storage, mask: *const Storage, out: *Storage, fill_value: f64) !void {
     const mask_bytes = try mask.readableBytes();

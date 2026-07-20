@@ -1,8 +1,8 @@
 const std = @import("std");
-const Tensor = @import("../../../types/tensor/tensor.zig").Tensor;
-const Shape = @import("../../../types/tensor/shape.zig").Shape;
-const Graph = @import("../../../types/ir/index.zig").Graph;
-const Step = @import("../../../types/ir/plan.zig").Step;
+const Tensor = @import("../../../shared/types/tensor/tensor.zig").Tensor;
+const Shape = @import("../../../shared/types/tensor/shape.zig").Shape;
+const Graph = @import("../../../shared/types/ir/index.zig").Graph;
+const Step = @import("../../../shared/types/ir/plan.zig").Step;
 const kernel_dispatch = @import("../../../backend/dispatch.zig");
 const common = @import("common.zig");
 

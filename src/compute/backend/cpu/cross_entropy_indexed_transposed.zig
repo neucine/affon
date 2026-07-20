@@ -1,6 +1,6 @@
 const std = @import("std");
-const DType = @import("../../types/tensor/dtype.zig").DType;
-const Storage = @import("../../types/tensor/storage.zig").Storage;
+const DType = @import("../../shared/types/tensor/dtype.zig").DType;
+const Storage = @import("../../shared/types/tensor/storage.zig").Storage;
 
 pub fn run(dtype: DType, logits: *const Storage, targets: *const Storage, out: *Storage, rows: usize, classes: usize) !void {
     if (rows == 0 or classes == 0) return error.ShapeMismatch;

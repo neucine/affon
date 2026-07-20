@@ -1,9 +1,9 @@
-const Device = @import("../types/tensor/device.zig").Device;
-const DType = @import("../types/tensor/dtype.zig").DType;
-const Layout = @import("../types/tensor/layout.zig").Layout;
-const Storage = @import("../types/tensor/storage.zig").Storage;
+const Device = @import("../shared/types/tensor/device.zig").Device;
+const DType = @import("../shared/types/tensor/dtype.zig").DType;
+const Layout = @import("../shared/types/tensor/layout.zig").Layout;
+const Storage = @import("../shared/types/tensor/storage.zig").Storage;
 const std = @import("std");
-const OpTag = @import("../types/operation/tag.zig").OpTag;
+const OpTag = @import("../shared/types/operation/tag.zig").OpTag;
 const cpu = @import("cpu/index.zig");
 const metal = @import("metal/index.zig");
 
@@ -1042,9 +1042,9 @@ pub fn dot(device: Device, dtype: DType, a: *const Storage, b: *const Storage, o
 }
 
 pub fn matmul(device: Device, dtype: DType, a: *const Storage, b: *const Storage, out: *Storage, a_shape: []const usize, b_shape: []const usize) !void {
-    var a_shape_obj = try @import("../types/tensor/shape.zig").Shape.initCopy(std.heap.page_allocator, a_shape);
+    var a_shape_obj = try @import("../shared/types/tensor/shape.zig").Shape.initCopy(std.heap.page_allocator, a_shape);
     defer a_shape_obj.deinit();
-    var b_shape_obj = try @import("../types/tensor/shape.zig").Shape.initCopy(std.heap.page_allocator, b_shape);
+    var b_shape_obj = try @import("../shared/types/tensor/shape.zig").Shape.initCopy(std.heap.page_allocator, b_shape);
     defer b_shape_obj.deinit();
     var a_layout = try Layout.initContiguous(std.heap.page_allocator, a_shape_obj);
     defer a_layout.deinit();
@@ -1248,7 +1248,7 @@ pub fn stack(device: Device, dtype: DType, inputs: []const *const Storage, out: 
     }
 }
 
-pub fn slice(device: Device, dtype: DType, input: *const Storage, out: *Storage, in_shape: []const usize, ranges: []const @import("../types/operation/options.zig").SliceRange) !void {
+pub fn slice(device: Device, dtype: DType, input: *const Storage, out: *Storage, in_shape: []const usize, ranges: []const @import("../shared/types/operation/options.zig").SliceRange) !void {
     switch (device) {
         .cpu => try cpu.slice(dtype, input, out, in_shape, ranges),
         .metal => try metal.slice(dtype, input, out, in_shape, ranges),
@@ -1877,7 +1877,7 @@ test "metal softmax rejects i64 dtype explicitly" {
         .source = .eager,
     });
     defer out.release();
-    var input_shape = try @import("../types/tensor/shape.zig").Shape.initCopy(allocator, &.{ 2, 2 });
+    var input_shape = try @import("../shared/types/tensor/shape.zig").Shape.initCopy(allocator, &.{ 2, 2 });
     defer input_shape.deinit();
     var input_layout = try Layout.initContiguous(allocator, input_shape);
     defer input_layout.deinit();
@@ -1914,7 +1914,7 @@ test "metal f64 remains explicit not-implemented on current backend" {
         .source = .eager,
     });
     defer out_scalar.release();
-    var dense_shape = try @import("../types/tensor/shape.zig").Shape.initCopy(allocator, &.{ 2, 2 });
+    var dense_shape = try @import("../shared/types/tensor/shape.zig").Shape.initCopy(allocator, &.{ 2, 2 });
     defer dense_shape.deinit();
     var dense_layout = try Layout.initContiguous(allocator, dense_shape);
     defer dense_layout.deinit();
@@ -1969,7 +1969,7 @@ test "metal f64 remains explicit not-implemented on current backend" {
     try @import("std").testing.expectError(error.ExecutionNotImplemented, topk(@import("std").testing.allocator, .metal, .f64, a, values, indices, &.{ 2, 2 }, 1, 1, true));
 
     // slice
-    const ranges = [_]@import("../types/operation/options.zig").SliceRange{
+    const ranges = [_]@import("../shared/types/operation/options.zig").SliceRange{
         .{ .start = 0, .stop = 2, .step = 1 },
         .{ .start = 0, .stop = 1, .step = 1 },
     };
@@ -2044,7 +2044,7 @@ test "metal softmax and matmul are routed through kernel dispatch surface" {
     const sm_out_h = try sm_out.metalHandle();
     const sm_vals = [_]f32{ 1, 2, 3, 4 };
     try metal.common.writeBuffer(sm_in_h, @import("std").mem.asBytes(&sm_vals));
-    var sm_shape = try @import("../types/tensor/shape.zig").Shape.initCopy(allocator, &.{ 2, 2 });
+    var sm_shape = try @import("../shared/types/tensor/shape.zig").Shape.initCopy(allocator, &.{ 2, 2 });
     defer sm_shape.deinit();
     var sm_layout = try Layout.initContiguous(allocator, sm_shape);
     defer sm_layout.deinit();
@@ -2101,7 +2101,7 @@ test "metal softmax accepts positive-stride view layout through dispatch" {
     defer out.release();
 
     try metal.common.writeBuffer(try input.metalHandle(), @import("std").mem.asBytes(&[_]f32{ 1, 2, 3, 4 }));
-    var shape = try @import("../types/tensor/shape.zig").Shape.initCopy(allocator, &.{ 2, 2 });
+    var shape = try @import("../shared/types/tensor/shape.zig").Shape.initCopy(allocator, &.{ 2, 2 });
     defer shape.deinit();
     var layout = try Layout.initCopy(allocator, &.{ 1, 2 }, 0);
     defer layout.deinit();
@@ -2618,7 +2618,7 @@ test "metal softmax supports rank-1 vector" {
     defer out.release();
 
     try metal.common.writeBuffer(try input.metalHandle(), @import("std").mem.asBytes(&[_]f32{ 1, 2, 3 }));
-    var vec_shape = try @import("../types/tensor/shape.zig").Shape.initCopy(allocator, &.{3});
+    var vec_shape = try @import("../shared/types/tensor/shape.zig").Shape.initCopy(allocator, &.{3});
     defer vec_shape.deinit();
     var vec_layout = try Layout.initContiguous(allocator, vec_shape);
     defer vec_layout.deinit();
@@ -2652,7 +2652,7 @@ test "metal softmax supports rank-3 axis" {
         1, 2, 3, 4,
         5, 6, 7, 8,
     }));
-    var nd_shape = try @import("../types/tensor/shape.zig").Shape.initCopy(allocator, &.{ 2, 1, 4 });
+    var nd_shape = try @import("../shared/types/tensor/shape.zig").Shape.initCopy(allocator, &.{ 2, 1, 4 });
     defer nd_shape.deinit();
     var nd_layout = try Layout.initContiguous(allocator, nd_shape);
     defer nd_layout.deinit();
@@ -3360,7 +3360,7 @@ test "metal slice uses native strided contiguous path" {
     defer out.release();
 
     try metal.common.writeBuffer(try input.metalHandle(), @import("std").mem.asBytes(&[_]f32{ 1, 2, 3, 4, 5, 6 }));
-    const ranges = [_]@import("../types/operation/options.zig").SliceRange{
+    const ranges = [_]@import("../shared/types/operation/options.zig").SliceRange{
         .{ .start = 0, .stop = 2, .step = 1 },
         .{ .start = 1, .stop = 2, .step = 1 },
     };
@@ -3390,7 +3390,7 @@ test "metal slice supports i64 values with native strided contiguous path" {
     defer out.release();
 
     try metal.common.writeBuffer(try input.metalHandle(), @import("std").mem.asBytes(&[_]i64{ 1, 2, 3, 4, 5, 6 }));
-    const ranges = [_]@import("../types/operation/options.zig").SliceRange{
+    const ranges = [_]@import("../shared/types/operation/options.zig").SliceRange{
         .{ .start = 0, .stop = 2, .step = 1 },
         .{ .start = 1, .stop = 2, .step = 1 },
     };

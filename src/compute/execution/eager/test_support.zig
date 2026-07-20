@@ -1,14 +1,14 @@
 const std = @import("std");
-const Tensor = @import("../../types/tensor/tensor.zig").Tensor;
-const Op = @import("../../types/operation/op.zig").Op;
-const semantic = @import("../../plan/sema/index.zig");
+const Tensor = @import("../../shared/types/tensor/tensor.zig").Tensor;
+const Op = @import("../../shared/types/operation/op.zig").Op;
+const semantic = @import("../../shared/sema/index.zig");
 const planning = @import("../../plan/eager.zig");
 const runner = @import("runner.zig");
 
 pub fn createPlan(allocator: std.mem.Allocator, op: Op) !planning.Plan {
     var info = try semantic.infer(allocator, op);
     defer info.deinit();
-    return planning.create(allocator, op, info);
+    return planning.createFromSemantic(allocator, op, info);
 }
 
 pub fn executeAll(allocator: std.mem.Allocator, op: Op) !runner.ExecutionResult {

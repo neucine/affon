@@ -1,5 +1,5 @@
 const std = @import("std");
-const tensor = @import("../../types/tensor/index.zig");
+const tensor = @import("../types/tensor/index.zig");
 const Device = tensor.Device;
 const DType = tensor.DType;
 const Shape = tensor.Shape;
@@ -7,10 +7,10 @@ const Layout = tensor.Layout;
 const Tensor = tensor.Tensor;
 const TensorSpec = tensor.TensorSpec;
 const AxisName = tensor.AxisName;
-const Op = @import("../../types/operation/op.zig").Op;
-const contracts = @import("../../types/operation/contracts.zig");
-const OpOptions = @import("../../types/operation/options.zig").OpOptions;
-const SliceRange = @import("../../types/operation/options.zig").SliceRange;
+const Op = @import("../types/operation/op.zig").Op;
+const contracts = @import("../types/operation/contracts.zig");
+const OpOptions = @import("../types/operation/options.zig").OpOptions;
+const SliceRange = @import("../types/operation/options.zig").SliceRange;
 const kernel_capability = @import("../../backend/capability.zig");
 const semantic_spec = @import("spec.zig");
 
@@ -284,7 +284,7 @@ pub fn infer(allocator: std.mem.Allocator, op: Op) !OpSpec {
 
 pub fn inferFromSpecs(
     allocator: std.mem.Allocator,
-    tag: @import("../../types/operation/tag.zig").OpTag,
+    tag: @import("../types/operation/tag.zig").OpTag,
     specs: []const TensorSpec,
     options: OpOptions,
 ) !OpSpec {

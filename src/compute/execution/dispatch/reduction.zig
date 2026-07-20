@@ -1,13 +1,13 @@
 const std = @import("std");
-const Device = @import("../../types/tensor/device.zig").Device;
-const DType = @import("../../types/tensor/dtype.zig").DType;
-const Tensor = @import("../../types/tensor/tensor.zig").Tensor;
-const Shape = @import("../../types/tensor/shape.zig").Shape;
-const Layout = @import("../../types/tensor/layout.zig").Layout;
-const Storage = @import("../../types/tensor/storage.zig").Storage;
+const Device = @import("../../shared/types/tensor/device.zig").Device;
+const DType = @import("../../shared/types/tensor/dtype.zig").DType;
+const Tensor = @import("../../shared/types/tensor/tensor.zig").Tensor;
+const Shape = @import("../../shared/types/tensor/shape.zig").Shape;
+const Layout = @import("../../shared/types/tensor/layout.zig").Layout;
+const Storage = @import("../../shared/types/tensor/storage.zig").Storage;
 const kernel_dispatch = @import("../../backend/dispatch.zig");
-const ReduceToShapeSpec = @import("../../types/ir/plan.zig").ReduceToShapeSpec;
-const OpTag = @import("../../types/operation/tag.zig").OpTag;
+const ReduceToShapeSpec = @import("../../shared/types/ir/plan.zig").ReduceToShapeSpec;
+const OpTag = @import("../../shared/types/operation/tag.zig").OpTag;
 const transfer_execution = @import("../transfer.zig");
 
 pub fn dispatchAll(

@@ -1,4 +1,4 @@
-const tensor = @import("../../types/tensor/index.zig");
+const tensor = @import("../types/tensor/index.zig");
 const Shape = tensor.Shape;
 const Layout = tensor.Layout;
 const Device = tensor.Device;

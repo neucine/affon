@@ -2,13 +2,13 @@ const std = @import("std");
 const compute = @import("../../../compute/core.zig");
 const diagnostic = @import("zig_libs").diagnostic;
 const schema = @import("schema.zig");
-const semantic = @import("../../../compute/plan/sema/index.zig");
-const ExecutionMetadata = @import("../../../compute/types/operation/execution_metadata.zig").ExecutionMetadata;
+const semantic = @import("../../../compute/shared/sema/index.zig");
+const ExecutionMetadata = @import("../../../compute/shared/types/operation/execution_metadata.zig").ExecutionMetadata;
 const HintSource = @import("../../../compute/plan/matmul.zig").HintSource;
-const GraphValueId = @import("../../../compute/types/ir/index.zig").TensorId;
+const GraphValueId = @import("../../../compute/shared/types/ir/index.zig").TensorId;
 
 const TensorHandle = *compute.tensor.Tensor;
-const Graph = @import("../../../compute/types/ir/index.zig").Graph;
+const Graph = @import("../../../compute/shared/types/ir/index.zig").Graph;
 const CapturedMatmulExecutionJson = schema.CapturedMatmulExecutionJson;
 const CapturedNodeJson = schema.CapturedNodeJson;
 const CapturedProgramJson = schema.CapturedProgramJson;
@@ -70,8 +70,8 @@ pub const LoweredCapturedGraph = struct {
 };
 
 pub const OpInfo = struct {
-    tag: @import("../../../compute/types/operation/tag.zig").OpTag,
-    options: @import("../../../compute/types/operation/options.zig").OpOptions,
+    tag: @import("../../../compute/shared/types/operation/tag.zig").OpTag,
+    options: @import("../../../compute/shared/types/operation/options.zig").OpOptions,
     execution_metadata: ExecutionMetadata,
 };
 
@@ -235,7 +235,7 @@ pub fn nodeTagAndOptions(node: CapturedNodeJson) !OpInfo {
     }
     if (std.mem.eql(u8, node.kind, "sum") or std.mem.eql(u8, node.kind, "min") or std.mem.eql(u8, node.kind, "max") or std.mem.eql(u8, node.kind, "std")) {
         const keepdim = node.keepdim orelse false;
-        const OpTag = @import("../../../compute/types/operation/tag.zig").OpTag;
+        const OpTag = @import("../../../compute/shared/types/operation/tag.zig").OpTag;
         const tag_all: OpTag = if (std.mem.eql(u8, node.kind, "sum")) .sum_all else if (std.mem.eql(u8, node.kind, "min")) .min_all else if (std.mem.eql(u8, node.kind, "max")) .max_all else .std_all;
         const tag_axis: OpTag = if (std.mem.eql(u8, node.kind, "sum")) .sum_axis else if (std.mem.eql(u8, node.kind, "min")) .min_axis else if (std.mem.eql(u8, node.kind, "max")) .max_axis else .std_axis;
         if (node.axis) |axis| return .{ .tag = tag_axis, .options = .{ .reduce_axis = .{ .axis = axis, .keepdim = keepdim } }, .execution_metadata = .{} };
@@ -243,7 +243,7 @@ pub fn nodeTagAndOptions(node: CapturedNodeJson) !OpInfo {
     }
     if (std.mem.eql(u8, node.kind, "argmin") or std.mem.eql(u8, node.kind, "argmax")) {
         const keepdim = node.keepdim orelse false;
-        const OpTag = @import("../../../compute/types/operation/tag.zig").OpTag;
+        const OpTag = @import("../../../compute/shared/types/operation/tag.zig").OpTag;
         const tag_all: OpTag = if (std.mem.eql(u8, node.kind, "argmin")) .argmin_all else .argmax_all;
         const tag_axis: OpTag = if (std.mem.eql(u8, node.kind, "argmin")) .argmin_axis else .argmax_axis;
         if (node.axis) |axis| return .{ .tag = tag_axis, .options = .{ .reduce_axis = .{ .axis = axis, .keepdim = keepdim } }, .execution_metadata = .{} };

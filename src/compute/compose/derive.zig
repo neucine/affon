@@ -1,15 +1,15 @@
 const std = @import("std");
-const State = @import("../types/autograd.zig").State;
+const State = @import("../shared/types/autograd.zig").State;
 const tape = @import("../execution/autograd.zig");
-const ir = @import("../types/ir/index.zig");
+const ir = @import("../shared/types/ir/index.zig");
 const Engine = @import("../engine.zig").Engine;
 const graph_builder = @import("builder.zig");
-const semantic = @import("../plan/sema/index.zig");
-const op_mod = @import("../types/operation/op.zig");
-const OpTag = @import("../types/operation/tag.zig").OpTag;
-const OpOptions = @import("../types/operation/options.zig").OpOptions;
-const Tensor = @import("../types/tensor/tensor.zig").Tensor;
-const TensorSpec = @import("../types/tensor/tensor_spec.zig").TensorSpec;
+const semantic = @import("../shared/sema/index.zig");
+const op_mod = @import("../shared/types/operation/op.zig");
+const OpTag = @import("../shared/types/operation/tag.zig").OpTag;
+const OpOptions = @import("../shared/types/operation/options.zig").OpOptions;
+const Tensor = @import("../shared/types/tensor/tensor.zig").Tensor;
+const TensorSpec = @import("../shared/types/tensor/tensor_spec.zig").TensorSpec;
 const gradients = @import("gradients.zig");
 const telemetry = @import("../telemetry.zig");
 
@@ -149,7 +149,7 @@ const BuildContext = struct {
         return out;
     }
 
-    fn fullTensor(self: *BuildContext, dims: []const usize, dtype: @import("../types/tensor/dtype.zig").DType, device: @import("../types/tensor/device.zig").Device, scalar: f64) !*Tensor {
+    fn fullTensor(self: *BuildContext, dims: []const usize, dtype: @import("../shared/types/tensor/dtype.zig").DType, device: @import("../shared/types/tensor/device.zig").Device, scalar: f64) !*Tensor {
         const out = try Tensor.createContiguous(self.allocator, dims, dtype, device, false);
         errdefer out.deinit();
         const numel = out.shape.numel();
@@ -205,7 +205,7 @@ const BuildContext = struct {
         return out;
     }
 
-    fn ownedI64Tensor(self: *BuildContext, dims: []const usize, values: []const i64, device: @import("../types/tensor/device.zig").Device) !*Tensor {
+    fn ownedI64Tensor(self: *BuildContext, dims: []const usize, values: []const i64, device: @import("../shared/types/tensor/device.zig").Device) !*Tensor {
         const out = try Tensor.createContiguous(self.allocator, dims, .i64, device, false);
         errdefer out.deinit();
         if (out.shape.numel() != values.len) return error.SizeMismatch;
@@ -305,7 +305,7 @@ const BuildContext = struct {
     pub fn reshape(self: *BuildContext, id: ir.TensorId, shape: []const usize) !ir.TensorId {
         return self.addOp(.reshape, &.{id}, .{ .reshape = .{ .shape = shape } });
     }
-    pub fn slice(self: *BuildContext, id: ir.TensorId, ranges: []const @import("../types/operation/options.zig").SliceRange) !ir.TensorId {
+    pub fn slice(self: *BuildContext, id: ir.TensorId, ranges: []const @import("../shared/types/operation/options.zig").SliceRange) !ir.TensorId {
         return self.addOp(.slice, &.{id}, .{ .slice = .{ .ranges = ranges } });
     }
     pub fn transpose(self: *BuildContext, id: ir.TensorId) !ir.TensorId {
@@ -320,7 +320,7 @@ const BuildContext = struct {
     pub fn unsqueeze(self: *BuildContext, id: ir.TensorId, axis: usize) !ir.TensorId {
         return self.addOp(.unsqueeze, &.{id}, .{ .unsqueeze = .{ .axis = axis } });
     }
-    pub fn cast(self: *BuildContext, id: ir.TensorId, dtype: @import("../types/tensor/dtype.zig").DType) !ir.TensorId {
+    pub fn cast(self: *BuildContext, id: ir.TensorId, dtype: @import("../shared/types/tensor/dtype.zig").DType) !ir.TensorId {
         return self.addOp(.cast, &.{id}, .{ .cast = .{ .to = dtype } });
     }
     pub fn maskedFillZero(self: *BuildContext, grad_id: ir.TensorId, mask_id: ir.TensorId) !ir.TensorId {
@@ -352,11 +352,11 @@ const BuildContext = struct {
         const value = try self.fullTensorLike(like, scalar);
         return self.bindOwnedTensor(value);
     }
-    pub fn full(self: *BuildContext, dims: []const usize, dtype: @import("../types/tensor/dtype.zig").DType, device: @import("../types/tensor/device.zig").Device, scalar: f64) !ir.TensorId {
+    pub fn full(self: *BuildContext, dims: []const usize, dtype: @import("../shared/types/tensor/dtype.zig").DType, device: @import("../shared/types/tensor/device.zig").Device, scalar: f64) !ir.TensorId {
         const value = try self.fullTensor(dims, dtype, device, scalar);
         return self.bindOwnedTensor(value);
     }
-    pub fn ownedI64(self: *BuildContext, dims: []const usize, values: []const i64, device: @import("../types/tensor/device.zig").Device) !ir.TensorId {
+    pub fn ownedI64(self: *BuildContext, dims: []const usize, values: []const i64, device: @import("../shared/types/tensor/device.zig").Device) !ir.TensorId {
         const value = try self.ownedI64Tensor(dims, values, device);
         return self.bindOwnedTensor(value);
     }

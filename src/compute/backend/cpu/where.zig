@@ -1,6 +1,6 @@
 const std = @import("std");
-const DType = @import("../../types/tensor/dtype.zig").DType;
-const Storage = @import("../../types/tensor/storage.zig").Storage;
+const DType = @import("../../shared/types/tensor/dtype.zig").DType;
+const Storage = @import("../../shared/types/tensor/storage.zig").Storage;
 
 pub fn run(cond_dtype: DType, value_dtype: DType, cond: *const Storage, a: *const Storage, b: *const Storage, out: *Storage) !void {
     const cond_bytes = try cond.readableBytes();

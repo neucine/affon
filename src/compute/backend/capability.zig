@@ -1,8 +1,8 @@
 const std = @import("std");
-const Device = @import("../types/tensor/device.zig").Device;
-const DType = @import("../types/tensor/dtype.zig").DType;
-const Layout = @import("../types/tensor/layout.zig").Layout;
-const Shape = @import("../types/tensor/shape.zig").Shape;
+const Device = @import("../shared/types/tensor/device.zig").Device;
+const DType = @import("../shared/types/tensor/dtype.zig").DType;
+const Layout = @import("../shared/types/tensor/layout.zig").Layout;
+const Shape = @import("../shared/types/tensor/shape.zig").Shape;
 
 pub const OutputLayout = enum {
     dense,

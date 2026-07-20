@@ -1,7 +1,7 @@
 const std = @import("std");
-const DType = @import("../../types/tensor/dtype.zig").DType;
-const Storage = @import("../../types/tensor/storage.zig").Storage;
-const OpTag = @import("../../types/operation/tag.zig").OpTag;
+const DType = @import("../../shared/types/tensor/dtype.zig").DType;
+const Storage = @import("../../shared/types/tensor/storage.zig").Storage;
+const OpTag = @import("../../shared/types/operation/tag.zig").OpTag;
 
 pub fn run(tag: OpTag, input_dtype: DType, input: *const Storage, out: *Storage, shape: []const usize, axis: usize, keepdim: bool) !void {
     if (shape.len == 0) return error.ShapeMismatch;

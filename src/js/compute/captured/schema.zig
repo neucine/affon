@@ -5,7 +5,7 @@ pub const CapturedMatmulExecutionJson = struct {
     source: ?[]const u8 = null,
 };
 
-pub const CapturedSliceRangeJson = @import("../../../compute/types/operation/options.zig").SliceRange;
+pub const CapturedSliceRangeJson = @import("../../../compute/shared/types/operation/options.zig").SliceRange;
 
 pub const CapturedNodeJson = struct {
     id: u32,

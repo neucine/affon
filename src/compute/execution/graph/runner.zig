@@ -1,8 +1,8 @@
 const std = @import("std");
-const Tensor = @import("../../types/tensor/tensor.zig").Tensor;
-const Graph = @import("../../types/ir/graph.zig").Graph;
-const GraphPlan = @import("../../types/ir/plan.zig").GraphPlan;
-const Op = @import("../../types/operation/op.zig").Op;
+const Tensor = @import("../../shared/types/tensor/tensor.zig").Tensor;
+const Graph = @import("../../shared/types/ir/graph.zig").Graph;
+const GraphPlan = @import("../../shared/types/ir/plan.zig").GraphPlan;
+const Op = @import("../../shared/types/operation/op.zig").Op;
 const eager = @import("../eager/index.zig");
 const fusion = @import("fusion/index.zig");
 const telemetry = @import("../../telemetry.zig");
@@ -21,14 +21,14 @@ fn attrInt(key: []const u8, value: usize) telemetry.Attribute {
     return .{ .key = key, .value = .{ .integer = @intCast(value) } };
 }
 
-fn regionKindName(kind: @import("../../types/ir/plan.zig").RegionKind) []const u8 {
+fn regionKindName(kind: @import("../../shared/types/ir/plan.zig").RegionKind) []const u8 {
     return switch (kind) {
         .fusable_run => "fusable_run",
         .matmul_epilogue => "matmul_epilogue",
     };
 }
 
-fn emitFusionHit(scope: telemetry.Scope, hit: fusion.Hit, region: @import("../../types/ir/plan.zig").Region, step_count: usize) void {
+fn emitFusionHit(scope: telemetry.Scope, hit: fusion.Hit, region: @import("../../shared/types/ir/plan.zig").Region, step_count: usize) void {
     if (fusion.metricName(hit)) |name| fusionMetric(name);
     if (fusion.traceEventName(hit)) |name| {
         scope.addEventNow(name, &.{
@@ -39,7 +39,7 @@ fn emitFusionHit(scope: telemetry.Scope, hit: fusion.Hit, region: @import("../..
     }
 }
 
-fn emitFusionMiss(scope: telemetry.Scope, miss: fusion.Miss, region: @import("../../types/ir/plan.zig").Region, step_count: usize) void {
+fn emitFusionMiss(scope: telemetry.Scope, miss: fusion.Miss, region: @import("../../shared/types/ir/plan.zig").Region, step_count: usize) void {
     if (fusion.missMetricName(miss)) |name| fusionMetric(name);
     if (fusion.missTraceEventName(miss)) |name| {
         scope.addEventNow(name, &.{
@@ -50,7 +50,7 @@ fn emitFusionMiss(scope: telemetry.Scope, miss: fusion.Miss, region: @import("..
     }
 }
 
-fn emitRegionMetric(scope: telemetry.Scope, kind: @import("../../types/ir/plan.zig").RegionKind, prefix: []const u8) void {
+fn emitRegionMetric(scope: telemetry.Scope, kind: @import("../../shared/types/ir/plan.zig").RegionKind, prefix: []const u8) void {
     const suffix = regionKindName(kind);
     var name_buffer: [64]u8 = undefined;
     const name = std.fmt.bufPrint(&name_buffer, "fusion_{s}_{s}_region_count", .{ prefix, suffix }) catch return;
@@ -182,21 +182,21 @@ pub fn execute(
     return result;
 }
 
-fn isFusionPreparatoryTag(tag: @import("../../types/operation/tag.zig").OpTag) bool {
+fn isFusionPreparatoryTag(tag: @import("../../shared/types/operation/tag.zig").OpTag) bool {
     return switch (tag) {
         .slice, .cast, .contiguous, .reshape, .permute, .transpose, .squeeze, .unsqueeze => true,
         else => false,
     };
 }
 
-fn stepOutputsMaterialized(graph: *const Graph, step: @import("../../types/ir/plan.zig").Step, values: []?*Tensor) bool {
+fn stepOutputsMaterialized(graph: *const Graph, step: @import("../../shared/types/ir/plan.zig").Step, values: []?*Tensor) bool {
     for (graph.nodes.items[step.node_id].outputs) |output_id| {
         if (values[output_id] == null) return false;
     }
     return true;
 }
 
-fn stepInputsBound(graph: *const Graph, step: @import("../../types/ir/plan.zig").Step, values: []?*Tensor) bool {
+fn stepInputsBound(graph: *const Graph, step: @import("../../shared/types/ir/plan.zig").Step, values: []?*Tensor) bool {
     for (graph.nodes.items[step.node_id].inputs) |input_id| {
         if (values[input_id] == null) return false;
     }
@@ -207,8 +207,8 @@ fn prepareFusionPrefix(
     allocator: std.mem.Allocator,
     graph: *const Graph,
     parent: telemetry.Scope,
-    region: @import("../../types/ir/plan.zig").Region,
-    steps: []const @import("../../types/ir/plan.zig").Step,
+    region: @import("../../shared/types/ir/plan.zig").Region,
+    steps: []const @import("../../shared/types/ir/plan.zig").Step,
     values: []?*Tensor,
     owned: []bool,
 ) !void {
@@ -229,8 +229,8 @@ fn executeStep(
     allocator: std.mem.Allocator,
     graph: *const Graph,
     parent: telemetry.Scope,
-    step: @import("../../types/ir/plan.zig").Step,
-    tag: @import("../../types/operation/tag.zig").OpTag,
+    step: @import("../../shared/types/ir/plan.zig").Step,
+    tag: @import("../../shared/types/operation/tag.zig").OpTag,
     values: []?*Tensor,
     owned: []bool,
 ) !void {
@@ -277,7 +277,7 @@ fn executeStep(
 
 fn consumeInputs(
     graph: *const Graph,
-    steps: []const @import("../../types/ir/plan.zig").Step,
+    steps: []const @import("../../shared/types/ir/plan.zig").Step,
     values: []?*Tensor,
     owned: []bool,
     remaining_uses: []usize,

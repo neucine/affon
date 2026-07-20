@@ -1,8 +1,8 @@
 const std = @import("std");
-const Tensor = @import("../../../types/tensor/tensor.zig").Tensor;
-const Shape = @import("../../../types/tensor/shape.zig").Shape;
-const Layout = @import("../../../types/tensor/layout.zig").Layout;
-const Device = @import("../../../types/tensor/device.zig").Device;
+const Tensor = @import("../../../shared/types/tensor/tensor.zig").Tensor;
+const Shape = @import("../../../shared/types/tensor/shape.zig").Shape;
+const Layout = @import("../../../shared/types/tensor/layout.zig").Layout;
+const Device = @import("../../../shared/types/tensor/device.zig").Device;
 
 pub fn moveToDevice(allocator: std.mem.Allocator, value: *const Tensor, target: Device) !*Tensor {
     if ((value.device() orelse return error.InputNotMaterialized) != target) return error.DeviceMismatch;

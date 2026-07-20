@@ -1,15 +1,14 @@
 const std = @import("std");
 const compat = @import("../support/compat.zig");
-const tensor = @import("types/tensor/index.zig");
-const operation = @import("types/operation/index.zig");
+const tensor = @import("shared/types/tensor/index.zig");
+const operation = @import("shared/types/operation/index.zig");
 const eager = @import("execution/eager/index.zig");
-const semantic = @import("plan/sema/index.zig");
 const eager_planning = @import("plan/eager.zig");
 const graph_planning = @import("plan/graph.zig");
 const graph_execution = @import("execution/graph/index.zig");
 const transfer = @import("execution/transfer.zig");
 const backend_dispatch = @import("backend/dispatch.zig");
-const ir = @import("types/ir/index.zig");
+const ir = @import("shared/types/ir/index.zig");
 const telemetry = @import("telemetry.zig");
 
 pub const Tensor = tensor.Tensor;
@@ -170,16 +169,8 @@ pub const Engine = struct {
         var execution_succeeded = false;
         defer if (!execution_succeeded) execution_scope.endError();
 
-        var infer_scope = execution_scope.child("plan/infer", .internal, &.{});
-        var info = semantic.infer(self.allocator, raw) catch |err| {
-            infer_scope.endAt(compat.nanoTimestamp(), .err);
-            return err;
-        };
-        infer_scope.end();
-        defer info.deinit();
-
         var plan_scope = execution_scope.child("plan/create", .internal, &.{});
-        var plan = eager_planning.create(self.allocator, raw, info) catch |err| {
+        var plan = eager_planning.createWithTrace(self.allocator, raw, plan_scope) catch |err| {
             plan_scope.endAt(compat.nanoTimestamp(), .err);
             return err;
         };

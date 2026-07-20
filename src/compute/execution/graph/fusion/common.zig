@@ -1,13 +1,13 @@
 const std = @import("std");
 const kernel_dispatch = @import("../../../backend/dispatch.zig");
-const Tensor = @import("../../../types/tensor/tensor.zig").Tensor;
-const Step = @import("../../../types/ir/plan.zig").Step;
-const Graph = @import("../../../types/ir/index.zig").Graph;
-const OpTag = @import("../../../types/operation/tag.zig").OpTag;
-const OpOptions = @import("../../../types/operation/options.zig").OpOptions;
+const Tensor = @import("../../../shared/types/tensor/tensor.zig").Tensor;
+const Step = @import("../../../shared/types/ir/plan.zig").Step;
+const Graph = @import("../../../shared/types/ir/index.zig").Graph;
+const OpTag = @import("../../../shared/types/operation/tag.zig").OpTag;
+const OpOptions = @import("../../../shared/types/operation/options.zig").OpOptions;
 const prepared_execution = @import("../../prepared.zig");
 
-pub fn clampOptionsForTag(tag: OpTag, options: OpOptions) !?@import("../../../types/operation/options.zig").ClampOptions {
+pub fn clampOptionsForTag(tag: OpTag, options: OpOptions) !?@import("../../../shared/types/operation/options.zig").ClampOptions {
     return switch (tag) {
         .clamp => switch (options) {
             .clamp => |c| c,

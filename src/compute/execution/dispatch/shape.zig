@@ -1,9 +1,9 @@
 const std = @import("std");
-const Device = @import("../../types/tensor/device.zig").Device;
-const DType = @import("../../types/tensor/dtype.zig").DType;
-const Storage = @import("../../types/tensor/storage.zig").Storage;
-const Tensor = @import("../../types/tensor/tensor.zig").Tensor;
-const SliceRange = @import("../../types/operation/options.zig").SliceRange;
+const Device = @import("../../shared/types/tensor/device.zig").Device;
+const DType = @import("../../shared/types/tensor/dtype.zig").DType;
+const Storage = @import("../../shared/types/tensor/storage.zig").Storage;
+const Tensor = @import("../../shared/types/tensor/tensor.zig").Tensor;
+const SliceRange = @import("../../shared/types/operation/options.zig").SliceRange;
 const kernel_dispatch = @import("../../backend/dispatch.zig");
 const prepared_execution = @import("../prepared.zig");
 

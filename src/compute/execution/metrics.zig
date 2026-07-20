@@ -1,4 +1,4 @@
-const Tensor = @import("../types/tensor/tensor.zig").Tensor;
+const Tensor = @import("../shared/types/tensor/tensor.zig").Tensor;
 const telemetry = @import("../telemetry.zig");
 const execution_layout = @import("../plan/layout.zig");
 const materialization_execution = @import("materialization.zig");
@@ -43,7 +43,7 @@ pub fn prepareInputValue(
     allocator: @import("std").mem.Allocator,
     value: *const Tensor,
     decision: execution_layout.InputLayoutDecision,
-    source: @import("../types/tensor/storage.zig").Storage.Source,
+    source: @import("../shared/types/tensor/storage.zig").Storage.Source,
 ) !prepared_execution.PreparedInputValue {
     const prepared = try prepared_execution.prepareInputValue(allocator, value, decision, source);
     if (prepared.materialized_packed_dense) recordPackedDenseMaterialization(sink, value);

@@ -1,6 +1,6 @@
-const DType = @import("../../types/tensor/dtype.zig").DType;
-const Layout = @import("../../types/tensor/layout.zig").Layout;
-const Storage = @import("../../types/tensor/storage.zig").Storage;
+const DType = @import("../../shared/types/tensor/dtype.zig").DType;
+const Layout = @import("../../shared/types/tensor/layout.zig").Layout;
+const Storage = @import("../../shared/types/tensor/storage.zig").Storage;
 const common = @import("common.zig");
 
 extern fn affon_metal_softmax_f32(a_handle: *anyopaque, out_handle: *anyopaque, rows: usize, cols: usize, axis: usize) c_int;

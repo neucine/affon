@@ -1,10 +1,10 @@
 const std = @import("std");
-const tensor_value = @import("../types/tensor/tensor.zig");
+const tensor_value = @import("../shared/types/tensor/tensor.zig");
 const Tensor = tensor_value.Tensor;
-const Shape = @import("../types/tensor/shape.zig").Shape;
-const Layout = @import("../types/tensor/layout.zig").Layout;
-const Storage = @import("../types/tensor/storage.zig").Storage;
-const TensorSpec = @import("../types/tensor/tensor_spec.zig").TensorSpec;
+const Shape = @import("../shared/types/tensor/shape.zig").Shape;
+const Layout = @import("../shared/types/tensor/layout.zig").Layout;
+const Storage = @import("../shared/types/tensor/storage.zig").Storage;
+const TensorSpec = @import("../shared/types/tensor/tensor_spec.zig").TensorSpec;
 const kernel_dispatch = @import("../backend/dispatch.zig");
 const transfer_execution = @import("transfer.zig");
 
