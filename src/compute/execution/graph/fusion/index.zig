@@ -40,16 +40,16 @@ pub const ExecuteResult = struct {
 
 pub fn metricName(hit: Hit) ?[]const u8 {
     return switch (hit) {
-        .binary_unary => "hit_binary_unary",
-        .unary_only => "hit_unary_only",
-        .attention_scores => "hit_attention_scores",
-        .matmul_add_gelu => "hit_matmul_add_gelu",
-        .matmul_add => "hit_matmul_add",
-        .add_layer_norm => "hit_add_layer_norm",
-        .logsumexp_loss => "hit_logsumexp_loss",
-        .gather_logsumexp_loss => "hit_gather_logsumexp_loss",
-        .causal_shift_gather_logsumexp_loss => "hit_causal_shift_gather_logsumexp_loss",
-        .lm_head_cross_entropy_indexed => "hit_lm_head_cross_entropy_indexed",
+        .binary_unary => "fusion_hit_binary_unary_count",
+        .unary_only => "fusion_hit_unary_only_count",
+        .attention_scores => "fusion_hit_attention_scores_count",
+        .matmul_add_gelu => "fusion_hit_matmul_add_gelu_count",
+        .matmul_add => "fusion_hit_matmul_add_count",
+        .add_layer_norm => "fusion_hit_add_layer_norm_count",
+        .logsumexp_loss => "fusion_hit_logsumexp_loss_count",
+        .gather_logsumexp_loss => "fusion_hit_gather_logsumexp_loss_count",
+        .causal_shift_gather_logsumexp_loss => "fusion_hit_causal_shift_gather_logsumexp_loss_count",
+        .lm_head_cross_entropy_indexed => "fusion_hit_lm_head_cross_entropy_indexed_count",
         .none => null,
     };
 }
@@ -72,9 +72,9 @@ pub fn traceEventName(hit: Hit) ?[]const u8 {
 
 pub fn missMetricName(miss: Miss) ?[]const u8 {
     return switch (miss) {
-        .matmul_epilogue_broadcast_bias => "miss_matmul_epilogue_broadcast_bias",
-        .matmul_epilogue_unsupported_activation => "miss_matmul_epilogue_unsupported_activation",
-        .matmul_epilogue_execution_rejected => "miss_matmul_epilogue_execution_rejected",
+        .matmul_epilogue_broadcast_bias => "fusion_miss_matmul_epilogue_broadcast_bias_count",
+        .matmul_epilogue_unsupported_activation => "fusion_miss_matmul_epilogue_unsupported_activation_count",
+        .matmul_epilogue_execution_rejected => "fusion_miss_matmul_epilogue_execution_rejected_count",
         .none => null,
     };
 }

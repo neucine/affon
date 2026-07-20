@@ -54,17 +54,17 @@ pub const metrics = struct {
         pub const transfer_from_host_bytes = bytes(.execution, "transfer_from_host_bytes");
         pub const contiguity_fixup_count = counter(.execution, "contiguity_fixup_count");
         pub const contiguity_fixup_bytes = bytes(.execution, "contiguity_fixup_bytes");
-        pub const input_required_count = counter(.execution, "input_required_count");
-        pub const storage_required_count = counter(.execution, "storage_required_count");
-        pub const fusion_groups_eligible = counter(.execution, "fusion_groups_eligible");
-        pub const fusion_fallback = counter(.execution, "fusion_fallback");
+        pub const contiguous_input_required_count = counter(.execution, "contiguous_input_required_count");
+        pub const storage_input_required_count = counter(.execution, "storage_input_required_count");
+        pub const fusion_eligible_region_count = counter(.execution, "fusion_eligible_region_count");
+        pub const fusion_fallback_count = counter(.execution, "fusion_fallback_count");
     };
 
     pub const storage = struct {
-        pub const allocations = counter(.storage, "allocations");
-        pub const frees = counter(.storage, "frees");
-        pub const reuses = counter(.storage, "reuses");
-        pub const live_objects = gauge(.storage, "live_objects", .count);
+        pub const allocation_count = counter(.storage, "allocation_count");
+        pub const free_count = counter(.storage, "free_count");
+        pub const reuse_count = counter(.storage, "reuse_count");
+        pub const live_object_count = gauge(.storage, "live_object_count", .count);
         pub const live_bytes = gauge(.storage, "live_bytes", .bytes);
         pub const peak_bytes = gauge(.storage, "peak_bytes", .bytes);
         pub const live_cpu_bytes = gauge(.storage, "live_cpu_bytes", .bytes);
@@ -74,21 +74,21 @@ pub const metrics = struct {
     };
 
     pub const memory = struct {
-        pub const pool_hits = counter(.memory, "metal_pool_hits");
-        pub const pool_misses = counter(.memory, "metal_pool_misses");
-        pub const pool_stores = counter(.memory, "metal_pool_stores");
-        pub const pool_drops = counter(.memory, "metal_pool_drops");
-        pub const pool_trims = counter(.memory, "metal_pool_trims");
+        pub const pool_hit_count = counter(.memory, "metal_pool_hit_count");
+        pub const pool_miss_count = counter(.memory, "metal_pool_miss_count");
+        pub const pool_store_count = counter(.memory, "metal_pool_store_count");
+        pub const pool_drop_count = counter(.memory, "metal_pool_drop_count");
+        pub const pool_trim_count = counter(.memory, "metal_pool_trim_count");
         pub const pool_live_bytes = gauge(.memory, "metal_pool_live_bytes", .bytes);
-        pub const pool_live_buffers = gauge(.memory, "metal_pool_live_buffers", .count);
+        pub const pool_live_buffer_count = gauge(.memory, "metal_pool_live_buffer_count", .count);
         pub const pool_peak_bytes = gauge(.memory, "metal_pool_peak_bytes", .bytes);
         pub const pool_trim_bytes = counter(.memory, "metal_pool_trim_bytes");
-        pub const region_host_owned_bytes = gauge(.memory, "region_compute_host_owned_bytes", .bytes);
-        pub const region_host_scratch_bytes = gauge(.memory, "region_compute_host_scratch_bytes", .bytes);
-        pub const region_cpu_owned_bytes = gauge(.memory, "region_compute_cpu_owned_bytes", .bytes);
-        pub const region_cpu_scratch_bytes = gauge(.memory, "region_compute_cpu_scratch_bytes", .bytes);
-        pub const region_metal_pool_bytes = gauge(.memory, "region_compute_metal_pool_bytes", .bytes);
-        pub const region_metal_scratch_bytes = gauge(.memory, "region_compute_metal_scratch_bytes", .bytes);
+        pub const region_host_owned_bytes = gauge(.memory, "region_host_owned_bytes", .bytes);
+        pub const region_host_scratch_bytes = gauge(.memory, "region_host_scratch_bytes", .bytes);
+        pub const region_cpu_owned_bytes = gauge(.memory, "region_cpu_owned_bytes", .bytes);
+        pub const region_cpu_scratch_bytes = gauge(.memory, "region_cpu_scratch_bytes", .bytes);
+        pub const region_metal_pool_bytes = gauge(.memory, "region_metal_pool_bytes", .bytes);
+        pub const region_metal_scratch_bytes = gauge(.memory, "region_metal_scratch_bytes", .bytes);
     };
 };
 
@@ -208,7 +208,7 @@ test "telemetry forwards counter, gauge, and span operations" {
     install(.{ .context = &collector, .vtable = &vtable });
     defer install(.{});
 
-    add(metrics.execution.fusion_fallback, 2);
+    add(metrics.execution.fusion_fallback_count, 2);
     try std.testing.expectEqual(@as(usize, 1), collector.adds);
     try std.testing.expectEqual(@as(i64, 2), collector.last_value);
     try std.testing.expectEqualStrings("compute.execution", collector.last_definition.?.group);

@@ -448,7 +448,7 @@ function captureRuntimeSnapshot(
   const metalLiveBytes = metricValue(runtimeMetrics, 'compute.storage', 'live_metal_bytes')
   const metalPooledBytes = metricValue(runtimeMetrics, 'compute.memory', 'metal_pool_live_bytes')
   const cpuLiveBytes = metricValue(runtimeMetrics, 'compute.storage', 'live_cpu_bytes')
-  const qjsMemoryUsedBytes = metricValue(runtimeMetrics, 'runtime.memory', 'qjs_used_size')
+  const qjsMemoryUsedBytes = metricValue(runtimeMetrics, 'runtime.memory', 'qjs_heap_used_bytes')
   const hostMaterializationBytes = 0
   const temporaryWorkspaceBytes = 0
   const autogradStateBytes = 0

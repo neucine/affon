@@ -33,7 +33,7 @@ fn emitRegionMetric(scope: telemetry.Scope, kind: @import("../../types/ir/plan.z
         .matmul_epilogue => "matmul_epilogue",
     };
     var name_buffer: [64]u8 = undefined;
-    const name = std.fmt.bufPrint(&name_buffer, "{s}_region_{s}", .{ prefix, suffix }) catch return;
+    const name = std.fmt.bufPrint(&name_buffer, "fusion_{s}_{s}_region_count", .{ prefix, suffix }) catch return;
     fusionMetric(name);
     var event_buffer: [64]u8 = undefined;
     const event = std.fmt.bufPrint(&event_buffer, "fusion_{s}_region_{s}", .{ prefix, suffix }) catch return;
@@ -105,7 +105,7 @@ pub fn execute(
             const region = plan.regions.items[region_index];
             const region_steps = plan.steps.items[region.step_start..region.step_end];
             region_index += 1;
-            fusionMetric("groups_eligible");
+            telemetry.add(telemetry.metrics.execution.fusion_eligible_region_count, 1);
             var region_scope = graph_scope.child(telemetry.traces.region, .internal, &.{});
             emitRegionMetric(region_scope, region.kind, "eligible");
             try prepareFusionPrefix(allocator, graph, region_scope, region, region_steps, values, owned);
@@ -118,7 +118,7 @@ pub fn execute(
                 continue;
             }
             emitFusionMiss(region_scope, outcome.miss);
-            fusionMetric("fallback");
+            telemetry.add(telemetry.metrics.execution.fusion_fallback_count, 1);
             emitRegionMetric(region_scope, region.kind, "fallback");
             var fallback_scope = region_scope.child(telemetry.traces.fallback, .internal, &.{});
             fallback_scope.end();

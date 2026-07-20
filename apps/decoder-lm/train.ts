@@ -30,20 +30,20 @@ function metricValue(metrics: readonly RuntimeMetric[], group: string, name: str
 function formatRuntimeStats(): string {
   const stats = telemetry.metrics()
   const toMb = (bytes: number) => (bytes / (1024 * 1024)).toFixed(1)
-  const deltaPoolHits = metricValue(stats, 'compute.memory', 'metal_pool_hits')
-    - metricValue(previousRuntimeMetrics ?? [], 'compute.memory', 'metal_pool_hits')
-  const deltaPoolMisses = metricValue(stats, 'compute.memory', 'metal_pool_misses')
-    - metricValue(previousRuntimeMetrics ?? [], 'compute.memory', 'metal_pool_misses')
-  const deltaAllocations = metricValue(stats, 'compute.storage', 'allocations')
-    - metricValue(previousRuntimeMetrics ?? [], 'compute.storage', 'allocations')
-  const deltaReuses = metricValue(stats, 'compute.storage', 'reuses')
-    - metricValue(previousRuntimeMetrics ?? [], 'compute.storage', 'reuses')
+  const deltaPoolHits = metricValue(stats, 'compute.memory', 'metal_pool_hit_count')
+    - metricValue(previousRuntimeMetrics ?? [], 'compute.memory', 'metal_pool_hit_count')
+  const deltaPoolMisses = metricValue(stats, 'compute.memory', 'metal_pool_miss_count')
+    - metricValue(previousRuntimeMetrics ?? [], 'compute.memory', 'metal_pool_miss_count')
+  const deltaAllocations = metricValue(stats, 'compute.storage', 'allocation_count')
+    - metricValue(previousRuntimeMetrics ?? [], 'compute.storage', 'allocation_count')
+  const deltaReuses = metricValue(stats, 'compute.storage', 'reuse_count')
+    - metricValue(previousRuntimeMetrics ?? [], 'compute.storage', 'reuse_count')
   const failureCount = 0
   const failureText = failureCount > 0
     ? ` metal_alloc_failures=${failureCount}`
     : ''
   previousRuntimeMetrics = stats
-  return `metal_live_mb=${toMb(metricValue(stats, 'compute.storage', 'live_metal_bytes'))} metal_peak_mb=${toMb(metricValue(stats, 'compute.storage', 'peak_metal_bytes'))} metal_pool_mb=${toMb(metricValue(stats, 'compute.memory', 'metal_pool_live_bytes'))} metal_pool_peak_mb=${toMb(metricValue(stats, 'compute.memory', 'metal_pool_peak_bytes'))} cpu_live_mb=${toMb(metricValue(stats, 'compute.storage', 'live_cpu_bytes'))} cpu_peak_mb=${toMb(metricValue(stats, 'compute.storage', 'peak_cpu_bytes'))} autograd_mb=0.0 qjs_used_mb=${toMb(metricValue(stats, 'runtime.memory', 'qjs_used_size'))} resident_mb=${toMb(metricValue(stats, 'runtime.memory', 'resident_bytes'))} resident_peak_mb=${toMb(metricValue(stats, 'runtime.memory', 'peak_resident_bytes'))} phys_mb=${toMb(metricValue(stats, 'runtime.memory', 'physical_footprint_bytes'))} phys_peak_mb=${toMb(metricValue(stats, 'runtime.memory', 'peak_physical_footprint_bytes'))} ioaccel_mb=0.0 metal_allocs_since_prev=${deltaAllocations} metal_reuses_since_prev=${deltaReuses} pool_hits_since_prev=${deltaPoolHits} pool_misses_since_prev=${deltaPoolMisses}${failureText}`
+  return `metal_live_mb=${toMb(metricValue(stats, 'compute.storage', 'live_metal_bytes'))} metal_peak_mb=${toMb(metricValue(stats, 'compute.storage', 'peak_metal_bytes'))} metal_pool_mb=${toMb(metricValue(stats, 'compute.memory', 'metal_pool_live_bytes'))} metal_pool_peak_mb=${toMb(metricValue(stats, 'compute.memory', 'metal_pool_peak_bytes'))} cpu_live_mb=${toMb(metricValue(stats, 'compute.storage', 'live_cpu_bytes'))} cpu_peak_mb=${toMb(metricValue(stats, 'compute.storage', 'peak_cpu_bytes'))} autograd_mb=0.0 qjs_used_mb=${toMb(metricValue(stats, 'runtime.memory', 'qjs_heap_used_bytes'))} resident_mb=${toMb(metricValue(stats, 'runtime.memory', 'resident_bytes'))} resident_peak_mb=${toMb(metricValue(stats, 'runtime.memory', 'resident_peak_bytes'))} phys_mb=${toMb(metricValue(stats, 'runtime.memory', 'physical_footprint_bytes'))} phys_peak_mb=${toMb(metricValue(stats, 'runtime.memory', 'physical_footprint_peak_bytes'))} ioaccel_mb=0.0 storage_allocations_since_prev=${deltaAllocations} storage_reuses_since_prev=${deltaReuses} pool_hits_since_prev=${deltaPoolHits} pool_misses_since_prev=${deltaPoolMisses}${failureText}`
 }
 console.log('starting training workflow...')
 const result = trainDecoderLMFromConfig(config, {

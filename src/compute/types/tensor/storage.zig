@@ -199,8 +199,8 @@ pub const Storage = struct {
 
         const storage_region = try self.region();
         _ = storage_region;
-        telemetry.add(telemetry.metrics.storage.allocations, 1);
-        telemetry.set(telemetry.metrics.storage.live_objects, live_objects.fetchAdd(1, .monotonic) + 1);
+        telemetry.add(telemetry.metrics.storage.allocation_count, 1);
+        telemetry.set(telemetry.metrics.storage.live_object_count, live_objects.fetchAdd(1, .monotonic) + 1);
         updateStorageMetrics(self.device(), @intCast(bytes));
         emitEvent(self, .alloc, 1);
         return self;
@@ -223,16 +223,16 @@ pub const Storage = struct {
         }
         const storage_region = self.region() catch null;
         _ = storage_region;
-        telemetry.add(telemetry.metrics.storage.frees, 1);
+        telemetry.add(telemetry.metrics.storage.free_count, 1);
         const new_live_objects = live_objects.fetchSub(1, .monotonic) - 1;
-        telemetry.set(telemetry.metrics.storage.live_objects, new_live_objects);
+        telemetry.set(telemetry.metrics.storage.live_object_count, new_live_objects);
         updateStorageMetrics(self.device(), -@as(i64, @intCast(self.bytes)));
         emitEvent(self, .free, 0);
         self.allocator.destroy(self);
     }
 
     pub fn noteReuse(self: *Storage) void {
-        telemetry.add(telemetry.metrics.storage.reuses, 1);
+        telemetry.add(telemetry.metrics.storage.reuse_count, 1);
         emitEvent(self, .reuse, self.ref_count.load(.monotonic));
     }
 

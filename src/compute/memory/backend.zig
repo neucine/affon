@@ -25,7 +25,7 @@ var peak_pooled_bytes = std.atomic.Value(usize).init(0);
 
 fn publishPoolGauges() void {
     telemetry.set(telemetry.metrics.memory.pool_live_bytes, @intCast(pooled_bytes.load(.monotonic)));
-    telemetry.set(telemetry.metrics.memory.pool_live_buffers, @intCast(pooled_buffers.load(.monotonic)));
+    telemetry.set(telemetry.metrics.memory.pool_live_buffer_count, @intCast(pooled_buffers.load(.monotonic)));
     telemetry.set(telemetry.metrics.memory.pool_peak_bytes, @intCast(peak_pooled_bytes.load(.monotonic)));
 }
 
@@ -122,7 +122,7 @@ pub fn trimMetalPool() usize {
         _ = pooled_bytes.fetchSub(freed, .monotonic);
         _ = pooled_buffers.fetchSub(freed_count, .monotonic);
         publishPoolGauges();
-        telemetry.add(telemetry.metrics.memory.pool_trims, @intCast(freed_count));
+        telemetry.add(telemetry.metrics.memory.pool_trim_count, @intCast(freed_count));
         telemetry.add(telemetry.metrics.memory.pool_trim_bytes, @intCast(freed));
     }
     return freed;
@@ -159,7 +159,7 @@ fn freeCpuScratch(allocator: std.mem.Allocator, buffer: []align(8) u8) void {
 fn createPooledHandle(byte_len: usize) ?*anyopaque {
     if (!shouldPool(byte_len)) return directAlloc(byte_len);
     if (takePooled(byte_len)) |handle| return handle;
-    telemetry.add(telemetry.metrics.memory.pool_misses, 1);
+    telemetry.add(telemetry.metrics.memory.pool_miss_count, 1);
 
     const handle = affon_metal_buffer_create(byte_len) orelse blk: {
         _ = trimMetalPool();
@@ -170,12 +170,12 @@ fn createPooledHandle(byte_len: usize) ?*anyopaque {
 
 fn releasePooledHandle(byte_len: usize, handle: *anyopaque) void {
     if (!shouldPool(byte_len)) {
-        telemetry.add(telemetry.metrics.memory.pool_drops, 1);
+        telemetry.add(telemetry.metrics.memory.pool_drop_count, 1);
         affon_metal_buffer_destroy(handle);
         return;
     }
     if (!returnPooled(byte_len, handle)) {
-        telemetry.add(telemetry.metrics.memory.pool_drops, 1);
+        telemetry.add(telemetry.metrics.memory.pool_drop_count, 1);
         affon_metal_buffer_destroy(handle);
     }
 }
@@ -208,7 +208,7 @@ fn takePooled(byte_len: usize) ?*anyopaque {
     const handle = bucket.pop() orelse return null;
     _ = pooled_bytes.fetchSub(byte_len, .monotonic);
     _ = pooled_buffers.fetchSub(1, .monotonic);
-    telemetry.add(telemetry.metrics.memory.pool_hits, 1);
+    telemetry.add(telemetry.metrics.memory.pool_hit_count, 1);
     publishPoolGauges();
     return handle;
 }
@@ -227,7 +227,7 @@ fn returnPooled(byte_len: usize, handle: *anyopaque) bool {
     _ = pooled_bytes.fetchAdd(byte_len, .monotonic);
     _ = pooled_buffers.fetchAdd(1, .monotonic);
     updatePoolPeak(pooled_bytes.load(.monotonic));
-    telemetry.add(telemetry.metrics.memory.pool_stores, 1);
+    telemetry.add(telemetry.metrics.memory.pool_store_count, 1);
     publishPoolGauges();
     return true;
 }

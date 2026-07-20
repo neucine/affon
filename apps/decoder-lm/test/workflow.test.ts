@@ -1346,7 +1346,7 @@ describe('@affon/decoder-lm workflow', () => {
       (entry) => entry.scope === 'compute.storage' && entry.name === 'live_cpu_bytes',
     )
     const qjsUsed = monitorArtifact.snapshots[0].runtimeMetrics.find(
-      (entry) => entry.scope === 'runtime.memory' && entry.name === 'qjs_used_size',
+      (entry) => entry.scope === 'runtime.memory' && entry.name === 'qjs_heap_used_bytes',
     )
     const metalPool = monitorArtifact.snapshots[0].runtimeMetrics.find(
       (entry) => entry.scope === 'compute.memory' && entry.name === 'metal_pool_live_bytes',
@@ -1422,7 +1422,7 @@ describe('@affon/decoder-lm workflow', () => {
     const snapshots = result.monitor?.snapshots ?? []
     expect(snapshots.length).toBe(8)
 
-    for (const metricName of ['live_cpu_bytes', 'live_metal_bytes', 'metal_pool_live_bytes', 'qjs_used_size']) {
+    for (const metricName of ['live_cpu_bytes', 'live_metal_bytes', 'metal_pool_live_bytes', 'qjs_heap_used_bytes']) {
       const values = snapshots
         .map((snapshot) => snapshot.runtimeMetrics.find(
           (metric) => metric.name === metricName,

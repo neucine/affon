@@ -311,8 +311,8 @@ fn validateInputsForPlan(op: Op, plan: *const EagerOpPlan) !void {
                 .{i},
             );
         }
-        if (plan.input_requirement == .require_contiguous_input) metricAdd(telemetry.metrics.execution.input_required_count, 1);
-        if (plan.input_requirement == .require_storage) metricAdd(telemetry.metrics.execution.storage_required_count, 1);
+        if (plan.input_requirement == .require_contiguous_input) metricAdd(telemetry.metrics.execution.contiguous_input_required_count, 1);
+        if (plan.input_requirement == .require_storage) metricAdd(telemetry.metrics.execution.storage_input_required_count, 1);
     }
 }
 
