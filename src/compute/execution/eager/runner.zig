@@ -47,6 +47,14 @@ const StepTraceLabel = struct {
     name: []const u8,
 };
 
+fn attrString(key: []const u8, value: []const u8) telemetry.Attribute {
+    return .{ .key = key, .value = .{ .string = value } };
+}
+
+fn attrInt(key: []const u8, value: usize) telemetry.Attribute {
+    return .{ .key = key, .value = .{ .integer = @intCast(value) } };
+}
+
 pub const ExecutionResult = struct {
     primary: *Tensor,
     secondary: ?*Tensor = null,
@@ -84,9 +92,26 @@ fn executeAllocatedPlan(allocator: std.mem.Allocator, op: Op, plan: *const Eager
     var dispatch_succeeded = false;
     defer if (!dispatch_succeeded) dispatch_scope.endError();
     const step_trace = classifyStepTrace(op, plan);
-    var step_scope = telemetry.beginTrace(step_trace.group, step_trace.name);
+    var step_name_buffer: [128]u8 = undefined;
+    const step_name = std.fmt.bufPrint(&step_name_buffer, "{s}/{s}", .{ telemetry.groupName(step_trace.group), step_trace.name }) catch step_trace.name;
+    var step_scope = telemetry.startSpan(.root, step_name, .internal, &.{
+        attrString("op", @tagName(op.tag)),
+        attrString("device", @tagName(plan.device)),
+        attrString("dtype", @tagName(plan.primary_output.dtype)),
+        attrString("input_requirement", @tagName(plan.input_requirement)),
+        attrString("input_layout_decision", @tagName(plan.input_layout_decision)),
+        attrInt("input_count", op.inputs.len),
+        attrInt("output_bytes", plan.primary_output.bytes),
+    });
     var step_succeeded = false;
     defer if (!step_succeeded) step_scope.endError();
+    if (plan.input_layout_decision == .pack_to_dense) {
+        step_scope.addEventNow("materialization_required", &.{
+            attrString("reason", "pack_to_dense"),
+            attrString("op", @tagName(op.tag)),
+            attrString("device", @tagName(plan.device)),
+        });
+    }
 
     switch (plan.kind) {
         .elementwise_binary => try dispatchElementwiseBinary(allocator, op, plan, primary.storage.?),

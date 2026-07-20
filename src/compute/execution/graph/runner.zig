@@ -13,31 +13,54 @@ fn fusionMetric(name: []const u8) void {
     telemetry.addCounter(.execution, name, 1);
 }
 
-fn emitFusionHit(scope: telemetry.Scope, hit: fusion.Hit) void {
+fn attrString(key: []const u8, value: []const u8) telemetry.Attribute {
+    return .{ .key = key, .value = .{ .string = value } };
+}
+
+fn attrInt(key: []const u8, value: usize) telemetry.Attribute {
+    return .{ .key = key, .value = .{ .integer = @intCast(value) } };
+}
+
+fn regionKindName(kind: @import("../../types/ir/plan.zig").RegionKind) []const u8 {
+    return switch (kind) {
+        .fusable_run => "fusable_run",
+        .matmul_epilogue => "matmul_epilogue",
+    };
+}
+
+fn emitFusionHit(scope: telemetry.Scope, hit: fusion.Hit, region: @import("../../types/ir/plan.zig").Region, step_count: usize) void {
     if (fusion.metricName(hit)) |name| fusionMetric(name);
     if (fusion.traceEventName(hit)) |name| {
-        scope.addEventNow(name, &.{});
+        scope.addEventNow(name, &.{
+            attrString("hit", @tagName(hit)),
+            attrString("region_kind", regionKindName(region.kind)),
+            attrInt("step_count", step_count),
+        });
     }
 }
 
-fn emitFusionMiss(scope: telemetry.Scope, miss: fusion.Miss) void {
+fn emitFusionMiss(scope: telemetry.Scope, miss: fusion.Miss, region: @import("../../types/ir/plan.zig").Region, step_count: usize) void {
     if (fusion.missMetricName(miss)) |name| fusionMetric(name);
     if (fusion.missTraceEventName(miss)) |name| {
-        scope.addEventNow(name, &.{});
+        scope.addEventNow(name, &.{
+            attrString("miss", @tagName(miss)),
+            attrString("region_kind", regionKindName(region.kind)),
+            attrInt("step_count", step_count),
+        });
     }
 }
 
 fn emitRegionMetric(scope: telemetry.Scope, kind: @import("../../types/ir/plan.zig").RegionKind, prefix: []const u8) void {
-    const suffix = switch (kind) {
-        .fusable_run => "fusable_run",
-        .matmul_epilogue => "matmul_epilogue",
-    };
+    const suffix = regionKindName(kind);
     var name_buffer: [64]u8 = undefined;
     const name = std.fmt.bufPrint(&name_buffer, "fusion_{s}_{s}_region_count", .{ prefix, suffix }) catch return;
     fusionMetric(name);
     var event_buffer: [64]u8 = undefined;
     const event = std.fmt.bufPrint(&event_buffer, "fusion_{s}_region_{s}", .{ prefix, suffix }) catch return;
-    scope.addEventNow(event, &.{});
+    scope.addEventNow(event, &.{
+        attrString("region_kind", suffix),
+        attrString("state", prefix),
+    });
 }
 
 pub const Result = struct {
@@ -106,21 +129,30 @@ pub fn execute(
             const region_steps = plan.steps.items[region.step_start..region.step_end];
             region_index += 1;
             telemetry.add(telemetry.metrics.execution.fusion_eligible_region_count, 1);
-            var region_scope = graph_scope.child(telemetry.traces.region, .internal, &.{});
+            var region_scope = graph_scope.child(telemetry.traces.region, .internal, &.{
+                attrString("region_kind", regionKindName(region.kind)),
+                attrInt("step_start", region.step_start),
+                attrInt("step_end", region.step_end),
+                attrInt("step_count", region_steps.len),
+            });
             emitRegionMetric(region_scope, region.kind, "eligible");
             try prepareFusionPrefix(allocator, graph, region_scope, region, region_steps, values, owned);
             const outcome = try fusion.execute(allocator, graph, region, region_steps, values, owned);
             if (outcome.hit != .none) {
-                emitFusionHit(region_scope, outcome.hit);
+                emitFusionHit(region_scope, outcome.hit, region, region_steps.len);
                 region_scope.end();
                 consumeInputs(graph, region_steps, values, owned, remaining_uses, is_graph_output);
                 step_index = region.step_end;
                 continue;
             }
-            emitFusionMiss(region_scope, outcome.miss);
+            emitFusionMiss(region_scope, outcome.miss, region, region_steps.len);
             telemetry.add(telemetry.metrics.execution.fusion_fallback_count, 1);
             emitRegionMetric(region_scope, region.kind, "fallback");
-            var fallback_scope = region_scope.child(telemetry.traces.fallback, .internal, &.{});
+            var fallback_scope = region_scope.child(telemetry.traces.fallback, .internal, &.{
+                attrString("region_kind", regionKindName(region.kind)),
+                attrString("reason", if (outcome.miss == .none) "no_fusion_candidate" else @tagName(outcome.miss)),
+                attrInt("step_count", region_steps.len),
+            });
             fallback_scope.end();
             region_scope.end();
         }
@@ -209,8 +241,23 @@ fn executeStep(
         input.* = values[value_id] orelse return error.MissingGraphValue;
     }
     const op = try Op.initWithExecutionMetadata(tag, op_inputs, node.options, node.execution_metadata);
-    var step_scope = parent.child(@tagName(tag), .internal, &.{});
+    var step_scope = parent.child(@tagName(tag), .internal, &.{
+        attrString("op", @tagName(tag)),
+        attrString("device", @tagName(step.eager_plan.device)),
+        attrString("dtype", @tagName(step.eager_plan.primary_output.dtype)),
+        attrString("input_requirement", @tagName(step.eager_plan.input_requirement)),
+        attrString("input_layout_decision", @tagName(step.eager_plan.input_layout_decision)),
+        attrInt("input_count", node.inputs.len),
+        attrInt("output_bytes", step.eager_plan.primary_output.bytes),
+    });
     defer step_scope.end();
+    if (step.eager_plan.input_layout_decision == .pack_to_dense) {
+        step_scope.addEventNow("materialization_required", &.{
+            attrString("reason", "pack_to_dense"),
+            attrString("op", @tagName(tag)),
+            attrString("device", @tagName(step.eager_plan.device)),
+        });
+    }
     var execution = try eager.executeAllWithPlan(allocator, op, &step.eager_plan);
     errdefer execution.deinit();
     if (node.outputs.len == 0 or node.outputs.len > 2) return error.InvalidOutputCount;
