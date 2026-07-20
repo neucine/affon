@@ -66,8 +66,8 @@ plans from that graph.
 The current internal native boundary still uses a serialized graph-build schema
 under:
 
-- `src/compute/captured/schema.zig`
-- `src/compute/captured/lowering.zig`
+- `src/js/compute/captured/schema.zig`
+- `src/js/compute/captured/lowering.zig`
 
 Autograd runtime internals are also moving toward one value-centric model:
 

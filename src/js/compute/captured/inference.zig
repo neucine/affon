@@ -1,9 +1,10 @@
 const std = @import("std");
 const hao = @import("hao");
-const engine_api = @import("../../../compute/engine.zig");
-const tensor_types = @import("../../../compute/shared/types/tensor/index.zig");
-const SliceRange = @import("../../../compute/shared/types/operation/options.zig").SliceRange;
-const semantic = @import("../../../compute/shared/sema/index.zig");
+const compute = @import("compute");
+const engine_api = compute;
+const tensor_types = compute.tensor;
+const SliceRange = compute.operation.SliceRange;
+const semantic = compute.sema;
 const lowering = @import("lowering.zig");
 const captured_op_info = @import("op_info.zig");
 

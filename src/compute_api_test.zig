@@ -34,3 +34,22 @@ test "compute is usable as an independent native module" {
     @memcpy(std.mem.asBytes(&values), &bytes);
     try std.testing.expectEqualSlices(f32, &.{ 11, 22 }, &values);
 }
+
+test "shared types and sema validate without execution" {
+    var shape = try compute.shared.types.tensor.Shape.initCopy(std.testing.allocator, &.{ 2, 3 });
+    defer shape.deinit();
+    var layout = try compute.shared.types.tensor.Layout.initContiguous(std.testing.allocator, shape);
+    defer layout.deinit();
+    const spec = compute.shared.types.tensor.TensorSpec{
+        .shape = shape,
+        .dtype = .f32,
+        .layout = layout,
+        .device = .cpu,
+    };
+
+    var inferred = try compute.shared.sema.inferFromSpecs(std.testing.allocator, .add, &.{ spec, spec }, .{ .none = {} });
+    defer inferred.deinit();
+
+    try std.testing.expectEqualSlices(usize, &.{ 2, 3 }, inferred.shape.dims);
+    try std.testing.expectEqual(compute.shared.types.tensor.DType.f32, inferred.dtype);
+}

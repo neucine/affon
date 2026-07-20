@@ -1,7 +1,8 @@
 const std = @import("std");
-const OpTag = @import("../../../compute/shared/types/operation/tag.zig").OpTag;
-const OpOptions = @import("../../../compute/shared/types/operation/options.zig").OpOptions;
-const ExecutionMetadata = @import("../../../compute/shared/types/operation/execution_metadata.zig").ExecutionMetadata;
+const compute = @import("compute");
+const OpTag = compute.operation.OpTag;
+const OpOptions = compute.operation.OpOptions;
+const ExecutionMetadata = compute.operation.ExecutionMetadata;
 
 /// Shared captured-op vocabulary for JS option inference and captured JSON
 /// lowering. Callers still own reading their source representation; this module

@@ -7,13 +7,15 @@ const qjs = hao.qjs;
 const packages = hao.package;
 
 pub const package_name = "affon";
-pub const compute = @import("compute/core.zig");
+pub const compute = @import("compute");
 
 comptime {
     _ = config;
 }
-const autograd_types = @import("compute/shared/types/autograd.zig");
-const autograd_execution = @import("compute/execution/autograd.zig");
+const compute_backend = compute.pipeline.backend;
+const compute_compose = compute.pipeline.compose;
+const autograd_types = compute.shared.types.autograd;
+const autograd_execution = compute.pipeline.execution.autograd;
 
 const sources = [_]hao.SourceModule{
     .{
@@ -607,7 +609,7 @@ test "compute CPU kernels consume tensor storage" {
     const result = try Tensor.createContiguous(std.testing.allocator, &.{3}, .f32, .cpu, false);
     defer result.deinit();
 
-    try compute.backend.cpu.add(.f32, lhs.storage.?, rhs.storage.?, result.storage.?);
+    try compute_backend.cpu.add(.f32, lhs.storage.?, rhs.storage.?, result.storage.?);
     const bytes = try result.storage.?.readableBytes();
     try std.testing.expectEqualSlices(f32, &.{ 11, 22, 33 }, std.mem.bytesAsSlice(f32, bytes));
 }
@@ -638,8 +640,8 @@ test "compute graph execution runs multiple operations" {
 
     var graph = compute.types.ir.Graph.init(std.testing.allocator);
     defer graph.deinit();
-    const lhs_id = try compute.compose.builder.addInputFromTensor(std.testing.allocator, &graph, lhs);
-    const rhs_id = try compute.compose.builder.addInputFromTensor(std.testing.allocator, &graph, rhs);
+    const lhs_id = try compute_compose.builder.addInputFromTensor(std.testing.allocator, &graph, lhs);
+    const rhs_id = try compute_compose.builder.addInputFromTensor(std.testing.allocator, &graph, rhs);
     const spec = try lhs.spec();
     const sum_id = try graph.addOp(.add, &.{ lhs_id, rhs_id }, .{ .none = {} }, spec);
     const output_id = try graph.addOp(.relu, &.{sum_id}, .{ .none = {} }, spec);
@@ -662,9 +664,9 @@ test "compute graph execution fuses matmul and full-shape bias" {
 
     var graph = compute.types.ir.Graph.init(std.testing.allocator);
     defer graph.deinit();
-    const lhs_id = try compute.compose.builder.addInputFromTensor(std.testing.allocator, &graph, lhs);
-    const rhs_id = try compute.compose.builder.addInputFromTensor(std.testing.allocator, &graph, rhs);
-    const bias_id = try compute.compose.builder.addInputFromTensor(std.testing.allocator, &graph, bias);
+    const lhs_id = try compute_compose.builder.addInputFromTensor(std.testing.allocator, &graph, lhs);
+    const rhs_id = try compute_compose.builder.addInputFromTensor(std.testing.allocator, &graph, rhs);
+    const bias_id = try compute_compose.builder.addInputFromTensor(std.testing.allocator, &graph, bias);
     var output_shape = try compute.types.tensor.Shape.initCopy(std.testing.allocator, &.{ 2, 2 });
     defer output_shape.deinit();
     var output_layout = try compute.types.tensor.Layout.initContiguous(std.testing.allocator, output_shape);
@@ -696,9 +698,9 @@ test "compute graph execution supports matmul add gelu epilogues" {
 
     var graph = compute.types.ir.Graph.init(std.testing.allocator);
     defer graph.deinit();
-    const lhs_id = try compute.compose.builder.addInputFromTensor(std.testing.allocator, &graph, lhs);
-    const rhs_id = try compute.compose.builder.addInputFromTensor(std.testing.allocator, &graph, rhs);
-    const bias_id = try compute.compose.builder.addInputFromTensor(std.testing.allocator, &graph, bias);
+    const lhs_id = try compute_compose.builder.addInputFromTensor(std.testing.allocator, &graph, lhs);
+    const rhs_id = try compute_compose.builder.addInputFromTensor(std.testing.allocator, &graph, rhs);
+    const bias_id = try compute_compose.builder.addInputFromTensor(std.testing.allocator, &graph, bias);
     var shape = try compute.types.tensor.Shape.initCopy(std.testing.allocator, &.{ 2, 2 });
     defer shape.deinit();
     var layout = try compute.types.tensor.Layout.initContiguous(std.testing.allocator, shape);
@@ -725,8 +727,8 @@ test "compute graph execution supports add layer norm fusion" {
 
     var graph = compute.types.ir.Graph.init(std.testing.allocator);
     defer graph.deinit();
-    const lhs_id = try compute.compose.builder.addInputFromTensor(std.testing.allocator, &graph, lhs);
-    const rhs_id = try compute.compose.builder.addInputFromTensor(std.testing.allocator, &graph, rhs);
+    const lhs_id = try compute_compose.builder.addInputFromTensor(std.testing.allocator, &graph, lhs);
+    const rhs_id = try compute_compose.builder.addInputFromTensor(std.testing.allocator, &graph, rhs);
     var shape = try compute.types.tensor.Shape.initCopy(std.testing.allocator, &.{ 2, 2 });
     defer shape.deinit();
     var layout = try compute.types.tensor.Layout.initContiguous(std.testing.allocator, shape);
@@ -756,10 +758,10 @@ test "compute graph execution supports attention score fusion" {
 
     var graph = compute.types.ir.Graph.init(std.testing.allocator);
     defer graph.deinit();
-    const q_id = try compute.compose.builder.addInputFromTensor(std.testing.allocator, &graph, q);
-    const k_id = try compute.compose.builder.addInputFromTensor(std.testing.allocator, &graph, k_t);
-    const scale_id = try compute.compose.builder.addInputFromTensor(std.testing.allocator, &graph, scale);
-    const mask_id = try compute.compose.builder.addInputFromTensor(std.testing.allocator, &graph, mask);
+    const q_id = try compute_compose.builder.addInputFromTensor(std.testing.allocator, &graph, q);
+    const k_id = try compute_compose.builder.addInputFromTensor(std.testing.allocator, &graph, k_t);
+    const scale_id = try compute_compose.builder.addInputFromTensor(std.testing.allocator, &graph, scale);
+    const mask_id = try compute_compose.builder.addInputFromTensor(std.testing.allocator, &graph, mask);
     var shape = try compute.types.tensor.Shape.initCopy(std.testing.allocator, &.{ 1, 2, 2 });
     defer shape.deinit();
     var layout = try compute.types.tensor.Layout.initContiguous(std.testing.allocator, shape);
@@ -852,9 +854,9 @@ test "autograd derives and executes a graph from provenance" {
     );
     autograd_types.State.fromTensor(loss).?.attachNode(loss_node);
 
-    var derived = try compute.compose.derive.buildFromLossTensor(loss);
+    var derived = try compute_compose.derive.buildFromLossTensor(loss);
     defer derived.deinit(allocator);
-    try compute.compose.derive.executeForTensor(loss, &derived);
+    try compute_compose.derive.executeForTensor(loss, &derived);
 
     const x_state = autograd_types.State.fromTensor(x).?;
     const y_state = autograd_types.State.fromTensor(y).?;

@@ -1,6 +1,6 @@
 const std = @import("std");
 const zig_libs = @import("zig_libs");
-const mm = @import("compute/memory.zig");
+const mm = @import("compute").memory;
 
 const cfg = zig_libs.config;
 pub const Device = enum {
