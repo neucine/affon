@@ -47,7 +47,7 @@ pub const Config = struct {
             }) = .{},
             pool_oversize_threshold_bytes: cfg.Startup(usize, .{
                 .env = "AFFON_METAL_POOL_OVERSIZE_THRESHOLD_BYTES",
-                .default = 64 * 1024 * 1024,
+                .default = 512 * 1024 * 1024,
                 .parser = .positive_int,
             }) = .{},
         };
@@ -123,7 +123,7 @@ test "Config defaults are correct" {
     try std.testing.expectEqual(@as(usize, 256), def.device.metal.threadgroup_size.get());
     try std.testing.expectEqual(@as(usize, 512), def.device.metal.reduce_all_threshold.get());
     try std.testing.expectEqual(@as(usize, 512), def.device.metal.reduce_axis_threshold.get());
-    try std.testing.expectEqual(@as(usize, 64 * 1024 * 1024), def.device.metal.pool_oversize_threshold_bytes.get());
+    try std.testing.expectEqual(@as(usize, 512 * 1024 * 1024), def.device.metal.pool_oversize_threshold_bytes.get());
     try std.testing.expectEqual(@as(usize, 65536), def.device.cpu.parallel_threshold.get());
     try std.testing.expectEqual(@as(usize, 65536), def.csv.chunk_size.get());
     try std.testing.expectEqual(@as(usize, 6), def.repr.max_items.get());

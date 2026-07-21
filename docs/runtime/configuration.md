@@ -20,7 +20,7 @@ mutability class.
 | `AFFON_METAL_THREADGROUP_SIZE` | `device.metal.threadgroup_size` | startup | `256` | positive integer |
 | `AFFON_METAL_REDUCE_ALL_THRESHOLD` | `device.metal.reduce_all_threshold` | startup | `512` | positive integer |
 | `AFFON_METAL_REDUCE_AXIS_THRESHOLD` | `device.metal.reduce_axis_threshold` | startup | `512` | positive integer |
-| `AFFON_METAL_POOL_OVERSIZE_THRESHOLD_BYTES` | `device.metal.pool_oversize_threshold_bytes` | startup | `67108864` | positive integer bytes |
+| `AFFON_METAL_POOL_OVERSIZE_THRESHOLD_BYTES` | `device.metal.pool_oversize_threshold_bytes` | startup | `536870912` | positive integer bytes |
 | `AFFON_CPU_PARALLEL_THRESHOLD` | `device.cpu.parallel_threshold` | runtime | `65536` | positive integer |
 | `AFFON_CSV_CHUNK_SIZE` | `csv.chunk_size` | runtime | `65536` | positive integer bytes |
 | `AFFON_REPR_MAX_ITEMS` | `repr.max_items` | runtime | `6` | positive integer |
