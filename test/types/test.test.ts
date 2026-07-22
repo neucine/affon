@@ -5,12 +5,12 @@ import testModule, {
   mock,
   test,
   values,
-} from "affon:test"
+} from "std:test"
 
 type IsExact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
 function assertType<T extends true>() {}
 
-describe("affon:test types", () => {
+describe("std:test types", () => {
   test("exports public test helpers", () => {
     expect(values([1, 2])).toEqual([1, 2])
   })

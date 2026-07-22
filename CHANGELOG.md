@@ -12,7 +12,7 @@ The format is based on Keep a Changelog and the project follows Semantic Version
 
 - added first-party package and app coverage to CI, including runtime e2e suites
   and TypeScript contract checks
-- added public TypeScript declarations for `affon:test`, `std:fs`,
+- added public TypeScript declarations for `std:test`, `std:fs`,
   `std:process`, and `std:telemetry`
 - added `affon --version` and `affon version`
 

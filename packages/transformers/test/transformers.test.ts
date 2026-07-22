@@ -1,4 +1,4 @@
-import { describe, test, expect, values } from 'affon:test'
+import { describe, test, expect, values } from 'std:test'
 import nn from 'affon:nn'
 import { axes, compile, grad, softmax, sum, tensor } from 'affon:compute'
 import { internal_tensor } from './support/compute.ts'

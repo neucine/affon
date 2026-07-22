@@ -1,4 +1,4 @@
-import { describe, expect, test, values } from 'affon:test'
+import { describe, expect, test, values } from 'std:test'
 import { axes, compile, grad, no_grad, sum, tensor } from 'affon:compute'
 import type { Tensor } from 'affon:compute'
 

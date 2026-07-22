@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'affon:test'
+import { describe, expect, test } from 'std:test'
 import { axes, no_grad, seed, tensor } from 'affon:compute'
 import telemetry from 'std:telemetry'
 

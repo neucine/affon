@@ -1,4 +1,4 @@
-declare module "affon:test" {
+declare module "std:test" {
   interface TestCaptureOptions {
     target?: "stdout" | "stderr" | "both"
   }

@@ -26,14 +26,6 @@ const sources = [_]hao.SourceModule{
         "export const version = \"" ++ version ++ "\";\n",
     },
     .{
-        .specifier = "affon:test",
-        .source =
-        \\import testModule from 'std:test';
-        \\export * from 'std:test';
-        \\export default testModule;
-        ,
-    },
-    .{
         .specifier = "affon:compute",
         .source = @embedFile("js/compute/index.ts"),
     },

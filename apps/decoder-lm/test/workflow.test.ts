@@ -1,5 +1,5 @@
 import fs from 'std:fs'
-import { describe, expect, test } from 'affon:test'
+import { describe, expect, test } from 'std:test'
 import { seed } from 'affon:compute'
 
 import {

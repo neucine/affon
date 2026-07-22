@@ -1,6 +1,6 @@
 import fs from 'std:fs'
 import checkpoint from 'affon:checkpoint'
-import { describe, expect, test } from 'affon:test'
+import { describe, expect, test } from 'std:test'
 import { seed, tensor } from 'affon:compute'
 import { run } from 'std:process'
 import type { Tensor } from 'affon:compute'

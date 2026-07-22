@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'affon:test'
+import { describe, expect, test } from 'std:test'
 
 import {
   createHFTokenizerFromJSON,

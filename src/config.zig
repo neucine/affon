@@ -13,7 +13,6 @@ pub const Config = struct {
     device: DeviceConfig = .{},
     csv: Csv = .{},
     repr: Repr = .{},
-    observer: Observer = .{},
 
     pub const Debug = struct {
         native_stack_trace: cfg.Runtime(bool, .{
@@ -83,15 +82,6 @@ pub const Config = struct {
             .parser = .positive_int,
         }) = .{},
     };
-    pub const Observer = struct {
-        enabled: cfg.Runtime(bool, .{
-            .env = "AFFON_OBSERVER_ENABLED",
-        }) = .{},
-        port: cfg.Runtime(usize, .{
-            .env = "AFFON_OBSERVER_PORT",
-            .parser = .int_allow_zero,
-        }) = .{},
-    };
 };
 
 pub var config = cfg.Store(Config).init();
@@ -129,8 +119,6 @@ test "Config defaults are correct" {
     try std.testing.expectEqual(@as(usize, 6), def.repr.max_items.get());
     try std.testing.expectEqual(@as(usize, 20), def.repr.repr_max_rows.get());
     try std.testing.expectEqual(@as(usize, 12), def.repr.repr_max_cols.get());
-    try std.testing.expectEqual(false, def.observer.enabled.get());
-    try std.testing.expectEqual(@as(usize, 0), def.observer.port.get());
 }
 
 test "loadFromEnv reads schema-backed values" {

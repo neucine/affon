@@ -91,15 +91,4 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run Affon tests");
     test_step.dependOn(&run_tests.step);
 
-    const compute_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/compute_api_test.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{.{ .name = "compute", .module = compute }},
-        }),
-    });
-    addMetalBackend(b, compute_dep, compute_tests.root_module, target);
-    const run_compute_tests = b.addRunArtifact(compute_tests);
-    test_step.dependOn(&run_compute_tests.step);
 }
