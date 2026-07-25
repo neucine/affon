@@ -1,6 +1,6 @@
 const std = @import("std");
 const hao = @import("hao");
-const config = @import("config.zig");
+pub const config = @import("config.zig");
 const compute_native = @import("js/compute/native.zig");
 const dataset_native = @import("js/dataset/native.zig");
 const qjs = hao.qjs;
@@ -20,8 +20,14 @@ const autograd_execution = compute.pipeline.execution.autograd;
 
 const sources = [_]hao.SourceModule{
     .{
+        .specifier = "affon:errors",
+        .source = @embedFile("js/errors-global.js") ++
+            "\nexport const AffonError = globalThis.AffonError;\nexport default AffonError;\n",
+    },
+    .{
         .specifier = "affon:runtime",
         .source =
+        "import 'affon:errors';\n" ++
         "export const name = \"affon\";\n" ++
         "export const version = \"" ++ version ++ "\";\n",
     },
@@ -96,18 +102,7 @@ const native_modules = [_]hao.NativeModule{ .{
 } };
 
 fn installGlobals(context: *packages.PackageContext) !void {
-    const source =
-        \\if (typeof globalThis.AffonError !== 'function') {
-        \\  globalThis.AffonError = class AffonError extends Error {
-        \\    constructor(code, message) {
-        \\      super(message);
-        \\      this.name = 'AffonError';
-        \\      this.code = code;
-        \\    }
-        \\  };
-        \\}
-    ;
-    const value = qjs.eval(context.runtime.ctx, source, "<affon:global>", qjs.EvalFlags.global);
+    const value = qjs.eval(context.runtime.ctx, @embedFile("js/errors-global.js"), "<affon:global>", qjs.EvalFlags.global);
     defer qjs.freeValue(context.runtime.ctx, value);
     if (qjs.isException(value)) return error.JavaScriptError;
 }

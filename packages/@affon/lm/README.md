@@ -30,7 +30,7 @@ are ignored and regenerated from text.
 Not owned here:
 
 - generic attention, embedding, and decoder blocks, which belong in `../transformers/`
-- complete runnable training workloads, which should move toward `../../apps/`
+- complete runnable training workloads, which should move toward `../../../apps/`
 - dataset source adapters and tokenizer compatibility layers, which should stay in `affon:dataset`, `../tokenizers/`, or apps
 - runtime tensor/autograd primitives, which belong in `affon`
 

@@ -1,6 +1,6 @@
 // Runtime API exposed by the public dataset module (affon:dataset).
 // Runtime declaration file for the public dataset module.
-// User-facing types are in types/affon-dataset.d.ts (a curated subset).
+// User-facing types are in packages/@types/affon/affon-dataset.d.ts (a curated subset).
 // Note: DataLoader is added by the TypeScript layer (index.ts), not native.
 
 interface Dataset {

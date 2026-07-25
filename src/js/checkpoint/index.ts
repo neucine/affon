@@ -1,3 +1,4 @@
+import { AffonError } from 'affon:errors'
 import fs from 'std:fs'
 import { loadStateTree, restorePersistedState, saveStateTree } from 'affon:compute/persistence.ts'
 

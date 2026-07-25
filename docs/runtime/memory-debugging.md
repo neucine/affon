@@ -67,6 +67,10 @@ Useful compute memory metrics:
 - `scope === "compute.memory" && name === "metal_pool_miss_count"`
 - `scope === "compute.memory" && name === "metal_pool_trim_bytes"`
 - `scope === "compute.memory" && name === "metal_device_current_allocated_bytes"`
+- `scope === "compute.memory" && name === "metal_pool_top_miss_bucket_bytes_1"`
+- `scope === "compute.memory" && name === "metal_pool_top_miss_count_1"`
+- `scope === "compute.memory" && name === "metal_pool_top_drop_bucket_bytes_1"`
+- `scope === "compute.memory" && name === "metal_pool_top_drop_count_1"`
 
 Use `scope === "compute.execution"` counters such as `fusion_fallback_count`,
 `transfer_to_host_bytes`, and `contiguity_fixup_bytes` when checking execution
@@ -168,7 +172,51 @@ The expected stable behavior is:
 - `IOAccelerator (graphics)` region count stops growing.
 
 If pool misses keep increasing without later hits, the workload is probably
-generating many incompatible exact sizes or bypassing pooled storage.
+generating many incompatible bucket sizes or bypassing pooled storage.
+
+### Metal Pool Size-Class Tuning
+
+The Metal pool models reuse by rounded bucket size, not exact request size.
+Requests up to 64 KiB round to 4 KiB buckets, requests up to 1 MiB round to 64
+KiB buckets, requests up to 16 MiB round to 1 MiB buckets, and larger requests
+round to 16 MiB buckets.
+
+Each bucket has a retained-buffer cap. The default policy is equivalent to:
+
+```sh
+AFFON_METAL_POOL_SIZE_CLASSES='65536:512,1048576:512,*:8'
+```
+
+Interpret the diagnostics as a tuning loop:
+
+- High `metal_pool_top_drop_count_N` for a bucket means that bucket's cap is too
+  low for the current workload, so buffers are being destroyed and recreated.
+- High `metal_pool_top_miss_count_N` with low drops can be normal warmup or a
+  sign that the workload is entering new bucket sizes.
+- Rising `metal_pool_live_bytes` and `metal_pool_peak_bytes` are the retained
+  memory cost of a higher cap.
+- Rising `runtime.memory.physical_footprint_bytes` shows the macOS process
+  footprint cost, including driver residency.
+- `metal_device_current_allocated_bytes` is Apple's Metal device accounting. It
+  is useful as a trend signal, but it can accumulate above Affon's live tensor
+  storage and should not be treated as exact live tensor memory.
+
+Example: if telemetry prints `pool_top_drops=4.0kb:60`, raising the cap for the
+class containing 4 KiB buckets can reduce churn:
+
+```sh
+AFFON_METAL_POOL_SIZE_CLASSES='65536:512,1048576:512,*:8'
+```
+
+If the hot drop bucket is `2.0mb`, tune the catch-all or add an intermediate
+class:
+
+```sh
+AFFON_METAL_POOL_SIZE_CLASSES='65536:512,1048576:512,16777216:32,*:8'
+```
+
+Keep `AFFON_METAL_POOL_MAX_TOTAL_BYTES` as the hard upper bound for retained
+pool memory while adjusting per-bucket caps.
 
 ### Confirming With `vmmap`
 
@@ -199,6 +247,6 @@ Interpretation:
 
 See:
 
-- [packages/lm/test/memory.test.ts](../../packages/lm/test/memory.test.ts)
+- [packages/@affon/lm/test/memory.test.ts](../../packages/@affon/lm/test/memory.test.ts)
 - [tools/metal-footprint-watch.sh](../../tools/metal-footprint-watch.sh)
 - [tools/lm-head-loss-pressure-repro.ts](../../tools/lm-head-loss-pressure-repro.ts)

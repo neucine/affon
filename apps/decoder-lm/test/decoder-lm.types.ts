@@ -1,5 +1,5 @@
-import { DecoderModel, pack_token_windows } from '../../../packages/lm/src/index.ts'
-import { createLookupTokenizer } from '../../../packages/tokenizers/src/index.ts'
+import { DecoderModel, pack_token_windows } from '@affon/lm'
+import { createLookupTokenizer } from '@affon/tokenizers'
 
 import {
   evaluateDecoderLM,

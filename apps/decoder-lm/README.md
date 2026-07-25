@@ -18,7 +18,7 @@ Key files:
 - `workflow.ts`: config-driven runner used by the example scripts
 
 Reusable decoder LM model, loss, generation, and token-window primitives live in
-`../../packages/lm/src/` rather than this app directory.
+`../../packages/@affon/lm/src/` rather than this app directory.
 
 Offline graph exports are meant to stay renderer-agnostic. The shared offline
 tooling now lives under `../../tools/graph-viewer/`.
@@ -50,4 +50,4 @@ unit test. Run:
 The checker validates the completed summary history, final validation loss,
 minimum loss drop, and epoch-to-epoch validation trend.
 
-The smaller reusable transformer primitives remain under `../../packages/transformers/src/`.
+The smaller reusable transformer primitives remain under `../../packages/@affon/transformers/src/`.

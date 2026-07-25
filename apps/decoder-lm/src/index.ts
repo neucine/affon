@@ -1,11 +1,19 @@
-export { SelfAttention } from '../../../packages/transformers/src/decoder/attention.ts'
-export type { SelfAttentionModule, SelfAttentionOptions } from '../../../packages/transformers/src/decoder/attention.ts'
-export { DecoderBlock } from '../../../packages/transformers/src/decoder/block.ts'
-export type { DecoderBlockModule, DecoderBlockOptions } from '../../../packages/transformers/src/decoder/block.ts'
-export { DecoderInputEmbedding } from '../../../packages/transformers/src/decoder/embedding.ts'
-export type { DecoderInputEmbeddingModule, DecoderInputEmbeddingOptions } from '../../../packages/transformers/src/decoder/embedding.ts'
-export { FeedForward } from '../../../packages/transformers/src/decoder/feedforward.ts'
-export type { FeedForwardModule, FeedForwardOptions } from '../../../packages/transformers/src/decoder/feedforward.ts'
+export {
+  DecoderBlock,
+  DecoderInputEmbedding,
+  FeedForward,
+  SelfAttention,
+} from '@affon/transformers'
+export type {
+  DecoderBlockModule,
+  DecoderBlockOptions,
+  DecoderInputEmbeddingModule,
+  DecoderInputEmbeddingOptions,
+  FeedForwardModule,
+  FeedForwardOptions,
+  SelfAttentionModule,
+  SelfAttentionOptions,
+} from '@affon/transformers'
 export { getFiniteChecksEnabled, setFiniteChecksEnabled } from './numerics.ts'
 
 export {

@@ -21,4 +21,4 @@
 ## Public contract
 
 - [ ] updated `docs/` if user-facing runtime behavior changed
-- [ ] updated `types/*.d.ts` if exported API behavior changed
+- [ ] updated `packages/@types/affon/*.d.ts` if exported API behavior changed

@@ -1,3 +1,4 @@
+import { AffonError } from 'affon:errors'
 import native from 'affon:compute/native'
 
 type DType = 'f32' | 'f64' | 'i64'

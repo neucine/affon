@@ -19,7 +19,7 @@ Not owned here:
 
 - dataset pipeline use of tokenizers, which belongs in `affon:dataset`
 - text batching, padding, and tensorization, which belong in `affon:dataset`
-- LM-specific recipes such as prompt templates, chat templates, and corpus packing, which belong in `../lm/` or `../../apps/`
+- LM-specific recipes such as prompt templates, chat templates, and corpus packing, which belong in `../lm/` or `../../../apps/`
 
 Use the package entrypoint for tokenizer compatibility APIs:
 

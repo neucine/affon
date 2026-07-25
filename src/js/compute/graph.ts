@@ -1,15 +1,6 @@
+import { AffonError } from 'affon:errors'
 import native from 'affon:compute/native'
 import { normalizeCoreMeta, sameStaticMeta, shadowCapturedMeta, type StaticTensorMeta } from 'affon:compute/captured/shadow_metadata.ts'
-
-class AffonError extends Error {
-  readonly code: string
-
-  constructor(code: string, message: string) {
-    super(message)
-    this.name = 'AffonError'
-    this.code = code
-  }
-}
 
 type NativeTensor = {
   shape: number[]

@@ -1,3 +1,4 @@
+import 'affon:errors'
 import { read, DataLoader, tabular } from 'affon:dataset/tabular.ts'
 import { readText, text, TextDataLoader, EncodedTextDataLoader, PaddedTextDataLoader, TensorizedTextDataLoader } from 'affon:dataset/text.ts'
 

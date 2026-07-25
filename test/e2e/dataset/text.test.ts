@@ -1,7 +1,7 @@
 import { describe, test, expect, values } from 'std:test'
 import dataset from 'affon:dataset'
 import { writeFileSync } from 'std:fs'
-import { createLookupTokenizer } from '../../../packages/tokenizers/src/index.ts'
+import { createLookupTokenizer } from '../../../packages/@affon/tokenizers/src/index.ts'
 
 describe('dataset text', () => {
   test('text namespace reads line-oriented corpora', () => {

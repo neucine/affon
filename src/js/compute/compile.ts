@@ -1,12 +1,4 @@
-class AffonError extends Error {
-  readonly code: string
-
-  constructor(code: string, message: string) {
-    super(message)
-    this.name = 'AffonError'
-    this.code = code
-  }
-}
+import { AffonError } from 'affon:errors'
 
 type ComputeTensorLike = {
   shape: number[]

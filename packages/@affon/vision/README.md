@@ -16,5 +16,4 @@ Not owned here:
 
 - generic transformer blocks, which belong in `../transformers/`
 - CNN architecture blocks, which should move to `../cnn/` if they become broadly reusable
-- complete runnable workflows, which should live under `../../apps/`
-
+- complete runnable workflows, which should live under `../../../apps/`

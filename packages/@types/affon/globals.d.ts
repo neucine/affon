@@ -21,6 +21,8 @@ type RuntimeErrorCode =
   | "io_error"
   | "cancelled"
   | "invalid_state"
+  | "not_implemented"
+  | "assertion"
   | "unsupported_lowering"
   | "internal"
   | "thread_pool_unavailable"

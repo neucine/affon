@@ -117,7 +117,7 @@ cases.
 - Machine learning: [NN Concepts](docs/ml/nn/index.md), [Metrics Concepts](docs/ml/metrics.md), [Optim Concepts](docs/ml/optim.md), [Checkpoints](docs/ml/checkpoints.md), [Text Datasets](docs/ml/text-datasets.md), [ML Glossary](docs/ml/glossary.md)
 - Runtime: [Install](docs/runtime/install.md), [Configuration](docs/runtime/configuration.md), [Module Loader](docs/runtime/module-loader.md), [Memory Debugging](docs/runtime/memory-debugging.md)
 - Apps: [apps/](apps/), [Decoder LM](apps/decoder-lm/README.md)
-- Packages: [packages/](packages/), [Transformers](packages/transformers/README.md), [LM](packages/lm/README.md), [Tokenizers](packages/tokenizers/README.md)
+- Packages: [packages/](packages/), [Transformers](packages/@affon/transformers/README.md), [LM](packages/@affon/lm/README.md), [Tokenizers](packages/@affon/tokenizers/README.md)
 - Editor: [Affon for VS Code](https://github.com/neucine/affon-vscode)
 
 ## License

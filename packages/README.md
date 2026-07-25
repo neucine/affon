@@ -1,6 +1,6 @@
 # First-Party Packages
 
-First-party packages sit above the runtime and below complete apps.
+First-party packages live under the `@affon/` scope, above the runtime and below complete apps.
 
 Package ownership follows three axes:
 
@@ -12,8 +12,8 @@ Complete runnable workloads should live under `../apps/` once they outgrow focus
 
 ## Current Packages
 
-- `transformers/`: transformer architecture blocks and helpers.
-- `tokenizers/`: tokenizer implementation and ecosystem compatibility.
-- `lm/`: language-model family APIs and reusable LM corpus packing.
-- `vision/`: vision-domain scaffold.
-- `cnn/`: CNN architecture scaffold.
+- `@affon/transformers/`: transformer architecture blocks and helpers.
+- `@affon/tokenizers/`: tokenizer implementation and ecosystem compatibility.
+- `@affon/lm/`: language-model family APIs and reusable LM corpus packing.
+- `@affon/vision/`: vision-domain scaffold.
+- `@affon/cnn/`: CNN architecture scaffold.

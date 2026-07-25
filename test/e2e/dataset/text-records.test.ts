@@ -1,6 +1,6 @@
 import { describe, test, expect, values } from 'std:test'
 import dataset from 'affon:dataset'
-import { createLookupTokenizer } from '../../../packages/tokenizers/src/index.ts'
+import { createLookupTokenizer } from '../../../packages/@affon/tokenizers/src/index.ts'
 
 describe('dataset text records', () => {
   test('text records support single-label classification through field transforms', () => {

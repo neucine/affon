@@ -16,16 +16,16 @@ import {
 } from 'affon:compute'
 import type { ComputeState, Parameter, Tensor } from 'affon:compute'
 
-import { CausalLMLoss, causal_lm_eval_loss_forward } from '../../../packages/lm/src/causal-lm.ts'
-import type { DecoderModelModule } from '../../../packages/lm/src/model.ts'
-import { describeValue, tensorAbsMax, tensorFiniteSummary } from './numerics.ts'
+import { CausalLMLoss, causal_lm_eval_loss_forward } from '@affon/lm'
 import type {
+  DecoderModelModule,
   PackedCorpusOptions,
   TokenBatchOptions,
   TokenWindow,
-} from '../../../packages/lm/src/token-windows.ts'
+} from '@affon/lm'
+import { describeValue, tensorAbsMax, tensorFiniteSummary } from './numerics.ts'
 
-export type { PackedCorpusOptions, TokenBatchOptions, TokenWindow } from '../../../packages/lm/src/token-windows.ts'
+export type { PackedCorpusOptions, TokenBatchOptions, TokenWindow } from '@affon/lm'
 export type DecoderLMForward = (tokenIds: Tensor<[number, number], 'f32'>) => Tensor<number[], 'f32'>
 type DecoderModelState = ReturnType<DecoderModelModule['state']>
 type DecoderLMOptimizerState = {
@@ -124,6 +124,7 @@ export interface DecoderLMTrainOptions extends PackedCorpusOptions, TokenBatchOp
   initialStep?: number
   resumeCheckpoint?: SavedDecoderLMCheckpoint
   evaluateInitialTrainLoss?: boolean
+  evaluateInitialValidationLoss?: boolean
   validationBatchSize?: number
   validationWindows?: readonly TokenWindow[]
   checkpointEveryEpochs?: number
@@ -716,6 +717,11 @@ export function trainDecoderLM(
     model.train?.()
     let initialTrainLoss: number | null = null
     const validationBatchSize = opts.validationBatchSize ?? opts.batchSize
+    if (opts.validationWindows && opts.validationWindows.length > 0 && validationBatchSize > opts.batchSize) {
+      opts.onStatus?.(
+        `warning: validation batch size ${validationBatchSize} is larger than training batch size ${opts.batchSize}; this can increase retained Metal residency`,
+      )
+    }
     if (opts.evaluateInitialTrainLoss ?? true) {
       opts.onStatus?.('evaluating initial train loss...')
       initialTrainLoss = evaluateDecoderLM(model, windows, {
@@ -728,7 +734,7 @@ export function trainDecoderLM(
       })
     }
     let initialValLoss: number | null = null
-    if (opts.validationWindows && opts.validationWindows.length > 0) {
+    if ((opts.evaluateInitialValidationLoss ?? true) && opts.validationWindows && opts.validationWindows.length > 0) {
       opts.onStatus?.('evaluating initial validation loss...')
       initialValLoss = evaluateDecoderLM(model, opts.validationWindows, {
         batchSize: validationBatchSize,

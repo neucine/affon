@@ -27,6 +27,27 @@ function metricValue(metrics: readonly RuntimeMetric[], group: string, name: str
   return entry?.value ?? 0
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}mb`
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)}kb`
+  return `${bytes}b`
+}
+
+function formatTopPoolBuckets(
+  metrics: readonly RuntimeMetric[],
+  bucketPrefix: string,
+  countPrefix: string,
+): string {
+  const parts: string[] = []
+  for (let i = 1; i <= 8; i += 1) {
+    const bucketBytes = metricValue(metrics, 'compute.memory', `${bucketPrefix}_${i}`)
+    const count = metricValue(metrics, 'compute.memory', `${countPrefix}_${i}`)
+    if (bucketBytes <= 0 || count <= 0) continue
+    parts.push(`${formatBytes(bucketBytes)}:${count}`)
+  }
+  return parts.length > 0 ? parts.join(',') : 'none'
+}
+
 function formatRuntimeStats(): string {
   const stats = telemetry.metrics()
   const toMb = (bytes: number) => (bytes / (1024 * 1024)).toFixed(1)
@@ -42,8 +63,10 @@ function formatRuntimeStats(): string {
   const failureText = failureCount > 0
     ? ` metal_alloc_failures=${failureCount}`
     : ''
+  const topMisses = formatTopPoolBuckets(stats, 'metal_pool_top_miss_bucket_bytes', 'metal_pool_top_miss_count')
+  const topDrops = formatTopPoolBuckets(stats, 'metal_pool_top_drop_bucket_bytes', 'metal_pool_top_drop_count')
   previousRuntimeMetrics = stats
-  return `metal_live_mb=${toMb(metricValue(stats, 'compute.storage', 'live_metal_bytes'))} metal_device_mb=${toMb(metricValue(stats, 'compute.memory', 'metal_device_current_allocated_bytes'))} metal_peak_mb=${toMb(metricValue(stats, 'compute.storage', 'peak_metal_bytes'))} metal_pool_mb=${toMb(metricValue(stats, 'compute.memory', 'metal_pool_live_bytes'))} metal_pool_peak_mb=${toMb(metricValue(stats, 'compute.memory', 'metal_pool_peak_bytes'))} cpu_live_mb=${toMb(metricValue(stats, 'compute.storage', 'live_cpu_bytes'))} cpu_peak_mb=${toMb(metricValue(stats, 'compute.storage', 'peak_cpu_bytes'))} autograd_mb=0.0 qjs_used_mb=${toMb(metricValue(stats, 'runtime.memory', 'qjs_heap_used_bytes'))} resident_mb=${toMb(metricValue(stats, 'runtime.memory', 'resident_bytes'))} resident_peak_mb=${toMb(metricValue(stats, 'runtime.memory', 'resident_peak_bytes'))} phys_mb=${toMb(metricValue(stats, 'runtime.memory', 'physical_footprint_bytes'))} phys_peak_mb=${toMb(metricValue(stats, 'runtime.memory', 'physical_footprint_peak_bytes'))} ioaccel_mb=0.0 storage_allocations_since_prev=${deltaAllocations} storage_reuses_since_prev=${deltaReuses} pool_hits_since_prev=${deltaPoolHits} pool_misses_since_prev=${deltaPoolMisses}${failureText}`
+  return `metal_live_mb=${toMb(metricValue(stats, 'compute.storage', 'live_metal_bytes'))} metal_device_mb=${toMb(metricValue(stats, 'compute.memory', 'metal_device_current_allocated_bytes'))} metal_peak_mb=${toMb(metricValue(stats, 'compute.storage', 'peak_metal_bytes'))} metal_pool_mb=${toMb(metricValue(stats, 'compute.memory', 'metal_pool_live_bytes'))} metal_pool_peak_mb=${toMb(metricValue(stats, 'compute.memory', 'metal_pool_peak_bytes'))} cpu_live_mb=${toMb(metricValue(stats, 'compute.storage', 'live_cpu_bytes'))} cpu_peak_mb=${toMb(metricValue(stats, 'compute.storage', 'peak_cpu_bytes'))} autograd_mb=0.0 qjs_used_mb=${toMb(metricValue(stats, 'runtime.memory', 'qjs_heap_used_bytes'))} resident_mb=${toMb(metricValue(stats, 'runtime.memory', 'resident_bytes'))} resident_peak_mb=${toMb(metricValue(stats, 'runtime.memory', 'resident_peak_bytes'))} phys_mb=${toMb(metricValue(stats, 'runtime.memory', 'physical_footprint_bytes'))} phys_peak_mb=${toMb(metricValue(stats, 'runtime.memory', 'physical_footprint_peak_bytes'))} ioaccel_mb=0.0 storage_allocations_since_prev=${deltaAllocations} storage_reuses_since_prev=${deltaReuses} pool_hits_since_prev=${deltaPoolHits} pool_misses_since_prev=${deltaPoolMisses} pool_top_misses=${topMisses} pool_top_drops=${topDrops}${failureText}`
 }
 console.log('starting training workflow...')
 const result = trainDecoderLMFromConfig(config, {

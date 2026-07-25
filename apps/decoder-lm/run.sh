@@ -46,4 +46,5 @@ esac
 AFFON_TRAIN_CONFIG="$config" \
 AFFON_NATIVE_STACK_TRACE="${AFFON_NATIVE_STACK_TRACE:-1}" \
 AFFON_NN_DIAGNOSTICS="${AFFON_NN_DIAGNOSTICS:-$diagnostics_default}" \
+RUNTIME_PACKAGE_PATH="${RUNTIME_PACKAGE_PATH:-$ROOT/packages}" \
 exec "$ROOT/zig-out/bin/affon" run "$SCRIPT_DIR/train.ts"

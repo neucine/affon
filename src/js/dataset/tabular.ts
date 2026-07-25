@@ -1,3 +1,4 @@
+import 'affon:errors'
 import { readNative } from 'affon:dataset/native'
 
 interface Tensor {

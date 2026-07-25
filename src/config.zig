@@ -49,6 +49,16 @@ pub const Config = struct {
                 .default = 512 * 1024 * 1024,
                 .parser = .positive_int,
             }) = .{},
+            pool_max_total_bytes: cfg.Startup(usize, .{
+                .env = "AFFON_METAL_POOL_MAX_TOTAL_BYTES",
+                .default = 1024 * 1024 * 1024,
+                .parser = .positive_int,
+            }) = .{},
+            pool_size_classes: cfg.Startup([]const u8, .{
+                .env = "AFFON_METAL_POOL_SIZE_CLASSES",
+                .default = "65536:512,1048576:512,*:8",
+                .parser = .non_empty_string,
+            }) = .{},
         };
         pub const Cpu = struct {
             parallel_threshold: cfg.Runtime(usize, .{
@@ -90,6 +100,8 @@ pub fn loadFromEnv() !void {
     _ = try config.loadEnv();
     config.freezeStartup();
     mm.setPoolOversizeThreshold(config.read().device.metal.pool_oversize_threshold_bytes.get());
+    mm.setPoolMaxTotalBytes(config.read().device.metal.pool_max_total_bytes.get());
+    try mm.setPoolSizeClassPolicy(config.read().device.metal.pool_size_classes.get());
 }
 
 // C accessor for metal_bridge.m (ObjC cannot import Zig directly).
@@ -114,6 +126,8 @@ test "Config defaults are correct" {
     try std.testing.expectEqual(@as(usize, 512), def.device.metal.reduce_all_threshold.get());
     try std.testing.expectEqual(@as(usize, 512), def.device.metal.reduce_axis_threshold.get());
     try std.testing.expectEqual(@as(usize, 512 * 1024 * 1024), def.device.metal.pool_oversize_threshold_bytes.get());
+    try std.testing.expectEqual(@as(usize, 1024 * 1024 * 1024), def.device.metal.pool_max_total_bytes.get());
+    try std.testing.expectEqualStrings("65536:512,1048576:512,*:8", def.device.metal.pool_size_classes.get());
     try std.testing.expectEqual(@as(usize, 65536), def.device.cpu.parallel_threshold.get());
     try std.testing.expectEqual(@as(usize, 65536), def.csv.chunk_size.get());
     try std.testing.expectEqual(@as(usize, 6), def.repr.max_items.get());

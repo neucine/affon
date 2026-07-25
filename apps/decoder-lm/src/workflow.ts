@@ -5,12 +5,14 @@ import type { Tensor } from 'affon:compute'
 
 import {
   createPackedTextCorpusFromConfig,
+  DecoderModel,
+  generate,
   saveTokenRows,
+  type DecoderModelModule,
+  type DecoderModelOptions,
   type PackedFileCorpusConfig,
   type PackedTextCorpus,
-} from '../../../packages/lm/src/corpus.ts'
-import { generate } from '../../../packages/lm/src/causal-lm.ts'
-import { DecoderModel, type DecoderModelModule, type DecoderModelOptions } from '../../../packages/lm/src/model.ts'
+} from '@affon/lm'
 import {
   createHFTokenizerFromFile,
   createLookupTokenizer,
@@ -20,7 +22,7 @@ import {
   type SentencePieceTokenizerOptions,
   type SpecialTokens,
   type Tokenizer,
-} from '../../../packages/tokenizers/src/index.ts'
+} from '@affon/tokenizers'
 import {
   type DecoderLMBatchMetrics,
   type DecoderLMBatchPhaseMetrics,
@@ -80,6 +82,7 @@ export interface DecoderLMWorkflowTrainingConfig {
   maxTrainBatchesPerEpoch?: number
   maxEvalBatches?: number
   evaluateInitialTrainLoss?: boolean
+  evaluateInitialValidationLoss?: boolean
 }
 
 export interface DecoderLMWorkflowStepDurationConfig {
@@ -581,6 +584,7 @@ export function trainDecoderLMFromConfig(
       initialEpoch: resumed?.epoch,
       initialStep: resumed?.step,
       evaluateInitialTrainLoss: config.training.evaluateInitialTrainLoss ?? false,
+      evaluateInitialValidationLoss: config.training.evaluateInitialValidationLoss ?? true,
       checkpointEveryEpochs: config.checkpoint?.everyNEpochs,
       checkpointEverySteps: config.checkpoint?.everyNSteps,
       validationWindows: corpus.validationWindows,

@@ -51,10 +51,10 @@ Runtime dataset work should focus on stable grammar and broadly reusable transfo
 
 ## Exported API Docs
 
-When a change adds or modifies exported public APIs, update the matching declaration docs in `types/*.d.ts`.
+When a change adds or modifies exported public APIs, update the matching declaration docs in `packages/@types/affon/*.d.ts`.
 
 If public docs or declarations are mirrored into another repository, copy
-`docs/` and `types/` from this checkout after the same change has landed here.
+`docs/` and `packages/@types/affon/` from this checkout after the same change has landed here.
 
 Use the API declaration-doc standard from `affon-arch`:
 - `sync/2026-03-23-api-declaration-doc-standard.md`

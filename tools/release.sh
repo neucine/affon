@@ -128,15 +128,15 @@ assert_checkout_binary() {
 run_release_tests() {
   run zig build test -Doptimize=ReleaseSafe
   run bun x tsc -p test/types/tsconfig.json --noEmit
-  run bun x tsc -p packages/transformers/tsconfig.json --noEmit
-  run bun x tsc -p packages/lm/tsconfig.json --noEmit
-  run bun x tsc -p packages/tokenizers/tsconfig.json --noEmit
-  run bun x tsc -p packages/cnn/tsconfig.json --noEmit
-  run bun x tsc -p packages/vision/tsconfig.json --noEmit
+  run bun x tsc -p packages/@affon/transformers/tsconfig.json --noEmit
+  run bun x tsc -p packages/@affon/lm/tsconfig.json --noEmit
+  run bun x tsc -p packages/@affon/tokenizers/tsconfig.json --noEmit
+  run bun x tsc -p packages/@affon/cnn/tsconfig.json --noEmit
+  run bun x tsc -p packages/@affon/vision/tsconfig.json --noEmit
   run bun x tsc -p apps/decoder-lm/tsconfig.json --noEmit
   run "$ROOT/zig-out/bin/affon" test test/e2e/compute test/e2e/nn test/e2e/dataset test/e2e/checkpoint
-  run "$ROOT/zig-out/bin/affon" test packages/transformers/test
-  run "$ROOT/zig-out/bin/affon" test packages/lm/test packages/tokenizers/test apps/decoder-lm/test
+  run "$ROOT/zig-out/bin/affon" test packages/@affon/transformers/test
+  run "$ROOT/zig-out/bin/affon" test packages/@affon/lm/test packages/@affon/tokenizers/test apps/decoder-lm/test
 }
 
 run_checks() {

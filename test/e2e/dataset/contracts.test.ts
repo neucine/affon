@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'std:test'
 import dataset, { read, DataLoader } from 'affon:dataset'
-import { createHFTokenizerFromJSON, createLookupTokenizer } from '../../../packages/tokenizers/src/index.ts'
+import { createHFTokenizerFromJSON, createLookupTokenizer } from '../../../packages/@affon/tokenizers/src/index.ts'
 import { captureError } from '../../support/errors.ts'
 
 describe('dataset contracts', () => {

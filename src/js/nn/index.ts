@@ -1,3 +1,4 @@
+import { AffonError } from 'affon:errors'
 import {
   abs,
   add,

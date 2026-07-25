@@ -1,18 +1,8 @@
+import { AffonError } from "affon:errors"
 import native from "affon:compute/native"
 import graphSupport from "affon:compute/graph.ts"
 import { compileWithHelpers } from "affon:compute/compile.ts"
 import { loadStateTree, restorePersistedState, saveStateTree } from "affon:compute/persistence.ts"
-
-if (typeof globalThis.AffonError !== "function") {
-  globalThis.AffonError = class AffonError extends Error {
-    readonly code: string
-    constructor(code: string, message: string) {
-      super(message)
-      this.name = "AffonError"
-      this.code = code
-    }
-  } as any
-}
 
 type Device = "cpu" | "metal"
 type TensorOptions = { dtype?: "f32" | "f64" | "i64"; device?: Device; axes?: readonly string[] }

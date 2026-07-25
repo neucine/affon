@@ -39,13 +39,13 @@ Current reusable pieces in `src/`:
 - `src/decoder/feedforward.ts`
 - `src/sequence.ts`
 
-Text preprocessing should prefer `affon:dataset` directly. Tokenizer compatibility belongs in `../tokenizers/`; reusable LM corpus packing belongs in `../lm/`; app-specific workflow code belongs in `../../apps/`.
+Text preprocessing should prefer `affon:dataset` directly. Tokenizer compatibility belongs in `../tokenizers/`; reusable LM corpus packing belongs in `../lm/`; app-specific workflow code belongs in `../../../apps/`.
 
 Numerical assertion policy is owned by `affon:nn` diagnostics. Transformer blocks expose diagnostic assertion sites, but do not own enable/disable policy or diagnostic formatting.
 
 ## Decoder-LM App
 
-The decoder-LM workload now lives under `../../apps/decoder-lm/`. It is intentionally app code, not the stable `@affon/transformers` package API.
+The decoder-LM workload now lives under `../../../apps/decoder-lm/`. It is intentionally app code, not the stable `@affon/transformers` package API.
 
 It exists to exercise Affon end to end across:
 
@@ -61,10 +61,10 @@ It exists to exercise Affon end to end across:
 
 Keep app workflow code out of the transformer package entrypoint. Reusable language-model pieces belong in `../lm/`; reusable transformer architecture pieces belong here.
 
-- `../../apps/decoder-lm/src/index.ts`
-- `../../apps/decoder-lm/src/training.ts`
-- `../../apps/decoder-lm/src/workflow.ts`
-- `../../apps/decoder-lm/train.ts`
+- `../../../apps/decoder-lm/src/index.ts`
+- `../../../apps/decoder-lm/src/training.ts`
+- `../../../apps/decoder-lm/src/workflow.ts`
+- `../../../apps/decoder-lm/train.ts`
 
 Loss usage:
 
@@ -86,7 +86,7 @@ Training helpers:
 ```ts
 import dataset from 'affon:dataset'
 import { DecoderModel } from '../lm/src/model.ts'
-import { trainDecoderLM } from '../../apps/decoder-lm/src/index.ts'
+import { trainDecoderLM } from '../../../apps/decoder-lm/src/index.ts'
 
 const windows = dataset.text.encoded(tokenRows).window({
   seqLen: 128,
@@ -126,7 +126,7 @@ const result = trainDecoderLM(model, windows, {
 Checkpoint helpers:
 
 ```ts
-import { loadDecoderLMCheckpoint, saveDecoderLMCheckpoint } from '../../apps/decoder-lm/src/index.ts'
+import { loadDecoderLMCheckpoint, saveDecoderLMCheckpoint } from '../../../apps/decoder-lm/src/index.ts'
 
 saveDecoderLMCheckpoint('checkpoints/run-1-epoch-1', result.checkpoints[0], {
   metadata: { tokenizer: 'lookup' },
@@ -173,19 +173,19 @@ Example defaults:
 - `wikitext` prints every 10 training batches, every 10 eval batches, and epoch summaries
 
 Additional workflow templates:
-- [train-decoder-lm-helloworld.config.json](../../apps/decoder-lm/configs/train-decoder-lm-helloworld.config.json)
-- [train-decoder-lm-tinystories.config.json](../../apps/decoder-lm/configs/train-decoder-lm-tinystories.config.json)
-- [train-decoder-lm-wikitext.config.json](../../apps/decoder-lm/configs/train-decoder-lm-wikitext.config.json)
+- [train-decoder-lm-helloworld.config.json](../../../apps/decoder-lm/configs/train-decoder-lm-helloworld.config.json)
+- [train-decoder-lm-tinystories.config.json](../../../apps/decoder-lm/configs/train-decoder-lm-tinystories.config.json)
+- [train-decoder-lm-wikitext.config.json](../../../apps/decoder-lm/configs/train-decoder-lm-wikitext.config.json)
 
 The TinyStories template now points at a bundled real sample under:
-- [data/tinystories-tokenizer.json](../../apps/decoder-lm/data/tinystories-tokenizer.json)
-- [data/tinystories-train.txt](../../apps/decoder-lm/data/tinystories-train.txt)
-- [data/tinystories-validation.txt](../../apps/decoder-lm/data/tinystories-validation.txt)
+- [data/tinystories-tokenizer.json](../../../apps/decoder-lm/data/tinystories-tokenizer.json)
+- [data/tinystories-train.txt](../../../apps/decoder-lm/data/tinystories-train.txt)
+- [data/tinystories-validation.txt](../../../apps/decoder-lm/data/tinystories-validation.txt)
 
 The WikiText template now points at bundled `WikiText-2` sample files under:
-- [data/wikitext-gpt2-tokenizer.json](../../apps/decoder-lm/data/wikitext-gpt2-tokenizer.json)
-- [data/wikitext-2-train.txt](../../apps/decoder-lm/data/wikitext-2-train.txt)
-- [data/wikitext-2-validation.txt](../../apps/decoder-lm/data/wikitext-2-validation.txt)
+- [data/wikitext-gpt2-tokenizer.json](../../../apps/decoder-lm/data/wikitext-gpt2-tokenizer.json)
+- [data/wikitext-2-train.txt](../../../apps/decoder-lm/data/wikitext-2-train.txt)
+- [data/wikitext-2-validation.txt](../../../apps/decoder-lm/data/wikitext-2-validation.txt)
 
 The full `wikitext` config is the quality-oriented preset:
 - 8 training epochs
@@ -333,7 +333,7 @@ Warmup example:
 ```
 
 The Hello World example config uses a small Hugging Face `tokenizer.json` artifact:
-- [data/helloworld-tokenizer.json](../../apps/decoder-lm/data/helloworld-tokenizer.json)
+- [data/helloworld-tokenizer.json](../../../apps/decoder-lm/data/helloworld-tokenizer.json)
 
 It is still a small Hello World demo vocab, just packaged in the same artifact format the workflow expects. For real corpora, the preferred path is to point config at an existing external tokenizer artifact rather than maintain a manual lookup vocab in config.
 
