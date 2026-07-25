@@ -123,3 +123,6 @@ cases.
 ## License
 
 MPL-2.0
+
+Bundled datasets and tokenizer assets retain their respective third-party
+terms. See [Third-Party Notices](THIRD_PARTY_NOTICES.md).

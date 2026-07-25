@@ -14,6 +14,7 @@ concurrency:
 
 env:
   R2_BUCKET: affon-downloads
+  RUNTIME_PACKAGE_PATH: packages
 
 jobs:
   build:
@@ -28,38 +29,38 @@ jobs:
 
     steps:
       - name: Check out Affon
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           path: affon
 
       - name: Check out Hao
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: neucine/hao
           ref: b51da58a1f4e750bcc24ef589fce9a8780e7e210
           path: hao
 
       - name: Check out Compute
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: neucine/compute
           ref: ddce1a9937f397b2be269abd67dcf5a900dd86d5
           path: compute
 
       - name: Check out shared Zig libraries
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: neucine/zig-libs
           ref: 3d04e038b375a4716011166decda25c45289e0f8
           path: zig-libs
 
       - name: Set up Zig
-        uses: mlugg/setup-zig@v2
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
         with:
           version: 0.16.0
 
       - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.2.16
 
@@ -84,19 +85,19 @@ jobs:
         working-directory: affon
         run: |
           bun x tsc -p test/types/tsconfig.json --noEmit
-          bun x tsc -p packages/transformers/tsconfig.json --noEmit
-          bun x tsc -p packages/lm/tsconfig.json --noEmit
-          bun x tsc -p packages/tokenizers/tsconfig.json --noEmit
-          bun x tsc -p packages/cnn/tsconfig.json --noEmit
-          bun x tsc -p packages/vision/tsconfig.json --noEmit
+          bun x tsc -p packages/@affon/transformers/tsconfig.json --noEmit
+          bun x tsc -p packages/@affon/lm/tsconfig.json --noEmit
+          bun x tsc -p packages/@affon/tokenizers/tsconfig.json --noEmit
+          bun x tsc -p packages/@affon/cnn/tsconfig.json --noEmit
+          bun x tsc -p packages/@affon/vision/tsconfig.json --noEmit
           bun x tsc -p apps/decoder-lm/tsconfig.json --noEmit
 
       - name: Run Affon runtime tests
         working-directory: affon
         run: |
           ./zig-out/bin/affon test test/e2e/compute test/e2e/nn test/e2e/dataset test/e2e/checkpoint
-          ./zig-out/bin/affon test packages/transformers/test
-          ./zig-out/bin/affon test packages/lm/test packages/tokenizers/test apps/decoder-lm/test
+          ./zig-out/bin/affon test packages/@affon/transformers/test
+          ./zig-out/bin/affon test packages/@affon/lm/test packages/@affon/tokenizers/test apps/decoder-lm/test
 
       - name: Package native release asset
         working-directory: affon
@@ -152,7 +153,7 @@ jobs:
           )
 
       - name: Upload native release asset
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: affon-release-${{ matrix.os }}
           path: affon/dist/release/*
@@ -165,38 +166,38 @@ jobs:
 
     steps:
       - name: Check out Affon
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           path: affon
 
       - name: Check out Hao
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: neucine/hao
           ref: b51da58a1f4e750bcc24ef589fce9a8780e7e210
           path: hao
 
       - name: Check out Compute
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: neucine/compute
           ref: ddce1a9937f397b2be269abd67dcf5a900dd86d5
           path: compute
 
       - name: Check out shared Zig libraries
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: neucine/zig-libs
           ref: 3d04e038b375a4716011166decda25c45289e0f8
           path: zig-libs
 
       - name: Set up Zig
-        uses: mlugg/setup-zig@v2
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
         with:
           version: 0.16.0
 
       - name: Download native release assets
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: affon/dist/release
           merge-multiple: true
@@ -212,14 +213,14 @@ jobs:
           mkdir -p dist/source package-source verify-source
 
           git archive --format=tar --prefix="affon/" "$GITHUB_SHA" \
-            build.zig build.zig.zon README.md install.sh src tools types | tar -C verify-source -xf -
+            build.zig build.zig.zon LICENSE README.md THIRD_PARTY_NOTICES.md install.sh src tools packages/@types/affon | tar -C verify-source -xf -
           git -C ../hao archive --format=tar --prefix="hao/" HEAD -- build.zig build.zig.zon include src libs/transpiler | tar -C verify-source -xf -
           git -C ../compute archive --format=tar --prefix="compute/" HEAD -- build.zig build.zig.zon README.md src tools | tar -C verify-source -xf -
           git -C ../zig-libs archive --format=tar --prefix="zig-libs/" HEAD -- build.zig build.zig.zon README.md src .gitignore | tar -C verify-source -xf -
           zig build --build-file verify-source/affon/build.zig -Doptimize=ReleaseSafe
 
           git archive --format=tar --prefix="affon/" "$GITHUB_SHA" \
-            build.zig build.zig.zon README.md install.sh src tools types | tar -C package-source -xf -
+            build.zig build.zig.zon LICENSE README.md THIRD_PARTY_NOTICES.md install.sh src tools packages/@types/affon | tar -C package-source -xf -
           git -C ../hao archive --format=tar --prefix="hao/" HEAD -- build.zig build.zig.zon include src libs/transpiler | tar -C package-source -xf -
           git -C ../compute archive --format=tar --prefix="compute/" HEAD -- build.zig build.zig.zon README.md src tools | tar -C package-source -xf -
           git -C ../zig-libs archive --format=tar --prefix="zig-libs/" HEAD -- build.zig build.zig.zon README.md src .gitignore | tar -C package-source -xf -
@@ -262,7 +263,7 @@ jobs:
           PY
 
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           generate_release_notes: true
           files: |

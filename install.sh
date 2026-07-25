@@ -63,6 +63,27 @@ download() {
   fail "need curl or wget to download release assets"
 }
 
+verify_sha256() {
+  asset_path="$1"
+  checksum_path="$2"
+
+  expected="$(sed -n '1s/[[:space:]].*$//p' "$checksum_path")"
+  case "$expected" in
+    *[!0-9a-fA-F]*|'') fail "invalid SHA-256 checksum file" ;;
+  esac
+  [ "${#expected}" -eq 64 ] || fail "invalid SHA-256 checksum length"
+
+  if command -v shasum >/dev/null 2>&1; then
+    actual="$(shasum -a 256 "$asset_path" | sed -n '1s/[[:space:]].*$//p')"
+  elif command -v sha256sum >/dev/null 2>&1; then
+    actual="$(sha256sum "$asset_path" | sed -n '1s/[[:space:]].*$//p')"
+  else
+    fail "need shasum or sha256sum to verify the release asset"
+  fi
+
+  [ "$actual" = "$expected" ] || fail "release asset SHA-256 verification failed"
+}
+
 pick_asset() {
   release_json="$1"
   target_os="$2"
@@ -144,9 +165,19 @@ if not ranked:
 
 ranked.sort(key=lambda item: item[0], reverse=True)
 asset = ranked[0][1]
+checksum_name = asset["name"] + ".sha256"
+checksum = next(
+    (candidate for candidate in assets if candidate.get("name") == checksum_name),
+    None,
+)
+if checksum is None:
+    sys.stderr.write(f"No checksum asset found for {asset['name']}\n")
+    sys.exit(1)
+
 print(tag)
 print(asset["name"])
 print(asset["browser_download_url"])
+print(checksum["browser_download_url"])
 PY
 }
 
@@ -258,10 +289,15 @@ ASSET_INFO="$(pick_asset "$RELEASE_JSON" "$TARGET_OS" "$TARGET_ARCH")" || exit 1
 TAG_NAME="$(printf '%s\n' "$ASSET_INFO" | sed -n '1p')"
 ASSET_NAME="$(printf '%s\n' "$ASSET_INFO" | sed -n '2p')"
 ASSET_URL="$(printf '%s\n' "$ASSET_INFO" | sed -n '3p')"
+CHECKSUM_URL="$(printf '%s\n' "$ASSET_INFO" | sed -n '4p')"
 
 info "downloading $ASSET_NAME from release $TAG_NAME"
 ASSET_PATH="$AFFON_TMP_DIR/$ASSET_NAME"
 download "$ASSET_URL" "$ASSET_PATH"
+CHECKSUM_PATH="$AFFON_TMP_DIR/$ASSET_NAME.sha256"
+download "$CHECKSUM_URL" "$CHECKSUM_PATH"
+verify_sha256 "$ASSET_PATH" "$CHECKSUM_PATH"
+info "verified SHA-256 checksum"
 
 EXTRACT_DIR="$AFFON_TMP_DIR/extract"
 BINARY_PATH="$(extract_binary "$ASSET_NAME" "$ASSET_PATH" "$EXTRACT_DIR")"

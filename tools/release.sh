@@ -126,6 +126,7 @@ assert_checkout_binary() {
 }
 
 run_release_tests() {
+  export RUNTIME_PACKAGE_PATH="${RUNTIME_PACKAGE_PATH:-$ROOT/packages}"
   run zig build test -Doptimize=ReleaseSafe
   run bun x tsc -p test/types/tsconfig.json --noEmit
   run bun x tsc -p packages/@affon/transformers/tsconfig.json --noEmit
