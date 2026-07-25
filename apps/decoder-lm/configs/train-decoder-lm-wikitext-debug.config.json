@@ -1,0 +1,95 @@
+{
+  "device": "metal",
+  "tokenizer": {
+    "family": "hf-tokenizer-json",
+    "path": "apps/decoder-lm/data/wikitext-gpt2-tokenizer.json",
+    "specialTokens": {
+      "eos": "<|endoftext|>"
+    }
+  },
+  "corpus": {
+    "paths": [
+      "apps/decoder-lm/data/wikitext-2-train.txt"
+    ],
+    "validationPaths": [
+      "apps/decoder-lm/data/wikitext-2-validation.txt"
+    ],
+    "tokenCachePath": "apps/decoder-lm/artifacts/wikitext/train-clean-cache.json",
+    "tokenCacheKey": "wikitext-2-gpt2-clean-v1",
+    "validationTokenCachePath": "apps/decoder-lm/artifacts/wikitext/validation-clean-cache.json",
+    "validationTokenCacheKey": "wikitext-2-gpt2-clean-v1",
+    "preprocess": {
+      "replacements": [
+        { "from": " @-@ ", "to": "-" },
+        { "from": " @,@ ", "to": "," },
+        { "from": "<unk>", "to": "" }
+      ],
+      "normalizeWhitespace": true
+    },
+    "addBos": false,
+    "addEos": true,
+    "seqLen": 256,
+    "stride": 128,
+    "shuffle": true
+  },
+  "model": {
+    "dModel": 256,
+    "numLayers": 6,
+    "numHeads": 8,
+    "hiddenDim": 1024,
+    "causal": true,
+    "positional": "learned",
+    "maxSeqLen": 256,
+    "tieEmbeddings": true
+  },
+  "training": {
+    "epochs": 1,
+    "batchSize": 2,
+    "compileModelForward": true,
+    "validationBatchSize": 1,
+    "lr": 0.0001,
+    "maxGradNorm": 1.0,
+    "maxTrainBatchesPerEpoch": 32,
+    "maxEvalBatches": 8
+  },
+  "checkpoint": {
+    "prefix": "apps/decoder-lm/artifacts/wikitext/clean-debug-run",
+    "resumeStrategy": "exact",
+    "restoreOptimizerState": false,
+    "everyNEpochs": 1,
+    "everyNSteps": 0,
+    "metadata": {
+      "dataset": "WikiText-2",
+      "mode": "debug"
+    }
+  },
+  "report": {
+    "summaryPath": "apps/decoder-lm/artifacts/wikitext/clean-debug-run-summary.json",
+    "progress": {
+      "trainPhase": true,
+      "trainLossEveryBatches": 1,
+      "evalEveryBatches": 1,
+      "epochSummary": true
+    },
+    "export": {
+      "dir": "apps/decoder-lm/artifacts/wikitext",
+      "everyNSteps": 0,
+      "mode": "annotated",
+      "includeForward": true,
+      "includeBackward": true,
+      "runId": "wikitext-clean-debug",
+      "graphIdPrefix": "decoder",
+      "format": "json"
+    },
+    "sample": {
+      "prompt": "The history of",
+      "max_new_tokens": 48,
+      "everyNEpochs": 1,
+      "temperature": 0.7,
+      "top_k": 20,
+      "addBos": false,
+      "skipSpecialTokens": true,
+      "banSpecialTokens": true
+    }
+  }
+}

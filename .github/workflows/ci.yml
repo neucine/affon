@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  RUNTIME_PACKAGE_PATH: packages
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Check out Affon
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          path: affon
+
+      - name: Check out Hao
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: neucine/hao
+          ref: b51da58a1f4e750bcc24ef589fce9a8780e7e210
+          path: hao
+
+      - name: Check out shared Zig libraries
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: neucine/zig-libs
+          ref: 3d04e038b375a4716011166decda25c45289e0f8
+          path: zig-libs
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: 0.16.0
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.2.16
+
+      - name: Run tests
+        working-directory: affon
+        run: zig build test -Doptimize=ReleaseSafe
+
+      - name: Build
+        working-directory: affon
+        run: zig build -Doptimize=ReleaseSafe
+
+      - name: Type-check public TypeScript contracts
+        working-directory: affon
+        run: |
+          bun x tsc -p test/types/tsconfig.json --noEmit
+          bun x tsc -p packages/@affon/transformers/tsconfig.json --noEmit
+          bun x tsc -p packages/@affon/lm/tsconfig.json --noEmit
+          bun x tsc -p packages/@affon/tokenizers/tsconfig.json --noEmit
+          bun x tsc -p packages/@affon/cnn/tsconfig.json --noEmit
+          bun x tsc -p packages/@affon/vision/tsconfig.json --noEmit
+          bun x tsc -p apps/decoder-lm/tsconfig.json --noEmit
+
+      - name: Run Affon runtime tests
+        working-directory: affon
+        run: |
+          ./zig-out/bin/affon test test/e2e/compute test/e2e/nn test/e2e/dataset test/e2e/checkpoint
+          ./zig-out/bin/affon test packages/@affon/transformers/test
+          ./zig-out/bin/affon test packages/@affon/lm/test packages/@affon/tokenizers/test apps/decoder-lm/test

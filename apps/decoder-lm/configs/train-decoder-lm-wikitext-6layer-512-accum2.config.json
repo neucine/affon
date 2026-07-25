@@ -1,0 +1,105 @@
+{
+  "device": "metal",
+  "tokenizer": {
+    "family": "hf-tokenizer-json",
+    "path": "apps/decoder-lm/data/wikitext-gpt2-tokenizer.json",
+    "specialTokens": {
+      "eos": "<|endoftext|>"
+    }
+  },
+  "corpus": {
+    "paths": [
+      "apps/decoder-lm/data/wikitext-2-train.txt"
+    ],
+    "validationPaths": [
+      "apps/decoder-lm/data/wikitext-2-validation.txt"
+    ],
+    "tokenCachePath": "apps/decoder-lm/artifacts/wikitext-512/train-clean-cache.json",
+    "tokenCacheKey": "wikitext-2-gpt2-clean-v1-seq512-stride256",
+    "validationTokenCachePath": "apps/decoder-lm/artifacts/wikitext-512/validation-clean-cache.json",
+    "validationTokenCacheKey": "wikitext-2-gpt2-clean-v1-seq512-stride256",
+    "preprocess": {
+      "replacements": [
+        { "from": " @-@ ", "to": "-" },
+        { "from": " @,@ ", "to": "," },
+        { "from": "<unk>", "to": "" }
+      ],
+      "normalizeWhitespace": true
+    },
+    "addBos": false,
+    "addEos": true,
+    "seqLen": 512,
+    "stride": 256,
+    "shuffle": true
+  },
+  "model": {
+    "dModel": 256,
+    "numLayers": 6,
+    "numHeads": 8,
+    "hiddenDim": 1024,
+    "causal": true,
+    "positional": "learned",
+    "maxSeqLen": 512,
+    "tieEmbeddings": true
+  },
+  "training": {
+    "epochs": 8,
+    "batchSize": 2,
+    "gradientAccumulationSteps": 2,
+    "compileModelForward": true,
+    "validationBatchSize": 4,
+    "lrSchedule": {
+      "kind": "warmup_cosine",
+      "start": 0.00001,
+      "peak": 0.0001,
+      "end": 0.00002,
+      "warmup": {
+        "unit": "step",
+        "value": 500
+      },
+      "total": {
+        "unit": "step",
+        "value": 34752
+      }
+    },
+    "maxGradNorm": 1.0,
+    "shuffleSeed": 123,
+    "maxEvalBatches": 20
+  },
+  "checkpoint": {
+    "prefix": "apps/decoder-lm/artifacts/wikitext-512/seq512-6layer-accum2-run",
+    "resumeStrategy": "exact",
+    "restoreOptimizerState": false,
+    "everyNEpochs": 1,
+    "everyNSteps": 0,
+    "metadata": {
+      "dataset": "WikiText-2",
+      "variant": "6layer-seq512-accum2"
+    }
+  },
+  "report": {
+    "summaryPath": "apps/decoder-lm/artifacts/wikitext-512/seq512-6layer-accum2-run-summary.json",
+    "progress": {
+      "trainPhase": false,
+      "trainLossEveryBatches": 50,
+      "runtimeStatsEveryBatches": 100,
+      "evalEveryBatches": 10,
+      "epochSummary": true
+    },
+    "monitor": {
+      "everyBatches": 25,
+      "maxSamples": 512,
+      "path": "apps/decoder-lm/artifacts/wikitext-512/seq512-6layer-accum2-run-monitor.json"
+    },
+    "sample": {
+      "prompt": "The history of",
+      "max_new_tokens": 48,
+      "everyNEpochs": 1,
+      "temperature": 0.7,
+      "top_k": 20,
+      "addBos": false,
+      "skipSpecialTokens": true,
+      "banSpecialTokens": true
+    }
+  }
+}

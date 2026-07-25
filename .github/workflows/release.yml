@@ -1,0 +1,319 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  R2_BUCKET: affon-downloads
+  RUNTIME_PACKAGE_PATH: packages
+
+jobs:
+  build:
+    name: Build release asset (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Check out Affon
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          path: affon
+
+      - name: Check out Hao
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: neucine/hao
+          ref: b51da58a1f4e750bcc24ef589fce9a8780e7e210
+          path: hao
+
+      - name: Check out Compute
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: neucine/compute
+          ref: ddce1a9937f397b2be269abd67dcf5a900dd86d5
+          path: compute
+
+      - name: Check out shared Zig libraries
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: neucine/zig-libs
+          ref: 3d04e038b375a4716011166decda25c45289e0f8
+          path: zig-libs
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: 0.16.0
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.2.16
+
+      - name: Verify version
+        working-directory: affon
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          version=$(sed -n 's/.*\.version = "\([^"]*\)".*/\1/p' build.zig.zon)
+          test "v$version" = "$RELEASE_TAG"
+          test -x install.sh
+          grep -q "AFFON_RELEASE_VERSION=\"\${AFFON_RELEASE_VERSION:-$version}\"" install.sh
+          grep -q 'downloads\.affon\.ai/releases/v${AFFON_RELEASE_VERSION}\.json' install.sh
+
+      - name: Verify release build
+        working-directory: affon
+        run: |
+          zig build test -Doptimize=ReleaseSafe
+          zig build -Doptimize=ReleaseSafe
+
+      - name: Type-check public TypeScript contracts
+        working-directory: affon
+        run: |
+          bun x tsc -p test/types/tsconfig.json --noEmit
+          bun x tsc -p packages/@affon/transformers/tsconfig.json --noEmit
+          bun x tsc -p packages/@affon/lm/tsconfig.json --noEmit
+          bun x tsc -p packages/@affon/tokenizers/tsconfig.json --noEmit
+          bun x tsc -p packages/@affon/cnn/tsconfig.json --noEmit
+          bun x tsc -p packages/@affon/vision/tsconfig.json --noEmit
+          bun x tsc -p apps/decoder-lm/tsconfig.json --noEmit
+
+      - name: Run Affon runtime tests
+        working-directory: affon
+        run: |
+          ./zig-out/bin/affon test test/e2e/compute test/e2e/nn test/e2e/dataset test/e2e/checkpoint
+          ./zig-out/bin/affon test packages/@affon/transformers/test
+          ./zig-out/bin/affon test packages/@affon/lm/test packages/@affon/tokenizers/test apps/decoder-lm/test
+
+      - name: Package native release asset
+        working-directory: affon
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="${RELEASE_TAG#v}"
+
+          case "$(uname -s)" in
+            Darwin) target_os="darwin" ;;
+            Linux) target_os="linux" ;;
+            *) echo "unsupported OS: $(uname -s)" >&2; exit 1 ;;
+          esac
+
+          case "$(uname -m)" in
+            x86_64|amd64) target_arch="x64" ;;
+            arm64|aarch64) target_arch="arm64" ;;
+            *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+
+          zig build -Doptimize=ReleaseFast
+
+          expected="affon $version"
+          actual="$(./zig-out/bin/affon --version 2>&1)"
+          if [ "$actual" != "$expected" ]; then
+            echo "binary version mismatch: expected '$expected', got '$actual'" >&2
+            exit 1
+          fi
+
+          stem="affon-${RELEASE_TAG}-${target_os}-${target_arch}"
+          dist="dist/release"
+          package_root="$dist/package"
+          stage="$package_root/$stem"
+
+          rm -rf "$dist"
+          mkdir -p "$stage"
+          cp zig-out/bin/affon "$stage/affon"
+          cp zig-out/bin/affon "$dist/$stem"
+          chmod 755 "$stage/affon" "$dist/$stem"
+          cp README.md "$stage/README.md"
+          [ ! -f LICENSE ] || cp LICENSE "$stage/LICENSE"
+
+          tar -czf "$dist/$stem.tar.gz" -C "$package_root" "$stem"
+          rm -rf "$package_root"
+
+          (
+            cd "$dist"
+            shasum -a 256 "$stem" > "$stem.sha256"
+            shasum -a 256 "$stem.tar.gz" > "$stem.tar.gz.sha256"
+          )
+
+      - name: Upload native release asset
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: affon-release-${{ matrix.os }}
+          path: affon/dist/release/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release and R2 assets
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out Affon
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          path: affon
+
+      - name: Check out Hao
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: neucine/hao
+          ref: b51da58a1f4e750bcc24ef589fce9a8780e7e210
+          path: hao
+
+      - name: Check out Compute
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: neucine/compute
+          ref: ddce1a9937f397b2be269abd67dcf5a900dd86d5
+          path: compute
+
+      - name: Check out shared Zig libraries
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: neucine/zig-libs
+          ref: 3d04e038b375a4716011166decda25c45289e0f8
+          path: zig-libs
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: 0.16.0
+
+      - name: Download native release assets
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: affon/dist/release
+          merge-multiple: true
+
+      - name: Package source release
+        working-directory: affon
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          archive="affon-${RELEASE_TAG#v}.tar.gz"
+          mkdir -p dist/source package-source verify-source
+
+          git archive --format=tar --prefix="affon/" "$GITHUB_SHA" \
+            build.zig build.zig.zon LICENSE README.md THIRD_PARTY_NOTICES.md install.sh src tools packages/@types/affon | tar -C verify-source -xf -
+          git -C ../hao archive --format=tar --prefix="hao/" HEAD -- build.zig build.zig.zon include src libs/transpiler | tar -C verify-source -xf -
+          git -C ../compute archive --format=tar --prefix="compute/" HEAD -- build.zig build.zig.zon README.md src tools | tar -C verify-source -xf -
+          git -C ../zig-libs archive --format=tar --prefix="zig-libs/" HEAD -- build.zig build.zig.zon README.md src .gitignore | tar -C verify-source -xf -
+          zig build --build-file verify-source/affon/build.zig -Doptimize=ReleaseSafe
+
+          git archive --format=tar --prefix="affon/" "$GITHUB_SHA" \
+            build.zig build.zig.zon LICENSE README.md THIRD_PARTY_NOTICES.md install.sh src tools packages/@types/affon | tar -C package-source -xf -
+          git -C ../hao archive --format=tar --prefix="hao/" HEAD -- build.zig build.zig.zon include src libs/transpiler | tar -C package-source -xf -
+          git -C ../compute archive --format=tar --prefix="compute/" HEAD -- build.zig build.zig.zon README.md src tools | tar -C package-source -xf -
+          git -C ../zig-libs archive --format=tar --prefix="zig-libs/" HEAD -- build.zig build.zig.zon README.md src .gitignore | tar -C package-source -xf -
+          tar -C package-source -czf "dist/source/$archive" affon hao compute zig-libs
+
+      - name: Write hosted release metadata
+        working-directory: affon
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+
+          tag = os.environ["RELEASE_TAG"]
+          dist = pathlib.Path("dist/release")
+          base_url = f"https://downloads.affon.ai/releases/{tag}"
+          assets = []
+
+          for path in sorted(dist.iterdir()):
+              if path.is_file() and path.name != "latest.json":
+                  assets.append({
+                      "name": path.name,
+                      "browser_download_url": f"{base_url}/{path.name}?v={tag}",
+                  })
+
+          payload = {
+              "tag_name": tag,
+              "name": tag,
+              "assets": assets,
+          }
+
+          text = json.dumps(payload, indent=2) + "\n"
+          (dist / "latest.json").write_text(text)
+          (dist / f"{tag}.json").write_text(text)
+          PY
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          generate_release_notes: true
+          files: |
+            affon/dist/release/*
+            affon/dist/source/*
+
+      - name: Upload assets to R2
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          : "${CLOUDFLARE_ACCOUNT_ID:?missing CLOUDFLARE_ACCOUNT_ID secret}"
+          : "${CLOUDFLARE_API_TOKEN:?missing CLOUDFLARE_API_TOKEN secret}"
+
+          for file in affon/dist/release/*; do
+            [ -f "$file" ] || continue
+            name="$(basename "$file")"
+            if [ "$name" = "latest.json" ] || [ "$name" = "$RELEASE_TAG.json" ]; then
+              continue
+            fi
+            npx --yes wrangler r2 object put \
+              "$R2_BUCKET/releases/$RELEASE_TAG/$name" \
+              --file "$file" \
+              --remote
+          done
+
+          npx --yes wrangler r2 object put \
+            "$R2_BUCKET/releases/latest.json" \
+            --file affon/dist/release/latest.json \
+            --content-type application/json \
+            --remote
+
+          npx --yes wrangler r2 object put \
+            "$R2_BUCKET/releases/$RELEASE_TAG.json" \
+            --file "affon/dist/release/$RELEASE_TAG.json" \
+            --content-type application/json \
+            --remote
+
+          npx --yes wrangler r2 object put \
+            "$R2_BUCKET/install.sh" \
+            --file affon/install.sh \
+            --content-type text/x-shellscript \
+            --remote
+
+          npx --yes wrangler r2 object put \
+            "$R2_BUCKET/releases/install.sh" \
+            --file affon/install.sh \
+            --content-type text/x-shellscript \
+            --remote
