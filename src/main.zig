@@ -30,6 +30,16 @@ pub fn main(init: std.process.Init) !void {
 
     try hao.config.loadFromEnv();
     try affon.config.loadFromEnv();
+    try affon.compute.memory.init(allocator);
+    defer {
+        if (affon.compute.memory.deinit() == .leak) {
+            var stderr_buffer: [1024]u8 = undefined;
+            const stderr = std.debug.lockStderr(&stderr_buffer);
+            defer std.debug.unlockStderr();
+            stderr.file_writer.interface.writeAll("compute memory leaks:\n") catch {};
+            affon.compute.memory.writeLeakReport(&stderr.file_writer.interface) catch {};
+        }
+    }
 
     var args = std.process.Args.Iterator.init(init.minimal.args);
     _ = args.next();
