@@ -28,6 +28,17 @@ pub fn main(init: std.process.Init) !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
+    try affon.memory.init(allocator);
+    defer {
+        if (affon.memory.deinit() == .leak) {
+            var stderr_buffer: [1024]u8 = undefined;
+            const stderr = std.debug.lockStderr(&stderr_buffer);
+            defer std.debug.unlockStderr();
+            stderr.file_writer.interface.writeAll("Affon memory leaks:\n") catch {};
+            affon.memory.writeLeakReport(&stderr.file_writer.interface) catch {};
+        }
+    }
+    hao.runtime_allocator.init(affon.memory.allocator(.hao_runtime));
     try hao.config.loadFromEnv();
     try affon.config.loadFromEnv();
     try affon.compute.memory.init(allocator);
@@ -64,7 +75,7 @@ pub fn main(init: std.process.Init) !void {
             usage();
             std.process.exit(2);
         }
-        try runFile(allocator, init.io, path);
+        try runFile(affon.memory.allocator(.hao_runtime), init.io, path);
         return;
     }
     if (!std.mem.eql(u8, command, "test")) {
@@ -72,7 +83,7 @@ pub fn main(init: std.process.Init) !void {
             usage();
             std.process.exit(2);
         }
-        try runFile(allocator, init.io, command);
+        try runFile(affon.memory.allocator(.hao_runtime), init.io, command);
         return;
     }
 
@@ -98,7 +109,7 @@ pub fn main(init: std.process.Init) !void {
         paths.items,
         grep,
         true,
-        allocator,
+        affon.memory.allocator(.hao_runtime),
         init.io,
         affon.registerPackage,
     );

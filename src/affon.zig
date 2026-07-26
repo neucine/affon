@@ -1,6 +1,7 @@
 const std = @import("std");
 const hao = @import("hao");
 pub const config = @import("config.zig");
+pub const memory = @import("memory.zig");
 const compute_native = @import("js/compute/native.zig");
 const dataset_native = @import("js/dataset/native.zig");
 const qjs = hao.qjs;
@@ -12,6 +13,7 @@ pub const compute = @import("compute");
 
 comptime {
     _ = config;
+    _ = memory;
 }
 const compute_backend = compute.pipeline.backend;
 const compute_compose = compute.pipeline.compose;
