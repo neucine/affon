@@ -12,7 +12,7 @@ import {
   type DecoderModelOptions,
   type PackedFileCorpusConfig,
   type PackedTextCorpus,
-} from '@affon/lm'
+} from '../../../packages/@affon/lm/src/index.ts'
 import {
   createHFTokenizerFromFile,
   createLookupTokenizer,
@@ -22,7 +22,7 @@ import {
   type SentencePieceTokenizerOptions,
   type SpecialTokens,
   type Tokenizer,
-} from '@affon/tokenizers'
+} from '../../../packages/@affon/tokenizers/src/index.ts'
 import {
   type DecoderLMBatchMetrics,
   type DecoderLMBatchPhaseMetrics,

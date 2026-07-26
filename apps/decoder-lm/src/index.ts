@@ -3,7 +3,7 @@ export {
   DecoderInputEmbedding,
   FeedForward,
   SelfAttention,
-} from '@affon/transformers'
+} from '../../../packages/@affon/transformers/src/index.ts'
 export type {
   DecoderBlockModule,
   DecoderBlockOptions,
@@ -13,7 +13,7 @@ export type {
   FeedForwardOptions,
   SelfAttentionModule,
   SelfAttentionOptions,
-} from '@affon/transformers'
+} from '../../../packages/@affon/transformers/src/index.ts'
 export { getFiniteChecksEnabled, setFiniteChecksEnabled } from './numerics.ts'
 
 export {

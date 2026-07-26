@@ -16,16 +16,16 @@ import {
 } from 'affon:compute'
 import type { ComputeState, Parameter, Tensor } from 'affon:compute'
 
-import { CausalLMLoss, causal_lm_eval_loss_forward } from '@affon/lm'
+import { CausalLMLoss, causal_lm_eval_loss_forward } from '../../../packages/@affon/lm/src/index.ts'
 import type {
   DecoderModelModule,
   PackedCorpusOptions,
   TokenBatchOptions,
   TokenWindow,
-} from '@affon/lm'
+} from '../../../packages/@affon/lm/src/index.ts'
 import { describeValue, tensorAbsMax, tensorFiniteSummary } from './numerics.ts'
 
-export type { PackedCorpusOptions, TokenBatchOptions, TokenWindow } from '@affon/lm'
+export type { PackedCorpusOptions, TokenBatchOptions, TokenWindow } from '../../../packages/@affon/lm/src/index.ts'
 export type DecoderLMForward = (tokenIds: Tensor<[number, number], 'f32'>) => Tensor<number[], 'f32'>
 type DecoderModelState = ReturnType<DecoderModelModule['state']>
 type DecoderLMOptimizerState = {
