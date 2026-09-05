@@ -81,7 +81,7 @@ by the underlying runtime under `std:*` specifiers.
 ## Features
 
 - **Compute-first numerics** with typed tensors, parameters, modules, gradients, and graph compilation
-- **CPU and Metal execution** with explicit device placement and kernel-capability-aware lowering
+- **CPU, Metal, and CUDA device placement** with kernel-capability-aware lowering
 - **Neural-network layers** including linear, recurrent, normalization, embedding, dropout, and batchnorm modules
 - **Optimizers and schedules** including SGD, Adam, AdamW, gradient clipping, and scheduled training loops
 - **Dataset pipelines** for tabular and text workflows, including token windows and tokenizer adapters
@@ -99,6 +99,7 @@ general Node compatibility.
 - graph compilation prefers native graph-backed execution when capture and lowering succeed
 - incompatible captures or unsupported lowering may fall back to eager execution or surface explicit errors
 - Metal acceleration is partial and operation-dependent
+- CUDA supports `f32` tensor math, autograd/optimizer updates, graph execution, indexing and losses, with cuBLAS matmul; see the kernel matrix for dtype and shape limits
 - package APIs evolve through the first-party package and app workflow
 
 Use the linked docs as the source of truth for exact supported behavior and edge

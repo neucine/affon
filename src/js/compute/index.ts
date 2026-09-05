@@ -4,7 +4,7 @@ import graphSupport from "affon:compute/graph.ts"
 import { compileWithHelpers } from "affon:compute/compile.ts"
 import { loadStateTree, restorePersistedState, saveStateTree } from "affon:compute/persistence.ts"
 
-type Device = "cpu" | "metal"
+type Device = "cpu" | "metal" | "cuda" | `cuda:${number}`
 type TensorOptions = { dtype?: "f32" | "f64" | "i64"; device?: Device; axes?: readonly string[] }
 type Tensor = any
 
@@ -214,7 +214,7 @@ export function compile<F extends (...args: any[]) => any>(fn: F): F {
 }
 
 type ModuleState = any
-type ModuleTensor = { shape: readonly number[]; dtype: "f32" | "f64" | "i64"; device: "cpu" | "metal"; [key: string]: any }
+type ModuleTensor = { shape: readonly number[]; dtype: "f32" | "f64" | "i64"; device: Device; [key: string]: any }
 
 function isParameter(value: unknown): value is ModuleTensor {
   return !!value && typeof value === "object" && (value as any).$compute?.role === "parameter"
@@ -663,7 +663,7 @@ type ParameterTensor = {
   shape: readonly number[]
   ndim: number
   dtype: "f32" | "f64" | "i64"
-  device: "cpu" | "metal"
+  device: Device
   grad: any
   [key: string]: any
 }
@@ -678,7 +678,7 @@ function fanInOut(param: ParameterTensor): { fan_in: number; fan_out: number } {
 
 function fillScalar_(param: ParameterTensor, scalar: number): ParameterTensor {
   const tmp = native.mul(native.ones([...param.shape], { dtype: param.dtype }), native.tensor(scalar, { dtype: param.dtype })).to(param.device)
-  native.$muladd_(param, 0.0, tmp)
+  native.copy(param, tmp)
   return param
 }
 
@@ -688,13 +688,13 @@ function fillUniform_(param: ParameterTensor, lower: number, upper: number): Par
     native.mul(native.rand([...param.shape], { dtype: param.dtype }).to(param.device), native.tensor(span, { dtype: param.dtype })),
     native.tensor(lower, { dtype: param.dtype }),
   )
-  native.$muladd_(param, 0.0, tmp.to(param.device))
+  native.copy(param, tmp.to(param.device))
   return param
 }
 
 function fillNormal_(param: ParameterTensor, standardDeviation: number): ParameterTensor {
   const tmp = native.mul(native.randn([...param.shape], { dtype: param.dtype }).to(param.device), native.tensor(standardDeviation, { dtype: param.dtype }))
-  native.$muladd_(param, 0.0, tmp.to(param.device))
+  native.copy(param, tmp.to(param.device))
   return param
 }
 
@@ -704,8 +704,8 @@ function attachParameterInitMethods(param: ParameterTensor): ParameterTensor {
     zeros: { value: () => fillScalar_(param, 0.0) },
     ones: { value: () => fillScalar_(param, 1.0) },
     full: { value: (value: number) => fillScalar_(param, value) },
-    rand: { value: () => { const tmp = native.rand([...param.shape], { dtype: param.dtype }).to(param.device); native.$muladd_(param, 0.0, tmp); return param } },
-    randn: { value: () => { const tmp = native.randn([...param.shape], { dtype: param.dtype }).to(param.device); native.$muladd_(param, 0.0, tmp); return param } },
+    rand: { value: () => { const tmp = native.rand([...param.shape], { dtype: param.dtype }).to(param.device); native.copy(param, tmp); return param } },
+    randn: { value: () => { const tmp = native.randn([...param.shape], { dtype: param.dtype }).to(param.device); native.copy(param, tmp); return param } },
     xavier_uniform: { value: () => { const { fan_in, fan_out } = fanInOut(param); return fillUniform_(param, -Math.sqrt(6.0 / (fan_in + fan_out)), Math.sqrt(6.0 / (fan_in + fan_out))) } },
     xavier_normal: { value: () => { const { fan_in, fan_out } = fanInOut(param); return fillNormal_(param, Math.sqrt(2.0 / (fan_in + fan_out))) } },
     kaiming_uniform: { value: () => { const { fan_in } = fanInOut(param); return fillUniform_(param, -Math.sqrt(6.0 / fan_in), Math.sqrt(6.0 / fan_in)) } },
@@ -714,7 +714,7 @@ function attachParameterInitMethods(param: ParameterTensor): ParameterTensor {
   return param
 }
 
-export function parameter(shape: readonly number[], options?: { dtype?: "f32" | "f64"; device?: "cpu" | "metal"; axes?: readonly string[] }) {
+export function parameter(shape: readonly number[], options?: { dtype?: "f32" | "f64"; device?: Device; axes?: readonly string[] }) {
   const param = native.parameter([...shape], { dtype: options?.dtype ?? "f32", device: options?.device, axes: options?.axes })
   return attachParameterInitMethods(markParameter(param as ParameterTensor))
 }
@@ -724,7 +724,7 @@ function copyTensorValue(target: any, source: any): void {
   const adapted = source.dtype === target.dtype
     ? (source.device === target.device ? source : source.to(target.device))
     : native.cast(source, target.dtype).to(target.device)
-  native.$muladd_(target, 0.0, adapted)
+  native.copy(target, adapted)
 }
 export function copy<T extends Tensor>(target: T, source: Tensor): T {
   copyTensorValue(target, source)

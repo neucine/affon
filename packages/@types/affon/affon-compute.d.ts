@@ -58,7 +58,7 @@ declare module "affon:compute" {
    * @semantics
    * Enumerates the device placements currently exposed by `affon:compute`.
    */
-  type Device = "cpu" | "metal";
+  type Device = "cpu" | "metal" | "cuda" | `cuda:${number}`;
   /**
    * @summary Callable compute program.
    * @category Core

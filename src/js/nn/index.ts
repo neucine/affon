@@ -95,7 +95,7 @@ function graphCaptureAdapterError(code: string, message: string): AffonError {
 
 interface SinusoidalEncodingOptions {
   dtype?: TensorDType
-  device?: 'cpu' | 'metal'
+  device?: 'cpu' | 'metal' | 'cuda'
 }
 interface EmbeddingOptions {
   dtype?: TensorDType
@@ -200,7 +200,7 @@ function assertModuleListEntry(entry: any, source: string): void {
     gate: 'gate',
   } as const)
 
-  function tensorOpts(dtype: TensorDType, axes?: readonly AxisName[], device?: 'cpu' | 'metal') {
+  function tensorOpts(dtype: TensorDType, axes?: readonly AxisName[], device?: 'cpu' | 'metal' | 'cuda') {
     return device ? { dtype, axes, device } : { dtype, axes }
   }
 
@@ -248,7 +248,7 @@ function assertModuleListEntry(entry: any, source: string): void {
 
   function causal_mask(
     length: number,
-    opts?: { dtype?: TensorDType; device?: 'cpu' | 'metal' },
+    opts?: { dtype?: TensorDType; device?: 'cpu' | 'metal' | 'cuda' },
   ): Tensor {
     if (!Number.isInteger(length) || length <= 0) {
       throw new AffonError('invalid_arg', 'causal_mask length must be a positive integer')
@@ -451,7 +451,7 @@ function assertModuleListEntry(entry: any, source: string): void {
       get_config: () => Required<DiagnosticConfig>
       assert: (kind: DiagnosticKind, opts: DiagnosticAssertOptions) => void
     }
-    causal_mask: (length: number, opts?: { dtype?: TensorDType; device?: 'cpu' | 'metal' }) => Tensor
+    causal_mask: (length: number, opts?: { dtype?: TensorDType; device?: 'cpu' | 'metal' | 'cuda' }) => Tensor
     apply_causal_mask: (scores: Tensor, value?: number) => Tensor
     sinusoidal_encoding: (length: number, dim: number, opts?: SinusoidalEncodingOptions) => Tensor
     position_ids: (length: number) => Tensor

@@ -17,3 +17,23 @@ Run selected migrated tests with:
 zig build install
 ./zig-out/bin/affon test test/e2e/compute/autograd.test.ts
 ```
+
+## CUDA regressions
+
+On a Linux host with a working NVIDIA driver, NVRTC, and cuBLAS, run:
+
+```sh
+./zig-out/bin/affon test test/cuda
+```
+
+These suites deliberately fail if CUDA is unavailable. They cover transfers,
+views, selection, casts, parameter initialization over non-finite storage,
+native graph execution, loss backward, clipping, and
+multi-step SGD/Adam/AdamW parity against CPU. A tiny decoder additionally checks
+tied embeddings, causal attention, training parity, and greedy/top-k generation. The
+sibling `compute` repository's `zig build test` also contains CUDA numerical
+regressions, which are skipped when its driver probe reports unavailable.
+
+For synchronized benchmark timings, build with `zig build -Doptimize=ReleaseFast`
+and run `./zig-out/bin/affon tools/bench-cuda.ts`. Uploads and first-use compilation
+are outside the timed region; scalar reads synchronize each measured operation.

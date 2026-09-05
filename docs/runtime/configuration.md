@@ -15,7 +15,7 @@ mutability class.
 
 | Variable | Field | Mutability | Default | Values |
 | --- | --- | --- | --- | --- |
-| `AFFON_DEVICE` | `device.default` | runtime | `cpu` | `cpu`, `metal` |
+| `AFFON_DEVICE` | `device.default` | runtime | `cpu` | `cpu`, `metal`, `cuda` |
 | `AFFON_NATIVE_STACK_TRACE` | `debug.native_stack_trace` | runtime | `false` | boolean |
 | `AFFON_METAL_THREADGROUP_SIZE` | `device.metal.threadgroup_size` | startup | `256` | positive integer |
 | `AFFON_METAL_REDUCE_ALL_THRESHOLD` | `device.metal.reduce_all_threshold` | startup | `512` | positive integer |
@@ -81,3 +81,15 @@ AFFON_DEVICE=metal AFFON_REPR_MAX_ITEMS=4 ./zig-out/bin/affon script.ts
 
 Use the runtime telemetry console and `std:telemetry` for diagnostics, metrics,
 and traces.
+
+## CUDA selection
+
+Use `AFFON_DEVICE=cuda` or `setDevice('cuda')` to place new tensors on CUDA.
+Select a GPU with `AFFON_CUDA_DEVICE=N` before startup, or `setDevice('cuda:N')`
+before the first CUDA allocation. The selected ordinal is fixed for the process.
+Changing the ordinal after initialization is rejected.
+
+Linux CUDA execution needs a working NVIDIA driver (`nvidia-smi`), plus
+`libnvrtc.so.12` and `libcublas.so.12` on the dynamic loader path. CUDA is loaded
+at runtime, so CPU execution does not require these libraries. Device-to-host
+reads such as `item()` and `to_array()` synchronize the CUDA execution stream.

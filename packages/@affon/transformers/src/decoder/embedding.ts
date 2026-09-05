@@ -16,9 +16,9 @@ export type DecoderInputEmbeddingModule = nn.Module<[Tensor<[number, number], 'f
   dropout?: nn.DropoutLayer<number[], 'f32'>
 }
 
-function graphSafeDevice<S extends number[], T extends DType>(value: Tensor<S, T>): 'cpu' | 'metal' | undefined {
+function graphSafeDevice<S extends number[], T extends DType>(value: Tensor<S, T>): 'cpu' | 'metal' | 'cuda' | undefined {
   try {
-    return value.device as 'cpu' | 'metal'
+    return value.device as 'cpu' | 'metal' | 'cuda'
   } catch {
     return undefined
   }

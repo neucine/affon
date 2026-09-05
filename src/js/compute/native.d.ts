@@ -1,28 +1,30 @@
 declare module "affon:compute/native" {
+  type Device = "cpu" | "metal" | "cuda" | `cuda:${number}`
+
   interface Tensor {
     readonly shape: readonly number[]
     readonly ndim: number
     readonly dtype: "f32" | "f64" | "i64"
-    readonly device: "cpu" | "metal"
+    readonly device: "cpu" | "metal" | "cuda"
     readonly grad: Tensor | undefined
-    readonly grad_device: "cpu" | "metal" | undefined
+    readonly grad_device: "cpu" | "metal" | "cuda" | undefined
     item(): number
     to_array(): unknown
     toString(): string
     repr(): string
-    to(device: "cpu" | "metal"): Tensor
+    to(device: Device): Tensor
     backward(): void
   }
 
   const native: {
-    inferCapturedOp(kind: string, inputs: readonly { shape: readonly number[]; dtype: "f32" | "f64" | "i64"; device?: "cpu" | "metal" }[], options?: unknown): { shape: readonly number[]; dtype: "f32" | "f64" | "i64"; device: "cpu" | "metal" }
-    tensor(values: number | readonly number[] | readonly (number | readonly number[])[], options?: { dtype?: "f32" | "f64" | "i64"; device?: "cpu" | "metal" }): Tensor
-    empty(shape: readonly number[], options?: { dtype?: "f32" | "f64" | "i64"; device?: "cpu" | "metal" }): Tensor
-    zeros(shape: readonly number[], options?: { dtype?: "f32" | "f64" | "i64"; device?: "cpu" | "metal" }): Tensor
-    ones(shape: readonly number[], options?: { dtype?: "f32" | "f64" | "i64"; device?: "cpu" | "metal" }): Tensor
-    full(shape: readonly number[], fill: number, options?: { dtype?: "f32" | "f64" | "i64"; device?: "cpu" | "metal" }): Tensor
-    parameter(shape: readonly number[], options?: { dtype?: "f32" | "f64"; device?: "cpu" | "metal"; axes?: readonly string[] }): Tensor
-    setDevice(device: "cpu" | "metal"): void
+    inferCapturedOp(kind: string, inputs: readonly { shape: readonly number[]; dtype: "f32" | "f64" | "i64"; device?: Device }[], options?: unknown): { shape: readonly number[]; dtype: "f32" | "f64" | "i64"; device: "cpu" | "metal" | "cuda" }
+    tensor(values: number | readonly number[] | readonly (number | readonly number[])[], options?: { dtype?: "f32" | "f64" | "i64"; device?: Device }): Tensor
+    empty(shape: readonly number[], options?: { dtype?: "f32" | "f64" | "i64"; device?: Device }): Tensor
+    zeros(shape: readonly number[], options?: { dtype?: "f32" | "f64" | "i64"; device?: Device }): Tensor
+    ones(shape: readonly number[], options?: { dtype?: "f32" | "f64" | "i64"; device?: Device }): Tensor
+    full(shape: readonly number[], fill: number, options?: { dtype?: "f32" | "f64" | "i64"; device?: Device }): Tensor
+    parameter(shape: readonly number[], options?: { dtype?: "f32" | "f64"; device?: Device; axes?: readonly string[] }): Tensor
+    setDevice(device: Device): void
     copy<T extends Tensor>(target: T, source: Tensor): T
     $muladd_(target: Tensor, scale: number, addend: Tensor): void
     $adam_step_many_(parameters: Tensor[], first: Tensor[], second: Tensor[], gradients: Tensor[], beta1: number, beta2: number, biasCorrection1: number, biasCorrection2: number, eps: number, lr: number, weightDecay: number): void
@@ -78,7 +80,7 @@ declare module "affon:compute/native" {
     gather(value: Tensor, axis: number, index: Tensor): Tensor
     index_select(value: Tensor, axis: number, index: Tensor): Tensor
     topk(value: Tensor, k: number, axis?: number): { values: Tensor; indices: Tensor }
-    setDevice(device: 'cpu' | 'metal'): void
+    setDevice(device: 'cpu' | 'metal' | 'cuda'): void
     $axpy_(target: Tensor, scale: number, addend: Tensor): void
     $zero_grad_(parameter: Tensor): void
     $backward_(loss: Tensor): void

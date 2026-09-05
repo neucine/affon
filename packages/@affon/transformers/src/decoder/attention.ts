@@ -16,7 +16,7 @@ import type { Tensor } from "affon:compute";
 
 import { causal_mask } from "../sequence.ts";
 
-function graphSafeDevice(value: { device: "cpu" | "metal" }): "cpu" | "metal" | undefined {
+function graphSafeDevice(value: { device: "cpu" | "metal" | "cuda" | `cuda:${number}` }): "cpu" | "metal" | "cuda" | `cuda:${number}` | undefined {
   try {
     return value.device;
   } catch {
@@ -27,7 +27,7 @@ function graphSafeDevice(value: { device: "cpu" | "metal" }): "cpu" | "metal" | 
 function graphCaptureDevice(
   activation: Tensor<number[], "f32">,
   fallback: Tensor<number[], "f32">,
-): "cpu" | "metal" | undefined {
+): "cpu" | "metal" | "cuda" | `cuda:${number}` | undefined {
   return graphSafeDevice(activation) ?? graphSafeDevice(fallback);
 }
 

@@ -5,7 +5,7 @@ import { normalizeCoreMeta, sameStaticMeta, shadowCapturedMeta, type StaticTenso
 type NativeTensor = {
   shape: number[]
   dtype: 'f32' | 'f64' | 'i64'
-  device?: 'cpu' | 'metal'
+  device?: 'cpu' | 'metal' | 'cuda'
 }
 type TensorDType = 'f32' | 'f64' | 'i64'
 type Nested = number | Nested[]

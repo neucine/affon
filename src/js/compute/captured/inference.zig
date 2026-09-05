@@ -279,12 +279,16 @@ fn readTensorSpecs(ctx: abi.JSContext, value: abi.JSValueConst) ![]tensor_types.
         defer allocator.free(dtype_name);
         const device_value = abi.jsGetProperty(ctx, item, "device");
         defer abi.jsFreeValue(ctx, device_value);
-        const device: engine_api.Device = if (abi.jsIsUndefined(device_value) or abi.jsIsNull(device_value) or abi.jsStringEquals(ctx, device_value, "cpu"))
+        const device: engine_api.Device = if (abi.jsIsUndefined(device_value) or abi.jsIsNull(device_value))
             .cpu
-        else if (abi.jsStringEquals(ctx, device_value, "metal"))
-            .metal
-        else
+        else blk: {
+            const device_name = abi.jsStringAlloc(ctx, device_value, allocator) catch return error.InvalidInputSpec;
+            defer allocator.free(device_name);
+            if (std.mem.eql(u8, device_name, "cpu")) break :blk .cpu;
+            if (std.mem.eql(u8, device_name, "metal")) break :blk .metal;
+            if (std.mem.eql(u8, device_name, "cuda") or std.mem.startsWith(u8, device_name, "cuda:")) break :blk .cuda;
             return error.InvalidInputSpec;
+        };
         spec.* = .{
             .shape = shape,
             .dtype = try parseDType(dtype_name),
@@ -324,6 +328,7 @@ fn createResult(ctx: abi.JSContext, shape_dims: []const usize, dtype: engine_api
     const device_name: [:0]const u8 = switch (device) {
         .cpu => "cpu",
         .metal => "metal",
+        .cuda => "cuda",
     };
     if (abi.jsSetProperty(ctx, result, "shape", shape) < 0 or
         abi.jsSetProperty(ctx, result, "dtype", abi.jsString(ctx, dtype_name)) < 0 or
