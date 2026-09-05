@@ -52,10 +52,10 @@ describe.skip(() => !metalAvailable() || typeof (globalThis as any).Affon?.trimM
     setDevice('cpu')
 
     expect(metricValue(during, 'compute.storage', 'allocation_count') > metricValue(baseline, 'compute.storage', 'allocation_count')).toBe(true)
-    expect(metricValue(during, 'compute.memory', 'metal_pool_hit_count') >= metricValue(baseline, 'compute.memory', 'metal_pool_hit_count')).toBe(true)
+    expect(metricValue(during, 'compute.memory', 'device_pool_hit_count') >= metricValue(baseline, 'compute.memory', 'device_pool_hit_count')).toBe(true)
     expect(metricValue(during, 'compute.storage', 'reuse_count') >= metricValue(baseline, 'compute.storage', 'reuse_count')).toBe(true)
     expect(trimmed >= 0).toBe(true)
-    expect(metricValue(after, 'compute.memory', 'metal_pool_live_bytes') <= metricValue(during, 'compute.memory', 'metal_pool_live_bytes')).toBe(true)
+    expect(metricValue(after, 'compute.memory', 'device_pool_live_bytes') <= metricValue(during, 'compute.memory', 'device_pool_live_bytes')).toBe(true)
     expect(metricValue(after, 'compute.storage', 'live_metal_bytes') <= metricValue(baseline, 'compute.storage', 'live_metal_bytes') + 1024 * 1024).toBe(true)
   })
 })

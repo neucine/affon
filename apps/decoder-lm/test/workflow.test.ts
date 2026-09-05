@@ -1348,13 +1348,13 @@ describe('@affon/decoder-lm workflow', () => {
     const qjsUsed = monitorArtifact.snapshots[0].runtimeMetrics.find(
       (entry) => entry.scope === 'runtime.memory' && entry.name === 'qjs_heap_used_bytes',
     )
-    const metalPool = monitorArtifact.snapshots[0].runtimeMetrics.find(
-      (entry) => entry.scope === 'compute.memory' && entry.name === 'metal_pool_live_bytes',
+    const devicePool = monitorArtifact.snapshots[0].runtimeMetrics.find(
+      (entry) => entry.scope === 'compute.memory' && entry.name === 'device_pool_live_bytes',
     )
     expect((metalLive?.value ?? 0) >= 0).toBeTruthy()
     expect((cpuLive?.value ?? 0) >= 0).toBeTruthy()
     expect((qjsUsed?.value ?? 0) >= 0).toBeTruthy()
-    expect((metalPool?.value ?? 0) >= 0).toBeTruthy()
+    expect((devicePool?.value ?? 0) >= 0).toBeTruthy()
     expect(monitorArtifact.snapshots[0].unattributedBytes >= 0).toBeTruthy()
   })
 
@@ -1422,7 +1422,7 @@ describe('@affon/decoder-lm workflow', () => {
     const snapshots = result.monitor?.snapshots ?? []
     expect(snapshots.length).toBe(8)
 
-    for (const metricName of ['live_cpu_bytes', 'live_metal_bytes', 'metal_pool_live_bytes', 'qjs_heap_used_bytes']) {
+    for (const metricName of ['live_cpu_bytes', 'live_metal_bytes', 'device_pool_live_bytes', 'qjs_heap_used_bytes']) {
       const values = snapshots
         .map((snapshot) => snapshot.runtimeMetrics.find(
           (metric) => metric.name === metricName,

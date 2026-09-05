@@ -10,8 +10,8 @@ Example:
 import telemetry from 'std:telemetry'
 
 const snapshot = telemetry.metrics()
-const metalPoolBytes = snapshot.find(
-  (metric) => metric.scope === 'compute.memory' && metric.name === 'metal_pool_live_bytes',
+const devicePoolBytes = snapshot.find(
+  (metric) => metric.scope === 'compute.memory' && metric.name === 'device_pool_live_bytes',
 )?.value ?? 0
 ```
 
@@ -44,7 +44,7 @@ Look for metrics with:
 
 - `scope === "runtime.memory"` for Hao runtime allocator/process memory
 - `scope === "compute.storage"` for tensor storage allocation_count and live bytes
-- `scope === "compute.memory"` for Affon compute memory regions and Metal pool activity
+- `scope === "compute.memory"` for Affon compute memory regions and accelerator pool activity
 
 Typical examples include CPU/Metal live bytes, CPU/Metal peak bytes, pool bytes,
 process footprint, and allocator event counters.
@@ -60,17 +60,17 @@ Useful compute storage metrics:
 
 Useful compute memory metrics:
 
-- `scope === "compute.memory" && name === "metal_pool_live_bytes"`
-- `scope === "compute.memory" && name === "metal_pool_peak_bytes"`
-- `scope === "compute.memory" && name === "metal_pool_live_buffer_count"`
-- `scope === "compute.memory" && name === "metal_pool_hit_count"`
-- `scope === "compute.memory" && name === "metal_pool_miss_count"`
-- `scope === "compute.memory" && name === "metal_pool_trim_bytes"`
+- `scope === "compute.memory" && name === "device_pool_live_bytes"`
+- `scope === "compute.memory" && name === "device_pool_peak_bytes"`
+- `scope === "compute.memory" && name === "device_pool_live_buffer_count"`
+- `scope === "compute.memory" && name === "device_pool_hit_count"`
+- `scope === "compute.memory" && name === "device_pool_miss_count"`
+- `scope === "compute.memory" && name === "device_pool_trim_bytes"`
 - `scope === "compute.memory" && name === "metal_device_current_allocated_bytes"`
-- `scope === "compute.memory" && name === "metal_pool_top_miss_bucket_bytes_1"`
-- `scope === "compute.memory" && name === "metal_pool_top_miss_count_1"`
-- `scope === "compute.memory" && name === "metal_pool_top_drop_bucket_bytes_1"`
-- `scope === "compute.memory" && name === "metal_pool_top_drop_count_1"`
+- `scope === "compute.memory" && name === "device_pool_top_miss_bucket_bytes_1"`
+- `scope === "compute.memory" && name === "device_pool_top_miss_count_1"`
+- `scope === "compute.memory" && name === "device_pool_top_drop_bucket_bytes_1"`
+- `scope === "compute.memory" && name === "device_pool_top_drop_count_1"`
 
 Use `scope === "compute.execution"` counters such as `fusion_fallback_count`,
 `transfer_to_host_bytes`, and `contiguity_fixup_bytes` when checking execution
@@ -102,8 +102,8 @@ Check:
    `compute.memory.metal_device_current_allocated_bytes`.
 2. Compare both with `runtime.memory.physical_footprint_bytes` or `vmmap`.
 3. Inspect pool activity:
-   - low `metal_pool_hit_count`
-   - high `metal_pool_miss_count`
+   - low `device_pool_hit_count`
+   - high `device_pool_miss_count`
    - repeated over-threshold or scratch allocations
 
 If `metal_device_current_allocated_bytes` is stable but Activity Monitor grows,
@@ -140,7 +140,7 @@ Action:
   possible.
 - Increase `AFFON_METAL_POOL_OVERSIZE_THRESHOLD_BYTES` only when the model shape
   is expected and the machine has enough memory.
-- Watch `metal_pool_live_bytes`, `metal_pool_peak_bytes`, and
+- Watch `device_pool_live_bytes`, `device_pool_peak_bytes`, and
   `metal_device_current_allocated_bytes` after changing the threshold.
 - Treat repeated over-threshold allocations as a performance and footprint risk,
   even if there is no ownership leak.
@@ -166,8 +166,8 @@ paths such as:
 
 The expected stable behavior is:
 
-- `metal_pool_hit_count` increases after warmup.
-- `metal_pool_live_bytes` reaches a bounded plateau.
+- `device_pool_hit_count` increases after warmup.
+- `device_pool_live_bytes` reaches a bounded plateau.
 - `metal_device_current_allocated_bytes` reaches a bounded plateau.
 - `IOAccelerator (graphics)` region count stops growing.
 
@@ -189,11 +189,11 @@ AFFON_METAL_POOL_SIZE_CLASSES='65536:512,1048576:512,*:8'
 
 Interpret the diagnostics as a tuning loop:
 
-- High `metal_pool_top_drop_count_N` for a bucket means that bucket's cap is too
+- High `device_pool_top_drop_count_N` for a bucket means that bucket's cap is too
   low for the current workload, so buffers are being destroyed and recreated.
-- High `metal_pool_top_miss_count_N` with low drops can be normal warmup or a
+- High `device_pool_top_miss_count_N` with low drops can be normal warmup or a
   sign that the workload is entering new bucket sizes.
-- Rising `metal_pool_live_bytes` and `metal_pool_peak_bytes` are the retained
+- Rising `device_pool_live_bytes` and `device_pool_peak_bytes` are the retained
   memory cost of a higher cap.
 - Rising `runtime.memory.physical_footprint_bytes` shows the macOS process
   footprint cost, including driver residency.
