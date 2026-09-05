@@ -6,7 +6,7 @@ set -eu
 
 # Update this on each release so the bootstrap script installs the current
 # public runtime by default.
-AFFON_RELEASE_VERSION="${AFFON_RELEASE_VERSION:-0.2.0}"
+AFFON_RELEASE_VERSION="${AFFON_RELEASE_VERSION:-0.3.0}"
 AFFON_INSTALL_DIR="${AFFON_INSTALL:-$HOME/.affon}"
 AFFON_BIN_DIR="${AFFON_BIN_DIR:-$AFFON_INSTALL_DIR/bin}"
 AFFON_RELEASE_API_DEFAULT="https://downloads.affon.ai/releases/v${AFFON_RELEASE_VERSION}.json"

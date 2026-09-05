@@ -50,4 +50,17 @@ unit test. Run:
 The checker validates the completed summary history, final validation loss,
 minimum loss drop, and epoch-to-epoch validation trend.
 
+The same config can run on Linux CUDA without editing the JSON:
+
+```sh
+AFFON_TRAIN_DEVICE=cuda \
+AFFON_TRAIN_CONFIG=apps/decoder-lm/configs/train-decoder-lm-wikitext.config.json \
+./zig-out/bin/affon apps/decoder-lm/train.ts
+```
+
+`AFFON_TRAIN_EPOCHS`, `AFFON_TRAIN_CHECKPOINT_PREFIX`, and
+`AFFON_TRAIN_SUMMARY_PATH` provide additional run-specific overrides. CUDA
+training uses the compiled forward path while validation remains eager so it
+always reads the parameters updated by the compiled training graph.
+
 The smaller reusable transformer primitives remain under `../../packages/@affon/transformers/src/`.

@@ -46,8 +46,8 @@ Look for metrics with:
 - `scope === "compute.storage"` for tensor storage allocation_count and live bytes
 - `scope === "compute.memory"` for Affon compute memory regions and accelerator pool activity
 
-Typical examples include CPU/Metal live bytes, CPU/Metal peak bytes, pool bytes,
-process footprint, and allocator event counters.
+Typical examples include per-device live bytes, per-device peak bytes, pool
+bytes, process footprint, and allocator event counters.
 
 Useful compute storage metrics:
 
@@ -57,6 +57,8 @@ Useful compute storage metrics:
 - `scope === "compute.storage" && name === "peak_cpu_bytes"`
 - `scope === "compute.storage" && name === "live_metal_bytes"`
 - `scope === "compute.storage" && name === "peak_metal_bytes"`
+- `scope === "compute.storage" && name === "live_cuda_bytes"`
+- `scope === "compute.storage" && name === "peak_cuda_bytes"`
 
 Useful compute memory metrics:
 
@@ -67,6 +69,7 @@ Useful compute memory metrics:
 - `scope === "compute.memory" && name === "device_pool_miss_count"`
 - `scope === "compute.memory" && name === "device_pool_trim_bytes"`
 - `scope === "compute.memory" && name === "metal_device_current_allocated_bytes"`
+- `scope === "compute.memory" && name === "cuda_device_current_allocated_bytes"`
 - `scope === "compute.memory" && name === "device_pool_top_miss_bucket_bytes_1"`
 - `scope === "compute.memory" && name === "device_pool_top_miss_count_1"`
 - `scope === "compute.memory" && name === "device_pool_top_drop_bucket_bytes_1"`

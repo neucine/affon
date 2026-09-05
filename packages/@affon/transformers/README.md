@@ -191,7 +191,8 @@ The full `wikitext` config is the quality-oriented preset:
 - 8 training epochs
 - `dModel: 256`, `numLayers: 6`, `numHeads: 8`, `hiddenDim: 1024`
 - `seqLen: 256`, `stride: 128`
-- Metal by default
+- Metal in the checked-in config; use `AFFON_TRAIN_DEVICE=cuda` on a supported
+  Linux NVIDIA workstation to run the identical workload on CUDA
 - literal WikiText placeholders such as `<unk>`, `@-@`, and `@,@` are cleaned before tokenization
 - keyed token caches keep raw and cleaned corpora separate
 

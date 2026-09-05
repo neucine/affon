@@ -80,7 +80,7 @@ declare module "affon:compute/native" {
     gather(value: Tensor, axis: number, index: Tensor): Tensor
     index_select(value: Tensor, axis: number, index: Tensor): Tensor
     topk(value: Tensor, k: number, axis?: number): { values: Tensor; indices: Tensor }
-    setDevice(device: 'cpu' | 'metal' | 'cuda'): void
+    setDevice(device: Device): void
     $axpy_(target: Tensor, scale: number, addend: Tensor): void
     $zero_grad_(parameter: Tensor): void
     $backward_(loss: Tensor): void

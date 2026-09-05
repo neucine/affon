@@ -72,6 +72,7 @@ interface BatchNormModule extends Module { gamma: Tensor; beta: Tensor }
 interface LayerNormModule extends Module { gamma: Tensor; beta: Tensor }
 type ParamEntry = readonly [string, Tensor]
 type TensorDType = "f32" | "f64"
+type Device = 'cpu' | 'metal' | 'cuda' | `cuda:${number}`
 type AxisName = string
 type CrossEntropyTargetMode = 'auto' | 'index' | 'probability' | 'one_hot'
 type CrossEntropyReduction = 'mean'
@@ -95,7 +96,7 @@ function graphCaptureAdapterError(code: string, message: string): AffonError {
 
 interface SinusoidalEncodingOptions {
   dtype?: TensorDType
-  device?: 'cpu' | 'metal' | 'cuda'
+  device?: Device
 }
 interface EmbeddingOptions {
   dtype?: TensorDType
@@ -200,7 +201,7 @@ function assertModuleListEntry(entry: any, source: string): void {
     gate: 'gate',
   } as const)
 
-  function tensorOpts(dtype: TensorDType, axes?: readonly AxisName[], device?: 'cpu' | 'metal' | 'cuda') {
+  function tensorOpts(dtype: TensorDType, axes?: readonly AxisName[], device?: Device) {
     return device ? { dtype, axes, device } : { dtype, axes }
   }
 
@@ -248,7 +249,7 @@ function assertModuleListEntry(entry: any, source: string): void {
 
   function causal_mask(
     length: number,
-    opts?: { dtype?: TensorDType; device?: 'cpu' | 'metal' | 'cuda' },
+    opts?: { dtype?: TensorDType; device?: Device },
   ): Tensor {
     if (!Number.isInteger(length) || length <= 0) {
       throw new AffonError('invalid_arg', 'causal_mask length must be a positive integer')
@@ -451,7 +452,7 @@ function assertModuleListEntry(entry: any, source: string): void {
       get_config: () => Required<DiagnosticConfig>
       assert: (kind: DiagnosticKind, opts: DiagnosticAssertOptions) => void
     }
-    causal_mask: (length: number, opts?: { dtype?: TensorDType; device?: 'cpu' | 'metal' | 'cuda' }) => Tensor
+    causal_mask: (length: number, opts?: { dtype?: TensorDType; device?: Device }) => Tensor
     apply_causal_mask: (scores: Tensor, value?: number) => Tensor
     sinusoidal_encoding: (length: number, dim: number, opts?: SinusoidalEncodingOptions) => Tensor
     position_ids: (length: number) => Tensor

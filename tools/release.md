@@ -34,7 +34,7 @@ tag:
 
 ```sh
 git push origin HEAD
-git push origin v0.2.0
+git push origin v0.3.0
 ```
 
 The release workflow:
@@ -140,15 +140,15 @@ The local helper stages assets in:
 dist/release/
 ```
 
-For version `0.2.0` on Darwin arm64, the staged files are:
+For version `0.3.0` on Darwin arm64, the staged files are:
 
 ```text
-affon-v0.2.0-darwin-arm64
-affon-v0.2.0-darwin-arm64.sha256
-affon-v0.2.0-darwin-arm64.tar.gz
-affon-v0.2.0-darwin-arm64.tar.gz.sha256
+affon-v0.3.0-darwin-arm64
+affon-v0.3.0-darwin-arm64.sha256
+affon-v0.3.0-darwin-arm64.tar.gz
+affon-v0.3.0-darwin-arm64.tar.gz.sha256
 latest.json
-v0.2.0.json
+v0.3.0.json
 ```
 
 The canonical installer is [install.sh](../../install.sh). It carries

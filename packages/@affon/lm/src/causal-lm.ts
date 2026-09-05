@@ -27,7 +27,7 @@ import {
   topk,
   unsqueeze,
 } from 'affon:compute'
-import type { DType, Tensor } from 'affon:compute'
+import type { DType, Device, Tensor } from 'affon:compute'
 
 import type { DecoderModelModule } from './model.ts'
 
@@ -172,7 +172,7 @@ function validateForbiddenTokenIds(
 function forbiddenTokenMask(
   forbidden_token_ids: ReadonlySet<number>,
   vocabSize: number,
-  device: 'cpu' | 'metal' | 'cuda',
+  device: Device,
 ): Tensor<[1, number], 'i64'> | null {
   if (forbidden_token_ids.size === 0) return null
   if (forbidden_token_ids.size >= vocabSize) {

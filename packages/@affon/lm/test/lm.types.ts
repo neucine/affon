@@ -84,3 +84,13 @@ assertType<HasDType<typeof generatedWithForbidden, 'f32'>>()
 
 const generatedWithSampling = generate(model, tokenIds, { max_new_tokens: 2, temperature: 0.8, top_k: 5 })
 assertType<HasDType<typeof generatedWithSampling, 'f32'>>()
+
+const cudaOrdinalTokenIds = tensor([[1, 2, 3]], {
+  dtype: 'f32',
+  device: 'cuda:1',
+})
+const generatedOnCudaOrdinal = generate(model, cudaOrdinalTokenIds, {
+  max_new_tokens: 1,
+  forbidden_token_ids: [0],
+})
+assertType<HasDType<typeof generatedOnCudaOrdinal, 'f32'>>()

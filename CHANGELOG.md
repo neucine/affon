@@ -6,6 +6,32 @@ The format is based on Keep a Changelog and the project follows Semantic Version
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-05
+
+### Added
+
+- added a Linux CUDA backend with runtime device selection, CUDA ordinal
+  selection, runtime-loaded NVRTC and cuBLAS, and device memory telemetry
+- added CUDA `f32` training coverage for tensor math, autograd, Adam/AdamW,
+  gradient clipping, losses, indexing, normalization, graph execution, and
+  cuBLAS-backed matmul
+- added CUDA regression suites and synchronized benchmark tooling, including
+  CPU/GPU parity checks and decoder-LM training validation on an RTX 3090
+
+### Changed
+
+- made decoder-LM training device-selectable through `AFFON_TRAIN_DEVICE` and
+  added neutral CPU/Metal/CUDA progress metrics
+- separated compiled decoder training from eager validation so validation
+  always observes the current parameters
+- updated release and CI dependency pins for the CUDA-capable compute stack
+
+### Fixed
+
+- fixed stale validation results after compiled training updated parameters
+- fixed CUDA loss, view, reduction, indexing, cast, and empty-matmul edge cases
+  found by backend parity testing
+
 ## [0.2.0] - 2026-07-21
 
 ### Added

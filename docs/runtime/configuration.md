@@ -16,6 +16,7 @@ mutability class.
 | Variable | Field | Mutability | Default | Values |
 | --- | --- | --- | --- | --- |
 | `AFFON_DEVICE` | `device.default` | runtime | `cpu` | `cpu`, `metal`, `cuda` |
+| `AFFON_CUDA_DEVICE` | CUDA device ordinal | startup | `0` | non-negative integer |
 | `AFFON_NATIVE_STACK_TRACE` | `debug.native_stack_trace` | runtime | `false` | boolean |
 | `AFFON_METAL_THREADGROUP_SIZE` | `device.metal.threadgroup_size` | startup | `256` | positive integer |
 | `AFFON_METAL_REDUCE_ALL_THRESHOLD` | `device.metal.reduce_all_threshold` | startup | `512` | positive integer |

@@ -84,8 +84,11 @@ That is the core idea behind all optimizers.
 
 Current device rule:
 
-- `sgd(...)` can update parameters on `"cpu"` or `"metal"`
-- when an SGD parameter lives on `"metal"` but its gradient is still on `"cpu"`, the update path materializes the gradient onto the parameter device before applying the step
+- `sgd(...)`, `adam(...)`, and `adamw(...)` update supported `f32` parameters on
+  `"cpu"`, `"metal"`, or `"cuda"`
+- when an accelerator parameter has a gradient on another device, the update
+  path materializes the gradient onto the parameter device before applying the
+  step
 - all optimizers skip parameters whose `grad` is `null`
 
 Different optimizers mainly differ in:
@@ -122,7 +125,9 @@ Mental model:
 - `grad(...)` writes gradients
 - `step(...)` consumes gradients
 - `clear_grad(...)` clears them before the next training iteration
-- today, Metal training is partial: covered backward paths including `abs`, `relu`, `gelu`, `clamp`, `reshape`, `cat`, `stack`, `gather`, `topk`, and supported axis reductions can now keep gradients on Metal, but some autograd helpers still materialize through CPU
+- accelerator coverage is operation- and dtype-dependent; supported backward
+  paths keep gradients on the parameter device, while an unsupported path may
+  materialize through CPU or report an explicit backend error
 
 ## 5. Core terms
 
@@ -158,7 +163,7 @@ Use when:
 - you want the simplest optimizer
 - you want predictable behavior
 - you are learning the basics
-- you may want Metal parameter updates today
+- you want a simple optimizer across CPU, Metal, and CUDA
 
 ## 7. Adam
 

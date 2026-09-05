@@ -108,7 +108,10 @@ cases.
 ## Platform Notes
 
 - macOS uses Accelerate and includes Metal-backed paths where supported
-- Linux uses the configured CPU linear algebra path
+- Linux supports CPU execution and NVIDIA CUDA acceleration; CUDA requires a
+  working driver plus CUDA 12 NVRTC and cuBLAS runtime libraries
+- select the default backend with `AFFON_DEVICE=cpu`, `metal`, or `cuda`; select
+  a CUDA ordinal with `AFFON_CUDA_DEVICE=N` before the first CUDA allocation
 - release automation should verify the platform assets attached to a given release
 
 ## Docs

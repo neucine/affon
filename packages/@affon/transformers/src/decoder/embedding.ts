@@ -1,6 +1,6 @@
 import nn from 'affon:nn'
 import { add, axes, cast, module as computeModule, unsqueeze } from 'affon:compute'
-import type { DType, Tensor } from 'affon:compute'
+import type { DType, Device, Tensor } from 'affon:compute'
 
 import { position_ids, sinusoidal_encoding } from '../sequence.ts'
 
@@ -16,9 +16,9 @@ export type DecoderInputEmbeddingModule = nn.Module<[Tensor<[number, number], 'f
   dropout?: nn.DropoutLayer<number[], 'f32'>
 }
 
-function graphSafeDevice<S extends number[], T extends DType>(value: Tensor<S, T>): 'cpu' | 'metal' | 'cuda' | undefined {
+function graphSafeDevice<S extends number[], T extends DType>(value: Tensor<S, T>): Device | undefined {
   try {
-    return value.device as 'cpu' | 'metal' | 'cuda'
+    return value.device
   } catch {
     return undefined
   }

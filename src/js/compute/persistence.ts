@@ -2,7 +2,7 @@ import { AffonError } from 'affon:errors'
 import native from 'affon:compute/native'
 
 type DType = 'f32' | 'f64' | 'i64'
-type Device = 'cpu' | 'metal' | 'cuda'
+type Device = 'cpu' | 'metal' | 'cuda' | `cuda:${number}`
 type ComputeValue = {
   shape: number[]
   rank?: number
