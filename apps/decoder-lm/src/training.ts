@@ -118,6 +118,7 @@ export interface DecoderLMTrainOptions extends PackedCorpusOptions, TokenBatchOp
   lrSchedule?: (ctx: { epoch: number, step: number }) => number
   maxGradNorm?: number
   forward?: DecoderLMForward
+  evaluationForward?: DecoderLMForward
   maxTrainBatchesPerEpoch?: number
   maxEvalBatches?: number
   initialEpoch?: number
@@ -688,6 +689,7 @@ export function trainDecoderLM(
 
     const criterion = CausalLMLoss()
     const forward: DecoderLMForward = opts.forward ?? ((tokenIds) => model(tokenIds) as Tensor<number[], 'f32'>)
+    const evaluationForward: DecoderLMForward = opts.evaluationForward ?? forward
     opts.onStatus?.('initializing optimizer...')
     const params = model.parameters as readonly Parameter[]
     const optimizerKind = opts.optimizer?.kind ?? 'adam'
@@ -730,7 +732,7 @@ export function trainDecoderLM(
         statusLabel: 'evaluating initial train loss',
         onStatus: opts.onStatus,
         maxBatches: opts.maxEvalBatches,
-        forward,
+        forward: evaluationForward,
       })
     }
     let initialValLoss: number | null = null
@@ -742,7 +744,7 @@ export function trainDecoderLM(
         statusLabel: 'evaluating initial validation loss',
         onStatus: opts.onStatus,
         maxBatches: opts.maxEvalBatches,
-        forward,
+        forward: evaluationForward,
       })
     }
     opts.onStatus?.('starting training loop...')
@@ -923,7 +925,7 @@ export function trainDecoderLM(
           statusLabel: `evaluating validation loss for epoch ${epoch}`,
           onStatus: opts.onStatus,
           maxBatches: opts.maxEvalBatches,
-          forward,
+          forward: evaluationForward,
         })
         : null
       if (valLoss !== null) assertFiniteMetric('trainDecoderLM validation loss', valLoss, `epoch ${epoch}`)

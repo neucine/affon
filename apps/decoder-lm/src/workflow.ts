@@ -575,6 +575,12 @@ export function trainDecoderLMFromConfig(
       optimizer: config.training.optimizer,
       lrSchedule,
       forward,
+      // A compiled evaluation specialization can retain stale execution state
+      // across thousands of in-place optimizer updates. Keep validation eager;
+      // this also leaves the compiled specialization dedicated to training.
+      evaluationForward: compiledModel
+        ? ((tokenIds: Tensor<[number, number], 'f32'>) => model(tokenIds) as Tensor<number[], 'f32'>)
+        : undefined,
       shuffleSeed: config.training.shuffleSeed,
       maxGradNorm: config.training.maxGradNorm,
       maxTrainBatchesPerEpoch: config.training.maxTrainBatchesPerEpoch,

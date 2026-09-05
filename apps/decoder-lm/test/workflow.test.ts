@@ -948,6 +948,7 @@ describe('@affon/decoder-lm workflow', () => {
         epochs: 1,
         batchSize: 2,
         compileModelForward: true,
+        maxTrainBatchesPerEpoch: 1,
         lr: 0.01,
       },
       report: undefined,
@@ -955,6 +956,9 @@ describe('@affon/decoder-lm workflow', () => {
 
     expect(result.compiledModel).not.toBe(null)
     expect(result.summary.modelForwardMode).toBe(result.compiledModel ? 'graph' : 'eager')
+    const compiledSummary = (result.compiledModel as any).summary()
+    expect(compiledSummary.lastExecutionMode).toBe('graph')
+    expect(compiledSummary.eagerFallbackCount).toBe(0)
     expect(result.training.steps > 0).toBeTruthy()
     expect(result.training.finalTrainLoss > 0).toBeTruthy()
   })

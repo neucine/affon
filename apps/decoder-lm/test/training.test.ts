@@ -426,6 +426,62 @@ describe('@affon/decoder-lm training', () => {
     expect(result.initialValLoss !== null).toBeTruthy()
   })
 
+  test('uses a dedicated evaluation forward without consuming the training forward', () => {
+    setDevice('cpu')
+    seed(41)
+
+    const tokenizer = createLookupTokenizer({
+      '<bos>': 0,
+      '<eos>': 1,
+      '<unk>': 2,
+      hello: 3,
+      world: 4,
+    }, {
+      specialTokens: { bos: '<bos>', eos: '<eos>', unk: '<unk>' },
+    })
+    const windows = pack_token_windows([
+      tokenizer.encode('hello world', { addBos: true, addEos: true }),
+      tokenizer.encode('hello world', { addBos: true, addEos: true }),
+    ], {
+      seqLen: 3,
+      stride: 1,
+      joinWithTokenId: tokenizer.tokenId('<eos>'),
+    })
+    const model = DecoderModel(tokenizer.vocabSize, 16, {
+      numLayers: 1,
+      numHeads: 2,
+      hiddenDim: 32,
+      causal: true,
+      positional: 'learned',
+      maxSeqLen: 8,
+      tieEmbeddings: true,
+    })
+    let trainingForwardCalls = 0
+    let evaluationForwardCalls = 0
+
+    trainDecoderLM(model, windows, {
+      seqLen: 3,
+      batchSize: 2,
+      epochs: 1,
+      lr: 0.01,
+      maxTrainBatchesPerEpoch: 1,
+      maxEvalBatches: 1,
+      evaluateInitialTrainLoss: false,
+      validationWindows: windows,
+      forward: (tokenIds) => {
+        trainingForwardCalls += 1
+        return model(tokenIds)
+      },
+      evaluationForward: (tokenIds) => {
+        evaluationForwardCalls += 1
+        return model(tokenIds)
+      },
+    })
+
+    expect(trainingForwardCalls).toBe(1)
+    expect(evaluationForwardCalls).toBe(2)
+  })
+
   test('can cap train and evaluation batches for faster debug runs', () => {
     setDevice('cpu')
     seed(11)
