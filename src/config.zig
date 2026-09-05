@@ -128,6 +128,18 @@ pub fn getDefaultDevice() Device {
     return config.read().device.default.get();
 }
 
+pub fn deviceName(device: Device) []const u8 {
+    return switch (device) {
+        .cpu => "cpu",
+        .metal => "metal",
+        .cuda => "cuda",
+    };
+}
+
+pub fn deviceSelectionSource() []const u8 {
+    return if (cfg.getenv("AFFON_DEVICE") != null) "AFFON_DEVICE" else "auto";
+}
+
 test "Config defaults are correct before runtime detection" {
     const def = Config{};
     try std.testing.expectEqual(Device.cpu, def.device.default.get());

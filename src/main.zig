@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const affon = @import("affon");
 const hao = @import("hao");
 
@@ -6,6 +7,19 @@ fn usage() void {
     std.debug.print(
         "Usage:\n  affon <file.ts|file.js>\n  affon run <file.ts|file.js>\n  affon test [--grep pattern] <file.ts|directory>...\n  affon --version\n",
         .{},
+    );
+}
+
+fn printStartupInfo() void {
+    std.debug.print(
+        "affon {s} · device={s} · selection={s} · platform={s}-{s}\n",
+        .{
+            affon.version,
+            affon.config.deviceName(affon.config.getDefaultDevice()),
+            affon.config.deviceSelectionSource(),
+            @tagName(builtin.os.tag),
+            @tagName(builtin.cpu.arch),
+        },
     );
 }
 
@@ -66,6 +80,7 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("affon {s}\n", .{affon.version});
         return;
     }
+    printStartupInfo();
     if (std.mem.eql(u8, command, "run")) {
         const path = args.next() orelse {
             usage();

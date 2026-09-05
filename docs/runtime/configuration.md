@@ -82,6 +82,10 @@ When `AFFON_DEVICE` is unset, Affon detects a usable accelerator on startup:
 
 Set `AFFON_DEVICE=cpu` to force CPU, or explicitly select `metal` or `cuda`.
 
+For normal CLI commands, Affon prints the selected device, selection source, and
+platform once to stderr at startup. `affon --version` remains machine-friendly
+and prints only the version.
+
 Run on Metal explicitly and keep tensor displays compact:
 
 ```sh
