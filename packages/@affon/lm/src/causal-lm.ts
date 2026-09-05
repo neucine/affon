@@ -172,7 +172,7 @@ function validateForbiddenTokenIds(
 function forbiddenTokenMask(
   forbidden_token_ids: ReadonlySet<number>,
   vocabSize: number,
-  device: 'cpu' | 'metal',
+  device: 'cpu' | 'metal' | 'cuda',
 ): Tensor<[1, number], 'i64'> | null {
   if (forbidden_token_ids.size === 0) return null
   if (forbidden_token_ids.size >= vocabSize) {
@@ -207,12 +207,13 @@ function sampleNextTokenTensor(
     )
     const gumbel = neg(log(neg(log(clamped)))) as Tensor<number[], 'f32'>
     const sampledPositions = argmax(add(result.values, gumbel), 1, false) as Tensor<number[], 'i64'>
+    // Token outputs are f32; converting here also supports CUDA's f32 gather.
     const selected = gather(
-      result.indices,
+      cast(result.indices, 'f32'),
       1,
       reshape(sampledPositions, [logits.shape[0] as number, 1], { axes: [axes.batch, axes.vocab] }),
-    ) as Tensor<[number, 1], 'i64'>
-    return cast(squeeze(selected, 1), 'f32') as Tensor<number[], 'f32'>
+    ) as Tensor<[number, 1], 'f32'>
+    return squeeze(selected, 1) as Tensor<number[], 'f32'>
   }
 
   const clamped = clamp(

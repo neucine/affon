@@ -1,4 +1,4 @@
-declare function setDevice(device: "cpu" | "metal"): void
+declare function setDevice(device: "cpu" | "metal" | "cuda" | `cuda:${number}`): void
 
 interface Console {
   log(...args: unknown[]): void

@@ -194,7 +194,7 @@ export interface DecoderLMWorkflowReportConfig {
 }
 
 export interface DecoderLMWorkflowConfig {
-  device?: 'cpu' | 'metal'
+  device?: 'cpu' | 'metal' | 'cuda'
   tokenizer: DecoderLMTokenizerConfig
   corpus: DecoderLMWorkflowCorpusConfig
   model: DecoderLMWorkflowModelConfig
@@ -449,7 +449,7 @@ function captureRuntimeSnapshot(
   const runtimeMetrics = telemetry.metrics()
   const physFootprintBytes = metricValue(runtimeMetrics, 'runtime.memory', 'physical_footprint_bytes')
   const metalLiveBytes = metricValue(runtimeMetrics, 'compute.storage', 'live_metal_bytes')
-  const metalPooledBytes = metricValue(runtimeMetrics, 'compute.memory', 'metal_pool_live_bytes')
+  const devicePooledBytes = metricValue(runtimeMetrics, 'compute.memory', 'device_pool_live_bytes')
   const cpuLiveBytes = metricValue(runtimeMetrics, 'compute.storage', 'live_cpu_bytes')
   const qjsMemoryUsedBytes = metricValue(runtimeMetrics, 'runtime.memory', 'qjs_heap_used_bytes')
   const hostMaterializationBytes = 0
@@ -459,7 +459,7 @@ function captureRuntimeSnapshot(
     0,
     physFootprintBytes
       - metalLiveBytes
-      - metalPooledBytes
+      - devicePooledBytes
       - cpuLiveBytes
       - hostMaterializationBytes
       - temporaryWorkspaceBytes

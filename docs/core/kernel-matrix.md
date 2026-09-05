@@ -1,8 +1,41 @@
 # Compute Kernel Matrix
 
-This page documents the current AFFON forward op kernel coverage across CPU and Metal backends.
+This page documents forward operation coverage across CPU, Metal, and CUDA.
 
-Last updated: 2026-05-17
+Last updated: 2026-09-05
+
+## CUDA coverage
+
+CUDA runs on Linux with an NVIDIA driver, NVRTC, and cuBLAS. The current math
+and training path uses `f32`; `f64` storage support does not imply `f64` math
+support. Unsupported dtype combinations report `ExecutionNotImplemented`.
+
+| Family | CUDA support | Limits |
+| --- | --- | --- |
+| Allocation, transfers, contiguous views, cat, stack, slice | `f32`, `f64`, `i64` | View materialization rank <= 8; signed strides supported; slice uses the shared positive-step contract |
+| Arithmetic and unary activations | `f32` | Dense and broadcast arithmetic; GELU and its derivative match the CPU tanh approximation |
+| Comparison and where | `f32`, `f64`, `i64` | Dense/broadcast; comparison outputs `i64`; integer selection preserves all 64 bits |
+| Masked fill | `f32` values, `i64` masks | Dense/broadcast; floating masks are normalized by the runtime |
+| Cast | All pairs among `f32`, `f64`, `i64` | Invalid or out-of-range integer casts reject; index normalization also requires integral values |
+| Reductions, softmax, log-softmax, layer/RMS norm | `f32` | Argmin/argmax output `i64`; log-softmax uses stable log-sum-exp; whole-tensor reductions use a parallel block |
+| Dot and matmul | `f32`, cuBLAS | Batched/broadcast matmul; incompatible views are packed; zero inner dimension produces zeros |
+| Embedding, gather, index-select, scatter-add | `f32` values, `i64` indices | Bounds checked; scatter-add uses atomic additions |
+| One-hot and top-k | `f32` output/values, `i64` indices | Top-k requires `1 <= k <= 64`; ties preserve original index order |
+| Cross-entropy | `f32` | Weighted/one-hot targets, indexed forward/backward, transposed indexed logits; row losses computed in parallel |
+| Optimizer updates | `f32` | In-place muladd, axpy, subtraction, scale, Adam/AdamW; gradient clipping reduces on device |
+| Graph fused dispatch | `f32` | Matmul+bias(+GELU), attention scores, add+layer-norm, unary chains, binary+unary chains use staged CUDA kernels |
+
+CUDA graph fusion currently groups multiple kernel launches; it does not imply a
+single fused GPU kernel. One CUDA ordinal is selected for the process before
+initialization. Simultaneous multi-device execution is not supported.
+
+Validation on RTX 3090 includes CPU/GPU parity for optimizer steps, losses and
+backward, fused dispatch, casts, views, infinite top-k values, and empty matmul.
+Run `zig build test` in `compute`, then `affon test test/cuda` in `affon`.
+`tools/bench-cuda.ts` provides synchronized timings with uploads and first-use
+compilation excluded. It is a small benchmark, not a production throughput claim.
+
+The tables below retain the detailed CPU and Metal comparison.
 
 Legend:
 

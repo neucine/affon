@@ -558,6 +558,7 @@ fn createTensorFromFlat(ctx: ?*qjs.c.JSContext, data: []f64, num_rows: usize, wi
     const device: compute.Device = switch (cfg.getDefaultDevice()) {
         .cpu => .cpu,
         .metal => .metal,
+        .cuda => .cuda,
     };
     const value = compute.Tensor.createContiguous(data_alloc, &.{ num_rows, width }, dtype, device, false) catch return error.OutOfMemory;
     errdefer value.deinit();
@@ -571,6 +572,7 @@ fn createTensorFromFlat1D(ctx: ?*qjs.c.JSContext, data: []f64, num_rows: usize, 
     const device: compute.Device = switch (cfg.getDefaultDevice()) {
         .cpu => .cpu,
         .metal => .metal,
+        .cuda => .cuda,
     };
     const value = compute.Tensor.createContiguous(data_alloc, &.{num_rows}, dtype, device, false) catch return error.OutOfMemory;
     errdefer value.deinit();

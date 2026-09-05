@@ -7,6 +7,9 @@ const dispatch = compute.pipeline.backend.dispatch;
 const metal_index = compute.pipeline.backend.metal;
 const config = @import("../../config.zig");
 const metal_backend = compute.pipeline.backend.metal.common;
+const cuda_backend = compute.pipeline.backend.cuda.common;
+const cuda_index = compute.pipeline.backend.cuda;
+const cuda_update = compute.pipeline.backend.cuda.update;
 const metal_update = compute.pipeline.backend.metal.update;
 const autograd_types = compute.shared.types.autograd;
 const autograd_execution = compute.pipeline.execution.autograd;
@@ -29,6 +32,20 @@ const AxisName = tensor_types.AxisName;
 var random_state = std.Random.DefaultPrng.init(0xA66F_0001);
 var runtime_engine: ?engine_api.Engine = null;
 var runtime_engine_id: ?usize = null;
+
+fn parseDeviceValue(ctx: abi.JSContext, value: abi.JSValueConst) !engine_api.Device {
+    const name = try abi.jsStringAlloc(ctx, value, allocator);
+    defer allocator.free(name);
+    if (std.mem.eql(u8, name, "cpu")) return .cpu;
+    if (std.mem.eql(u8, name, "metal")) return .metal;
+    if (std.mem.eql(u8, name, "cuda")) return .cuda;
+    if (std.mem.startsWith(u8, name, "cuda:") and name.len > 5) {
+        const ordinal = std.fmt.parseInt(u31, name[5..], 10) catch return error.InvalidDevice;
+        try cuda_backend.selectDevice(ordinal);
+        return .cuda;
+    }
+    return error.InvalidDevice;
+}
 
 fn engineFor(ctx: abi.JSContext) *engine_api.Engine {
     const runtime = abi.jsRuntime(ctx) orelse unreachable;
@@ -424,6 +441,9 @@ fn classifiedErrorValue(ctx: abi.JSContext, message: []const u8, err: anyerror) 
         error.MetalTransferFailed,
         error.MetalUnavailable,
         error.MetalKernelLaunchFailed,
+        error.CudaIoFailed,
+        error.CudaUnavailable,
+        error.CudaKernelLaunchFailed,
         => abi.jsThrowConstructedError(ctx, "AffonError", "device_error", message),
         error.NoGradientGraph, error.BackwardRequiresScalar, error.GradUnsupported => abi.jsThrowConstructedError(ctx, "AffonError", "grad_error", message),
         error.ExecutionNotImplemented,
@@ -812,7 +832,7 @@ fn jsTensorItem(ctx: abi.JSContext, this_value: abi.JSValueConst, argc: c_int, _
     };
     var host: ?*Tensor = null;
     defer if (host) |value| value.deinit();
-    const readable = if (source.device() == .metal) blk: {
+    const readable = if (source.device() != .cpu) blk: {
         const value = Tensor.createContiguous(allocator, source.shape.dims, source.dtype, .cpu, false) catch return errorValue(ctx, "failed to read Tensor");
         engineFor(ctx).copyInto(value, source) catch {
             value.deinit();
@@ -838,7 +858,7 @@ fn jsTensorToArray(ctx: abi.JSContext, this_value: abi.JSValueConst, argc: c_int
     };
     var host: ?*Tensor = null;
     defer if (host) |value| value.deinit();
-    const readable = if (source.device() == .metal) blk: {
+    const readable = if (source.device() != .cpu) blk: {
         const value = Tensor.createContiguous(allocator, source.shape.dims, source.dtype, .cpu, false) catch return errorValue(ctx, "failed to read Tensor");
         engineFor(ctx).copyInto(value, source) catch {
             value.deinit();
@@ -892,12 +912,7 @@ fn jsTensorRepr(ctx: abi.JSContext, this_value: abi.JSValueConst, argc: c_int, a
 fn jsTensorTo(ctx: abi.JSContext, this_value: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
     if (argc != 1) return typeError(ctx, "Tensor.to expects a device");
     const input = tensorFromValue(ctx, this_value) orelse return typeError(ctx, "to expects a Tensor");
-    const target_device: engine_api.Device = if (abi.jsStringEquals(ctx, argv[0], "cpu"))
-        .cpu
-    else if (abi.jsStringEquals(ctx, argv[0], "metal"))
-        .metal
-    else
-        return typeError(ctx, "device must be 'cpu' or 'metal'");
+    const target_device = parseDeviceValue(ctx, argv[0]) catch return typeError(ctx, "device must be 'cpu', 'metal', 'cuda', or 'cuda:N'");
     const target = Tensor.createContiguous(allocator, input.shape.dims, input.dtype, target_device, false) catch return errorValue(ctx, "failed to create device Tensor");
     errdefer target.deinit();
     engineFor(ctx).copyInto(target, input) catch return errorValue(ctx, "failed to transfer Tensor");
@@ -926,6 +941,7 @@ fn jsTensor(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.
     var device: engine_api.Device = switch (config.getDefaultDevice()) {
         .cpu => .cpu,
         .metal => .metal,
+        .cuda => .cuda,
     };
     if (argc == 2 and !abi.jsIsUndefined(argv[1])) {
         const dtype_value = abi.jsGetProperty(ctx, argv[1], "dtype");
@@ -942,11 +958,7 @@ fn jsTensor(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.
         const device_value = abi.jsGetProperty(ctx, argv[1], "device");
         defer abi.jsFreeValue(ctx, device_value);
         if (!abi.jsIsUndefined(device_value)) {
-            if (abi.jsStringEquals(ctx, device_value, "metal")) {
-                device = .metal;
-            } else if (!abi.jsStringEquals(ctx, device_value, "cpu")) {
-                return typeError(ctx, "device must be 'cpu' or 'metal'");
-            }
+            device = parseDeviceValue(ctx, device_value) catch return typeError(ctx, "device must be 'cpu', 'metal', 'cuda', or 'cuda:N'");
         }
     }
     const axes = readAxesOption(ctx, if (argc == 2) argv[1] else abi.jsUndefined(ctx), shape.items.len) catch return typeError(ctx, "axes must be a string array whose length matches tensor rank");
@@ -986,6 +998,7 @@ fn createFilledTensor(ctx: abi.JSContext, shape_value: abi.JSValueConst, options
     var device: engine_api.Device = switch (config.getDefaultDevice()) {
         .cpu => .cpu,
         .metal => .metal,
+        .cuda => .cuda,
     };
     if (!abi.jsIsUndefined(options_value)) {
         const dtype_value = abi.jsGetProperty(ctx, options_value, "dtype");
@@ -996,7 +1009,7 @@ fn createFilledTensor(ctx: abi.JSContext, shape_value: abi.JSValueConst, options
         const device_value = abi.jsGetProperty(ctx, options_value, "device");
         defer abi.jsFreeValue(ctx, device_value);
         if (!abi.jsIsUndefined(device_value)) {
-            if (abi.jsStringEquals(ctx, device_value, "metal")) device = .metal else if (abi.jsStringEquals(ctx, device_value, "cpu")) device = .cpu else return typeError(ctx, "device must be 'cpu' or 'metal'");
+            device = parseDeviceValue(ctx, device_value) catch return typeError(ctx, "device must be 'cpu', 'metal', 'cuda', or 'cuda:N'");
         }
     }
     const axes = readAxesOption(ctx, options_value, shape.len) catch return typeError(ctx, "axes must be a string array whose length matches tensor rank");
@@ -1062,16 +1075,13 @@ fn jsParameter(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]a
     var device: engine_api.Device = switch (config.getDefaultDevice()) {
         .cpu => .cpu,
         .metal => .metal,
+        .cuda => .cuda,
     };
     if (argc == 2 and !abi.jsIsUndefined(argv[1])) {
         const device_value = abi.jsGetProperty(ctx, argv[1], "device");
         defer abi.jsFreeValue(ctx, device_value);
         if (!abi.jsIsUndefined(device_value)) {
-            if (abi.jsStringEquals(ctx, device_value, "metal")) {
-                device = .metal;
-            } else if (!abi.jsStringEquals(ctx, device_value, "cpu")) {
-                return typeError(ctx, "device must be 'cpu' or 'metal'");
-            }
+            device = parseDeviceValue(ctx, device_value) catch return typeError(ctx, "device must be 'cpu', 'metal', 'cuda', or 'cuda:N'");
         }
     }
     const axes = readAxesOption(ctx, if (argc == 2) argv[1] else abi.jsUndefined(ctx), shape.len) catch return typeError(ctx, "axes must be a string array whose length matches parameter rank");
@@ -1098,7 +1108,7 @@ fn jsParameter(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]a
 }
 
 fn jsSetDevice(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
-    if (argc != 1) return typeError(ctx, "setDevice expects 'cpu' or 'metal'");
+    if (argc != 1) return typeError(ctx, "setDevice expects 'cpu', 'metal', 'cuda', or 'cuda:N'");
     if (abi.jsStringEquals(ctx, argv[0], "cpu")) {
         config.setDefaultDevice(.cpu);
         return abi.jsUndefined(ctx);
@@ -1108,7 +1118,13 @@ fn jsSetDevice(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]a
         config.setDefaultDevice(.metal);
         return abi.jsUndefined(ctx);
     }
-    return typeError(ctx, "setDevice expects 'cpu' or 'metal'");
+    const requested = parseDeviceValue(ctx, argv[0]) catch return typeError(ctx, "setDevice expects 'cpu', 'metal', 'cuda', or 'cuda:N'");
+    if (requested == .cuda) {
+        if (!cuda_backend.isAvailable()) return errorValue(ctx, "setDevice('cuda'): CUDA is unavailable or the selected ordinal is invalid");
+        config.setDefaultDevice(.cuda);
+        return abi.jsUndefined(ctx);
+    }
+    return typeError(ctx, "setDevice expects 'cpu', 'metal', 'cuda', or 'cuda:N'");
 }
 
 fn jsCopy(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
@@ -1203,6 +1219,23 @@ fn jsInternalAdamStepMany(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, 
             ) catch return errorValue(ctx, "$adam_step_many_ Metal update failed");
             continue;
         }
+        if (device == .cuda) {
+            cuda_update.adamStepInplace(
+                parameter.dtype,
+                parameter.storage orelse return errorValue(ctx, "$adam_step_many_ parameter has no storage"),
+                m.storage orelse return errorValue(ctx, "$adam_step_many_ moment has no storage"),
+                v.storage orelse return errorValue(ctx, "$adam_step_many_ moment has no storage"),
+                gradient.storage orelse return errorValue(ctx, "$adam_step_many_ gradient has no storage"),
+                beta1,
+                beta2,
+                bias_correction1,
+                bias_correction2,
+                eps,
+                lr,
+                weight_decay,
+            ) catch return errorValue(ctx, "$adam_step_many_ CUDA update failed");
+            continue;
+        }
         const parameter_bytes = parameter.storage.?.writableBytes() catch return errorValue(ctx, "$adam_step_many_ failed to access parameter storage");
         const m_bytes = m.storage.?.writableBytes() catch return errorValue(ctx, "$adam_step_many_ failed to access moment storage");
         const v_bytes = v.storage.?.writableBytes() catch return errorValue(ctx, "$adam_step_many_ failed to access moment storage");
@@ -1292,7 +1325,7 @@ fn jsClipGradNorm(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*
         const gradient = state.gradient orelse continue;
         if (gradient.dtype == .i64) return typeError(ctx, "clip_grad_norm requires differentiable gradients");
         const engine = engineFor(ctx);
-        const summed = if (gradient.device() == .metal and gradient.dtype == .f32) blk: {
+        const summed = if (gradient.device() != .cpu and gradient.dtype == .f32) blk: {
             const squared = engine.mul(gradient, gradient) catch return errorValue(ctx, "clip_grad_norm failed to read gradient");
             defer squared.deinit();
             break :blk engine.sum(squared) catch return errorValue(ctx, "clip_grad_norm failed to read gradient");
@@ -2039,6 +2072,15 @@ fn normalizeIndexTensor(engine: *engine_api.Engine, input: *Tensor) !NormalizedI
     if (input.dtype == .i64) return .{ .tensor = input, .owned = false };
     if (input.dtype != .f32 and input.dtype != .f64) return error.InvalidArgument;
 
+    if (input.device() == .cuda) {
+        const source = try engine.contiguous(input);
+        defer source.deinit();
+        const output = try Tensor.createContiguous(allocator, input.shape.dims, .i64, .cuda, false);
+        errdefer output.deinit();
+        try cuda_index.validateIndex(input.dtype, try source.requireRuntimeBacking(), try output.requireRuntimeBacking());
+        return .{ .tensor = output, .owned = true };
+    }
+
     if (input.device() == .metal and input.dtype == .f32) {
         var source = input;
         var owned_source: ?*Tensor = null;
@@ -2101,7 +2143,7 @@ fn normalizeIndexTensor(engine: *engine_api.Engine, input: *Tensor) !NormalizedI
 fn validateIndexBounds(engine: *engine_api.Engine, index: *Tensor, limit: usize) !void {
     var host_index: ?*Tensor = null;
     defer if (host_index) |value| value.deinit();
-    const source = if (index.device() == .metal) blk: {
+    const source = if (index.device() != .cpu) blk: {
         const value = try Tensor.createContiguous(allocator, index.shape.dims, .i64, .cpu, false);
         errdefer value.deinit();
         engine.copyInto(value, index) catch {

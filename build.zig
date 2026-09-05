@@ -23,13 +23,13 @@ fn addMetalBackend(b: *std.Build, compute_dep: *std.Build.Dependency, module: *s
         module.addIncludePath(metal_header.dirname());
         module.addCSourceFile(.{
             .file = compute_dep.path("src/pipeline/backend/metal/ffi.m"),
-            .flags = &.{ "-fobjc-arc" },
+            .flags = &.{"-fobjc-arc"},
         });
         b.getInstallStep().dependOn(&b.addInstallFile(metallib_path, "lib/affon_kernels.metallib").step);
     } else {
         module.addCSourceFile(.{
             .file = compute_dep.path("src/pipeline/backend/metal/ffi_stub.c"),
-            .flags = &.{ "-std=c11" },
+            .flags = &.{"-std=c11"},
         });
     }
 }
@@ -86,6 +86,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     cli.root_module.linkLibrary(hao.artifact("hao_runtime"));
+    if (target.result.os.tag == .linux) cli.root_module.linkSystemLibrary("unwind", .{});
     addMetalBackend(b, compute_dep, cli.root_module, target);
     addCudaBackend(compute_dep, cli.root_module, target);
     b.installArtifact(cli);
@@ -103,10 +104,10 @@ pub fn build(b: *std.Build) void {
         }),
     });
     tests.root_module.linkLibrary(hao.artifact("hao_runtime"));
+    if (target.result.os.tag == .linux) tests.root_module.linkSystemLibrary("unwind", .{});
     addMetalBackend(b, compute_dep, tests.root_module, target);
     addCudaBackend(compute_dep, tests.root_module, target);
     const run_tests = b.addRunArtifact(tests);
     const test_step = b.step("test", "Run Affon tests");
     test_step.dependOn(&run_tests.step);
-
 }

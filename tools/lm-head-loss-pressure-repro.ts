@@ -46,7 +46,7 @@ for (let i = 1; i <= 30; i++) {
       `lm head loss pressure iteration ${i}/30`
       + ` metal_live_mb=${mb(metricValue('compute.storage', 'live_metal_bytes'))}`
       + ` metal_device_mb=${mb(metricValue('compute.memory', 'metal_device_current_allocated_bytes'))}`
-      + ` metal_pool_mb=${mb(metricValue('compute.memory', 'metal_pool_live_bytes'))}`,
+      + ` device_pool_mb=${mb(metricValue('compute.memory', 'device_pool_live_bytes'))}`,
     )
   }
 }

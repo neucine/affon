@@ -6,6 +6,7 @@ const cfg = zig_libs.config;
 pub const Device = enum {
     cpu,
     metal,
+    cuda,
 };
 
 pub const Config = struct {

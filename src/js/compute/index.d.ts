@@ -1,5 +1,5 @@
 declare module "affon:compute" {
-type Device = "cpu" | "metal"
+type Device = "cpu" | "metal" | "cuda" | `cuda:${number}`
 type DType = "f32" | "f64" | "i64"
 type TensorInput = number | readonly number[] | readonly TensorInput[]
 type TensorOptions = { dtype?: DType; device?: Device; axes?: readonly string[] }
