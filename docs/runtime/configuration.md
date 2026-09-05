@@ -15,7 +15,7 @@ mutability class.
 
 | Variable | Field | Mutability | Default | Values |
 | --- | --- | --- | --- | --- |
-| `AFFON_DEVICE` | `device.default` | runtime | `cpu` | `cpu`, `metal`, `cuda` |
+| `AFFON_DEVICE` | `device.default` | runtime | auto-detected (`metal` on macOS when available, `cuda` on other platforms when available, otherwise `cpu`) | `cpu`, `metal`, `cuda` |
 | `AFFON_CUDA_DEVICE` | CUDA device ordinal | startup | `0` | non-negative integer |
 | `AFFON_NATIVE_STACK_TRACE` | `debug.native_stack_trace` | runtime | `false` | boolean |
 | `AFFON_METAL_THREADGROUP_SIZE` | `device.metal.threadgroup_size` | startup | `256` | positive integer |
@@ -74,7 +74,15 @@ pool budget.
 
 ## Examples
 
-Run on Metal by default and keep tensor displays compact:
+When `AFFON_DEVICE` is unset, Affon detects a usable accelerator on startup:
+
+- macOS selects Metal when the system Metal device is available.
+- Other platforms select CUDA when the CUDA runtime and a device are available.
+- CPU is the fallback when no supported accelerator is available.
+
+Set `AFFON_DEVICE=cpu` to force CPU, or explicitly select `metal` or `cuda`.
+
+Run on Metal explicitly and keep tensor displays compact:
 
 ```sh
 AFFON_DEVICE=metal AFFON_REPR_MAX_ITEMS=4 ./zig-out/bin/affon script.ts

@@ -176,8 +176,10 @@ const xMetal = move(x64, 'metal')
 const xCuda = move(z, 'cuda')
 ```
 
-New tensors use the configured default device. Set `AFFON_DEVICE=cpu`,
-`AFFON_DEVICE=metal`, or `AFFON_DEVICE=cuda` before startup, or call
+New tensors use the configured default device. When `AFFON_DEVICE` is unset,
+Affon selects Metal on macOS when available, CUDA on other platforms when
+available, and otherwise CPU. Set `AFFON_DEVICE=cpu`, `AFFON_DEVICE=metal`, or
+`AFFON_DEVICE=cuda` before startup to override detection, or call
 `setDevice(...)` before creating tensors. On Linux, `setDevice('cuda:N')`
 selects CUDA ordinal `N`; the ordinal is fixed after the first CUDA allocation.
 CUDA training math currently targets `f32`. See the

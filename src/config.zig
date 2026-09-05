@@ -3,6 +3,8 @@ const zig_libs = @import("zig_libs");
 const mm = @import("compute").memory;
 
 const cfg = zig_libs.config;
+const metal_backend = @import("compute").pipeline.backend.metal.common;
+const cuda_backend = @import("compute").pipeline.backend.cuda.common;
 pub const Device = enum {
     cpu,
     metal,
@@ -99,6 +101,13 @@ pub var config = cfg.Store(Config).init();
 
 pub fn loadFromEnv() !void {
     _ = try config.loadEnv();
+    if (cfg.getenv("AFFON_DEVICE") == null) {
+        const detected: Device = switch (@import("builtin").os.tag) {
+            .macos => if (metal_backend.isAvailable()) .metal else .cpu,
+            else => if (cuda_backend.isAvailable()) .cuda else .cpu,
+        };
+        config.set("device.default", detected) catch unreachable;
+    }
     config.freezeStartup();
     mm.setPoolOversizeThreshold(config.read().device.metal.pool_oversize_threshold_bytes.get());
     mm.setPoolMaxTotalBytes(config.read().device.metal.pool_max_total_bytes.get());
@@ -119,7 +128,7 @@ pub fn getDefaultDevice() Device {
     return config.read().device.default.get();
 }
 
-test "Config defaults are correct" {
+test "Config defaults are correct before runtime detection" {
     const def = Config{};
     try std.testing.expectEqual(Device.cpu, def.device.default.get());
     try std.testing.expectEqual(false, def.debug.native_stack_trace.get());
