@@ -324,6 +324,7 @@ fn createResult(ctx: abi.JSContext, shape_dims: []const usize, dtype: engine_api
     const device_name: [:0]const u8 = switch (device) {
         .cpu => "cpu",
         .metal => "metal",
+        .cuda => "cuda",
     };
     if (abi.jsSetProperty(ctx, result, "shape", shape) < 0 or
         abi.jsSetProperty(ctx, result, "dtype", abi.jsString(ctx, dtype_name)) < 0 or

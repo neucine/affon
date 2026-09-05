@@ -630,6 +630,7 @@ fn jsTensorGradDevice(ctx: abi.JSContext, this_value: abi.JSValueConst) callconv
     const device: [:0]const u8 = switch (gradient.device() orelse .cpu) {
         .cpu => "cpu",
         .metal => "metal",
+        .cuda => "cuda",
     };
     return abi.jsString(ctx, device);
 }
@@ -738,6 +739,7 @@ pub fn createTensorObject(ctx: abi.JSContext, value: *Tensor) abi.JSValue {
     const device_name: [:0]const u8 = switch (value.device() orelse .cpu) {
         .cpu => "cpu",
         .metal => "metal",
+        .cuda => "cuda",
     };
     if (abi.jsSetProperty(ctx, result, "ndim", abi.jsInt32(ctx, @intCast(value.shape.rank()))) < 0 or
         abi.jsSetProperty(ctx, result, "dtype", abi.jsString(ctx, dtype_name)) < 0 or
