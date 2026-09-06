@@ -68,15 +68,15 @@ by the underlying runtime under `std:*` specifiers.
 
 ## Examples
 
-- [Getting Started](examples/getting-started.tsnb)
-- [NN Basics: Feed-forward + Recurrent](examples/nn-basics.tsnb)
-- [RNNs](examples/rnn.tsnb)
-- [Embeddings](examples/embedding.tsnb)
-- [Illustrated Tensors](examples/illustrated/tensor-illustrated.tsnb)
-- [Tensor Ops Illustrated](examples/illustrated/tensor-ops-illustrated.tsnb)
-- [Illustrated NN](examples/illustrated/nn-illustrated.tsnb)
-- [Illustrated Losses And Metrics](examples/illustrated/losses-metrics-illustrated.tsnb)
-- [Illustrated Training And Optimizers](examples/illustrated/training-illustrated.tsnb)
+- [Getting Started](examples/getting-started.ts.ipynb)
+- [NN Basics: Feed-forward + Recurrent](examples/nn-basics.ts.ipynb)
+- [RNNs](examples/rnn.ts.ipynb)
+- [Embeddings](examples/embedding.ts.ipynb)
+- [Illustrated Tensors](examples/illustrated/tensor-illustrated.ts.ipynb)
+- [Tensor Ops Illustrated](examples/illustrated/tensor-ops-illustrated.ts.ipynb)
+- [Illustrated NN](examples/illustrated/nn-illustrated.ts.ipynb)
+- [Illustrated Losses And Metrics](examples/illustrated/losses-metrics-illustrated.ts.ipynb)
+- [Illustrated Training And Optimizers](examples/illustrated/training-illustrated.ts.ipynb)
 
 ## Features
 
