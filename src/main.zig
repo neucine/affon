@@ -5,7 +5,7 @@ const hao = @import("hao");
 
 fn usage() void {
     std.debug.print(
-        "Usage:\n  affon <file.ts|file.js>\n  affon run <file.ts|file.js>\n  affon test [--grep pattern] <file.ts|directory>...\n  affon --version\n",
+        "Usage:\n  affon <file.ts|file.js>\n  affon run <file.ts|file.js>\n  affon test [--grep pattern] <file.ts|directory>...\n  affon jupyter --connection-file <file>\n  affon jupyter install\n  affon --version\n",
         .{},
     );
 }
@@ -92,6 +92,34 @@ pub fn main(init: std.process.Init) !void {
         }
         try runFile(affon.memory.allocator(.hao_runtime), init.io, path);
         return;
+    }
+    if (std.mem.eql(u8, command, "jupyter")) {
+        const subcommand = args.next() orelse {
+            usage();
+            std.process.exit(2);
+        };
+        if (std.mem.eql(u8, subcommand, "install")) {
+            if (args.next() != null) {
+                usage();
+                std.process.exit(2);
+            }
+            try hao.jupyter.install(init.io);
+            return;
+        }
+        if (std.mem.eql(u8, subcommand, "--connection-file")) {
+            const connection_file = args.next() orelse {
+                usage();
+                std.process.exit(2);
+            };
+            if (args.next() != null) {
+                usage();
+                std.process.exit(2);
+            }
+            try hao.jupyter.runWithPackageRegistrar(connection_file, init.io, affon.registerPackage);
+            return;
+        }
+        usage();
+        std.process.exit(2);
     }
     if (!std.mem.eql(u8, command, "test")) {
         if (args.next() != null) {
