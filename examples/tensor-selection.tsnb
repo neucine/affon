@@ -1,0 +1,165 @@
+{
+  "format": 1,
+  "metadata": {
+    "kernelspec": {
+      "name": "affon",
+      "display_name": "Affon (TypeScript)",
+      "language": "typescript"
+    }
+  },
+  "cells": [
+    {
+      "id": "cell-1",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "# Tensor Selection\n\nSelection, masking, encoding, and ranking operations.",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-2",
+      "kind": "code",
+      "language": "typescript",
+      "source": "import { tensor, add, sub, mul, div, exp, log, sqrt, abs, neg, clamp, relu, gelu, sigmoid, tanh, sum, mean, variance, std, argmax, reshape, transpose, permute, squeeze, unsqueeze, cat, stack, contiguous, where, masked_fill, softmax, one_hot, gather, topk } from 'affon:compute'\n\n\n\nfunction printValue(label: string, value: { toString(): string }) {\n  console.log(label)\n  console.log(value)\n}\n\nfunction printBeforeAfter(beforeLabel: string, beforeValue: { toString(): string }, afterLabel: string, afterValue: { toString(): string }) {\n  printValue(beforeLabel, beforeValue)\n  printValue(afterLabel, afterValue)\n}\n",
+      "outputs": [],
+      "execution_count": 1,
+      "metadata": {}
+    },
+    {
+      "id": "cell-3",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## where\n\nSelect from two tensors using a condition tensor.",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-4",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const cond = tensor([[[1, 0], [0, 1]], [[0, 1], [1, 0]]])\nconst a = tensor([[[10, 20], [30, 40]], [[50, 60], [70, 80]]])\nconst b = tensor([[[100, 200], [300, 400]], [[500, 600], [700, 800]]])\nprintBeforeAfter('before condition', cond, 'after where(cond, a, b)', where(cond, a, b))\n",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "before condition\n[2×2×2 Tensor, dtype=f32]\n[[[1, 0], [0, 1]], [[0, 1], [1, 0]]]\n\nafter where(cond, a, b)\n[2×2×2 Tensor, dtype=f32]\n[[[10, 200], [300, 40]], [[500, 60], [70, 800]]]\n\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 2,
+      "metadata": {}
+    },
+    {
+      "id": "cell-5",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## masked_fill\n\nReplace masked positions with a fixed value.",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-6",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const input = tensor([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])\nconst mask = tensor([[[0, 1], [1, 0]], [[1, 0], [0, 1]]])\nprintBeforeAfter('before input', input, 'after masked_fill(input, mask, -1)', masked_fill(input, mask, -1))\n",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "before input\n[2×2×2 Tensor, dtype=f32]\n[[[1, 2], [3, 4]], [[5, 6], [7, 8]]]\n\nafter masked_fill(input, mask, -1)\n[2×2×2 Tensor, dtype=f32]\n[[[1, -1], [-1, 4]], [[-1, 6], [7, -1]]]\n\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 3,
+      "metadata": {}
+    },
+    {
+      "id": "cell-7",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## one_hot\n\nAppend a class dimension from index values.",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-8",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const index = tensor([[0, 2], [1, 0]])\nprintBeforeAfter('before index', index, 'after one_hot(index, 3)', one_hot(index, 3))\n",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "before index\n[2×2 Tensor, dtype=f32]\n     0  1\n  ┌        ┐\n0 │  0  2  │\n1 │  1  0  │\n  └        ┘\n\nafter one_hot(index, 3)\n[2×2×3 Tensor, dtype=f32]\n[[[1, 0, 0], [0, 0, 1]], [[0, 1, 0], [1, 0, 0]]]\n\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 4,
+      "metadata": {}
+    },
+    {
+      "id": "cell-9",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## gather\n\nSelect values along one axis using an index tensor.",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-10",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const input = tensor([[[10, 20], [30, 40]], [[50, 60], [70, 80]]])\nconst index = tensor([[[1, 0], [0, 1]], [[0, 1], [1, 0]]])\nprintBeforeAfter('before input', input, 'after gather(input, 2, index)', gather(input, 2, index))\n",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "before input\n[2×2×2 Tensor, dtype=f32]\n[[[10, 20], [30, 40]], [[50, 60], [70, 80]]]\n\nafter gather(input, 2, index)\n[2×2×2 Tensor, dtype=f32]\n[[[20, 10], [30, 40]], [[50, 60], [80, 70]]]\n\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 5,
+      "metadata": {}
+    },
+    {
+      "id": "cell-11",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## topk\n\nReturn the largest `k` values and indices along one axis.",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-12",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const input = tensor([[[10, 30, 20], [60, 40, 50]], [[15, 25, 5], [8, 12, 10]]])\nconst result = topk(input, 2, 2)\nprintValue('before input', input)\nprintValue('after topk values', result.values)\nprintValue('after topk indices', result.indices)\n",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "before input\n[2×2×3 Tensor, dtype=f32]\n[[[10, 30, 20], [60, 40, 50]], [[15, 25, 5], [8, 12, 10]]]\n\nafter topk values\n[2×2×2 Tensor, dtype=f32]\n[[[30, 20], [60, 50]], [[25, 15], [12, 10]]]\n\nafter topk indices\n[2×2×2 Tensor, dtype=i64]\n[[[1, 2], [0, 2]], [[1, 0], [1, 2]]]\n\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 6,
+      "metadata": {}
+    }
+  ]
+}

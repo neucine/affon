@@ -1,0 +1,246 @@
+{
+  "format": 1,
+  "metadata": {
+    "kernelspec": {
+      "name": "affon",
+      "display_name": "Affon (TypeScript)",
+      "language": "typescript"
+    }
+  },
+  "cells": [
+    {
+      "id": "cell-1",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "# Tensor Shape\n\nShape and layout operations on N-D tensors.",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-2",
+      "kind": "code",
+      "language": "typescript",
+      "source": "import { tensor, add, sub, mul, div, exp, log, sqrt, abs, neg, clamp, relu, gelu, sigmoid, tanh, sum, mean, variance, std, argmax, reshape, transpose, permute, squeeze, unsqueeze, cat, stack, contiguous, where, masked_fill, softmax, one_hot, gather, topk } from 'affon:compute'\n\n\n\nfunction printValue(label: string, value: { toString(): string }) {\n  console.log(label)\n  console.log(value)\n}\n\nfunction printBeforeAfter(beforeLabel: string, beforeValue: { toString(): string }, afterLabel: string, afterValue: { toString(): string }) {\n  printValue(beforeLabel, beforeValue)\n  printValue(afterLabel, afterValue)\n}\n",
+      "outputs": [],
+      "execution_count": 1,
+      "metadata": {}
+    },
+    {
+      "id": "cell-3",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## reshape\n\n$$\n[2, 3, 2] \\to [3, 4]\n$$\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-4",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const x = tensor([[[1, 2], [3, 4], [5, 6]], [[7, 8], [9, 10], [11, 12]]])\nprintBeforeAfter('before x', x, 'after reshape(x, [3, 4])', reshape(x, [3, 4]))\n",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "before x\n[2×3×2 Tensor, dtype=f32]\n[[[1, 2], [3, 4], [5, 6]], [[7, 8], [9, 10], [11, 12]]]\n\nafter reshape(x, [3, 4])\n[3×4 Tensor, dtype=f32]\n     0   1   2   3\n  ┌                 ┐\n0 │  1   2   3   4  │\n1 │  5   6   7   8  │\n2 │  9  10  11  12  │\n  └                 ┘\n\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 2,
+      "metadata": {}
+    },
+    {
+      "id": "cell-5",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## transpose\n\nReverse axis order.",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-6",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const x = tensor([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])\nprintBeforeAfter('before x', x, 'after transpose(x, 0, 2)', transpose(x, 0, 2))\n",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "before x\n[2×2×2 Tensor, dtype=f32]\n[[[1, 2], [3, 4]], [[5, 6], [7, 8]]]\n\nafter transpose(x, 0, 2)\n[2×2×2 Tensor, dtype=f32]\n[[[1, 5], [3, 7]], [[2, 6], [4, 8]]]\n\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 3,
+      "metadata": {}
+    },
+    {
+      "id": "cell-7",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## permute\n\nReorder axes explicitly.",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-8",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const x = tensor([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])\nprintBeforeAfter('before x', x, 'after permute(x, [1, 0, 2])', permute(x, [1, 0, 2]))\n",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "before x\n[2×2×2 Tensor, dtype=f32]\n[[[1, 2], [3, 4]], [[5, 6], [7, 8]]]\n\nafter permute(x, [1, 0, 2])\n[2×2×2 Tensor, dtype=f32]\n[[[1, 2], [5, 6]], [[3, 4], [7, 8]]]\n\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 4,
+      "metadata": {}
+    },
+    {
+      "id": "cell-9",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## squeeze\n\n$$\n[2, 3, 1] \\to [2, 3]\n$$\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-10",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const x = tensor([[[1], [2], [3]], [[4], [5], [6]]])\nprintBeforeAfter('before x', x, 'after squeeze(x)', squeeze(x))\n",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "before x\n[2×3×1 Tensor, dtype=f32]\n[[[1], [2], [3]], [[4], [5], [6]]]\n\nafter squeeze(x)\n[2×3 Tensor, dtype=f32]\n     0  1  2\n  ┌           ┐\n0 │  1  2  3  │\n1 │  4  5  6  │\n  └           ┘\n\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 5,
+      "metadata": {}
+    },
+    {
+      "id": "cell-11",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## unsqueeze\n\n$$\n[2, 3] \\to [2, 1, 3]\n$$\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-12",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const x = tensor([[1, 2, 3], [4, 5, 6]])\nprintBeforeAfter('before x', x, 'after unsqueeze(x, 1)', unsqueeze(x, 1))\n",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "before x\n[2×3 Tensor, dtype=f32]\n     0  1  2\n  ┌           ┐\n0 │  1  2  3  │\n1 │  4  5  6  │\n  └           ┘\n\nafter unsqueeze(x, 1)\n[2×1×3 Tensor, dtype=f32]\n[[[1, 2, 3]], [[4, 5, 6]]]\n\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 6,
+      "metadata": {}
+    },
+    {
+      "id": "cell-13",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## cat\n\nConcatenate along an existing axis.",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-14",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const a = tensor([[[1, 2]], [[3, 4]]])\nconst b = tensor([[[5, 6]], [[7, 8]]])\nprintBeforeAfter('before a', a, 'after cat([a, b], 1)', cat([a, b], 1))\n",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "before a\n[2×1×2 Tensor, dtype=f32]\n[[[1, 2]], [[3, 4]]]\n\nafter cat([a, b], 1)\n[2×2×2 Tensor, dtype=f32]\n[[[1, 2], [5, 6]], [[3, 4], [7, 8]]]\n\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 7,
+      "metadata": {}
+    },
+    {
+      "id": "cell-15",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## stack\n\nStack along a new axis.",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-16",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const a = tensor([[1, 2], [3, 4]])\nconst b = tensor([[5, 6], [7, 8]])\nprintBeforeAfter('before a', a, 'after stack([a, b], 0)', stack([a, b], 0))\n",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "before a\n[2×2 Tensor, dtype=f32]\n     0  1\n  ┌        ┐\n0 │  1  2  │\n1 │  3  4  │\n  └        ┘\n\nafter stack([a, b], 0)\n[2×2×2 Tensor, dtype=f32]\n[[[1, 2], [3, 4]], [[5, 6], [7, 8]]]\n\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 8,
+      "metadata": {}
+    },
+    {
+      "id": "cell-17",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## contiguous\n\nMaterialize a contiguous tensor.",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-18",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const x = permute(tensor([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]), [1, 0, 2])\nprintBeforeAfter('before permuted view', x, 'after contiguous(x)', contiguous(x))\n",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "before permuted view\n[2×2×2 Tensor, dtype=f32]\n[[[1, 2], [5, 6]], [[3, 4], [7, 8]]]\n\nafter contiguous(x)\n[2×2×2 Tensor, dtype=f32]\n[[[1, 2], [5, 6]], [[3, 4], [7, 8]]]\n\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 9,
+      "metadata": {}
+    }
+  ]
+}

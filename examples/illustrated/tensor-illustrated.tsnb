@@ -1,0 +1,480 @@
+{
+  "format": 1,
+  "metadata": {
+    "kernelspec": {
+      "name": "affon",
+      "display_name": "Affon (TypeScript)",
+      "language": "typescript"
+    }
+  },
+  "cells": [
+    {
+      "id": "cell-1",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "# Illustrated Tensors\n\nThis notebook consolidates the tensor-focused illustrated examples: dimension roles, construction, elementwise math, activations, reductions, softmax, shape changes, and selection.\n\nThe recurring rule is:\n\n```txt\nFind the operation dimensions.\nEverything else is parallel.\nThe same small operation runs independently at every parallel position.\n```\n\nHow to use this notebook:\n\n1. Read the intuition first.\n2. Pause at each **Before you run** prompt and predict the shape or one value.\n3. Run the cell.\n4. Read the output explanation and connect it back to the dim roles.\n\nThe point is not to memorize formulas. The point is to build the habit of reading tensor code by asking: which axes are parallel, which axes participate, which axes disappear, and which axes are produced?\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-2",
+      "kind": "code",
+      "language": "typescript",
+      "source": "import { tensor, empty, zeros, ones, full, rand, randn, seed, arange, linspace, cast, move, contiguous, finite_summary, finite_abs_max, add, sub, mul, div, neg, abs, sign, exp, log, sqrt, square, clamp, where, gt_scalar, masked_fill, relu, sigmoid, tanh, gelu, silu, matmul, mean, sum, max, min, variance, std, argmax, argmin, softmax, reshape, transpose, permute, squeeze, unsqueeze, cat, stack, slice, range, gather, index_select, topk, one_hot } from 'affon:compute'\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-3",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Tensor Dim Roles\n\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-4",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## 1. Batched matmul\n\nA 3D matmul can be read as several 2D matmuls.\n\n<svg viewBox=\"0 0 760 160\" width=\"760\" height=\"160\" xmlns=\"http://www.w3.org/2000/svg\">\n  <style>.t{font:14px monospace}.h{font:600 15px sans-serif}.p{fill:#dbeafe;stroke:#60a5fa}.o{fill:#dcfce7;stroke:#4ade80}.q{fill:#ffedd5;stroke:#fb923c}.g{fill:#f8fafc;stroke:#94a3b8}</style>\n  <text class=\"h\" x=\"20\" y=\"24\">[batch, m, k] @ [k, n] -> [batch, m, n]</text>\n  <rect class=\"p\" x=\"30\" y=\"50\" width=\"90\" height=\"36\" rx=\"4\"/><text class=\"t\" x=\"48\" y=\"73\">batch</text>\n  <rect class=\"o\" x=\"125\" y=\"50\" width=\"48\" height=\"36\" rx=\"4\"/><text class=\"t\" x=\"144\" y=\"73\">m</text>\n  <rect class=\"o\" x=\"178\" y=\"50\" width=\"48\" height=\"36\" rx=\"4\"/><text class=\"t\" x=\"197\" y=\"73\">k</text>\n  <text class=\"t\" x=\"245\" y=\"73\">@</text>\n  <rect class=\"o\" x=\"275\" y=\"50\" width=\"48\" height=\"36\" rx=\"4\"/><text class=\"t\" x=\"294\" y=\"73\">k</text>\n  <rect class=\"q\" x=\"328\" y=\"50\" width=\"48\" height=\"36\" rx=\"4\"/><text class=\"t\" x=\"347\" y=\"73\">n</text>\n  <text class=\"t\" x=\"395\" y=\"73\">=</text>\n  <rect class=\"p\" x=\"430\" y=\"50\" width=\"90\" height=\"36\" rx=\"4\"/><text class=\"t\" x=\"448\" y=\"73\">batch</text>\n  <rect class=\"o\" x=\"525\" y=\"50\" width=\"48\" height=\"36\" rx=\"4\"/><text class=\"t\" x=\"544\" y=\"73\">m</text>\n  <rect class=\"q\" x=\"578\" y=\"50\" width=\"48\" height=\"36\" rx=\"4\"/><text class=\"t\" x=\"597\" y=\"73\">n</text>\n  <text class=\"t\" x=\"30\" y=\"122\">For every batch item, run one ordinary matrix multiply.</text>\n</svg>\n\nHere `batch` is parallel. The `m`, `k`, and `n` axes are the matrix-multiply axes.\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-5",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "### Why This Exists\n\nMatrix multiply is the workhorse behind projections, attention, and many neural-network layers. In high-rank tensors, it usually means many ordinary matrix multiplies running side by side.\n\n### Before You Run\n\nFor `x: [2, 3, 4]` and `w: [4, 2]`, predict the output shape before running the code.\n\nAsk yourself:\n\n- Which dimension is parallel?\n- Which dimension is consumed by the multiply?\n- Which new dimension appears?\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-6",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "One output vector is computed from one input row:\n\n```txt\nx[0, 0] = [1, 2, 3, 4]\n\nfirst output  = 1*1 + 2*0 + 3*1 + 4*2  = 12\nsecond output = 1*0 + 2*1 + 3*1 + 4*(-1) = 1\n\nmatmul(x, w)[0, 0] = [12, 1]\n```\n\nThe same rule is applied independently at every `(batch, m)` position.\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-7",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## 2. Linear projection on a high-rank tensor\n\nA `Linear(in, out)` style projection keeps every leading dimension parallel.\n\n```txt\nx:      [batch, time, in_features]\nweight: [in_features, out_features]\nbias:   [out_features]\ny:      [batch, time, out_features]\n```\n\nRead it as:\n\n```txt\nFor every (batch, time) position,\napply the same projection from in_features to out_features.\n```\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-8",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "### Why This Exists\n\nA Linear layer changes feature size without mixing the leading positions. That is why the same layer can be applied to every token in a sequence.\n\n### Before You Run\n\nIf `x` is shaped `[batch=2, time=3, in_features=4]` and `weight` is shaped `[4, 2]`, predict which axes survive unchanged.\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-9",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## 3. Reduction dims\n\nA reduction removes or shrinks the dimension it works over.\n\n<svg viewBox=\"0 0 720 150\" width=\"720\" height=\"150\" xmlns=\"http://www.w3.org/2000/svg\">\n  <style>.t{font:14px monospace}.h{font:600 15px sans-serif}.p{fill:#dbeafe;stroke:#60a5fa}.r{fill:#fee2e2;stroke:#f87171}.g{fill:#f8fafc;stroke:#94a3b8}</style>\n  <text class=\"h\" x=\"20\" y=\"24\">mean(x, dim=2)</text>\n  <rect class=\"p\" x=\"30\" y=\"50\" width=\"90\" height=\"36\" rx=\"4\"/><text class=\"t\" x=\"48\" y=\"73\">batch</text>\n  <rect class=\"p\" x=\"125\" y=\"50\" width=\"70\" height=\"36\" rx=\"4\"/><text class=\"t\" x=\"143\" y=\"73\">time</text>\n  <rect class=\"r\" x=\"200\" y=\"50\" width=\"90\" height=\"36\" rx=\"4\"/><text class=\"t\" x=\"212\" y=\"73\">hidden</text>\n  <text class=\"t\" x=\"315\" y=\"73\">-></text>\n  <rect class=\"p\" x=\"365\" y=\"50\" width=\"90\" height=\"36\" rx=\"4\"/><text class=\"t\" x=\"383\" y=\"73\">batch</text>\n  <rect class=\"p\" x=\"460\" y=\"50\" width=\"70\" height=\"36\" rx=\"4\"/><text class=\"t\" x=\"478\" y=\"73\">time</text>\n  <text class=\"t\" x=\"30\" y=\"122\">For every (batch, time), average across hidden.</text>\n</svg>\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-10",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "### Why This Exists\n\nReductions turn many values into fewer values. They are used for summaries, losses, normalization statistics, and metrics.\n\n### Before You Run\n\nFor `mean(x, 2)`, decide which axis disappears. Then predict the output shape.\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-11",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "With `keep=true`, the reduced axis stays as size `1`:\n\n```txt\n[batch, time, hidden] -> [batch, time, 1]\n```\n\nThat is useful when you want the result to broadcast back against the original tensor.\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-12",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## 4. Softmax dims\n\n`softmax(scores, dim)` normalizes along one dimension and keeps the shape unchanged.\n\nFor attention-like scores:\n\n```txt\nscores: [batch, query_pos, key_pos]\nsoftmax(scores, 2)\n```\n\nRead it as:\n\n```txt\nFor every (batch, query_pos),\nmake one probability distribution across key_pos.\n```\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-13",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "### Why This Exists\n\nSoftmax turns raw scores along one axis into a distribution-like set of values. In attention, each query position gets its own distribution over key positions.\n\n### Before You Run\n\nFor `scores: [batch=2, query_pos=2, key_pos=3]`, predict the shape after `softmax(scores, 2)`. Does the normalized axis disappear or stay?\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-14",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Reusable reading rule\n\nWhen reading a high-rank op:\n\n1. Find the dimensions the operation actually uses.\n2. Treat the other dimensions as parallel positions.\n3. Ask which dimensions are preserved, reduced, or produced.\n\nExamples:\n\n| Expression | Parallel dims | Operation dim(s) | Result |\n| --- | --- | --- | --- |\n| `matmul([B, M, K], [K, N])` | `B`, `M` positions | `K -> N` projection | `[B, M, N]` |\n| `mean([B, T, H], 2)` | `B`, `T` | reduce `H` | `[B, T]` |\n| `mean([B, T, H], 2, true)` | `B`, `T` | reduce `H` but keep axis | `[B, T, 1]` |\n| `softmax([B, Q, K], 2)` | `B`, `Q` | normalize over `K` | `[B, Q, K]` |\n| `Linear` on `[B, T, In]` | `B`, `T` | project `In -> Out` | `[B, T, Out]` |\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-15",
+      "kind": "code",
+      "language": "typescript",
+      "source": "{\n// Tensor Dim Roles\n\nfunction show(label: string, value: { shape: readonly number[], to_array(): unknown }) {\n  console.log(label)\n  console.log('shape:', value.shape)\n  console.log(JSON.stringify(value.to_array()))\n}\n\n\nconst x = tensor([\n  [[1, 2, 3, 4], [10, 20, 30, 40], [100, 200, 300, 400]],\n  [[5, 6, 7, 8], [50, 60, 70, 80], [500, 600, 700, 800]],\n])\n\nconst w = tensor([\n  [1, 0],\n  [0, 1],\n  [1, 1],\n  [2, -1],\n])\n\nshow('x: [batch=2, m=3, k=4]', x)\nshow('w: [k=4, n=2]', w)\nshow('matmul(x, w): [batch=2, m=3, n=2]', matmul(x, w))\n\n\nconst bias = tensor([0.5, -0.5])\nconst projected = add(matmul(x, w), bias)\n\nshow('bias: [out_features=2]', bias)\nshow('add(matmul(x, w), bias): [batch=2, time=3, out_features=2]', projected)\n\n\nshow('x: [batch=2, time=3, hidden=4]', x)\nshow('mean(x, 2): [batch=2, time=3]', mean(x, 2))\n\n\nshow('mean(x, 2, true): [batch=2, time=3, 1]', mean(x, 2, true))\n\n\nconst scores = tensor([\n  [[1, 2, 3], [2, 0, -1]],\n  [[0, 0, 1], [3, 1, 0]],\n])\n\nshow('scores: [batch=2, query_pos=2, key_pos=3]', scores)\nshow('softmax(scores, 2): same shape, normalized over key_pos', softmax(scores, 2))\n}\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-16",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Tensor Creation And Metadata\n\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-17",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Tensor From Nested Arrays\n\nNested arrays define axes.\n\n```txt\n[[1, 2], [3, 4]] -> shape [2, 2]\n```\n\n<svg viewBox=\"0 0 720 185\" width=\"720\" height=\"185\" xmlns=\"http://www.w3.org/2000/svg\">\n  <style>.txt{font:14px sans-serif;fill:#0f172a}.mono{font:15px monospace}.cell{fill:#dbeafe;stroke:#60a5fa}.meta{fill:#ffedd5;stroke:#fb923c}</style>\n  <text class=\"txt\" x=\"24\" y=\"28\">Two outer rows, two values per row.</text>\n  <rect class=\"cell\" x=\"80\" y=\"65\" width=\"55\" height=\"40\"/><text class=\"mono\" x=\"102\" y=\"90\">1</text>\n  <rect class=\"cell\" x=\"135\" y=\"65\" width=\"55\" height=\"40\"/><text class=\"mono\" x=\"157\" y=\"90\">2</text>\n  <rect class=\"cell\" x=\"80\" y=\"105\" width=\"55\" height=\"40\"/><text class=\"mono\" x=\"102\" y=\"130\">3</text>\n  <rect class=\"cell\" x=\"135\" y=\"105\" width=\"55\" height=\"40\"/><text class=\"mono\" x=\"157\" y=\"130\">4</text>\n  <rect class=\"meta\" x=\"300\" y=\"75\" width=\"260\" height=\"58\" rx=\"4\"/><text class=\"mono\" x=\"325\" y=\"100\">shape [2, 2]</text><text class=\"mono\" x=\"325\" y=\"123\">dtype f32, device cpu</text>\n</svg>\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-18",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Fill Constructors\n\n`empty` creates storage without a meaningful fill value. `zeros`, `ones`, and `full` create tensors from shape plus a fill rule.\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-19",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Random Constructors And Seed\n\n`rand` samples from a uniform distribution. `randn` samples from a normal distribution. `seed` makes examples reproducible.\n\n```txt\nseed(1); rand([2])  -> repeatable random values\nseed(1); randn([2]) -> repeatable normal values\n```\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-20",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Number Lines\n\n`arange` counts by step. `linspace` divides an interval into evenly spaced values.\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-21",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## DType, Device, Layout, And Finite Checks\n\n`cast` changes dtype. `move` changes device. `contiguous` materializes a contiguous layout. Finite helpers summarize whether values are usable for training.\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-22",
+      "kind": "code",
+      "language": "typescript",
+      "source": "{\n// Tensor Creation And Metadata\n\nfunction show(label: string, value: { shape: readonly number[], dtype: string, device: string, to_array(): unknown }) {\n  console.log(label)\n  console.log('shape:', value.shape)\n  console.log('dtype:', value.dtype)\n  console.log('device:', value.device)\n  console.log(JSON.stringify(value.to_array()))\n}\n\n\nconst x = tensor([[1, 2], [3, 4]])\nshow('tensor([[1, 2], [3, 4]])', x)\n\n\nconst scratch = empty([2, 3])\nconsole.log('empty([2, 3]) shape:', scratch.shape, 'dtype:', scratch.dtype, 'device:', scratch.device)\nshow('zeros([2, 3])', zeros([2, 3]))\nshow('ones([2, 3])', ones([2, 3]))\nshow('full([2, 2], 7)', full([2, 2], 7))\n\n\nseed(1)\nshow('rand([2])', rand([2]))\nseed(1)\nshow('randn([2])', randn([2]))\n\n\nshow('arange(0, 5, 2)', arange(0, 5, 2))\nshow('linspace(0, 1, 5)', linspace(0, 1, 5))\n\n\nshow('cast(x, f64)', cast(x, 'f64'))\nshow('move(x, cpu)', move(x, 'cpu'))\nshow('contiguous(x)', contiguous(x))\nconsole.log('finite_summary([1, Infinity, NaN]):', JSON.stringify(finite_summary(tensor([1, Infinity, NaN]))))\nconsole.log('finite_abs_max([-3, 2]):', finite_abs_max(tensor([-3, 2])))\n}\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-23",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Elementwise Ops\n\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-24",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Arithmetic\n\n$$\nz_{i,j} = a_{i,j} + b_{i,j}\n$$\n\nThe same idea applies to `sub`, `mul`, and `div`: matching positions are combined.\n\n<svg viewBox=\"0 0 760 245\" width=\"760\" height=\"245\" xmlns=\"http://www.w3.org/2000/svg\">\n  <style>.txt{font:14px sans-serif;fill:#0f172a}.mono{font:15px monospace;fill:#0f172a}.cellA{fill:#dbeafe;stroke:#60a5fa}.cellB{fill:#dcfce7;stroke:#4ade80}.cellC{fill:#ffedd5;stroke:#fb923c}.op{font:22px monospace;fill:#334155}</style>\n  <text class=\"txt\" x=\"24\" y=\"28\">Each output cell comes from the cells at the same position.</text>\n  <rect class=\"cellA\" x=\"70\" y=\"62\" width=\"54\" height=\"40\"/><text class=\"mono\" x=\"90\" y=\"87\">-2</text>\n  <rect class=\"cellA\" x=\"124\" y=\"62\" width=\"54\" height=\"40\"/><text class=\"mono\" x=\"146\" y=\"87\">-1</text>\n  <rect class=\"cellA\" x=\"178\" y=\"62\" width=\"54\" height=\"40\"/><text class=\"mono\" x=\"199\" y=\"87\">0</text>\n  <rect class=\"cellA\" x=\"70\" y=\"102\" width=\"54\" height=\"40\"/><text class=\"mono\" x=\"93\" y=\"127\">1</text>\n  <rect class=\"cellA\" x=\"124\" y=\"102\" width=\"54\" height=\"40\"/><text class=\"mono\" x=\"147\" y=\"127\">2</text>\n  <rect class=\"cellA\" x=\"178\" y=\"102\" width=\"54\" height=\"40\"/><text class=\"mono\" x=\"201\" y=\"127\">3</text>\n  <text class=\"op\" x=\"258\" y=\"109\">+</text>\n  <rect class=\"cellB\" x=\"300\" y=\"62\" width=\"54\" height=\"40\"/><text class=\"mono\" x=\"318\" y=\"87\">10</text>\n  <rect class=\"cellB\" x=\"354\" y=\"62\" width=\"54\" height=\"40\"/><text class=\"mono\" x=\"372\" y=\"87\">10</text>\n  <rect class=\"cellB\" x=\"408\" y=\"62\" width=\"54\" height=\"40\"/><text class=\"mono\" x=\"426\" y=\"87\">10</text>\n  <rect class=\"cellB\" x=\"300\" y=\"102\" width=\"54\" height=\"40\"/><text class=\"mono\" x=\"318\" y=\"127\">20</text>\n  <rect class=\"cellB\" x=\"354\" y=\"102\" width=\"54\" height=\"40\"/><text class=\"mono\" x=\"372\" y=\"127\">20</text>\n  <rect class=\"cellB\" x=\"408\" y=\"102\" width=\"54\" height=\"40\"/><text class=\"mono\" x=\"426\" y=\"127\">20</text>\n  <text class=\"op\" x=\"488\" y=\"109\">=</text>\n  <rect class=\"cellC\" x=\"530\" y=\"62\" width=\"54\" height=\"40\"/><text class=\"mono\" x=\"550\" y=\"87\">8</text>\n  <rect class=\"cellC\" x=\"584\" y=\"62\" width=\"54\" height=\"40\"/><text class=\"mono\" x=\"604\" y=\"87\">9</text>\n  <rect class=\"cellC\" x=\"638\" y=\"62\" width=\"54\" height=\"40\"/><text class=\"mono\" x=\"653\" y=\"87\">10</text>\n  <rect class=\"cellC\" x=\"530\" y=\"102\" width=\"54\" height=\"40\"/><text class=\"mono\" x=\"545\" y=\"127\">21</text>\n  <rect class=\"cellC\" x=\"584\" y=\"102\" width=\"54\" height=\"40\"/><text class=\"mono\" x=\"599\" y=\"127\">22</text>\n  <rect class=\"cellC\" x=\"638\" y=\"102\" width=\"54\" height=\"40\"/><text class=\"mono\" x=\"653\" y=\"127\">23</text>\n  <text class=\"mono\" x=\"70\" y=\"185\">result[0,0] = a[0,0] + b[0,0] = -2 + 10 = 8</text>\n</svg>\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-25",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Unary Math\n\nUnary ops use one input tensor. Each output value depends on one input value.\n\n| Op | Rule |\n| --- | --- |\n| `neg` | $z = -x$ |\n| `abs` | $z = |x|$ |\n| `sign` | negative -> `-1`, zero -> `0`, positive -> `1` |\n| `square` | $z = x^2$ |\n| `sqrt` | $z = \\sqrt{x}$ |\n| `exp` | $z = e^x$ |\n| `log` | $z = \\log(x)$ |\n\n<svg viewBox=\"0 0 760 210\" width=\"760\" height=\"210\" xmlns=\"http://www.w3.org/2000/svg\">\n  <style>.txt{font:14px sans-serif;fill:#0f172a}.mono{font:15px monospace;fill:#0f172a}.in{fill:#dbeafe;stroke:#60a5fa}.out{fill:#ffedd5;stroke:#fb923c}.arrow{stroke:#475569;stroke-width:2;marker-end:url(#arrow)}</style>\n  <defs><marker id=\"arrow\" markerWidth=\"10\" markerHeight=\"10\" refX=\"8\" refY=\"3\" orient=\"auto\"><path d=\"M0,0 L0,6 L9,3 z\" fill=\"#475569\"/></marker></defs>\n  <text class=\"txt\" x=\"24\" y=\"28\">Unary rule: one input number becomes one output number.</text>\n  <rect class=\"in\" x=\"80\" y=\"70\" width=\"84\" height=\"48\" rx=\"4\"/><text class=\"mono\" x=\"102\" y=\"100\">-3</text>\n  <line class=\"arrow\" x1=\"180\" y1=\"94\" x2=\"310\" y2=\"94\"/><text class=\"mono\" x=\"214\" y=\"78\">abs(x)</text>\n  <rect class=\"out\" x=\"330\" y=\"70\" width=\"84\" height=\"48\" rx=\"4\"/><text class=\"mono\" x=\"362\" y=\"100\">3</text>\n  <rect class=\"in\" x=\"470\" y=\"70\" width=\"84\" height=\"48\" rx=\"4\"/><text class=\"mono\" x=\"502\" y=\"100\">3</text>\n  <line class=\"arrow\" x1=\"570\" y1=\"94\" x2=\"700\" y2=\"94\"/><text class=\"mono\" x=\"602\" y=\"78\">square(x)</text>\n  <rect class=\"out\" x=\"710\" y=\"70\" width=\"42\" height=\"48\" rx=\"4\"/><text class=\"mono\" x=\"723\" y=\"100\">9</text>\n  <text class=\"txt\" x=\"80\" y=\"160\">No neighboring values are inspected.</text>\n</svg>\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-26",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Clamp\n\n$$\n\\mathrm{clamp}(x, min, max) =\n\\begin{cases}\nmin & x < min \\\\\nx & min \\le x \\le max \\\\\nmax & x > max\n\\end{cases}\n$$\n\nClamp is a value fence: values below the lower fence move up, values above the upper fence move down.\n\n<svg viewBox=\"0 0 760 210\" width=\"760\" height=\"210\" xmlns=\"http://www.w3.org/2000/svg\">\n  <style>.axis{stroke:#475569;stroke-width:2}.fence{stroke:#ef4444;stroke-width:3;stroke-dasharray:6 5}.pt{fill:#2563eb}.txt{font:14px sans-serif;fill:#0f172a}.mono{font:15px monospace;fill:#0f172a}</style>\n  <text class=\"txt\" x=\"24\" y=\"28\">Clamp to the interval [-1, 1].</text>\n  <line class=\"axis\" x1=\"100\" y1=\"105\" x2=\"660\" y2=\"105\"/>\n  <line class=\"fence\" x1=\"270\" y1=\"65\" x2=\"270\" y2=\"145\"/><line class=\"fence\" x1=\"490\" y1=\"65\" x2=\"490\" y2=\"145\"/>\n  <text class=\"mono\" x=\"258\" y=\"165\">-1</text><text class=\"mono\" x=\"484\" y=\"165\">1</text>\n  <circle class=\"pt\" cx=\"160\" cy=\"105\" r=\"7\"/><text class=\"mono\" x=\"138\" y=\"88\">-3 -> -1</text>\n  <circle class=\"pt\" cx=\"380\" cy=\"105\" r=\"7\"/><text class=\"mono\" x=\"356\" y=\"88\">0 -> 0</text>\n  <circle class=\"pt\" cx=\"610\" cy=\"105\" r=\"7\"/><text class=\"mono\" x=\"590\" y=\"88\">3 -> 1</text>\n</svg>\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-27",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Conditions And Masks\n\n`gt_scalar(x, threshold)` creates a mask. `where(mask, a, b)` and `masked_fill(input, mask, value)` use that mask position by position.\n\n$$\n\\mathrm{where}(cond, a, b)_{i,j} =\n\\begin{cases}\na_{i,j} & cond_{i,j} \\\\\nb_{i,j} & \\text{otherwise}\n\\end{cases}\n$$\n\n<svg viewBox=\"0 0 760 245\" width=\"760\" height=\"245\" xmlns=\"http://www.w3.org/2000/svg\">\n  <style>.txt{font:14px sans-serif;fill:#0f172a}.mono{font:15px monospace;fill:#0f172a}.m0{fill:#f1f5f9;stroke:#94a3b8}.m1{fill:#dcfce7;stroke:#4ade80}.out{fill:#ffedd5;stroke:#fb923c}.op{font:22px monospace;fill:#334155}</style>\n  <text class=\"txt\" x=\"24\" y=\"28\">The mask decides which positions are changed.</text>\n  <rect class=\"m0\" x=\"70\" y=\"62\" width=\"54\" height=\"40\"/><text class=\"mono\" x=\"94\" y=\"87\">0</text>\n  <rect class=\"m0\" x=\"124\" y=\"62\" width=\"54\" height=\"40\"/><text class=\"mono\" x=\"148\" y=\"87\">0</text>\n  <rect class=\"m0\" x=\"178\" y=\"62\" width=\"54\" height=\"40\"/><text class=\"mono\" x=\"202\" y=\"87\">0</text>\n  <rect class=\"m1\" x=\"70\" y=\"102\" width=\"54\" height=\"40\"/><text class=\"mono\" x=\"94\" y=\"127\">1</text>\n  <rect class=\"m1\" x=\"124\" y=\"102\" width=\"54\" height=\"40\"/><text class=\"mono\" x=\"148\" y=\"127\">1</text>\n  <rect class=\"m1\" x=\"178\" y=\"102\" width=\"54\" height=\"40\"/><text class=\"mono\" x=\"202\" y=\"127\">1</text>\n  <text class=\"op\" x=\"260\" y=\"110\">mask</text>\n  <text class=\"op\" x=\"355\" y=\"110\">+</text>\n  <text class=\"mono\" x=\"400\" y=\"90\">fill true cells</text>\n  <text class=\"op\" x=\"545\" y=\"110\">=</text>\n  <rect class=\"out\" x=\"590\" y=\"62\" width=\"54\" height=\"40\"/><text class=\"mono\" x=\"603\" y=\"87\">-2</text>\n  <rect class=\"out\" x=\"644\" y=\"62\" width=\"54\" height=\"40\"/><text class=\"mono\" x=\"657\" y=\"87\">-1</text>\n  <rect class=\"out\" x=\"698\" y=\"62\" width=\"54\" height=\"40\"/><text class=\"mono\" x=\"722\" y=\"87\">0</text>\n  <rect class=\"out\" x=\"590\" y=\"102\" width=\"54\" height=\"40\"/><text class=\"mono\" x=\"606\" y=\"127\">99</text>\n  <rect class=\"out\" x=\"644\" y=\"102\" width=\"54\" height=\"40\"/><text class=\"mono\" x=\"660\" y=\"127\">99</text>\n  <rect class=\"out\" x=\"698\" y=\"102\" width=\"54\" height=\"40\"/><text class=\"mono\" x=\"714\" y=\"127\">99</text>\n  <text class=\"mono\" x=\"70\" y=\"188\">gt_scalar(a, 0): true where a is greater than 0</text>\n</svg>\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-28",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## High-rank reading rule\n\nFor elementwise ops, all dimensions are parallel:\n\n```txt\n[batch, time, hidden] -> [batch, time, hidden]\n```\n\nMeaning:\n\n```txt\nFor every batch item,\nfor every time position,\nfor every hidden value,\napply the same scalar rule.\n```\n\nCommon mistakes:\n\n- Expecting elementwise ops to mix values across a dimension. They do not.\n- Forgetting that `log` and `sqrt` need valid input ranges.\n- Treating masks as ordinary labels; masks control positions.\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-29",
+      "kind": "code",
+      "language": "typescript",
+      "source": "{\n// Elementwise Ops\n\nfunction show(label: string, value: { shape: readonly number[], to_array(): unknown }) {\n  console.log(label)\n  console.log('shape:', value.shape)\n  console.log(JSON.stringify(value.to_array()))\n}\n\nconst a = tensor([[-2, -1, 0], [1, 2, 3]])\nconst b = tensor([[10, 10, 10], [20, 20, 20]])\n\nshow('a', a)\nshow('b', b)\n\n\nshow('add(a, b)', add(a, b))\nshow('sub(b, a)', sub(b, a))\nshow('mul(a, b)', mul(a, b))\nshow('div(b, tensor([[2, 5, 10], [4, 5, 10]]))', div(b, tensor([[2, 5, 10], [4, 5, 10]])))\n\n\nshow('neg(a)', neg(a))\nshow('abs(a)', abs(a))\nshow('sign(a)', sign(a))\nshow('square(a)', square(a))\nshow('sqrt(tensor([[1, 4, 9], [16, 25, 36]]))', sqrt(tensor([[1, 4, 9], [16, 25, 36]])))\nshow('exp(tensor([-1, 0, 1]))', exp(tensor([-1, 0, 1])))\nshow('log(tensor([1, 2, 4]))', log(tensor([1, 2, 4])))\n\n\nshow('clamp(a, -1, 1)', clamp(a, -1, 1))\n\n\nconst positive = gt_scalar(a, 0)\nshow('gt_scalar(a, 0)', positive)\nshow('where(gt_scalar(a, 0), b, a)', where(positive, b, a))\nshow('masked_fill(a, gt_scalar(a, 0), 99)', masked_fill(a, positive, 99))\n}\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-30",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Activations\n\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-31",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## ReLU\n\n$$\n\\mathrm{ReLU}(x) = \\max(x, 0)\n$$\n\nReLU keeps positive values and clips negative values to zero.\n\n<svg viewBox=\"0 0 760 250\" width=\"760\" height=\"250\" xmlns=\"http://www.w3.org/2000/svg\">\n  <style>.axis{stroke:#475569;stroke-width:1}.grid{stroke:#e2e8f0;stroke-width:1}.curve{fill:none;stroke:#2563eb;stroke-width:4;stroke-linecap:round;stroke-linejoin:round}.txt{font:14px sans-serif;fill:#0f172a}.math{font:15px monospace;fill:#0f172a}.neg{fill:#fee2e2;stroke:#f87171}.pos{fill:#dcfce7;stroke:#4ade80}</style>\n  <text class=\"txt\" x=\"24\" y=\"28\">Negative side becomes zero; positive side passes through.</text>\n  <line class=\"grid\" x1=\"70\" y1=\"180\" x2=\"350\" y2=\"180\"/><line class=\"grid\" x1=\"210\" y1=\"50\" x2=\"210\" y2=\"210\"/>\n  <line class=\"axis\" x1=\"70\" y1=\"180\" x2=\"350\" y2=\"180\"/><line class=\"axis\" x1=\"210\" y1=\"210\" x2=\"210\" y2=\"50\"/>\n  <path class=\"curve\" d=\"M90 180 L210 180 L335 60\"/>\n  <text class=\"txt\" x=\"342\" y=\"185\">x</text><text class=\"txt\" x=\"218\" y=\"58\">y</text><text class=\"txt\" x=\"198\" y=\"198\">0</text>\n  <rect class=\"neg\" x=\"430\" y=\"70\" width=\"105\" height=\"42\" rx=\"4\"/><text class=\"math\" x=\"448\" y=\"96\">-2 -> 0</text>\n  <rect class=\"neg\" x=\"430\" y=\"124\" width=\"105\" height=\"42\" rx=\"4\"/><text class=\"math\" x=\"448\" y=\"150\">-1 -> 0</text>\n  <rect class=\"pos\" x=\"555\" y=\"70\" width=\"105\" height=\"42\" rx=\"4\"/><text class=\"math\" x=\"573\" y=\"96\">1 -> 1</text>\n  <rect class=\"pos\" x=\"555\" y=\"124\" width=\"105\" height=\"42\" rx=\"4\"/><text class=\"math\" x=\"573\" y=\"150\">2 -> 2</text>\n</svg>\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-32",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Sigmoid\n\n$$\n\\sigma(x) = \\frac{1}{1 + e^{-x}}\n$$\n\nSigmoid squeezes any number into the range `(0, 1)`. It is often used when a value should behave like a probability-like score.\n\n<svg viewBox=\"0 0 760 250\" width=\"760\" height=\"250\" xmlns=\"http://www.w3.org/2000/svg\">\n  <style>.axis{stroke:#475569;stroke-width:1}.grid{stroke:#e2e8f0;stroke-width:1}.curve{fill:none;stroke:#2563eb;stroke-width:4;stroke-linecap:round}.txt{font:14px sans-serif;fill:#0f172a}.math{font:15px monospace;fill:#0f172a}.band{fill:#eff6ff;stroke:#93c5fd}</style>\n  <text class=\"txt\" x=\"24\" y=\"28\">Large negative values move toward 0; large positive values move toward 1.</text>\n  <line class=\"grid\" x1=\"70\" y1=\"180\" x2=\"350\" y2=\"180\"/><line class=\"grid\" x1=\"70\" y1=\"70\" x2=\"350\" y2=\"70\"/><line class=\"grid\" x1=\"210\" y1=\"50\" x2=\"210\" y2=\"210\"/>\n  <line class=\"axis\" x1=\"70\" y1=\"180\" x2=\"350\" y2=\"180\"/><line class=\"axis\" x1=\"210\" y1=\"210\" x2=\"210\" y2=\"50\"/>\n  <path class=\"curve\" d=\"M90 172 C135 170, 170 150, 210 125 C250 100, 285 80, 335 73\"/>\n  <text class=\"txt\" x=\"355\" y=\"185\">x</text><text class=\"txt\" x=\"218\" y=\"58\">y</text><text class=\"txt\" x=\"54\" y=\"74\">1</text><text class=\"txt\" x=\"54\" y=\"184\">0</text><text class=\"txt\" x=\"214\" y=\"142\">0.5</text>\n  <rect class=\"band\" x=\"430\" y=\"72\" width=\"220\" height=\"42\" rx=\"4\"/><text class=\"math\" x=\"448\" y=\"98\">sigmoid(0) = 0.5</text>\n  <rect class=\"band\" x=\"430\" y=\"126\" width=\"220\" height=\"42\" rx=\"4\"/><text class=\"math\" x=\"448\" y=\"152\">output is always 0..1</text>\n</svg>\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-33",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Tanh\n\n$$\n\\tanh(x) = \\frac{e^{2x} - 1}{e^{2x} + 1}\n$$\n\nTanh squeezes values into `(-1, 1)` and is centered at zero.\n\n<svg viewBox=\"0 0 760 250\" width=\"760\" height=\"250\" xmlns=\"http://www.w3.org/2000/svg\">\n  <style>.axis{stroke:#475569;stroke-width:1}.grid{stroke:#e2e8f0;stroke-width:1}.curve{fill:none;stroke:#2563eb;stroke-width:4;stroke-linecap:round}.txt{font:14px sans-serif;fill:#0f172a}.math{font:15px monospace;fill:#0f172a}.band{fill:#f0fdf4;stroke:#86efac}</style>\n  <text class=\"txt\" x=\"24\" y=\"28\">Like sigmoid, but centered: negative inputs stay negative, positive inputs stay positive.</text>\n  <line class=\"grid\" x1=\"70\" y1=\"180\" x2=\"350\" y2=\"180\"/><line class=\"grid\" x1=\"70\" y1=\"70\" x2=\"350\" y2=\"70\"/><line class=\"grid\" x1=\"70\" y1=\"125\" x2=\"350\" y2=\"125\"/><line class=\"grid\" x1=\"210\" y1=\"50\" x2=\"210\" y2=\"210\"/>\n  <line class=\"axis\" x1=\"70\" y1=\"125\" x2=\"350\" y2=\"125\"/><line class=\"axis\" x1=\"210\" y1=\"210\" x2=\"210\" y2=\"50\"/>\n  <path class=\"curve\" d=\"M90 178 C135 176, 170 155, 210 125 C250 95, 285 74, 335 72\"/>\n  <text class=\"txt\" x=\"355\" y=\"130\">x</text><text class=\"txt\" x=\"218\" y=\"58\">y</text><text class=\"txt\" x=\"52\" y=\"74\">1</text><text class=\"txt\" x=\"47\" y=\"184\">-1</text><text class=\"txt\" x=\"214\" y=\"142\">0</text>\n  <rect class=\"band\" x=\"430\" y=\"72\" width=\"230\" height=\"42\" rx=\"4\"/><text class=\"math\" x=\"448\" y=\"98\">tanh(0) = 0</text>\n  <rect class=\"band\" x=\"430\" y=\"126\" width=\"230\" height=\"42\" rx=\"4\"/><text class=\"math\" x=\"448\" y=\"152\">output is always -1..1</text>\n</svg>\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-34",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## GELU\n\n$$\n\\mathrm{GELU}(x) = \\frac{1}{2}x\\left(1+\\tanh\\left(\\sqrt{\\frac{2}{\\pi}}(x+0.044715x^3)\\right)\\right)\n$$\n\nGELU is a smooth gate. Negative values are mostly suppressed, but not with a hard corner like ReLU.\n\n<svg viewBox=\"0 0 760 250\" width=\"760\" height=\"250\" xmlns=\"http://www.w3.org/2000/svg\">\n  <style>.axis{stroke:#475569;stroke-width:1}.grid{stroke:#e2e8f0;stroke-width:1}.curve{fill:none;stroke:#2563eb;stroke-width:4;stroke-linecap:round;stroke-linejoin:round}.relu{fill:none;stroke:#94a3b8;stroke-width:2;stroke-dasharray:6 5}.txt{font:14px sans-serif;fill:#0f172a}.math{font:15px monospace;fill:#0f172a}.band{fill:#f8fafc;stroke:#cbd5e1}</style>\n  <text class=\"txt\" x=\"24\" y=\"28\">GELU behaves like a soft, smooth version of ReLU.</text>\n  <line class=\"grid\" x1=\"70\" y1=\"180\" x2=\"350\" y2=\"180\"/><line class=\"grid\" x1=\"210\" y1=\"50\" x2=\"210\" y2=\"210\"/>\n  <line class=\"axis\" x1=\"70\" y1=\"180\" x2=\"350\" y2=\"180\"/><line class=\"axis\" x1=\"210\" y1=\"210\" x2=\"210\" y2=\"50\"/>\n  <path class=\"relu\" d=\"M90 180 L210 180 L335 60\"/>\n  <path class=\"curve\" d=\"M90 181 C135 182, 170 190, 195 187 C220 183, 238 160, 260 132 C285 100, 310 75, 335 60\"/>\n  <text class=\"txt\" x=\"355\" y=\"185\">x</text><text class=\"txt\" x=\"218\" y=\"58\">y</text><text class=\"txt\" x=\"238\" y=\"206\">gray = ReLU reference</text>\n  <rect class=\"band\" x=\"430\" y=\"72\" width=\"260\" height=\"42\" rx=\"4\"/><text class=\"math\" x=\"448\" y=\"98\">GELU(-1) is small negative</text>\n  <rect class=\"band\" x=\"430\" y=\"126\" width=\"260\" height=\"42\" rx=\"4\"/><text class=\"math\" x=\"448\" y=\"152\">GELU(2) is almost 2</text>\n</svg>\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-35",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## SiLU\n\n$$\n\\mathrm{SiLU}(x) = x \\cdot \\sigma(x)\n$$\n\nSiLU multiplies the input by its sigmoid gate. It keeps large positive values and smoothly dampens negative values.\n\n<svg viewBox=\"0 0 760 250\" width=\"760\" height=\"250\" xmlns=\"http://www.w3.org/2000/svg\">\n  <style>.axis{stroke:#475569;stroke-width:1}.grid{stroke:#e2e8f0;stroke-width:1}.curve{fill:none;stroke:#2563eb;stroke-width:4;stroke-linecap:round;stroke-linejoin:round}.txt{font:14px sans-serif;fill:#0f172a}.math{font:15px monospace;fill:#0f172a}.gate{fill:#eff6ff;stroke:#93c5fd}</style>\n  <text class=\"txt\" x=\"24\" y=\"28\">SiLU is input times a sigmoid gate.</text>\n  <line class=\"grid\" x1=\"70\" y1=\"180\" x2=\"350\" y2=\"180\"/><line class=\"grid\" x1=\"210\" y1=\"50\" x2=\"210\" y2=\"210\"/>\n  <line class=\"axis\" x1=\"70\" y1=\"180\" x2=\"350\" y2=\"180\"/><line class=\"axis\" x1=\"210\" y1=\"210\" x2=\"210\" y2=\"50\"/>\n  <path class=\"curve\" d=\"M90 183 C125 186, 160 193, 190 190 C220 186, 242 164, 265 132 C290 98, 315 72, 335 60\"/>\n  <text class=\"txt\" x=\"355\" y=\"185\">x</text><text class=\"txt\" x=\"218\" y=\"58\">y</text>\n  <rect class=\"gate\" x=\"430\" y=\"60\" width=\"94\" height=\"38\" rx=\"4\"/><text class=\"math\" x=\"455\" y=\"84\">x</text>\n  <text class=\"math\" x=\"540\" y=\"84\">*</text>\n  <rect class=\"gate\" x=\"565\" y=\"60\" width=\"94\" height=\"38\" rx=\"4\"/><text class=\"math\" x=\"581\" y=\"84\">sigmoid(x)</text>\n  <text class=\"math\" x=\"500\" y=\"142\">negative: dampened</text>\n  <text class=\"math\" x=\"500\" y=\"170\">positive: mostly kept</text>\n</svg>\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-36",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## High-rank reading rule\n\nBecause these activations are elementwise, all dimensions are parallel dimensions.\n\n```txt\n[batch, time, hidden] -> [batch, time, hidden]\n```\n\nMeaning:\n\n```txt\nFor every batch item,\nfor every time position,\nfor every hidden value,\napply the same scalar activation formula.\n```\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-37",
+      "kind": "code",
+      "language": "typescript",
+      "source": "{\n// Activations\n\nfunction show(label: string, value: { shape: readonly number[], to_array(): unknown }) {\n  console.log(label)\n  console.log('shape:', value.shape)\n  console.log(JSON.stringify(value.to_array()))\n}\n\nconst xs = tensor([-4, -2, -1, 0, 1, 2, 4])\nshow('input xs', xs)\n\n\nshow('relu(xs)', relu(xs))\n\n\nshow('sigmoid(xs)', sigmoid(xs))\n\n\nshow('tanh(xs)', tanh(xs))\n\n\nshow('gelu(xs)', gelu(xs))\n\n\nshow('silu(xs)', silu(xs))\n}\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-38",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Reductions And Softmax\n\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-39",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Sum And Mean\n\n$$\n\\mathrm{sum}(x, dim) = \\sum_i x_i\n$$\n\n$$\n\\mathrm{mean}(x, dim) = \\frac{1}{N}\\sum_i x_i\n$$\n\n<svg viewBox=\"0 0 760 210\" width=\"760\" height=\"210\" xmlns=\"http://www.w3.org/2000/svg\">\n  <style>.txt{font:14px sans-serif;fill:#0f172a}.mono{font:15px monospace}.p{fill:#dbeafe;stroke:#60a5fa}.r{fill:#fee2e2;stroke:#f87171}.o{fill:#ffedd5;stroke:#fb923c}</style>\n  <text class=\"txt\" x=\"24\" y=\"28\">For each parallel position, reduce the hidden values.</text>\n  <rect class=\"p\" x=\"70\" y=\"65\" width=\"80\" height=\"40\" rx=\"4\"/><text class=\"mono\" x=\"91\" y=\"90\">batch</text>\n  <rect class=\"p\" x=\"155\" y=\"65\" width=\"70\" height=\"40\" rx=\"4\"/><text class=\"mono\" x=\"176\" y=\"90\">time</text>\n  <rect class=\"r\" x=\"230\" y=\"65\" width=\"80\" height=\"40\" rx=\"4\"/><text class=\"mono\" x=\"248\" y=\"90\">hidden</text>\n  <text class=\"mono\" x=\"335\" y=\"90\">mean(dim=2)</text>\n  <text class=\"mono\" x=\"475\" y=\"90\">-></text>\n  <rect class=\"p\" x=\"520\" y=\"65\" width=\"80\" height=\"40\" rx=\"4\"/><text class=\"mono\" x=\"541\" y=\"90\">batch</text>\n  <rect class=\"p\" x=\"605\" y=\"65\" width=\"70\" height=\"40\" rx=\"4\"/><text class=\"mono\" x=\"626\" y=\"90\">time</text>\n  <text class=\"mono\" x=\"70\" y=\"150\">x[0,0] = [1,2,3], sum = 6, mean = 2</text>\n</svg>\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-40",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "### Before You Run\n\nFor `x: [batch=2, time=2, hidden=3]`, predict the shape of `sum(x, 2)` and `mean(x, 2, true)`.\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-41",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Extremes And Positions\n\n`max` and `min` return values. `argmax` and `argmin` return positions.\n\n```txt\n[4, 5, 6] -> max = 6, argmax = 2\n```\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-42",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Variance And Std\n\nVariance and standard deviation measure spread around the mean.\n\n$$\n\\mathrm{variance}(x)=\\frac{1}{N}\\sum_i(x_i-\\bar{x})^2\n$$\n\n$$\n\\mathrm{std}(x)=\\sqrt{\\mathrm{variance}(x)}\n$$\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-43",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Softmax\n\n$$\n\\mathrm{softmax}(x)_i = \\frac{e^{x_i}}{\\sum_j e^{x_j}}\n$$\n\nSoftmax normalizes one dimension and preserves shape.\n\n```txt\n[batch, query_pos, key_pos] -- softmax(dim=2) --> same shape\nparallel: batch, query_pos\nnormalized: key_pos\n```\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-44",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "### Read The Output\n\nAfter `softmax(scores, 2)`, each length-3 vector along `key_pos` sums to about 1. The shape is unchanged because softmax normalizes an axis instead of reducing it.\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-45",
+      "kind": "code",
+      "language": "typescript",
+      "source": "{\n// Reductions And Softmax\n\nfunction show(label: string, value: { shape: readonly number[], to_array(): unknown }) {\n  console.log(label)\n  console.log('shape:', value.shape)\n  console.log(JSON.stringify(value.to_array()))\n}\n\nconst x = tensor([\n  [[1, 2, 3], [4, 5, 6]],\n  [[10, 20, 30], [40, 50, 60]],\n])\nshow('x: [batch=2, time=2, hidden=3]', x)\n\n\nshow('sum(x, 2): [batch=2, time=2]', sum(x, 2))\nshow('mean(x, 2): [batch=2, time=2]', mean(x, 2))\nshow('mean(x, 2, true): [batch=2, time=2, 1]', mean(x, 2, true))\n\n\nshow('max(x, 2)', max(x, 2))\nshow('min(x, 2)', min(x, 2))\nshow('argmax(x, 2)', argmax(x, 2))\nshow('argmin(x, 2)', argmin(x, 2))\n\n\nshow('variance(x, 2)', variance(x, 2))\nshow('std(x, 2)', std(x, 2))\n\n\nconst scores = tensor([[[1, 2, 3], [2, 0, -1]]])\nshow('scores: [batch=1, query_pos=2, key_pos=3]', scores)\nshow('softmax(scores, 2)', softmax(scores, 2))\n}\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-46",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Shape And Selection\n\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-47",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Reshape, Transpose, Permute\n\n`reshape` keeps the same values but groups them into new axes.\n\n`transpose` swaps two axes. `permute` supplies the full axis order.\n\n<svg viewBox=\"0 0 760 200\" width=\"760\" height=\"200\" xmlns=\"http://www.w3.org/2000/svg\">\n  <style>.txt{font:14px sans-serif;fill:#0f172a}.mono{font:15px monospace}.a{fill:#dbeafe;stroke:#60a5fa}.b{fill:#ffedd5;stroke:#fb923c}</style>\n  <text class=\"txt\" x=\"24\" y=\"28\">Shape changes are often address changes, not new math.</text>\n  <rect class=\"a\" x=\"80\" y=\"70\" width=\"90\" height=\"42\" rx=\"4\"/><text class=\"mono\" x=\"103\" y=\"96\">[2,3]</text>\n  <text class=\"mono\" x=\"210\" y=\"96\">reshape</text>\n  <rect class=\"b\" x=\"320\" y=\"70\" width=\"90\" height=\"42\" rx=\"4\"/><text class=\"mono\" x=\"343\" y=\"96\">[3,2]</text>\n  <text class=\"mono\" x=\"455\" y=\"96\">transpose</text>\n  <rect class=\"b\" x=\"590\" y=\"70\" width=\"90\" height=\"42\" rx=\"4\"/><text class=\"mono\" x=\"613\" y=\"96\">[3,2]</text>\n</svg>\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-48",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Squeeze And Unsqueeze\n\n`unsqueeze` inserts a size-1 axis. `squeeze` removes size-1 axes.\n\n```txt\n[2, 3] -- unsqueeze(0) --> [1, 2, 3]\n[1, 2, 3] -- squeeze(0) --> [2, 3]\n```\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-49",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Cat And Stack\n\n`cat` extends an existing axis. `stack` creates a new axis.\n\n```txt\ncat([x, x], dim=0):   [2,3] + [2,3] -> [4,3]\nstack([x, x], dim=0): [2,3], [2,3] -> [2,2,3]\n```\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-50",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Slice, Gather, Index Select, TopK, One Hot\n\nSelection ops answer: which positions do you want?\n\n- `slice`: choose ranges or fixed positions.\n- `index_select`: choose items along one axis.\n- `gather`: choose per-position indices from an index tensor.\n- `topk`: choose the largest `k` values and their positions.\n- `one_hot`: turn class ids into indicator rows.\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-51",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Common Mistakes\n\n- Confusing `cat` and `stack`: `stack` adds a new axis.\n- Forgetting that `reshape` must keep the same total number of elements.\n- Using `gather` when `index_select` is enough; `gather` is for per-position indices.\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-52",
+      "kind": "code",
+      "language": "typescript",
+      "source": "{\n// Shape And Selection\n\nfunction show(label: string, value: { shape: readonly number[], to_array(): unknown }) {\n  console.log(label)\n  console.log('shape:', value.shape)\n  console.log(JSON.stringify(value.to_array()))\n}\n\nconst x = tensor([[1, 2, 3], [4, 5, 6]])\nshow('x: [2, 3]', x)\n\n\nshow('reshape(x, [3, 2])', reshape(x, [3, 2]))\nshow('transpose(x, 0, 1)', transpose(x, 0, 1))\nconst y = tensor([[[1, 2], [3, 4], [5, 6]]])\nshow('permute(y, [1, 0, 2])', permute(y, [1, 0, 2]))\n\n\nconst withBatch = unsqueeze(x, 0)\nshow('unsqueeze(x, 0)', withBatch)\nshow('squeeze(withBatch, 0)', squeeze(withBatch, 0))\n\n\nshow('cat([x, x], 0)', cat([x, x], 0))\nshow('cat([x, x], 1)', cat([x, x], 1))\nshow('stack([x, x], 0)', stack([x, x], 0))\n\n\nshow('slice(x, range(0, 2), 1)', slice(x, range(0, 2), 1))\nshow('index_select(x, 0, tensor([1, 0]))', index_select(x, 0, tensor([1, 0], { dtype: 'i64' })))\nshow('gather(x, 1, [[2,1],[0,2]])', gather(x, 1, tensor([[2, 1], [0, 2]], { dtype: 'i64' })))\nconst tk = topk(x, 2, 1)\nshow('topk(x, 2, 1).values', tk.values)\nshow('topk(x, 2, 1).indices', tk.indices)\nshow('one_hot([0, 2, 1], 3)', one_hot(tensor([0, 2, 1], { dtype: 'i64' }), 3))\n}\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    }
+  ]
+}

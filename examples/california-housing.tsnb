@@ -1,0 +1,156 @@
+{
+  "format": 1,
+  "metadata": {
+    "kernelspec": {
+      "name": "affon",
+      "display_name": "Affon (TypeScript)",
+      "language": "typescript"
+    }
+  },
+  "cells": [
+    {
+      "id": "cell-1",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "# California Housing Price Prediction\n\nPredict median house values using the California Housing dataset (20,640 samples, 8 numeric features).\n\nThis demonstrates:\n- Loading CSV data with `affon:data`\n- Feature standardization and data pipeline\n- Training a dense neural network with SGD optimizer",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "e232c916",
+      "kind": "code",
+      "language": "typescript",
+      "source": "import { relu, sgd, clear_grad, grad } from 'affon:compute'\nimport { read } from 'affon:data'\nimport nn from 'affon:nn'\n",
+      "outputs": [],
+      "execution_count": 1,
+      "metadata": {}
+    },
+    {
+      "id": "e3073153",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Load and Prepare Data\n\nThe dataset has 20,640 samples with 8 numeric features and 1 categorical (`ocean_proximity`).\nWe drop the categorical column, handle missing values, and standardize all columns.",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "64b600c5",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const dataset = read('california_housing.csv')\n  .drop('ocean_proximity')\n  .dropna()\n  .standardize('longitude', 'latitude', 'housing_median_age', 'total_rooms',\n               'total_bedrooms', 'population', 'households', 'median_income',\n               'median_house_value')\n  .sample(500)\n  .shuffle()\n\nconsole.log('Columns:', dataset.columns)",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "Columns: [ longitude, latitude, housing_median_age, total_rooms, total_bedrooms, population, households, median_income, median_house_value, ocean_proximity ]\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 2,
+      "metadata": {}
+    },
+    {
+      "id": "b5de1a89",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const features = ['longitude', 'latitude', 'housing_median_age', 'total_rooms',\n                  'total_bedrooms', 'population', 'households', 'median_income']\n\nconst { X, y } = dataset\n  .features(...features)\n  .target('median_house_value')\n  .toTensors({ dtype: 'f32' })\n\nconsole.log('X:', X.shape, X.dtype, 'y:', y.shape, y.dtype)\n",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "X: [ 500, 8 ] f32 y: [ 500 ] f32\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 3,
+      "metadata": {}
+    },
+    {
+      "id": "849eac1e",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Define Model\n\nA 3-layer dense network: 8 -> 32 -> 16 -> 1 with ReLU activations.",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "ae5c14d7",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const model = nn.Sequential(\n  nn.Linear(8, 32),\n  relu,\n  nn.Linear(32, 16),\n  relu,\n  nn.Linear(16, 1)\n)\n\nconst criterion = nn.MSELoss()\nconst params = model.parameters\nconst step = sgd({ lr: 0.01 })\n\nconsole.log('Parameters:', params.length)\n",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "Parameters: 6\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 4,
+      "metadata": {}
+    },
+    {
+      "id": "fea8b38e",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Train",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "f3feb2e5",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const epochs = 500\n\nfor (let epoch = 0; epoch < epochs; epoch++) {\n  clear_grad(params)\n  const pred = model(X)\n  const loss = criterion(pred, y)\n  grad(loss, params)\n  step(params)\n\n  if (epoch % 100 === 0 || epoch === epochs - 1) {\n    console.log(`Epoch ${epoch}: loss = ${loss.item().toFixed(4)}`)\n  }\n}\n",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "Epoch 0: loss = 17.8237\nEpoch 100: loss = 0.2966\nEpoch 200: loss = 0.2711\nEpoch 300: loss = 0.2578\nEpoch 400: loss = 0.2491\nEpoch 499: loss = 0.2429\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 5,
+      "metadata": {}
+    },
+    {
+      "id": "88cd5051",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Results",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "b0d36f6f",
+      "kind": "code",
+      "language": "typescript",
+      "source": "// Verify model works for inference after training\nconst preds = model(X)\nconsole.log('Prediction shape:', preds.shape)\nconsole.log('Final MSE:', criterion(preds, y).item().toFixed(4))",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "Prediction shape: [ 500, 1 ]\nFinal MSE: 0.2429\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 6,
+      "metadata": {}
+    }
+  ]
+}

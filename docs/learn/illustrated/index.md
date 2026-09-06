@@ -110,11 +110,11 @@ This is the same pattern used when a Linear layer projects every token embedding
 
 | Notebook | Purpose |
 | --- | --- |
-| `examples/illustrated/tensor-illustrated.ipynb` | Covers tensor dim roles, construction, elementwise ops, activations, reductions, softmax, shape changes, and selection. |
-| `examples/illustrated/tensor-ops-illustrated.ipynb` | Teaches tensor ops one by one, grouping only the obvious elementwise families. |
-| `examples/illustrated/nn-illustrated.ipynb` | Covers basic `nn` modules, sequence blocks, masks, positions, initialization context, and diagnostics context. |
-| `examples/illustrated/losses-metrics-illustrated.ipynb` | Covers regression, binary, multiclass losses, and classification/regression metrics. |
-| `examples/illustrated/training-illustrated.ipynb` | Covers parameters, gradients, clearing, clipping, optimizers, schedules, `no_grad`, and `copy`. |
+| `examples/illustrated/tensor-illustrated.tsnb` | Covers tensor dim roles, construction, elementwise ops, activations, reductions, softmax, shape changes, and selection. |
+| `examples/illustrated/tensor-ops-illustrated.tsnb` | Teaches tensor ops one by one, grouping only the obvious elementwise families. |
+| `examples/illustrated/nn-illustrated.tsnb` | Covers basic `nn` modules, sequence blocks, masks, positions, initialization context, and diagnostics context. |
+| `examples/illustrated/losses-metrics-illustrated.tsnb` | Covers regression, binary, multiclass losses, and classification/regression metrics. |
+| `examples/illustrated/training-illustrated.tsnb` | Covers parameters, gradients, clearing, clipping, optimizers, schedules, `no_grad`, and `copy`. |
 
 ## Coverage Groups
 
@@ -325,11 +325,11 @@ Use category notebooks rather than one notebook per function:
 
 | Notebook | Covers |
 | --- | --- |
-| `tensor-illustrated.ipynb` | dim roles, construction, metadata, elementwise ops, activations, reductions, softmax, shape, selection |
-| `tensor-ops-illustrated.ipynb` | op-by-op tensor teaching for constructors, math, activations, linear algebra, reductions, masks, shape, and selection |
-| `nn-illustrated.ipynb` | Linear, Embedding, Sequential, normalization, Dropout, recurrent blocks, masks, positions |
-| `losses-metrics-illustrated.ipynb` | losses plus classification/regression metrics |
-| `training-illustrated.ipynb` | gradients, optimizer steps, clipping, schedules |
+| `tensor-illustrated.tsnb` | dim roles, construction, metadata, elementwise ops, activations, reductions, softmax, shape, selection |
+| `tensor-ops-illustrated.tsnb` | op-by-op tensor teaching for constructors, math, activations, linear algebra, reductions, masks, shape, and selection |
+| `nn-illustrated.tsnb` | Linear, Embedding, Sequential, normalization, Dropout, recurrent blocks, masks, positions |
+| `losses-metrics-illustrated.tsnb` | losses plus classification/regression metrics |
+| `training-illustrated.tsnb` | gradients, optimizer steps, clipping, schedules |
 
 ## Completion Definition
 

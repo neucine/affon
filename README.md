@@ -68,15 +68,15 @@ by the underlying runtime under `std:*` specifiers.
 
 ## Examples
 
-- [Getting Started](examples/getting-started.ipynb)
-- [NN Basics: Feed-forward + Recurrent](examples/nn-basics.ipynb)
-- [RNNs](examples/rnn.ipynb)
-- [Embeddings](examples/embedding.ipynb)
-- [Illustrated Tensors](examples/illustrated/tensor-illustrated.ipynb)
-- [Tensor Ops Illustrated](examples/illustrated/tensor-ops-illustrated.ipynb)
-- [Illustrated NN](examples/illustrated/nn-illustrated.ipynb)
-- [Illustrated Losses And Metrics](examples/illustrated/losses-metrics-illustrated.ipynb)
-- [Illustrated Training And Optimizers](examples/illustrated/training-illustrated.ipynb)
+- [Getting Started](examples/getting-started.tsnb)
+- [NN Basics: Feed-forward + Recurrent](examples/nn-basics.tsnb)
+- [RNNs](examples/rnn.tsnb)
+- [Embeddings](examples/embedding.tsnb)
+- [Illustrated Tensors](examples/illustrated/tensor-illustrated.tsnb)
+- [Tensor Ops Illustrated](examples/illustrated/tensor-ops-illustrated.tsnb)
+- [Illustrated NN](examples/illustrated/nn-illustrated.tsnb)
+- [Illustrated Losses And Metrics](examples/illustrated/losses-metrics-illustrated.tsnb)
+- [Illustrated Training And Optimizers](examples/illustrated/training-illustrated.tsnb)
 
 ## Features
 

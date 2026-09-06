@@ -1,0 +1,156 @@
+{
+  "format": 1,
+  "metadata": {
+    "kernelspec": {
+      "name": "affon",
+      "display_name": "Affon (TypeScript)",
+      "language": "typescript"
+    }
+  },
+  "cells": [
+    {
+      "id": "cell-1",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "# Illustrated Training And Optimizers\n\nTraining has a loop:\n\n```txt\ndata -> model -> prediction -> loss\n                         |\n                         v\nparameters <- optimizer <- gradients\n```\n\nThe loss measures wrongness. Gradients describe how parameters affect that wrongness. The optimizer changes parameters.\n\nWhen reading this notebook, keep asking: what value is stored, what value is consumed, and what value changes?\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-2",
+      "kind": "code",
+      "language": "typescript",
+      "source": "import { tensor, parameter, matmul, add, mean, grad, clear_grad, clip_grad_norm, no_grad, copy, sgd, adam, adamw, schedules, Duration, scheduled } from 'affon:compute'\n\nfunction show(label: string, value: { shape: readonly number[], to_array(): unknown } | null) {\n  console.log(label)\n  if (value === null) {\n    console.log('null')\n    return\n  }\n  console.log('shape:', value.shape)\n  console.log(JSON.stringify(value.to_array()))\n}\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-3",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Parameters And Gradients\n\n`parameter` creates trainable state. `grad(loss, params)` computes gradients and stores them on parameters.\n\n$$\n\\theta \\leftarrow \\theta - \\eta \\nabla_\\theta L\n$$\n\nRead this as: parameter moves opposite the loss slope by a learning-rate-sized step.\n\n<svg viewBox=\"0 0 760 230\" width=\"760\" height=\"230\" xmlns=\"http://www.w3.org/2000/svg\">\n  <style>.txt{font:14px sans-serif;fill:#0f172a}.mono{font:15px monospace}.box{fill:#dbeafe;stroke:#60a5fa}.loss{fill:#fee2e2;stroke:#f87171}.grad{fill:#ffedd5;stroke:#fb923c}.arrow{stroke:#475569;stroke-width:2;marker-end:url(#arrow)}</style>\n  <defs><marker id=\"arrow\" markerWidth=\"10\" markerHeight=\"10\" refX=\"8\" refY=\"3\" orient=\"auto\"><path d=\"M0,0 L0,6 L9,3 z\" fill=\"#475569\"/></marker></defs>\n  <rect class=\"box\" x=\"80\" y=\"75\" width=\"110\" height=\"50\" rx=\"4\"/><text class=\"mono\" x=\"112\" y=\"105\">data</text>\n  <line class=\"arrow\" x1=\"190\" y1=\"100\" x2=\"270\" y2=\"100\"/>\n  <rect class=\"box\" x=\"270\" y=\"75\" width=\"120\" height=\"50\" rx=\"4\"/><text class=\"mono\" x=\"305\" y=\"105\">model</text>\n  <line class=\"arrow\" x1=\"390\" y1=\"100\" x2=\"470\" y2=\"100\"/>\n  <rect class=\"loss\" x=\"470\" y=\"75\" width=\"110\" height=\"50\" rx=\"4\"/><text class=\"mono\" x=\"505\" y=\"105\">loss</text>\n  <line class=\"arrow\" x1=\"525\" y1=\"125\" x2=\"525\" y2=\"170\"/>\n  <rect class=\"grad\" x=\"455\" y=\"170\" width=\"140\" height=\"42\" rx=\"4\"/><text class=\"mono\" x=\"488\" y=\"196\">gradients</text>\n  <line class=\"arrow\" x1=\"455\" y1=\"191\" x2=\"355\" y2=\"191\"/>\n  <rect class=\"box\" x=\"230\" y=\"170\" width=\"125\" height=\"42\" rx=\"4\"/><text class=\"mono\" x=\"255\" y=\"196\">parameters</text>\n  <text class=\"txt\" x=\"80\" y=\"36\">Optimizer reads gradients and updates parameters.</text>\n</svg>\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-4",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "### Before You Run\n\nPredict which objects will get a `.grad`: the input data, the prediction, or the parameters?\n\n### Read The Output\n\nGradients are attached to `W` and `b` because those are the trainable parameters passed to `grad(loss, [W, b])`.\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-5",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const W = parameter([2, 1]).ones()\nconst b = parameter([1]).zeros()\nconst x = tensor([[1, 2], [3, 4]])\n\nclear_grad([W, b])\nconst pred = add(matmul(x, W), b)\nconst loss = mean(pred)\ngrad(loss, [W, b])\n\nshow('prediction', pred)\nshow('loss', loss)\nshow('W.grad', W.grad)\nshow('b.grad', b.grad)\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-6",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Clearing And Clipping Gradients\n\nGradients are stored on parameters. `clear_grad` removes old gradients before the next batch.\n\n`clip_grad_norm` rescales gradients when their global norm is too large.\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-7",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "### Before You Run\n\nAfter `clear_grad([W, b])`, predict what `W.grad` should be.\n\n### Debugging Cue\n\nIf training behaves strangely, check whether gradients are accumulating from previous batches.\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-8",
+      "kind": "code",
+      "language": "typescript",
+      "source": "console.log('grad norm before clipping:', clip_grad_norm([W, b], 1.0))\nshow('W.grad after clipping', W.grad)\nclear_grad([W, b])\nshow('W.grad after clear_grad', W.grad)\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-9",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## SGD, Adam, AdamW\n\n- `sgd`: move opposite the gradient.\n- `adam`: keep running averages of gradients and squared gradients.\n- `adamw`: Adam plus decoupled weight decay.\n\nStart with SGD to learn the mechanics. Use Adam as a strong default when training a real model.\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-10",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "### Before You Run\n\nFor a positive gradient and learning rate `0.1`, predict whether SGD moves a parameter up or down.\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-11",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const wSgd = parameter([1]).ones()\nclear_grad([wSgd])\ngrad(mean(wSgd), [wSgd])\nconst sgdStep = sgd({ lr: 0.1 })\nsgdStep([wSgd])\nshow('w after SGD step', wSgd)\n\nconst adamStep = adam({ lr: 0.01 })\nconst adamwStep = adamw({ lr: 0.01, weight_decay: 0.01 })\nconsole.log('adam lr:', adamStep.lr)\nconsole.log('adamw lr:', adamwStep.lr)\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-12",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Schedules\n\nA schedule changes the learning rate over steps or epochs.\n\n<svg viewBox=\"0 0 760 220\" width=\"760\" height=\"220\" xmlns=\"http://www.w3.org/2000/svg\">\n  <style>.axis{stroke:#475569;stroke-width:2}.grid{stroke:#e2e8f0}.linear{fill:none;stroke:#2563eb;stroke-width:4}.cos{fill:none;stroke:#16a34a;stroke-width:4}.step{fill:none;stroke:#f97316;stroke-width:4}.txt{font:14px sans-serif;fill:#0f172a}.mono{font:15px monospace}</style>\n  <text class=\"txt\" x=\"24\" y=\"28\">Learning-rate schedules decide step size over time.</text>\n  <line class=\"axis\" x1=\"80\" y1=\"170\" x2=\"700\" y2=\"170\"/><line class=\"axis\" x1=\"80\" y1=\"170\" x2=\"80\" y2=\"50\"/>\n  <path class=\"linear\" d=\"M100 160 L260 70\"/><text class=\"mono\" x=\"115\" y=\"64\">linear</text>\n  <path class=\"cos\" d=\"M310 70 C360 70 410 155 470 160\"/><text class=\"mono\" x=\"350\" y=\"64\">cosine</text>\n  <path class=\"step\" d=\"M520 75 L590 75 L590 120 L660 120 L660 155 L700 155\"/><text class=\"mono\" x=\"535\" y=\"64\">step</text>\n  <text class=\"txt\" x=\"690\" y=\"190\">step</text><text class=\"txt\" x=\"42\" y=\"58\">lr</text>\n</svg>\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-13",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "### Before You Run\n\nThe linear schedule goes from `0` to `1` over two steps. Predict values at steps `0`, `1`, and `2`.\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-14",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const schedule = schedules.sequence(\n  schedules.linear({ start: 0, end: 1, duration: Duration.steps(2) }),\n  schedules.constant(1),\n)\nconsole.log('schedule step 0:', schedule({ step: 0, epoch: 0 }))\nconsole.log('schedule step 1:', schedule({ step: 1, epoch: 0 }))\nconsole.log('schedule step 2:', schedule({ step: 2, epoch: 0 }))\n\nconst scheduledStep = scheduled(sgd({ lr: 0.1 }), schedule)\nscheduledStep.epoch(0)\nconsole.log('scheduled step lr before use:', scheduledStep.lr)\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-15",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## no_grad And copy\n\n`no_grad` runs code without recording training graph work. `copy(target, source)` overwrites tensor contents.\n\nUse these for evaluation, manual state updates, and controlled parameter changes.\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-16",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const target = parameter([2]).zeros()\nno_grad(() => copy(target, tensor([5, 6])))\nshow('target after no_grad copy', target)\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    }
+  ]
+}

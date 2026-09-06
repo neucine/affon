@@ -1,0 +1,192 @@
+{
+  "format": 1,
+  "metadata": {
+    "kernelspec": {
+      "name": "affon",
+      "display_name": "Affon (TypeScript)",
+      "language": "typescript"
+    }
+  },
+  "cells": [
+    {
+      "id": "5e5079a2",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "# RNNs with Affon\nThis notebook focuses on the built-in recurrent layers in `affon:nn`. It shows the difference between `nn.SimpleRNN(...)` for a single sequence, `nn.RNN(...)` for batched Elman recurrence, and `nn.LSTM(...)` for gated recurrent state.\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "a1a3f5b9",
+      "kind": "code",
+      "language": "typescript",
+      "source": "import { adam, clear_grad, grad, tensor } from 'affon:compute'\nimport nn from 'affon:nn'\n\n",
+      "outputs": [],
+      "execution_count": 1,
+      "metadata": {}
+    },
+    {
+      "id": "8f7d195c",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Single Sequence: `nn.SimpleRNN`\nA `SimpleRNN` consumes one sequence shaped `[seq_len, input_size]` and internally loops over token positions. The final hidden state across stacked layers is available through `hidden_state()`.\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "4daae4d0",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const simple = nn.SimpleRNN(3, 4, { num_layers: 2 })\n\nconst xSeq = tensor([\n  [0.1, 0.2, 0.3],\n  [0.3, 0.2, 0.1],\n  [0.5, 0.4, 0.3],\n  [0.7, 0.8, 0.9],\n])\n\nconst ySeq = simple(xSeq)\nconsole.log('SimpleRNN output shape:', ySeq.shape)\nconsole.log('SimpleRNN hidden shape:', simple.hidden_state()?.shape)\nconsole.log('SimpleRNN parameter names:', simple.parameters.named())\n",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "SimpleRNN output shape: [ 4, 4 ]\nSimpleRNN hidden shape: [ 2, 4 ]\nSimpleRNN parameter names: [ [ layers.0.weight_ih, [3×4 Tensor, dtype=f32]\n             0          1          2          3\n  ┌                                              ┐\n0 │  -0.645566   -0.70251    -0.5608   -1.38135  │\n1 │  -0.296263  -1.331159   0.585678   0.837331  │\n2 │  -0.652188  -1.145876  -0.344719  -1.179011  │\n  └                                              ┘\n ], [ layers.0.weight_hh, [4×4 Tensor, dtype=f32]\n             0          1          2          3\n  ┌                                              ┐\n0 │  -1.045279  -0.924655  -1.018947  -0.513868  │\n1 │   1.186646  -1.014706  -0.354204  -0.033323  │\n2 │  -0.354105  -0.812487  -1.113352  -0.040636  │\n3 │  -0.458223   -0.08944  -0.695555   1.190462  │\n  └                                              ┘\n ], [ layers.0.bias, [1×4 Tensor, dtype=f32]\n     0  1  2  3\n  ┌              ┐\n0 │  0  0  0  0  │\n  └              ┘\n ], [ layers.1.weight_ih, [4×4 Tensor, dtype=f32]\n             0          1          2          3\n  ┌                                              ┐\n0 │   0.930011  -1.081516  -0.036402  -0.608797  │\n1 │  -0.239103   0.793303   0.961656  -0.763389  │\n2 │   0.104398  -0.643845   0.104515  -0.775887  │\n3 │   0.073546  -0.481866   -0.57054  -1.083755  │\n  └                                              ┘\n ], [ layers.1.weight_hh, [4×4 Tensor, dtype=f32]\n             0          1          2          3\n  ┌                                              ┐\n0 │  -1.135392  -0.758154  -0.653957  -0.889702  │\n1 │  -0.644808  -0.032613    1.20645   1.041754  │\n2 │   0.481284  -0.914956  -1.179884   0.190385  │\n3 │   0.549598  -0.066995  -0.297841   0.173062  │\n  └                                              ┘\n ], [ layers.1.bias, [1×4 Tensor, dtype=f32]\n     0  1  2  3\n  ┌              ┐\n0 │  0  0  0  0  │\n  └              ┘\n ] ]\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 2,
+      "metadata": {}
+    },
+    {
+      "id": "898c357a",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Batched Sequence-First Input: `nn.RNN`\n`nn.RNN(...)` is the classic sequence-first API. Inputs are shaped `[seq_len, batch, input_size]`, outputs are `[seq_len, batch, hidden_size]`, and `hidden_state()` returns `[num_layers, batch, hidden_size]`.\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "9e5b3a6c",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const rnn = nn.RNN(3, 4, { num_layers: 2 })\n\nconst xBatch = tensor([\n  [\n    [0.1, 0.2, 0.3],\n    [0.3, 0.2, 0.1],\n  ],\n  [\n    [0.5, 0.4, 0.3],\n    [0.2, 0.4, 0.6],\n  ],\n  [\n    [0.7, 0.8, 0.9],\n    [0.9, 0.8, 0.7],\n  ],\n])\n\nconst yBatch = rnn(xBatch)\nconsole.log('RNN output shape:', yBatch.shape)\nconsole.log('RNN hidden shape:', rnn.hidden_state()?.shape)\n",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "RNN output shape: [ 3, 2, 4 ]\nRNN hidden shape: [ 2, 2, 4 ]\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 3,
+      "metadata": {}
+    },
+    {
+      "id": "ff725d26",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Explicit Initial Hidden State\nFor stacked batched RNNs, the initial hidden state has shape `[num_layers, batch, hidden_size]`.\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "593f2961",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const h0 = tensor([\n  [\n    [0, 0, 0, 0],\n    [0, 0, 0, 0],\n  ],\n  [\n    [0, 0, 0, 0],\n    [0, 0, 0, 0],\n  ],\n])\n\nconst yBatch2 = rnn(xBatch, h0)\nconsole.log('RNN output shape with explicit h0:', yBatch2.shape)\n",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "RNN output shape with explicit h0: [ 3, 2, 4 ]\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 4,
+      "metadata": {}
+    },
+    {
+      "id": "d61edc52",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Batch-First Input\nIf your data pipeline is already batch-first, `nn.RNN(..., { batch_first: true })` expects `[batch, seq_len, input_size]` and returns `[batch, seq_len, hidden_size]`.\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "d7609a04",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const rnnBatchFirst = nn.RNN(3, 4, { num_layers: 2, batch_first: true })\n\nconst xBatchFirst = tensor([\n  [\n    [0.1, 0.2, 0.3],\n    [0.5, 0.4, 0.3],\n    [0.7, 0.8, 0.9],\n  ],\n  [\n    [0.3, 0.2, 0.1],\n    [0.2, 0.4, 0.6],\n    [0.9, 0.8, 0.7],\n  ],\n])\n\nconst yBatchFirst = rnnBatchFirst(xBatchFirst)\nconsole.log('RNN batch_first output shape:', yBatchFirst.shape)\nconsole.log('RNN batch_first hidden shape:', rnnBatchFirst.hidden_state()?.shape)\n",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "RNN batch_first output shape: [ 2, 3, 4 ]\nRNN batch_first hidden shape: [ 2, 2, 4 ]\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 5,
+      "metadata": {}
+    },
+    {
+      "id": "98e0cda0",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## LSTM\n`nn.LSTM(...)` keeps both a hidden state and a cell state. It follows the same sequence-first default as `nn.RNN(...)`, and also supports `batch_first: true`.\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "9d4d1777",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const lstm = nn.LSTM(3, 4, { num_layers: 2, batch_first: true })\n\nconst yLstm = lstm(xBatchFirst)\nconsole.log('LSTM output shape:', yLstm.shape)\nconsole.log('LSTM hidden shape:', lstm.hidden_state()?.shape)\nconsole.log('LSTM cell shape:', lstm.cell_state()?.shape)\n",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "LSTM output shape: [ 2, 3, 4 ]\nLSTM hidden shape: [ 2, 2, 4 ]\nLSTM cell shape: [ 2, 2, 4 ]\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 6,
+      "metadata": {}
+    },
+    {
+      "id": "4c6961b1",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Tiny Training Step\nThe recurrent forward examples above run correctly. This final cell also uses the public parameter-centered training path: `clear_grad(params)`, `grad(loss, params)`, and `step(params)`.\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "0eb8b96a",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const model = nn.Sequential(\n  nn.RNN(3, 4),\n  x => x,\n)\n\nconst criterion = nn.MSELoss()\nconst params = model.parameters\nconst step = adam({ lr: 1e-2 })\n\nconst target = tensor([\n  [\n    [0.0, 0.0, 0.0, 0.0],\n    [0.0, 0.0, 0.0, 0.0],\n  ],\n  [\n    [0.0, 0.0, 0.0, 0.0],\n    [0.0, 0.0, 0.0, 0.0],\n  ],\n  [\n    [0.0, 0.0, 0.0, 0.0],\n    [0.0, 0.0, 0.0, 0.0],\n  ],\n])\n\nclear_grad(params)\nconst pred = model(xBatch)\nconst loss = criterion(pred, target)\n\nconsole.log('pred shape:', pred.shape)\nconsole.log('loss:', loss.item())\ngrad(loss, params)\nstep(params)\nconsole.log('optimizer ready:', step !== null)\n",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "pred shape: [ 3, 2, 4 ]\nloss: 0.27089807391166687\noptimizer ready: true\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 7,
+      "metadata": {}
+    }
+  ]
+}

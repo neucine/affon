@@ -1,0 +1,255 @@
+{
+  "format": 1,
+  "metadata": {
+    "kernelspec": {
+      "name": "affon",
+      "display_name": "Affon (TypeScript)",
+      "language": "typescript"
+    }
+  },
+  "cells": [
+    {
+      "id": "cell-1",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "# Getting Started with Affon\n\nThis notebook demonstrates Affon's compute-first core features: tensors, gradients, neural networks, schedules, and plotting.\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-2",
+      "kind": "code",
+      "language": "typescript",
+      "source": "import {\n  Duration,\n  schedules,\n  scheduled,\n  tensor,\n  parameter,\n  module,\n  add,\n  matmul,\n  randn,\n  mul,\n  sum,\n  sigmoid,\n  clear_grad,\n  grad,\n  sgd,\n} from 'affon:compute'\nimport type { Tensor } from 'affon:compute'\nimport nn from 'affon:nn'\nimport { figure, title, xlabel, ylabel, plot, scatter, show } from 'affon:plot'\n",
+      "outputs": [],
+      "execution_count": 1,
+      "metadata": {}
+    },
+    {
+      "id": "cell-3",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## 1. Compute Tensors\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-4",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const a = tensor([[1, 2, 3], [4, 5, 6]])\nconsole.log('shape:', a.shape)\nconsole.log('dtype:', a.dtype)\nconsole.log(a)\n",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "shape: [ 2, 3 ]\ndtype: f32\n[2×3 Tensor, dtype=f32]\n     0  1  2\n  ┌           ┐\n0 │  1  2  3  │\n1 │  4  5  6  │\n  └           ┘\n\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 2,
+      "metadata": {}
+    },
+    {
+      "id": "cell-5",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const x = tensor([[1, 2], [3, 4]])\nconst y = tensor([[10, 20], [30, 40]])\nconsole.log('add:', add(x, y).to_array())\nconsole.log('matmul:', matmul(x, y).to_array())\n",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "add: [ [ 11, 22 ], [ 33, 44 ] ]\nmatmul: [ [ 70, 100 ], [ 150, 220 ] ]\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 3,
+      "metadata": {}
+    },
+    {
+      "id": "cell-6",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## 2. Autograd",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-7",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const a = parameter([2]).randn()\nconst b = tensor([4, 5])\nconst c = sum(mul(a, b))\nconsole.log('c =', c)\n\ngrad(c, [a])\nconsole.log('dc/da =', a.grad)\n",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "c = [1 Tensor, dtype=f32]\n  0         \n[ 1.025905  ]\n\ndc/da = [2 Tensor, dtype=f32]\n  0  1  \n[ 4  5  ]\n\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 4,
+      "metadata": {}
+    },
+    {
+      "id": "cell-8",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## 3. Neural Network: Linear Regression",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-9",
+      "kind": "code",
+      "language": "typescript",
+      "source": "// y = 2x + 1\nconst X = tensor([[1], [2], [3], [4], [5]])\nconst Y = tensor([[3], [5], [7], [9], [11]])\n\nconst W = parameter([1, 1]).randn()\nconst b = parameter([1, 1]).randn()\nconst params = [W, b]\nconst step = sgd({ lr: 0.01 })\nconst criterion = nn.MSELoss()\n\nfor (let i = 0; i < 200; i++) {\n  clear_grad(params)\n  const pred = add(matmul(X, W), b)\n  const loss = criterion(pred, Y)\n  grad(loss, params)\n  step(params)\n  if (i % 50 === 0) console.log(`epoch ${i}: loss =`, loss)\n}\n\nconsole.log('W:', W, 'b:', b)\n",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "epoch 0: loss = [1 Tensor, dtype=f32]\n  0          \n[ 15.016531  ]\n\nepoch 50: loss = [1 Tensor, dtype=f32]\n  0         \n[ 0.275305  ]\n\nepoch 100: loss = [1 Tensor, dtype=f32]\n  0         \n[ 0.196215  ]\n\nepoch 150: loss = [1 Tensor, dtype=f32]\n  0         \n[ 0.139846  ]\n\nW: [1×1 Tensor, dtype=f32]\n            0\n  ┌            ┐\n0 │  2.204966  │\n  └            ┘\n b: [1×1 Tensor, dtype=f32]\n            0\n  ┌            ┐\n0 │  0.260008  │\n  └            ┘\n\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 5,
+      "metadata": {}
+    },
+    {
+      "id": "cell-10",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## 4. Plotting",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-11",
+      "kind": "code",
+      "language": "typescript",
+      "source": "\nfigure({ width: 600, height: 400 })\ntitle('y = sin(x)')\nxlabel('x')\nylabel('y')\n\nconst xs: number[] = []\nconst ys: number[] = []\nfor (let i = 0; i <= 100; i++) {\n  const x = (i / 100) * 4 * Math.PI\n  xs.push(x)\n  ys.push(Math.sin(x))\n}\nplot(xs, ys, { label: 'sin(x)', color: '#1f77b4' })\nshow()",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "image/svg+xml",
+              "value": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"600\" height=\"400\" viewBox=\"0 0 600 400\" font-family=\"sans-serif\" font-size=\"12\">\n<rect width=\"600\" height=\"400\" fill=\"white\"/>\n<g transform=\"translate(60,40)\">\n<g stroke=\"#e0e0e0\" stroke-width=\"0.5\">\n<line x1=\"0\" y1=\"296.2\" x2=\"520\" y2=\"296.2\"/>\n<line x1=\"0\" y1=\"268.0\" x2=\"520\" y2=\"268.0\"/>\n<line x1=\"0\" y1=\"239.7\" x2=\"520\" y2=\"239.7\"/>\n<line x1=\"0\" y1=\"211.5\" x2=\"520\" y2=\"211.5\"/>\n<line x1=\"0\" y1=\"183.2\" x2=\"520\" y2=\"183.2\"/>\n<line x1=\"0\" y1=\"155.0\" x2=\"520\" y2=\"155.0\"/>\n<line x1=\"0\" y1=\"126.8\" x2=\"520\" y2=\"126.8\"/>\n<line x1=\"0\" y1=\"98.5\" x2=\"520\" y2=\"98.5\"/>\n<line x1=\"0\" y1=\"70.3\" x2=\"520\" y2=\"70.3\"/>\n<line x1=\"0\" y1=\"42.0\" x2=\"520\" y2=\"42.0\"/>\n<line x1=\"0\" y1=\"13.8\" x2=\"520\" y2=\"13.8\"/>\n<line x1=\"23.6\" y1=\"0\" x2=\"23.6\" y2=\"310\"/>\n<line x1=\"98.9\" y1=\"0\" x2=\"98.9\" y2=\"310\"/>\n<line x1=\"174.1\" y1=\"0\" x2=\"174.1\" y2=\"310\"/>\n<line x1=\"249.3\" y1=\"0\" x2=\"249.3\" y2=\"310\"/>\n<line x1=\"324.6\" y1=\"0\" x2=\"324.6\" y2=\"310\"/>\n<line x1=\"399.8\" y1=\"0\" x2=\"399.8\" y2=\"310\"/>\n<line x1=\"475.1\" y1=\"0\" x2=\"475.1\" y2=\"310\"/>\n</g>\n<g stroke=\"black\" stroke-width=\"1\">\n<line x1=\"0\" y1=\"310\" x2=\"520\" y2=\"310\"/>\n<line x1=\"0\" y1=\"0\" x2=\"0\" y2=\"310\"/>\n</g>\n<g text-anchor=\"middle\" fill=\"black\">\n<line x1=\"23.6\" y1=\"310\" x2=\"23.6\" y2=\"315\" stroke=\"black\"/>\n<text x=\"23.6\" y=\"328\">0</text>\n<line x1=\"98.9\" y1=\"310\" x2=\"98.9\" y2=\"315\" stroke=\"black\"/>\n<text x=\"98.9\" y=\"328\">2</text>\n<line x1=\"174.1\" y1=\"310\" x2=\"174.1\" y2=\"315\" stroke=\"black\"/>\n<text x=\"174.1\" y=\"328\">4</text>\n<line x1=\"249.3\" y1=\"310\" x2=\"249.3\" y2=\"315\" stroke=\"black\"/>\n<text x=\"249.3\" y=\"328\">6</text>\n<line x1=\"324.6\" y1=\"310\" x2=\"324.6\" y2=\"315\" stroke=\"black\"/>\n<text x=\"324.6\" y=\"328\">8</text>\n<line x1=\"399.8\" y1=\"310\" x2=\"399.8\" y2=\"315\" stroke=\"black\"/>\n<text x=\"399.8\" y=\"328\">10</text>\n<line x1=\"475.1\" y1=\"310\" x2=\"475.1\" y2=\"315\" stroke=\"black\"/>\n<text x=\"475.1\" y=\"328\">12</text>\n</g>\n<g text-anchor=\"end\" fill=\"black\">\n<line x1=\"-5\" y1=\"296.2\" x2=\"0\" y2=\"296.2\" stroke=\"black\"/>\n<text x=\"-8\" y=\"300.2\">-1</text>\n<line x1=\"-5\" y1=\"268.0\" x2=\"0\" y2=\"268.0\" stroke=\"black\"/>\n<text x=\"-8\" y=\"272.0\">-0.8</text>\n<line x1=\"-5\" y1=\"239.7\" x2=\"0\" y2=\"239.7\" stroke=\"black\"/>\n<text x=\"-8\" y=\"243.7\">-0.6</text>\n<line x1=\"-5\" y1=\"211.5\" x2=\"0\" y2=\"211.5\" stroke=\"black\"/>\n<text x=\"-8\" y=\"215.5\">-0.4</text>\n<line x1=\"-5\" y1=\"183.2\" x2=\"0\" y2=\"183.2\" stroke=\"black\"/>\n<text x=\"-8\" y=\"187.2\">-0.2</text>\n<line x1=\"-5\" y1=\"155.0\" x2=\"0\" y2=\"155.0\" stroke=\"black\"/>\n<text x=\"-8\" y=\"159.0\">0</text>\n<line x1=\"-5\" y1=\"126.8\" x2=\"0\" y2=\"126.8\" stroke=\"black\"/>\n<text x=\"-8\" y=\"130.8\">0.2</text>\n<line x1=\"-5\" y1=\"98.5\" x2=\"0\" y2=\"98.5\" stroke=\"black\"/>\n<text x=\"-8\" y=\"102.5\">0.4</text>\n<line x1=\"-5\" y1=\"70.3\" x2=\"0\" y2=\"70.3\" stroke=\"black\"/>\n<text x=\"-8\" y=\"74.3\">0.6</text>\n<line x1=\"-5\" y1=\"42.0\" x2=\"0\" y2=\"42.0\" stroke=\"black\"/>\n<text x=\"-8\" y=\"46.0\">0.8</text>\n<line x1=\"-5\" y1=\"13.8\" x2=\"0\" y2=\"13.8\" stroke=\"black\"/>\n<text x=\"-8\" y=\"17.8\">1</text>\n</g>\n<defs><clipPath id=\"plot-area\"><rect width=\"520\" height=\"310\"/></clipPath></defs>\n<g clip-path=\"url(#plot-area)\">\n<path d=\"M23.64,155.00L28.36,137.30L33.09,119.89L37.82,103.03L42.55,86.98L47.27,72.01L52.00,58.35L56.73,46.21L61.45,35.79L66.18,27.25L70.91,20.72L75.64,16.31L80.36,14.09L85.09,14.09L89.82,16.31L94.55,20.72L99.27,27.25L104.00,35.79L108.73,46.21L113.45,58.35L118.18,72.01L122.91,86.98L127.64,103.03L132.36,119.89L137.09,137.30L141.82,155.00L146.55,172.70L151.27,190.11L156.00,206.97L160.73,223.02L165.45,237.99L170.18,251.65L174.91,263.79L179.64,274.21L184.36,282.75L189.09,289.28L193.82,293.69L198.55,295.91L203.27,295.91L208.00,293.69L212.73,289.28L217.45,282.75L222.18,274.21L226.91,263.79L231.64,251.65L236.36,237.99L241.09,223.02L245.82,206.97L250.55,190.11L255.27,172.70L260.00,155.00L264.73,137.30L269.45,119.89L274.18,103.03L278.91,86.98L283.64,72.01L288.36,58.35L293.09,46.21L297.82,35.79L302.55,27.25L307.27,20.72L312.00,16.31L316.73,14.09L321.45,14.09L326.18,16.31L330.91,20.72L335.64,27.25L340.36,35.79L345.09,46.21L349.82,58.35L354.55,72.01L359.27,86.98L364.00,103.03L368.73,119.89L373.45,137.30L378.18,155.00L382.91,172.70L387.64,190.11L392.36,206.97L397.09,223.02L401.82,237.99L406.55,251.65L411.27,263.79L416.00,274.21L420.73,282.75L425.45,289.28L430.18,293.69L434.91,295.91L439.64,295.91L444.36,293.69L449.09,289.28L453.82,282.75L458.55,274.21L463.27,263.79L468.00,251.65L472.73,237.99L477.45,223.02L482.18,206.97L486.91,190.11L491.64,172.70L496.36,155.00\" fill=\"none\" stroke=\"#1f77b4\" stroke-width=\"2\"/>\n</g>\n<text x=\"260\" y=\"-15\" text-anchor=\"middle\" font-size=\"16\" font-weight=\"bold\">y = sin(x)</text>\n<text x=\"260\" y=\"350\" text-anchor=\"middle\">x</text>\n<text x=\"-40\" y=\"155\" text-anchor=\"middle\" transform=\"rotate(-90,-40,155)\">y</text>\n<rect x=\"420\" y=\"5\" width=\"12\" height=\"12\" fill=\"#1f77b4\"/>\n<text x=\"436\" y=\"15\" font-size=\"11\">sin(x)</text>\n</g>\n</svg>\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 6,
+      "metadata": {}
+    },
+    {
+      "id": "cell-12",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## 5. Custom Module: Logistic Regression (Factory Style)",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-13",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const LogisticRegression = (in_features: number, out_features: number) => {\n  const W = parameter([in_features, out_features]).randn()\n  const b = parameter([1, out_features]).randn()\n\n  return module({ W, b }, (state, X: Tensor): Tensor => {\n    return add(matmul(X, state.W), state.b)\n  })\n}\n\nconst X = tensor([[1], [5], [10], [10], [25], [50], [70], [75], [100]])\nconst Y = tensor([[0], [0], [0], [0], [0], [1], [1], [1], [1]])\n\nconst model = LogisticRegression(1, 1)\nconst params = model.parameters\nconst step = sgd({ lr: 0.004 })\nconst criterion = nn.BCEWithLogitsLoss()\n\nfor (let epoch = 0; epoch < 2000; epoch++) {\n  clear_grad(params)\n  const logits = model(X)\n  const loss = criterion(logits, Y)\n  grad(loss, params)\n  step(params)\n\n  if (epoch % 200 === 0) {\n    console.log('epoch', epoch, 'loss =', loss.item())\n  }\n}\n\nconst probs = sigmoid(model(X))\nconsole.log('probabilities:', probs)\n",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "epoch 0 loss = 7.113641738891602\nepoch 200 loss = 0.8061520457267761\nepoch 400 loss = 0.7156469821929932\nepoch 600 loss = 0.637317419052124\nepoch 800 loss = 0.5700812339782715\nepoch 1000 loss = 0.5126478672027588\nepoch 1200 loss = 0.46367624402046204\nepoch 1400 loss = 0.42188894748687744\nepoch 1600 loss = 0.38613617420196533\nepoch 1800 loss = 0.35542210936546326\nprobabilities: [9×1 Tensor, dtype=f32]\n            0\n  ┌            ┐\n0 │  0.293249  │\n1 │  0.333304  │\n2 │  0.386914  │\n3 │  0.386914  │\n4 │  0.559375  │\n5 │  0.802739  │\n6 │  0.911767  │\n7 │  0.928799  │\n8 │  0.976644  │\n  └            ┘\n\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 7,
+      "metadata": {}
+    },
+    {
+      "id": "cell-14",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Scheduled Optimizer\n\nLearning-rate schedules are part of `affon:compute`. They track `{ epoch, step }` during training through `scheduled(...)`.\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-15",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const scheduledModel = LogisticRegression(1, 1)\nconst baseStep = sgd({ lr: 0.004 })\nconst schedule = schedules.sequence(\n  schedules.linear({\n    start: 0,\n    end: 0.004,\n    duration: Duration.steps(100),\n  }),\n  schedules.cosine({\n    start: 0.004,\n    end: 0.0005,\n    duration: Duration.steps(900),\n  }),\n  schedules.constant(0.0005)\n)\nconst scheduledStep = scheduled(baseStep, schedule)\nconst scheduledParams = scheduledModel.parameters\n\nfor (let epoch = 0; epoch < 10; epoch++) {\n  scheduledStep.epoch(epoch)\n\n  for (let stepIndex = 0; stepIndex < 100; stepIndex++) {\n    clear_grad(scheduledParams)\n    const logits = scheduledModel(X)\n    const loss = criterion(logits, Y)\n    grad(loss, scheduledParams)\n    scheduledStep(scheduledParams)\n  }\n\n  if (epoch % 2 === 0) {\n    console.log('epoch', epoch, 'lr =', scheduledStep.lr, 'step =', scheduledStep.context.step)\n  }\n}\n\nconsole.log('Final scheduled W:', scheduledModel.state().W, 'b:', scheduledModel.state().b)\n",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "epoch 0 lr = 0.00396 step = 100\nepoch 2 lr = 0.003594496166288666 step = 300\nepoch 4 lr = 0.002559898295559271 step = 500\nepoch 6 lr = 0.0013802955682017783 step = 700\nepoch 8 lr = 0.0006076372101707771 step = 900\nFinal scheduled W: [1×1 Tensor, dtype=f32]\n            0\n  ┌            ┐\n0 │  0.079191  │\n  └            ┘\n b: [1×1 Tensor, dtype=f32]\n             0\n  ┌             ┐\n0 │  -2.393223  │\n  └             ┘\n\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 8,
+      "metadata": {}
+    },
+    {
+      "id": "cell-16",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Save And Load A Model\n\nModules can save their current parameter state to SafeTensors and load it back into a fresh instance with the same architecture.\n",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "cell-17",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const savePath = '/tmp/affon-logreg.safetensors'\nmodel.save(savePath)\n\nconst restored = LogisticRegression(1, 1)\nrestored.load(savePath)\n\nconst originalProb = sigmoid(model(X)).to_array()\nconst restoredProb = sigmoid(restored(X)).to_array()\n\nconsole.log('original probabilities:', originalProb)\nconsole.log('restored probabilities:', restoredProb)\n",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "original probabilities: [ [ 0.2932486832141876 ], [ 0.33330437541007996 ], [ 0.3869141936302185 ], [ 0.3869141936302185 ], [ 0.5593746900558472 ], [ 0.8027390837669373 ], [ 0.9117670655250549 ], [ 0.9287986159324646 ], [ 0.9766437411308289 ] ]\nrestored probabilities: [ [ 0.2932486832141876 ], [ 0.33330437541007996 ], [ 0.3869141936302185 ], [ 0.3869141936302185 ], [ 0.5593746900558472 ], [ 0.8027390837669373 ], [ 0.9117670655250549 ], [ 0.9287986159324646 ], [ 0.9766437411308289 ] ]\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 9,
+      "metadata": {}
+    },
+    {
+      "id": "cell-18",
+      "kind": "code",
+      "language": "typescript",
+      "source": "figure({ width: 600, height: 400 })\ntitle('Logistic Regression: Predictions vs Targets')\nxlabel('X')\nylabel('P(Y=1)')\nscatter(X, Y, { color: '#1f77b4', label: 'target' })\nscatter(X, sigmoid(model(X)), { color: '#ff7f0e', label: 'predicted probability' })\nshow()\n",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "image/svg+xml",
+              "value": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"600\" height=\"400\" viewBox=\"0 0 600 400\" font-family=\"sans-serif\" font-size=\"12\">\n<rect width=\"600\" height=\"400\" fill=\"white\"/>\n<g transform=\"translate(60,40)\">\n<g stroke=\"#e0e0e0\" stroke-width=\"0.5\">\n<line x1=\"0\" y1=\"295.9\" x2=\"520\" y2=\"295.9\"/>\n<line x1=\"0\" y1=\"267.7\" x2=\"520\" y2=\"267.7\"/>\n<line x1=\"0\" y1=\"239.5\" x2=\"520\" y2=\"239.5\"/>\n<line x1=\"0\" y1=\"211.4\" x2=\"520\" y2=\"211.4\"/>\n<line x1=\"0\" y1=\"183.2\" x2=\"520\" y2=\"183.2\"/>\n<line x1=\"0\" y1=\"155.0\" x2=\"520\" y2=\"155.0\"/>\n<line x1=\"0\" y1=\"126.8\" x2=\"520\" y2=\"126.8\"/>\n<line x1=\"0\" y1=\"98.6\" x2=\"520\" y2=\"98.6\"/>\n<line x1=\"0\" y1=\"70.5\" x2=\"520\" y2=\"70.5\"/>\n<line x1=\"0\" y1=\"42.3\" x2=\"520\" y2=\"42.3\"/>\n<line x1=\"0\" y1=\"14.1\" x2=\"520\" y2=\"14.1\"/>\n<line x1=\"18.9\" y1=\"0\" x2=\"18.9\" y2=\"310\"/>\n<line x1=\"66.6\" y1=\"0\" x2=\"66.6\" y2=\"310\"/>\n<line x1=\"114.4\" y1=\"0\" x2=\"114.4\" y2=\"310\"/>\n<line x1=\"162.1\" y1=\"0\" x2=\"162.1\" y2=\"310\"/>\n<line x1=\"209.9\" y1=\"0\" x2=\"209.9\" y2=\"310\"/>\n<line x1=\"257.6\" y1=\"0\" x2=\"257.6\" y2=\"310\"/>\n<line x1=\"305.4\" y1=\"0\" x2=\"305.4\" y2=\"310\"/>\n<line x1=\"353.1\" y1=\"0\" x2=\"353.1\" y2=\"310\"/>\n<line x1=\"400.9\" y1=\"0\" x2=\"400.9\" y2=\"310\"/>\n<line x1=\"448.6\" y1=\"0\" x2=\"448.6\" y2=\"310\"/>\n<line x1=\"496.4\" y1=\"0\" x2=\"496.4\" y2=\"310\"/>\n</g>\n<g stroke=\"black\" stroke-width=\"1\">\n<line x1=\"0\" y1=\"310\" x2=\"520\" y2=\"310\"/>\n<line x1=\"0\" y1=\"0\" x2=\"0\" y2=\"310\"/>\n</g>\n<g text-anchor=\"middle\" fill=\"black\">\n<line x1=\"18.9\" y1=\"310\" x2=\"18.9\" y2=\"315\" stroke=\"black\"/>\n<text x=\"18.9\" y=\"328\">0</text>\n<line x1=\"66.6\" y1=\"310\" x2=\"66.6\" y2=\"315\" stroke=\"black\"/>\n<text x=\"66.6\" y=\"328\">10</text>\n<line x1=\"114.4\" y1=\"310\" x2=\"114.4\" y2=\"315\" stroke=\"black\"/>\n<text x=\"114.4\" y=\"328\">20</text>\n<line x1=\"162.1\" y1=\"310\" x2=\"162.1\" y2=\"315\" stroke=\"black\"/>\n<text x=\"162.1\" y=\"328\">30</text>\n<line x1=\"209.9\" y1=\"310\" x2=\"209.9\" y2=\"315\" stroke=\"black\"/>\n<text x=\"209.9\" y=\"328\">40</text>\n<line x1=\"257.6\" y1=\"310\" x2=\"257.6\" y2=\"315\" stroke=\"black\"/>\n<text x=\"257.6\" y=\"328\">50</text>\n<line x1=\"305.4\" y1=\"310\" x2=\"305.4\" y2=\"315\" stroke=\"black\"/>\n<text x=\"305.4\" y=\"328\">60</text>\n<line x1=\"353.1\" y1=\"310\" x2=\"353.1\" y2=\"315\" stroke=\"black\"/>\n<text x=\"353.1\" y=\"328\">70</text>\n<line x1=\"400.9\" y1=\"310\" x2=\"400.9\" y2=\"315\" stroke=\"black\"/>\n<text x=\"400.9\" y=\"328\">80</text>\n<line x1=\"448.6\" y1=\"310\" x2=\"448.6\" y2=\"315\" stroke=\"black\"/>\n<text x=\"448.6\" y=\"328\">90</text>\n<line x1=\"496.4\" y1=\"310\" x2=\"496.4\" y2=\"315\" stroke=\"black\"/>\n<text x=\"496.4\" y=\"328\">100</text>\n</g>\n<g text-anchor=\"end\" fill=\"black\">\n<line x1=\"-5\" y1=\"295.9\" x2=\"0\" y2=\"295.9\" stroke=\"black\"/>\n<text x=\"-8\" y=\"299.9\">0</text>\n<line x1=\"-5\" y1=\"267.7\" x2=\"0\" y2=\"267.7\" stroke=\"black\"/>\n<text x=\"-8\" y=\"271.7\">0.1</text>\n<line x1=\"-5\" y1=\"239.5\" x2=\"0\" y2=\"239.5\" stroke=\"black\"/>\n<text x=\"-8\" y=\"243.5\">0.2</text>\n<line x1=\"-5\" y1=\"211.4\" x2=\"0\" y2=\"211.4\" stroke=\"black\"/>\n<text x=\"-8\" y=\"215.4\">0.3</text>\n<line x1=\"-5\" y1=\"183.2\" x2=\"0\" y2=\"183.2\" stroke=\"black\"/>\n<text x=\"-8\" y=\"187.2\">0.4</text>\n<line x1=\"-5\" y1=\"155.0\" x2=\"0\" y2=\"155.0\" stroke=\"black\"/>\n<text x=\"-8\" y=\"159.0\">0.5</text>\n<line x1=\"-5\" y1=\"126.8\" x2=\"0\" y2=\"126.8\" stroke=\"black\"/>\n<text x=\"-8\" y=\"130.8\">0.6</text>\n<line x1=\"-5\" y1=\"98.6\" x2=\"0\" y2=\"98.6\" stroke=\"black\"/>\n<text x=\"-8\" y=\"102.6\">0.7</text>\n<line x1=\"-5\" y1=\"70.5\" x2=\"0\" y2=\"70.5\" stroke=\"black\"/>\n<text x=\"-8\" y=\"74.5\">0.8</text>\n<line x1=\"-5\" y1=\"42.3\" x2=\"0\" y2=\"42.3\" stroke=\"black\"/>\n<text x=\"-8\" y=\"46.3\">0.9</text>\n<line x1=\"-5\" y1=\"14.1\" x2=\"0\" y2=\"14.1\" stroke=\"black\"/>\n<text x=\"-8\" y=\"18.1\">1</text>\n</g>\n<defs><clipPath id=\"plot-area\"><rect width=\"520\" height=\"310\"/></clipPath></defs>\n<g clip-path=\"url(#plot-area)\">\n<circle cx=\"23.64\" cy=\"295.91\" r=\"4\" fill=\"#1f77b4\"/>\n<circle cx=\"42.74\" cy=\"295.91\" r=\"4\" fill=\"#1f77b4\"/>\n<circle cx=\"66.61\" cy=\"295.91\" r=\"4\" fill=\"#1f77b4\"/>\n<circle cx=\"66.61\" cy=\"295.91\" r=\"4\" fill=\"#1f77b4\"/>\n<circle cx=\"138.24\" cy=\"295.91\" r=\"4\" fill=\"#1f77b4\"/>\n<circle cx=\"257.61\" cy=\"14.09\" r=\"4\" fill=\"#1f77b4\"/>\n<circle cx=\"353.11\" cy=\"14.09\" r=\"4\" fill=\"#1f77b4\"/>\n<circle cx=\"376.99\" cy=\"14.09\" r=\"4\" fill=\"#1f77b4\"/>\n<circle cx=\"496.36\" cy=\"14.09\" r=\"4\" fill=\"#1f77b4\"/>\n<circle cx=\"23.64\" cy=\"213.27\" r=\"4\" fill=\"#ff7f0e\"/>\n<circle cx=\"42.74\" cy=\"201.98\" r=\"4\" fill=\"#ff7f0e\"/>\n<circle cx=\"66.61\" cy=\"186.87\" r=\"4\" fill=\"#ff7f0e\"/>\n<circle cx=\"66.61\" cy=\"186.87\" r=\"4\" fill=\"#ff7f0e\"/>\n<circle cx=\"138.24\" cy=\"138.27\" r=\"4\" fill=\"#ff7f0e\"/>\n<circle cx=\"257.61\" cy=\"69.68\" r=\"4\" fill=\"#ff7f0e\"/>\n<circle cx=\"353.11\" cy=\"38.96\" r=\"4\" fill=\"#ff7f0e\"/>\n<circle cx=\"376.99\" cy=\"34.16\" r=\"4\" fill=\"#ff7f0e\"/>\n<circle cx=\"496.36\" cy=\"20.67\" r=\"4\" fill=\"#ff7f0e\"/>\n</g>\n<text x=\"260\" y=\"-15\" text-anchor=\"middle\" font-size=\"16\" font-weight=\"bold\">Logistic Regression: Predictions vs Targets</text>\n<text x=\"260\" y=\"350\" text-anchor=\"middle\">X</text>\n<text x=\"-40\" y=\"155\" text-anchor=\"middle\" transform=\"rotate(-90,-40,155)\">P(Y=1)</text>\n<rect x=\"420\" y=\"5\" width=\"12\" height=\"12\" fill=\"#1f77b4\"/>\n<text x=\"436\" y=\"15\" font-size=\"11\">target</text>\n<rect x=\"420\" y=\"23\" width=\"12\" height=\"12\" fill=\"#ff7f0e\"/>\n<text x=\"436\" y=\"33\" font-size=\"11\">predicted probability</text>\n</g>\n</svg>\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 10,
+      "metadata": {}
+    }
+  ]
+}

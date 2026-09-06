@@ -1,0 +1,156 @@
+{
+  "format": 1,
+  "metadata": {
+    "kernelspec": {
+      "name": "affon",
+      "display_name": "Affon (TypeScript)",
+      "language": "typescript"
+    }
+  },
+  "cells": [
+    {
+      "id": "2db6f989",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "# Embeddings with `affon:embed`\n\nThis notebook shows both local embedding providers currently exposed by `affon:embed`:\n- `model2vec` for lightweight pooled text embeddings\n- `onnx` for transformer-backed text embeddings and contextual token embeddings\n\nNotes:\n- Models download and cache locally on first use.\n- `embedText()` returns one pooled vector per input text.\n- `embedTokens()` is currently available only for `provider: 'onnx'`.",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "9d5bf4bf",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Setup",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "465ee20e",
+      "kind": "code",
+      "language": "typescript",
+      "source": "import { createEmbedder } from 'affon:embed'\n\n\n\nfunction cosine(a: number[], b: number[]): number {\n  let dot = 0\n  let normA = 0\n  let normB = 0\n\n  for (let i = 0; i < a.length; i++) {\n    dot += a[i] * b[i]\n    normA += a[i] * a[i]\n    normB += b[i] * b[i]\n  }\n\n  return dot / (Math.sqrt(normA) * Math.sqrt(normB))\n}",
+      "outputs": [],
+      "execution_count": 1,
+      "metadata": {}
+    },
+    {
+      "id": "1fcfb71d",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Model2Vec Provider\n\nUse this when you want fast local text embeddings with the current Model2Vec-backed runtime.",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "5a5f5382",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const model2vec = createEmbedder({\n  provider: 'model2vec',\n  model_name: 'minishlab/potion-base-8M',\n})\n\nconsole.log('model2vec dim:', model2vec.dim)",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "model2vec dim: 256\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 2,
+      "metadata": {}
+    },
+    {
+      "id": "7c554f5d",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const model2vecBatch = model2vec.embedText([\n  'The cat is sleeping on the sofa.',\n  'A kitten is resting on the couch.',\n  'The stock market closed higher today.',\n])\n\nconst model2vecRows = model2vecBatch.to_array() as number[][]\nconsole.log('model2vec shape:', model2vecBatch.shape)\nconsole.log('cat vs kitten:', cosine(model2vecRows[0], model2vecRows[1]).toFixed(4))\nconsole.log('cat vs market:', cosine(model2vecRows[0], model2vecRows[2]).toFixed(4))",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "model2vec shape: [ 3, 256 ]\ncat vs kitten: 0.7143\ncat vs market: -0.0290\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 3,
+      "metadata": {}
+    },
+    {
+      "id": "adfd9fa5",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## ONNX Provider\n\nUse this when you want transformer-backed embeddings. This provider supports both pooled text embeddings and contextual token embeddings.",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    },
+    {
+      "id": "5372247e",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const onnx = createEmbedder({\n  provider: 'onnx',\n  model_name: 'AllMiniLML6V2',\n})\n\nconsole.log('onnx dim:', onnx.dim)",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "onnx dim: 384\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 4,
+      "metadata": {}
+    },
+    {
+      "id": "8d632c2f",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const onnxBatch = onnx.embedText([\n  'query: The cat is sleeping on the sofa.',\n  'passage: A kitten is resting on the couch.',\n  'passage: The stock market closed higher today.',\n])\n\nconst onnxRows = onnxBatch.to_array() as number[][]\nconsole.log('onnx shape:', onnxBatch.shape)\nconsole.log('query vs couch:', cosine(onnxRows[0], onnxRows[1]).toFixed(4))\nconsole.log('query vs market:', cosine(onnxRows[0], onnxRows[2]).toFixed(4))",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "onnx shape: [ 3, 384 ]\nquery vs couch: 0.7072\nquery vs market: 0.0553\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 5,
+      "metadata": {}
+    },
+    {
+      "id": "845a4d7b",
+      "kind": "code",
+      "language": "typescript",
+      "source": "const tokenVectors = onnx.embedTokens('query: hello world')\nconsole.log('token shape:', tokenVectors.shape)\nconsole.log(tokenVectors)",
+      "outputs": [
+        {
+          "items": [
+            {
+              "mime": "application/vnd.tsnb.stream.stdout",
+              "value": "token shape: [ 6, 384 ]\n[6×384 Tensor, dtype=f32]\n             0         1          2          3          4          5    ⋯         378        379        380        381        382       383\n  ┌                                                                                                                                          ┐\n0 │   0.210083   0.20443  -0.055242   0.385848  -0.349067  -0.424624    ⋯    0.131524   0.188797   0.026033  -0.217474   -0.05936  0.064731  │\n1 │   0.818167  0.469569   0.223819   0.628091  -0.971932   0.343026    ⋯   -0.208793  -0.289455   0.520529  -0.711829   -0.89135  1.113875  │\n2 │   0.145079  0.568501  -0.403878    0.57657  -0.740321  -0.539219    ⋯    0.134229  -0.101673   0.657219  -0.128604   0.096282  0.904602  │\n3 │  -0.221019  0.396734   0.488511    0.21047  -0.727901  -0.750649    ⋯    -0.34729   0.150703   0.443838   0.639044   0.166184  0.533796  │\n4 │   0.291722  0.388473  -0.422048  -0.198195   0.291728  -1.622971    ⋯    0.219353   0.556945  -0.305628  -0.564332  -0.366994  0.052169  │\n5 │    0.32722  0.467232  -0.061412   0.818096  -0.668172  -0.407899    ⋯    0.150404   0.386201   0.403792   0.264015   0.104658   0.25625  │\n  └                                                                                                                                          ┘\n\n"
+            }
+          ]
+        }
+      ],
+      "execution_count": 6,
+      "metadata": {}
+    },
+    {
+      "id": "742b9ea2",
+      "kind": "markdown",
+      "language": "markdown",
+      "source": "## Summary\n\n- `model2vec.embedText(...)` gives fast pooled text embeddings\n- `onnx.embedText(...)` gives pooled transformer embeddings\n- `onnx.embedTokens(...)` gives contextual token embeddings with shape `[seq_len, dim]`",
+      "outputs": [],
+      "execution_count": null,
+      "metadata": {}
+    }
+  ]
+}
