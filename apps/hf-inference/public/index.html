@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Affon · Model playground</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="eyebrow">AFFON / NATIVE INFERENCE</div>
+    <h1>Model playground.</h1>
+    <p>
+      Hugging Face models, running locally on
+      <strong id="device">your device</strong>.
+    </p>
+    <div id="status" role="status">Connecting…</div>
+    <div class="tabs" role="tablist" aria-label="Model task">
+      <button
+        id="image-tab"
+        role="tab"
+        aria-controls="image-panel"
+        aria-selected="true"
+      >
+        Image classification</button
+      ><button
+        id="text-tab"
+        role="tab"
+        aria-controls="text-panel"
+        aria-selected="false"
+      >
+        Text completion
+      </button>
+      <button
+        id="audio-tab"
+        role="tab"
+        aria-controls="audio-panel"
+        aria-selected="false"
+      >
+        Audio classification
+      </button>
+      <button
+        id="speech-tab"
+        role="tab"
+        aria-controls="speech-panel"
+        aria-selected="false"
+      >
+        Speech to text
+      </button>
+    </div>
+    <main id="image-panel" role="tabpanel" aria-labelledby="image-tab">
+      <section>
+        <label for="image-model">Image model</label>
+        <select id="image-model" disabled>
+          <option value="vit-native">ViT native</option>
+        </select>
+        <label for="image">Choose a photo</label>
+        <p>
+          These models identify objects across ImageNet categories. Try a cat, a
+          dog, a bird, or a vehicle.
+        </p>
+        <div class="row">
+          <input
+            id="image"
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/avif"
+          /><button id="classify" disabled>Classify uploaded image</button>
+        </div>
+        <form id="url-form" class="url-form">
+          <label for="image-url">Or paste an image URL</label>
+          <div class="row">
+            <input
+              id="image-url"
+              type="url"
+              placeholder="https://example.com/photo.jpg"
+              required
+            /><button id="load-url" disabled>Download &amp; classify</button>
+          </div>
+        </form>
+        <img id="preview" hidden alt="Selected image preview" />
+        <p id="image-info" class="stats"></p>
+        <p>
+          <small
+            >Downloads and classification run on your machine. Large photos are
+            reduced to 512 pixels before classification.</small
+          >
+        </p>
+        <div id="image-error" class="error" role="alert"></div>
+      </section>
+      <section aria-live="polite">
+        <label>Top predictions</label>
+        <div id="predictions">
+          Choose an image to see the model’s top five predictions.
+        </div>
+        <p id="image-stats" class="stats"></p>
+        <small
+          >Scores are relative model probabilities across ImageNet labels, not a
+          guarantee of correctness.</small
+        >
+      </section>
+    </main>
+    <main id="speech-panel" role="tabpanel" aria-labelledby="speech-tab" hidden>
+      <section>
+        <label for="speech-file">Choose a short English recording</label>
+        <p>
+          Whisper transcribes speech into text. Try a clear sentence up to 30
+          seconds long.
+        </p>
+        <p id="speech-model-info" class="stats">Checking Whisper…</p>
+        <div class="row">
+          <input
+            id="speech-file"
+            type="file"
+            accept=".wav,audio/wav,audio/x-wav"
+          /><button id="transcribe" disabled>Transcribe</button>
+        </div>
+        <audio id="speech-preview" controls hidden></audio>
+        <p id="speech-info" class="stats"></p>
+        <small
+          >WAV · up to 16 MiB and 30 seconds · mono/stereo · 8–96 kHz. English
+          only, up to 254 generated tokens. Audio stays on your machine.</small
+        >
+        <div id="speech-error" class="error" role="alert"></div>
+      </section>
+      <section aria-live="polite">
+        <label>Transcript</label>
+        <div id="transcript">Upload a recording to try transcription.</div>
+        <p id="speech-stats" class="stats"></p>
+        <small
+          >Experimental tiny model. Transcripts may miss words or invent speech,
+          especially on silence. No timestamps or silence detection yet.</small
+        >
+      </section>
+    </main>
+    <main id="audio-panel" role="tabpanel" aria-labelledby="audio-tab" hidden>
+      <section>
+        <label for="audio-file">Choose a short speech recording</label>
+        <p>
+          AST recognizes 35 English command words, such as “yes,” “no,” “stop,”
+          “left,” and “right.” It does not transcribe sentences or identify
+          general sounds.
+        </p>
+        <p id="audio-model-info" class="stats">Checking audio model…</p>
+        <div class="row">
+          <input
+            id="audio-file"
+            type="file"
+            accept=".wav,audio/wav,audio/x-wav"
+          />
+          <button id="classify-audio" disabled>Classify audio</button>
+        </div>
+        <audio id="audio-preview" controls hidden></audio>
+        <p id="audio-info" class="stats"></p>
+        <small
+          >WAV only · up to 16 MiB and 30 seconds · mono or stereo · 8–96 kHz. The
+          model uses the first 1.295 seconds. Say one word near the start. Audio
+          stays on your machine.</small
+        >
+        <div id="audio-error" class="error" role="alert"></div>
+      </section>
+      <section aria-live="polite">
+        <label>Top command predictions</label>
+        <div id="audio-predictions">
+          Upload a recording to try audio classification.
+        </div>
+        <p id="audio-stats" class="stats"></p>
+        <small
+          >This closed-set model always scores its known words, even for silence
+          or unrelated sounds. Scores are not a speech detector.</small
+        >
+      </section>
+    </main>
+    <main id="text-panel" role="tabpanel" aria-labelledby="text-tab" hidden>
+      <section>
+        <p>
+          DistilGPT-2 continues a passage. It is a base language model, not a
+          chat assistant.
+        </p>
+        <form id="form">
+          <label for="prompt">Start a passage</label
+          ><textarea id="prompt" maxlength="4096">
+The future of computing is</textarea
+          >
+          <div class="row">
+            <button id="generate" disabled>Generate completion</button
+            ><label for="tokens">New tokens</label
+            ><input id="tokens" type="number" min="1" max="64" value="24" />
+          </div>
+        </form>
+        <p>
+          <small
+            >Greedy decoding · up to 256 prompt tokens · one request at a
+            time</small
+          >
+        </p>
+        <div id="error" class="error" role="alert"></div>
+      </section>
+      <section aria-live="polite">
+        <label>Model output</label>
+        <div id="output">Your completed passage will appear here.</div>
+        <p id="stats" class="stats"></p>
+      </section>
+    </main>
+    <script src="/transcription.js" defer></script>
+    <script src="/app.js" defer></script>
+  </body>
+</html>

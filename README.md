@@ -18,6 +18,12 @@ It provides compute tensors, autograd, neural-network layers, datasets,
 checkpointing, first-party ML packages, notebooks, and runnable reference
 workloads in one runtime-oriented package.
 
+Affon is experimental and application-oriented. Its working direction is embedded
+inference and lightweight learning in TypeScript applications. CPU and Metal are
+the primary validation targets; CUDA has less complete testing. Full PyTorch API
+compatibility and broad Hugging Face model coverage are not goals. See the
+[roadmap](docs/roadmap.md) for the direction and evidence required to validate it.
+
 ## Quick Start
 
 Install the latest release:
@@ -116,12 +122,13 @@ cases.
 
 ## Docs
 
+- Roadmap: [Application-oriented ML](docs/roadmap.md)
 - Getting started: [Python to AFFON](docs/getting-started/python-to-affon.md)
 - Core numerics: [Compute Concepts](docs/core/compute.md), [Compute Kernel Matrix](docs/core/kernel-matrix.md), [Error Handling](docs/core/errors.md)
 - Machine learning: [NN Concepts](docs/ml/nn/index.md), [Metrics Concepts](docs/ml/metrics.md), [Optim Concepts](docs/ml/optim.md), [Checkpoints](docs/ml/checkpoints.md), [Text Datasets](docs/ml/text-datasets.md), [ML Glossary](docs/ml/glossary.md)
 - Runtime: [Install](docs/runtime/install.md), [Configuration](docs/runtime/configuration.md), [Module Loader](docs/runtime/module-loader.md), [Memory Debugging](docs/runtime/memory-debugging.md)
 - Apps: [apps/](apps/), [Decoder LM](apps/decoder-lm/README.md)
-- Packages: [packages/](packages/), [Transformers](packages/@affon/transformers/README.md), [LM](packages/@affon/lm/README.md), [Tokenizers](packages/@affon/tokenizers/README.md)
+- Packages: [packages/](packages/), [Transformers](packages/@affon/transformers/README.md), [Hugging Face](packages/@affon/huggingface/README.md), [LM](packages/@affon/lm/README.md), [Tokenizers](packages/@affon/tokenizers/README.md)
 - Editor: [Affon for VS Code](https://github.com/neucine/affon-vscode)
 
 ## License

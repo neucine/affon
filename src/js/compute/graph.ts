@@ -17,7 +17,7 @@ type SliceSelectorSpec =
 
 const GRAPH_VALUE = Symbol.for('affon.tensor.graph_value')
 
-type UnaryKind = 'neg' | 'relu' | 'abs' | 'exp' | 'log' | 'sqrt' | 'sigmoid' | 'silu' | 'tanh' | 'sign'
+type UnaryKind = 'neg' | 'relu' | 'abs' | 'exp' | 'log' | 'sqrt' | 'sigmoid' | 'silu' | 'tanh' | 'erf' | 'sign'
 type BinaryKind = 'add' | 'sub' | 'mul' | 'div' | 'gt'
 type ReductionKind = 'sum' | 'mean' | 'std' | 'variance' | 'min' | 'max'
 type IndexReductionKind = 'argmin' | 'argmax'
@@ -780,6 +780,7 @@ function canonicalize(nodes: GraphNode[], rootId: number): { nodes: GraphNode[];
       case 'sqrt':
       case 'sigmoid':
       case 'silu':
+      case 'erf':
       case 'tanh':
       case 'sign':
       case 'clamp':
@@ -878,6 +879,7 @@ function canonicalize(nodes: GraphNode[], rootId: number): { nodes: GraphNode[];
       case 'sqrt':
       case 'sigmoid':
       case 'silu':
+      case 'erf':
       case 'tanh':
       case 'sign':
       case 'clamp':
@@ -981,6 +983,7 @@ function summarizeNodes(nodes: GraphNode[]) {
       case 'sqrt':
       case 'sigmoid':
       case 'silu':
+      case 'erf':
       case 'tanh':
       case 'sign':
       case 'clamp':
@@ -1189,6 +1192,7 @@ function summarizeNodes(nodes: GraphNode[]) {
       case 'sqrt':
       case 'sigmoid':
       case 'silu':
+      case 'erf':
       case 'tanh':
       case 'sign':
         return {
@@ -1394,6 +1398,7 @@ function isExecutableNode(node: GraphNode): boolean {
     || node.kind === 'sigmoid'
     || node.kind === 'silu'
     || node.kind === 'tanh'
+    || node.kind === 'erf'
     || node.kind === 'sign'
     || node.kind === 'add'
     || node.kind === 'sub'
@@ -1412,6 +1417,7 @@ function executableDependencies(node: GraphNode): number[] {
     case 'sqrt':
     case 'sigmoid':
     case 'silu':
+    case 'erf':
     case 'tanh':
     case 'sign':
     case 'clamp':
@@ -1559,6 +1565,7 @@ function validatePlan(plan: GraphPlan): void {
       case 'sqrt':
       case 'sigmoid':
       case 'silu':
+      case 'erf':
       case 'tanh':
       case 'sign':
       case 'clamp':

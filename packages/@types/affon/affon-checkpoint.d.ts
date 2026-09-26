@@ -28,6 +28,8 @@ declare module "affon:checkpoint" {
    * @category Persistence
    * @semantics
    * Reads a serialized checkpoint file and returns the named tensor mapping.
+   * Supports F32, F64, and I64 SafeTensors entries. Optional `__metadata__`
+   * string mappings are ignored; malformed entries and other dtypes are rejected.
    */
   export function load(path: string): LoadedCheckpoint
 

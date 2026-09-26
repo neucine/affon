@@ -4,6 +4,7 @@ First-party packages live under the `@affon/` scope, above the runtime and below
 
 Package ownership follows three axes:
 
+- graph-format packages own import and execution infrastructure
 - architecture packages own reusable model structure
 - domain packages own data and task conventions
 - model-family packages own stable family-level assembly and conventions
@@ -12,6 +13,8 @@ Complete runnable workloads should live under `../apps/` once they outgrow focus
 
 ## Current Packages
 
+- `@affon/onnx/`: experimental prepared ONNX graph loading, conversion and execution.
+- `@affon/huggingface/`: HF artifact integration, native model loading, and processors across domains.
 - `@affon/transformers/`: transformer architecture blocks and helpers.
 - `@affon/tokenizers/`: tokenizer implementation and ecosystem compatibility.
 - `@affon/lm/`: language-model family APIs and reusable LM corpus packing.

@@ -24,6 +24,11 @@ const state = checkpoint.load('model.safetensors')
 checkpoint.restore(model, state)
 ```
 
+Loading accepts SafeTensors `F32`, `F64`, and `I64` entries and ignores the
+optional `__metadata__` string mapping used by external producers such as
+Hugging Face. Unsupported dtypes and malformed tensor entries are rejected.
+Reading a file does not perform model architecture or weight-name conversion.
+
 ## Bundles
 
 For multi-file training checkpoints, use the bundle helpers:

@@ -1,7 +1,7 @@
 declare module "affon:compute/graph.ts" {
 type DType = "f32" | "f64" | "i64"
 type Nested = number | Nested[]
-type UnaryKind = "neg" | "relu" | "abs" | "exp" | "log" | "sqrt" | "sigmoid" | "silu" | "tanh" | "sign"
+type UnaryKind = "neg" | "relu" | "abs" | "exp" | "log" | "sqrt" | "sigmoid" | "silu" | "tanh" | "erf" | "sign"
 type BinaryKind = "add" | "sub" | "mul" | "div" | "gt"
 type ReductionKind = "sum" | "mean" | "std" | "variance" | "min" | "max"
 type IndexReductionKind = "argmin" | "argmax"

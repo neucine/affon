@@ -6,6 +6,7 @@ and apps that build on those surfaces.
 
 ## Start Here
 
+- Direction and milestones: [Application-oriented ML roadmap](./roadmap.md).
 - New to Affon from Python or PyTorch: read [Python to AFFON](./getting-started/python-to-affon.md).
 - Installing the runtime: read [Install](./runtime/install.md).
 - Building tensor or autograd code: read [Compute Concepts](./core/compute.md).
@@ -25,6 +26,8 @@ Affon keeps the public runtime surface intentionally small:
 
 First-party packages under `packages/` provide reusable higher-level building
 blocks, such as tokenizers, transformer blocks, and language-model helpers.
+The [Hugging Face package](../packages/@affon/huggingface/README.md) owns
+native HF model loading and processor integration across domains.
 Complete runnable workflows live under `apps/`.
 
 ## Getting Started

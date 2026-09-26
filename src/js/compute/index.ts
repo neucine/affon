@@ -654,6 +654,16 @@ export function adamw(options: { lr?: number; beta1?: number; beta2?: number; ep
   })
 }
 
+/** Inference-only CPU spectral operations; no graph capture or gradients. */
+export const stft_power = (signal: Tensor, window: Tensor, hop: number, paddedLength = signal.shape[0], frames = 1 + Math.floor(paddedLength / hop)) => {
+  if (graphSupport.isCapturing()) throw new Error("stft_power does not support graph capture")
+  for (const value of [hop, paddedLength, frames]) if (!Number.isSafeInteger(value) || value < 1 || value > 2147483647) throw new Error("invalid STFT dimensions")
+  return native.stft_power(signal, window, hop, paddedLength, frames)
+}
+export const filterbank = (spectrum: Tensor, filters: Tensor) => {
+  if (graphSupport.isCapturing()) throw new Error("filterbank does not support graph capture")
+  return native.filterbank(spectrum, filters)
+}
 export const tensor = native.tensor
 export const empty = native.empty
 export const zeros = native.zeros
@@ -809,9 +819,22 @@ export const relu = (value: any) => graphSupport.captureUnary("relu", "relu", va
 export const sigmoid = (value: any) => graphSupport.captureUnary("sigmoid", "sigmoid", value)
 export const silu = (value: any) => graphSupport.captureUnary("silu", "silu", value)
 export const swish = silu
+export const erf = (value: any) => graphSupport.captureUnary("erf", "erf", value)
 export const tanh = (value: any) => graphSupport.captureUnary("tanh", "tanh", value)
 export const gelu = (value: any) => graphSupport.captureUnary("gelu", "gelu", value)
 export const clamp = (value: any, min: number, max: number) => graphSupport.captureClamp(value, min, max)
+/** Normalize over one axis; affine scale and bias are separate operations. */
+export function layer_norm(value: Tensor, axis: number, eps = 1e-5): Tensor {
+  if (!Number.isInteger(axis) || axis < 0 || axis >= value.ndim || !Number.isFinite(eps) || eps <= 0) {
+    throw new AffonError('invalid_arg', 'layer_norm requires a valid axis and positive finite epsilon')
+  }
+  if (isCapturedTensor(value)) {
+    const centered = sub(value, mean(value, axis, true))
+    const varianceValue = mean(mul(centered, centered), axis, true)
+    return div(centered, sqrt(add(varianceValue, tensor(eps, { dtype: value.dtype }))))
+  }
+  return native.layer_norm(value, axis, eps)
+}
 export const softmax = (value: any, dim: number) => graphSupport.captureSoftmax(value, dim)
 function reduce(value: any, kind: any, axis?: number, keepdim?: boolean) {
   if (kind === "sum" || kind === "mean" || kind === "std" || kind === "variance" || kind === "min" || kind === "max") {
@@ -970,4 +993,4 @@ export function r2(pred: any, target: any): number {
   return 1 - lhs.reduce((sum, value, index) => sum + (value - rhs[index]) ** 2, 0) / total
 }
 
-export default { axes, all, range, Duration, schedules, scheduled, compile, module, sgd, adam, adamw, tensor, empty, zeros, ones, full, parameter, setDevice, copy, grad, clip_grad_norm, clear_grad, rand, randn, seed, arange, linspace, add, sub, mul, div, matmul, dot, square, gt_scalar, cast, abs, exp, log, neg, sqrt, sign, relu, sigmoid, silu, swish, tanh, gelu, clamp, softmax, sum, mean, min, max, variance, std, argmin, argmax, reshape, slice, at, contiguous, permute, transpose, squeeze, unsqueeze, cat, stack, one_hot, gather, index_select, topk, where, masked_fill, cross_entropy_indexed, move, no_grad, finite_summary, finite_abs_max, accuracy, precision, recall, f1, mse, mae, r2 }
+export default { stft_power, filterbank, axes, all, range, Duration, schedules, scheduled, compile, module, sgd, adam, adamw, tensor, empty, zeros, ones, full, parameter, setDevice, copy, grad, clip_grad_norm, clear_grad, rand, randn, seed, arange, linspace, add, sub, mul, div, matmul, dot, square, gt_scalar, cast, abs, exp, log, neg, sqrt, sign, relu, sigmoid, silu, swish, tanh, erf, gelu, clamp, layer_norm, softmax, sum, mean, min, max, variance, std, argmin, argmax, reshape, slice, at, contiguous, permute, transpose, squeeze, unsqueeze, cat, stack, one_hot, gather, index_select, topk, where, masked_fill, cross_entropy_indexed, move, no_grad, finite_summary, finite_abs_max, accuracy, precision, recall, f1, mse, mae, r2 }

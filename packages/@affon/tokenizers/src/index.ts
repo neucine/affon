@@ -142,7 +142,7 @@ export function createHFTokenizerFromJSON(
     .map((token) => token.id)
   const explicitVocabSize = Math.max(
     ...Object.values(spec.model.vocab),
-    ...extraSpecialTokenIds,
+    ...(spec.added_tokens ?? []).map(token => token.id),
   ) + 1
   return wrapDatasetTokenizer(
     createInternalHFTokenizerFromJSON(spec, opts),
@@ -163,7 +163,7 @@ export function createHFTokenizerFromFile(
     .map((token) => token.id)
   const explicitVocabSize = Math.max(
     ...Object.values(parsed.model.vocab),
-    ...extraSpecialTokenIds,
+    ...(parsed.added_tokens ?? []).map(token => token.id),
   ) + 1
   return wrapDatasetTokenizer(
     createInternalHFTokenizerFromFile(path, opts),

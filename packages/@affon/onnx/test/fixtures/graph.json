@@ -1,0 +1,243 @@
+{
+  "format": "affon-onnx-static/v1",
+  "opset": 17,
+  "source_sha256": "0ae157eda7c65a5d7fc104d52a0a3d1611a304475d82b1bc7f49995223429cf3",
+  "inputs": {
+    "x": [
+      1,
+      2,
+      4,
+      4
+    ]
+  },
+  "outputs": [
+    "conv",
+    "norm",
+    "erf",
+    "selected",
+    "result"
+  ],
+  "constants": {
+    "w": [
+      3,
+      2,
+      2,
+      2
+    ],
+    "bias": [
+      3
+    ],
+    "scale": [
+      3
+    ],
+    "offset": [
+      3
+    ],
+    "projection": [
+      3,
+      4
+    ],
+    "head": [
+      2,
+      4
+    ],
+    "head_bias": [
+      2
+    ]
+  },
+  "nodes": [
+    {
+      "op": "Conv",
+      "name": "",
+      "inputs": [
+        "x",
+        "w",
+        "bias"
+      ],
+      "output": "conv",
+      "shape": [
+        1,
+        3,
+        2,
+        2
+      ],
+      "attrs": {
+        "kernel": [
+          2,
+          2
+        ],
+        "strides": [
+          2,
+          2
+        ],
+        "dilations": [
+          1,
+          1
+        ],
+        "pads": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "group": 1
+      }
+    },
+    {
+      "op": "Transpose",
+      "name": "",
+      "inputs": [
+        "conv"
+      ],
+      "output": "transposed",
+      "shape": [
+        1,
+        2,
+        2,
+        3
+      ],
+      "attrs": {
+        "perm": [
+          0,
+          2,
+          3,
+          1
+        ]
+      }
+    },
+    {
+      "op": "Reshape",
+      "name": "",
+      "inputs": [
+        "transposed"
+      ],
+      "output": "reshaped",
+      "shape": [
+        1,
+        4,
+        3
+      ],
+      "attrs": {
+        "shape": [
+          1,
+          4,
+          3
+        ]
+      }
+    },
+    {
+      "op": "LayerNormalization",
+      "name": "",
+      "inputs": [
+        "reshaped",
+        "scale",
+        "offset"
+      ],
+      "output": "norm",
+      "shape": [
+        1,
+        4,
+        3
+      ],
+      "attrs": {
+        "axis": 2,
+        "epsilon": 0.009999999776482582
+      }
+    },
+    {
+      "op": "Erf",
+      "name": "",
+      "inputs": [
+        "norm"
+      ],
+      "output": "erf",
+      "shape": [
+        1,
+        4,
+        3
+      ],
+      "attrs": {}
+    },
+    {
+      "op": "MatMul",
+      "name": "",
+      "inputs": [
+        "erf",
+        "projection"
+      ],
+      "output": "projected",
+      "shape": [
+        1,
+        4,
+        4
+      ],
+      "attrs": {}
+    },
+    {
+      "op": "Softmax",
+      "name": "",
+      "inputs": [
+        "projected"
+      ],
+      "output": "probabilities",
+      "shape": [
+        1,
+        4,
+        4
+      ],
+      "attrs": {
+        "axis": 2
+      }
+    },
+    {
+      "op": "Gather",
+      "name": "",
+      "inputs": [
+        "probabilities"
+      ],
+      "output": "selected",
+      "shape": [
+        1,
+        4
+      ],
+      "attrs": {
+        "axis": 1,
+        "index": -1
+      }
+    },
+    {
+      "op": "Gemm",
+      "name": "",
+      "inputs": [
+        "selected",
+        "head",
+        "head_bias"
+      ],
+      "output": "result",
+      "shape": [
+        1,
+        2
+      ],
+      "attrs": {
+        "alpha": 0.5,
+        "beta": 2.0,
+        "transB": 1
+      }
+    }
+  ],
+  "conversion": {
+    "original_nodes": 9,
+    "folded_operators": {},
+    "runtime_operators": {
+      "Conv": 1,
+      "Transpose": 1,
+      "Reshape": 1,
+      "LayerNormalization": 1,
+      "Erf": 1,
+      "MatMul": 1,
+      "Softmax": 1,
+      "Gather": 1,
+      "Gemm": 1
+    }
+  }
+}

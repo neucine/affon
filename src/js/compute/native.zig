@@ -562,38 +562,60 @@ fn jsLoadNative(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]
     defer parsed.deinit();
     const result = abi.jsNewObject(ctx);
     if (abi.jsIsException(result)) return result;
-    errdefer abi.jsFreeValue(ctx, result);
+    var owns_result = true;
+    defer if (owns_result) abi.jsFreeValue(ctx, result);
     const raw = file[8 + @as(usize, @intCast(header_size)) ..];
+    if (parsed.value != .object) return errorValue(ctx, "checkpoint.load header must be an object");
     const root = parsed.value.object;
     for (root.keys(), root.values()) |name, metadata| {
+        if (metadata != .object) return errorValue(ctx, "checkpoint.load metadata must be an object");
         const object = metadata.object;
+        if (std.mem.eql(u8, name, "__metadata__")) {
+            for (object.values()) |entry| {
+                if (entry != .string) return errorValue(ctx, "checkpoint.load __metadata__ values must be strings");
+            }
+            continue;
+        }
         const dtype_text = object.get("dtype") orelse return errorValue(ctx, "checkpoint.load metadata is missing dtype");
+        if (dtype_text != .string) return errorValue(ctx, "checkpoint.load dtype must be a string");
         const dtype = checkpointDType(dtype_text.string) orelse return errorValue(ctx, "checkpoint.load has unsupported dtype");
         const shape_value = object.get("shape") orelse return errorValue(ctx, "checkpoint.load metadata is missing shape");
+        if (shape_value != .array) return errorValue(ctx, "checkpoint.load shape must be an array");
         const dims = allocator.alloc(usize, shape_value.array.items.len) catch return errorValue(ctx, "checkpoint.load out of memory");
         defer allocator.free(dims);
-        for (dims, shape_value.array.items) |*dim, item| dim.* = @intCast(item.integer);
+        var numel: usize = 1;
+        for (dims, shape_value.array.items) |*dim, item| {
+            if (item != .integer or item.integer < 0) return errorValue(ctx, "checkpoint.load shape must contain non-negative integers");
+            dim.* = std.math.cast(usize, item.integer) orelse return errorValue(ctx, "checkpoint.load dimension is too large");
+            numel = std.math.mul(usize, numel, dim.*) catch return errorValue(ctx, "checkpoint.load shape is too large");
+        }
         const offsets = object.get("data_offsets") orelse return errorValue(ctx, "checkpoint.load metadata is missing offsets");
-        const start: usize = @intCast(offsets.array.items[0].integer);
-        const end: usize = @intCast(offsets.array.items[1].integer);
+        if (offsets != .array or offsets.array.items.len != 2) return errorValue(ctx, "checkpoint.load expects two offsets");
+        for (offsets.array.items) |item| {
+            if (item != .integer or item.integer < 0) return errorValue(ctx, "checkpoint.load offsets must be non-negative integers");
+        }
+        const start = std.math.cast(usize, offsets.array.items[0].integer) orelse return errorValue(ctx, "checkpoint.load offset is too large");
+        const end = std.math.cast(usize, offsets.array.items[1].integer) orelse return errorValue(ctx, "checkpoint.load offset is too large");
         if (end < start or end > raw.len) return errorValue(ctx, "checkpoint.load offsets exceed file size");
+        const byte_len = std.math.mul(usize, numel, dtype.size()) catch return errorValue(ctx, "checkpoint.load tensor is too large");
+        if (byte_len != end - start) return errorValue(ctx, "checkpoint.load tensor byte length mismatch");
         const value = Tensor.createContiguous(allocator, dims, dtype, .cpu, false) catch return errorValue(ctx, "checkpoint.load out of memory");
-        errdefer value.deinit();
+        var owns_value = true;
+        defer if (owns_value) value.deinit();
         const writable = value.storage.?.writableBytes() catch return errorValue(ctx, "checkpoint.load failed to allocate Tensor");
         if (writable.len != end - start) return errorValue(ctx, "checkpoint.load tensor byte length mismatch");
         @memcpy(writable, raw[start..end]);
         const js_value = createTensorObject(ctx, value);
-        if (abi.jsIsException(js_value)) {
-            value.deinit();
-            return js_value;
-        }
+        owns_value = false;
+        if (abi.jsIsException(js_value)) return js_value;
         var owns_js_value = true;
         defer if (owns_js_value) abi.jsFreeValue(ctx, js_value);
         const name_z = allocator.dupeZ(u8, name) catch return errorValue(ctx, "checkpoint.load out of memory");
         defer allocator.free(name_z);
-        if (abi.jsSetProperty(ctx, result, name_z.ptr, js_value) < 0) return abi.jsThrowError(ctx, "checkpoint.load failed to create result");
         owns_js_value = false;
+        if (abi.jsSetProperty(ctx, result, name_z.ptr, js_value) < 0) return abi.jsThrowError(ctx, "checkpoint.load failed to create result");
     }
+    owns_result = false;
     return result;
 }
 
@@ -1852,6 +1874,21 @@ fn jsArgmax(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.
     return reduction(ctx, argc, argv, .argmax, "argmax expects a Tensor");
 }
 
+fn jsLayerNorm(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    if (argc != 3) return typeError(ctx, "layer_norm expects a Tensor, axis and epsilon");
+    const input = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "layer_norm expects a Tensor");
+    const axis = integerArgument(ctx, argv[1], "axis") orelse return typeError(ctx, "invalid axis");
+    var eps: f64 = 0;
+    if (abi.jsToFloat64(ctx, &eps, argv[2]) < 0 or !std.math.isFinite(eps) or eps <= 0) return typeError(ctx, "epsilon must be positive and finite");
+    const op = Op.init(.layer_norm, &.{input}, .{ .layer_norm = .{ .axis = axis, .eps = eps } }) catch |err| return classifiedErrorValue(ctx, "layer_norm failed", err);
+    var result = engineFor(ctx).executeRaw(op) catch |err| return classifiedErrorValue(ctx, "layer_norm failed", err);
+    trackResult(result.primary, &.{input}, .layer_norm, axis, eps, null) catch {
+        result.deinit();
+        return errorValue(ctx, "failed to record autograd state");
+    };
+    return createTensorObject(ctx, result.primary);
+}
+
 fn jsSoftmax(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
     if (argc != 2) return typeError(ctx, "softmax expects a Tensor and axis");
     const input = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "softmax expects a Tensor");
@@ -2262,7 +2299,25 @@ fn jsTopk(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JS
     return result;
 }
 
-const UnaryOperation = enum { abs, exp, log, neg, sqrt, sign, relu, sigmoid, silu, tanh, gelu };
+fn jsStftPower(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    if (argc != 5) return typeError(ctx, "stft_power expects signal, window, hop, padded length, frame count");
+    const input = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "signal must be a Tensor");
+    const window = tensorFromValue(ctx, argv[1]) orelse return typeError(ctx, "window must be a Tensor");
+    const hop = integerArgument(ctx, argv[2], "hop") orelse return typeError(ctx, "invalid hop");
+    const length = integerArgument(ctx, argv[3], "length") orelse return typeError(ctx, "invalid length");
+    const frames = integerArgument(ctx, argv[4], "frames") orelse return typeError(ctx, "invalid frames");
+    const result = compute.signal.stftPower(allocator, input, window, hop, length, frames) catch return errorValue(ctx, "stft_power requires valid CPU contiguous f32 signal/f64 window without gradients");
+    return createTensorObject(ctx, result);
+}
+fn jsFilterbank(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    if (argc != 2) return typeError(ctx, "filterbank expects spectrum and filters");
+    const input = tensorFromValue(ctx, argv[0]) orelse return typeError(ctx, "spectrum must be a Tensor");
+    const filters = tensorFromValue(ctx, argv[1]) orelse return typeError(ctx, "filters must be a Tensor");
+    const result = compute.signal.filterbank(allocator, input, filters) catch return errorValue(ctx, "filterbank requires compatible CPU contiguous f64 tensors without gradients");
+    return createTensorObject(ctx, result);
+}
+
+const UnaryOperation = enum { abs, exp, log, neg, sqrt, sign, relu, sigmoid, silu, tanh, erf, gelu };
 
 fn unary(ctx: abi.JSContext, argc: c_int, argv: [*c]abi.JSValueConst, operation: UnaryOperation, name: [*:0]const u8) abi.JSValue {
     if (argc != 1) return typeError(ctx, "unary operation expects one tensor");
@@ -2279,6 +2334,7 @@ fn unary(ctx: abi.JSContext, argc: c_int, argv: [*c]abi.JSValueConst, operation:
         .sigmoid => engine.sigmoid(input),
         .silu => engine.silu(input),
         .tanh => engine.tanh(input),
+        .erf => engine.erf(input),
         .gelu => engine.gelu(input),
     } catch return errorValue(ctx, name);
     const op_tag: OpTag = switch (operation) {
@@ -2292,6 +2348,7 @@ fn unary(ctx: abi.JSContext, argc: c_int, argv: [*c]abi.JSValueConst, operation:
         .sigmoid => .sigmoid,
         .silu => .silu,
         .tanh => .tanh,
+        .erf => .erf,
         .gelu => .gelu,
     };
     trackResult(result, &.{input}, op_tag, null, null, null) catch {
@@ -2335,6 +2392,10 @@ fn jsSigmoid(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi
 
 fn jsSilu(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
     return unary(ctx, argc, argv, .silu, "silu expects a Tensor");
+}
+
+fn jsErf(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    return unary(ctx, argc, argv, .erf, "erf expects a Tensor");
 }
 
 fn jsTanh(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
@@ -2474,8 +2535,12 @@ const functions = [_]abi.JSFunction{
     .{ .name = "sigmoid", .callback = jsSigmoid, .length = 1 },
     .{ .name = "silu", .callback = jsSilu, .length = 1 },
     .{ .name = "tanh", .callback = jsTanh, .length = 1 },
+    .{ .name = "stft_power", .callback = jsStftPower, .length = 5 },
+    .{ .name = "filterbank", .callback = jsFilterbank, .length = 2 },
+    .{ .name = "erf", .callback = jsErf, .length = 1 },
     .{ .name = "gelu", .callback = jsGelu, .length = 1 },
     .{ .name = "clamp", .callback = jsClamp, .length = 3 },
+    .{ .name = "layer_norm", .callback = jsLayerNorm, .length = 3 },
     .{ .name = "softmax", .callback = jsSoftmax, .length = 2 },
     .{ .name = "sum", .callback = jsSum, .length = 1 },
     .{ .name = "mean", .callback = jsMean, .length = 1 },

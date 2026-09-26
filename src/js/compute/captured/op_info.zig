@@ -26,6 +26,7 @@ pub fn noOptionKind(kind: []const u8) ?OpInfo {
     if (std.mem.eql(u8, kind, "sqrt")) return noOption(.sqrt);
     if (std.mem.eql(u8, kind, "sigmoid")) return noOption(.sigmoid);
     if (std.mem.eql(u8, kind, "silu")) return noOption(.silu);
+    if (std.mem.eql(u8, kind, "erf")) return noOption(.erf);
     if (std.mem.eql(u8, kind, "tanh")) return noOption(.tanh);
     if (std.mem.eql(u8, kind, "sign")) return noOption(.sign);
     if (std.mem.eql(u8, kind, "gelu")) return noOption(.gelu);

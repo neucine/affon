@@ -60,6 +60,13 @@ The goal is strong editor and refactor support around the main contracts without
 
 ## Execution graph pipeline
 
+`layer_norm(x, axis, eps = 1e-5)` normalizes along one axis using population
+variance and preserves the tensor shape. The axis must be nonnegative and in
+range; epsilon must be positive and finite. Affine weights are separate:
+`add(mul(layer_norm(x, axis, eps), weight), bias)`.
+Eager execution uses the native normalization kernel and supports autograd.
+Graph capture currently expands it into arithmetic and reductions.
+
 `compile(...)` builds an execution graph and then derives optimized execution
 plans from that graph.
 
@@ -404,6 +411,11 @@ Runtime/control helpers that also belong on the compute surface:
 - `finite_abs_max(x)`
 - `gt_scalar(x, threshold)`
 
+Contiguity ignores strides on dimensions of size one, because those axes never
+advance an element address. Transposing singleton axes can therefore remain dense;
+`contiguous` reuses zero-offset storage in that case. Nonzero-offset views and
+layouts with actual gaps or reordered elements retain their materialization rules.
+
 `finite_summary(x)` returns a small diagnostic object:
 
 - `ok`
@@ -550,3 +562,87 @@ computation through value-centric entrypoints (`autograd.makeTrainableValue`,
 `autograd.backwardValue`, `autograd.gradForValue`, and value-level invoke
 helpers) rather than using sidecar-level construction as the default test-time
 tensor shape.
+
+
+### Error function
+
+`erf(x)` preserves shape and axes and supports eager execution, graph capture,
+and autograd. CPU supports f32/f64; Metal supports f32. It uses the A&S 7.1.26
+approximation (about 5e-7 absolute accuracy for f32 and 1.5e-7 for f64), with the
+analytic derivative `2 / sqrt(pi) * exp(-x*x)`. Integer tensors and native CUDA
+execution are unsupported. ONNX keeps its tensor-expression fallback for CUDA
+and older runtimes. The native operation replaces twenty eager operations and
+avoids temporary scalar tensors for each ONNX Erf node.
+
+### Metal command timing diagnostic
+
+Set `AFFON_METAL_COMMAND_TIMING=1` before process startup to collect completed
+Metal command-buffer timings through `std:telemetry` in `compute.execution`:
+
+- `metal_command_count`: completed commit/wait calls.
+- `metal_command_prepare_ns`: time from command-buffer creation through encoding,
+  ending immediately before commit; excludes earlier tensor and graph preparation.
+- `metal_command_submit_ns`: host duration of the Metal `commit` call.
+- `metal_command_wait_ns`: remaining time through completion of the blocking wait.
+- `metal_command_wall_ns`: submission plus completion-wait duration.
+- `metal_command_gpu_valid_count`: buffers with valid GPU start/end timestamps.
+- `metal_command_gpu_ns`: cumulative GPU duration for those valid buffers.
+
+The diagnostic is off by default and retains synchronous execution. Compare
+counter deltas around a workload; ensure the valid count matches the command
+count before interpreting GPU totals. GPU time is command-buffer time, not
+individual kernel time. Wall minus GPU includes submission, scheduling and host
+wakeup costs; it does not directly predict the gain from asynchronous execution.
+
+Preparation timing includes small diagnostic timestamp/bookkeeping costs. GPU
+execution can overlap submission, so do not add GPU duration to submission/wait
+as though they were disjoint phases. A large completion-wait residual does not
+identify its cause or establish that batching will remove it.
+
+### Automatic Metal matmul selection
+
+The layout-aware f32 backend selects MPS automatically for compatible multi-row
+products with at least 1,048,576 multiply-accumulate terms per matrix. This
+conservative crossover avoids measured tiny-product setup regressions. Compatible
+row-major and transposed matrices can use padded row strides, nonzero aligned
+offsets and batch/broadcast offsets when the full MPS descriptor fits the buffer.
+Single-row products also use MPS when the reduction length is at least 256
+and there are at least 65,536 multiply-accumulate terms. Short reductions retain
+the existing kernels because MPS setup can outweigh their computation. Unsupported
+layouts and smaller products also keep their existing kernels. No MPS-selection configuration is required; the prototype
+`AFFON_METAL_LAYOUT_MPS` switch has been removed.
+
+For single-row products remaining on the custom path, reductions of at least
+64 elements with at most 128 output columns use cooperative SIMD prefetch on
+32-lane hardware. Accumulation retains the scalar order; this extends the
+existing kernel to short decoder reductions without introducing a parallel sum.
+
+All matrices within one existing batched matmul use the operation's usual command
+buffer and completion wait. This does not introduce cross-operation batching or
+asynchronous scheduling. Selection is an empirical policy, not a guarantee that
+one backend wins for every matrix on every Apple GPU.
+
+### CPU spectral preprocessing
+
+`stft_power(signal, window, hop, paddedLength?, frames?)` computes a centered,
+reflect-padded, one-sided unnormalized STFT power spectrum. Supply a contiguous
+CPU f32 vector and a contiguous CPU f64 window (length 2–4096). The signal is
+right-zero-padded to `paddedLength` before reflection; it defaults to the signal
+length and must exceed half the window length. The frame count defaults to
+`1 + floor(paddedLength / hop)` and can be reduced by the caller.
+The output is CPU f64 `[floor(window.length / 2) + 1, frames]`.
+
+The mixed-radix FFT accumulates in f64, rounds complex components to f32, then
+computes power in f64. All-zero frames skip the FFT. General window lengths are
+supported; large prime lengths have quadratic work and are not an optimized case.
+
+`filterbank(spectrum, filters)` projects CPU f64 `[bins, frames]` through CPU f64
+`[bands, bins]` weights, producing `[bands, frames]`. Structural zero weights are
+skipped. Both inputs must be contiguous with zero offsets. Filter construction,
+log floors, normalization and task-specific framing remain caller responsibilities.
+
+These initial primitives are inference-only CPU preprocessing utilities, without
+autograd or native graph capture. Tracked tensors are rejected; compiled callers
+use the normal eager fallback. Move the final feature tensor to Metal/CUDA as
+needed. Native work emits `compute.execution/stft_power` and
+`compute.execution/filterbank` telemetry spans.

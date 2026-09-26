@@ -17,6 +17,8 @@ declare module "affon:compute/native" {
   }
 
   const native: {
+    stft_power(signal: Tensor, window: Tensor, hop: number, paddedLength: number, frames: number): Tensor
+    filterbank(spectrum: Tensor, filters: Tensor): Tensor
     inferCapturedOp(kind: string, inputs: readonly { shape: readonly number[]; dtype: "f32" | "f64" | "i64"; device?: Device }[], options?: unknown): { shape: readonly number[]; dtype: "f32" | "f64" | "i64"; device: "cpu" | "metal" | "cuda" }
     tensor(values: number | readonly number[] | readonly (number | readonly number[])[], options?: { dtype?: "f32" | "f64" | "i64"; device?: Device }): Tensor
     empty(shape: readonly number[], options?: { dtype?: "f32" | "f64" | "i64"; device?: Device }): Tensor
@@ -56,8 +58,10 @@ declare module "affon:compute/native" {
     sigmoid(value: Tensor): Tensor
     silu(value: Tensor): Tensor
     tanh(value: Tensor): Tensor
+    erf(value: Tensor): Tensor
     gelu(value: Tensor): Tensor
     clamp(value: Tensor, min: number, max: number): Tensor
+    layer_norm(value: Tensor, axis: number, eps: number): Tensor
     softmax(value: Tensor, axis: number): Tensor
     sum(value: Tensor): Tensor
     mean(value: Tensor, axis?: number): Tensor

@@ -25,10 +25,20 @@ export interface TextDecodeOpts {
 export interface HFPreTokenizerSpec {
   type?: string
   add_prefix_space?: boolean
+  /** Whether ByteLevel applies GPT-2 token boundaries before byte encoding. Defaults to true. */
+  use_regex?: boolean
   pretokenizers?: HFPreTokenizerSpec[]
 }
 
 export interface HFTokenizerJSON {
+  /** Supported BERT normalization; null means no normalization. */
+  normalizer?: {
+    type: 'BertNormalizer'
+    clean_text?: boolean
+    handle_chinese_chars?: boolean
+    strip_accents?: boolean | null
+    lowercase?: boolean
+  } | null
   model: {
     type?: string
     vocab: Record<string, number>
@@ -43,6 +53,13 @@ export interface HFTokenizerJSON {
     id: number
     content: string
     special?: boolean
+    /** Match only outside adjacent word characters. */
+    single_word?: boolean
+    /** Consume whitespace immediately before/after the added token. */
+    lstrip?: boolean
+    rstrip?: boolean
+    /** Serialized HF flag; transformed-text matching requires a normalizer (not implemented). */
+    normalized?: boolean
   }>
 }
 

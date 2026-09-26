@@ -4,6 +4,9 @@ Transformer architecture package for Affon.
 
 This package owns reusable transformer-family architecture blocks. It should stay focused on structures that can be reused by language, vision, multimodal, and other transformer-shaped packages.
 
+HF-specific configuration, weight mapping, model loading, and processor integration
+belong in the peer [@affon/huggingface](../huggingface/README.md) package.
+
 ## Package Boundary
 
 Owned here:

@@ -1,4 +1,8 @@
 declare module "affon:compute" {
+  /** Inference-only CPU centered reflect STFT. Signal f32, window f64; output f64 [bins, frames]. */
+  export function stft_power(signal: Tensor, window: Tensor, hop: number, paddedLength?: number, frames?: number): Tensor
+  export function filterbank(spectrum: Tensor, filters: Tensor): Tensor
+
 type Device = "cpu" | "metal" | "cuda" | `cuda:${number}`
 type DType = "f32" | "f64" | "i64"
 type TensorInput = number | readonly number[] | readonly TensorInput[]
@@ -128,9 +132,11 @@ export const relu: (value: any) => Tensor
 export const sigmoid: (value: any) => Tensor
 export const silu: (value: any) => Tensor
 export const swish: typeof silu
+export const erf: (value: any) => Tensor
 export const tanh: (value: any) => Tensor
 export const gelu: (value: any) => Tensor
 export const clamp: (value: any, min: number, max: number) => Tensor
+export const layer_norm: (value: Tensor, axis: number, eps?: number) => Tensor
 export const softmax: (value: any, dim: number) => Tensor
 
 export function sum(value: any, axis?: number, keepdim?: boolean): Tensor
@@ -174,6 +180,8 @@ export function f1(pred: any, target: any, options?: { threshold?: number }): nu
 export function r2(pred: any, target: any): number
 
 declare const compute: {
+  stft_power: typeof stft_power;
+  filterbank: typeof filterbank;
   axes: typeof axes
   all: typeof all
   range: typeof range
@@ -221,8 +229,10 @@ declare const compute: {
   silu: typeof silu
   swish: typeof swish
   tanh: typeof tanh
+  erf: typeof erf
   gelu: typeof gelu
   clamp: typeof clamp
+  layer_norm: typeof layer_norm
   softmax: typeof softmax
   sum: typeof sum
   mean: typeof mean

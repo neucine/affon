@@ -1,0 +1,271 @@
+# Hugging Face inference audit
+
+Independent reference checkers for the experimental native GPT-2, BERT, and
+ViT implementations in [@affon/huggingface](../../../packages/@affon/huggingface/README.md). These exercise the [cross-domain inference roadmap](../../../docs/roadmap.md).
+The shared package owns inference and processors; this app owns reference
+generation, comparisons, diagnostics, and reports. See the [expanded results](../../../docs/ml/expanded-inference-audit.md)
+for current passes, failures, and measured memory limits.
+
+## Prepare a reference
+
+Use Python 3.11 or newer with a supported PyTorch wheel:
+
+```sh
+python3 -m venv /tmp/affon-hf-venv
+/tmp/affon-hf-venv/bin/pip install -r apps/hf-inference/audit/requirements.txt
+HF_HOME=/tmp/affon-hf-cache /tmp/affon-hf-venv/bin/python \
+  apps/hf-inference/audit/prepare-reference.py \
+  --model sshleifer/tiny-gpt2 \
+  --revision 5f91d94bd9cd7190a9f3216ff93cd1dd95f2c7be \
+  --output /tmp/affon-hf-tiny-gpt2
+```
+
+Preparation uses HF/PyTorch on CPU in evaluation mode. It exports f32
+SafeTensors with HF weight names, tokenizer JSON, and reference activations,
+logits, token IDs, and uncached greedy sequences. This checkpoint's original
+weights are converted by the reference tool; arbitrary source-format loading
+is not established by this experiment. Direct Hub loading is tested separately
+below with the original DistilGPT-2 and ViT SafeTensors. The manifest
+records the exact commit, dependency versions, and artifact SHA-256 hashes.
+The tiny checkpoint tests interoperability, not meaningful language quality.
+
+## Run native inference checks
+
+From the repository root:
+
+```sh
+zig build install
+AFFON_DEVICE=cpu AFFON_HF_MODEL_DIR=/tmp/affon-hf-tiny-gpt2 \
+  AFFON_AUDIT_BUILD=Debug ./zig-out/bin/affon apps/hf-inference/audit/audit.ts
+```
+
+Set `AFFON_DEVICE=metal` or `cuda` on a suitable host to exercise those backends.
+Reports default to `<model-dir>/audit-<device>.json`; `AFFON_HF_REPORT` overrides
+the output path. Any failed check exits unsuccessfully after writing the report.
+Loader/setup failures terminate before the report is produced.
+
+Checks cover four prompts (including Unicode, whitespace, and a special token),
+all hidden states exposed by the reference, all prompt logits, four greedy
+decoding steps, decoded output, and input/context validation. Logits and hidden
+states use elementwise `abs(error) <= 1e-4 + 1e-4 * abs(reference)`; token IDs
+and decoded strings require exact agreement. Forward checks use reference IDs
+so a tokenizer mismatch does not conceal a separate model result.
+
+`load_gpt2(directory, device)` in `@affon/huggingface` also provides `forward(ids)` and
+`generate(ids, max_new_tokens)` for local experiments. The latter returns the
+prompt plus generated IDs and stops at EOS. The adapter uses `no_grad`, constant
+weights, and deterministic evaluation semantics (no dropout).
+
+## Scope and limits
+
+The following limits describe the GPT-2 path; encoder/vision probes are below.
+
+- Standard tied-head GPT-2 with `gelu_new`, f32, one unpadded sequence.
+- One `model.safetensors`; no shards or automatic dtype conversion. Shared Hub
+  downloading and verified offline caching live in `@affon/huggingface`.
+- Full-prefix recomputation; no KV cache, batching, streaming, or sampling.
+- Strict weight names/shapes; unsupported known attention/config variants fail.
+- Timing fields are diagnostic wall times, include host reads/comparison, and
+  are not throughput benchmarks. Memory stability and compilation are unaudited.
+- A passing tiny checkpoint does not certify GPT-2 at production dimensions or
+  any other HF architecture. The [gap report](../../../docs/ml/inference-gaps.md)
+  records actual validation.
+
+Run offline regression tests with:
+
+```sh
+./zig-out/bin/affon test apps/hf-inference
+./zig-out/bin/affon test packages/@affon/tokenizers/test
+./zig-out/bin/affon test test/e2e/checkpoint
+```
+
+## Wider and production-sized decoder probes
+
+Use the same pinned tiny-model tokenizer with seeded random weights (width 64,
+four heads, two layers, seed 1729) and an additional longer prompt:
+
+```sh
+HF_HOME=/tmp/affon-hf-cache /tmp/affon-hf-venv/bin/python \
+  apps/hf-inference/audit/prepare-reference.py --seeded-wide \
+  --revision 5f91d94bd9cd7190a9f3216ff93cd1dd95f2c7be \
+  --output /tmp/affon-hf-wide-gpt2
+```
+
+Prepare production-sized DistilGPT-2 (about 328 MB decimal of f32 weights):
+
+```sh
+HF_HOME=/tmp/affon-hf-cache /tmp/affon-hf-venv/bin/python \
+  apps/hf-inference/audit/prepare-reference.py --model distilbert/distilgpt2 \
+  --revision 2290a62682d06624634c1f46a6ad5be0f47f38aa \
+  --output /tmp/affon-hf-distilgpt2
+AFFON_DEVICE=cpu AFFON_AUDIT_BUILD=Debug \
+  AFFON_HF_MODEL_DIR=/tmp/affon-hf-distilgpt2 \
+  ./zig-out/bin/affon apps/hf-inference/audit/audit.ts
+```
+
+Point `AFFON_HF_MODEL_DIR` at the wide fixture to run that probe. Change
+`AFFON_DEVICE` to `metal` or `cuda` only on hosts supporting those backends.
+Artifacts must fit the current 500 MiB-per-file loader cap. No sharded loading
+or production-sized model-family coverage is implied.
+
+Reports now include before/after-load and per-case memory telemetry. This samples
+process footprint and tensor allocation counters; it does not measure sustained
+memory stability or isolate model memory from the reference/comparison overhead.
+
+## Encoder and vision probes
+
+Prepare the pinned BERT base-encoder and ViT classifier references:
+
+```sh
+HF_HOME=/tmp/affon-hf-cache /tmp/affon-hf-venv/bin/python \
+  apps/hf-inference/audit/prepare-domain-reference.py --family bert \
+  --model prajjwal1/bert-tiny \
+  --revision 6f75de8b60a9f8a2fdf7b69cbd86d9e64bcb3837 \
+  --output /tmp/affon-hf-bert
+HF_HOME=/tmp/affon-hf-cache /tmp/affon-hf-venv/bin/python \
+  apps/hf-inference/audit/prepare-domain-reference.py --family vit \
+  --model google/vit-base-patch16-224 \
+  --revision 3f49326eb077187dfe1c2a2bb15fbd74e6ab91e3 \
+  --output /tmp/affon-hf-vit
+AFFON_DEVICE=cpu AFFON_AUDIT_BUILD=Debug AFFON_HF_MODEL_DIR=/tmp/affon-hf-bert \
+  ./zig-out/bin/affon apps/hf-inference/audit/audit-domain.ts
+```
+
+Use an isolated optimized build for the CPU vision audit:
+
+```sh
+zig build -Doptimize=ReleaseFast --prefix /tmp/affon-hf-release install
+AFFON_DEVICE=cpu AFFON_AUDIT_BUILD=ReleaseFast AFFON_HF_MODEL_DIR=/tmp/affon-hf-vit \
+  /tmp/affon-hf-release/bin/affon apps/hf-inference/audit/audit-domain.ts
+```
+
+`audit-domain.ts` separates processor and forward checks. Passing native
+processor outputs feed forward runs; a failed processor check falls back to
+reference inputs for diagnosis, recorded in `input_source`. BERT probes single and padded two-row batches,
+encoder hidden states, the model pooler, and masked-mean/L2 pooling. ViT probes
+two synthetic RGB images, pixel-value parity, hidden states, logits, and top-1
+classification. The package accepts RGB8 arrays and implements Pillow-compatible
+bilinear resizing, rescaling, and normalization. It does not decode image files
+or support arbitrary image processors.
+
+The BERT audit passes all seven grouped checks on CPU and Metal, using native
+BERT normalization, WordPiece, serialized single/pair templates, and right
+padding. ViT passes both processor checks and both cases' logits/top-1 checks,
+but **still exits unsuccessfully** because some hidden-state comparisons fail.
+A passing classifier output is not a passing model audit. In `checks`,
+entry zero is the final output, followed by hidden states in reference order,
+then BERT's mean-pooled and pooler outputs when present.
+
+Both encoder adapters use an explicitly approximate erf-GELU composition from
+existing primitives. Its independent PyTorch fixture can be tested offline:
+
+```sh
+./zig-out/bin/affon test apps/hf-inference/tests/encoder-ops.test.ts
+```
+
+The fixture records `torch.nn.functional.gelu(approximate="none")` on 257 evenly
+spaced f32 values from -8 to 8. ViT patch convolution is expressed as patches
+plus matmul; general convolution support is not established by this adapter.
+
+`processors.test.ts` covers 21 independent tokenizer and resize fixtures. To
+regenerate them with the pinned Python dependencies, run
+`apps/hf-inference/audit/generate-processor-references.py`. These synthetic fixtures
+require no downloaded model weights.
+
+## Diagnose ViT numerical drift
+
+Capture individual PyTorch operation inputs and outputs, then run each native
+operation with the exact reference input:
+
+```sh
+/tmp/affon-hf-venv/bin/python apps/hf-inference/audit/prepare-vit-diagnostics.py \
+  --directory /tmp/affon-hf-vit
+AFFON_DEVICE=cpu AFFON_HF_MODEL_DIR=/tmp/affon-hf-vit \
+  /tmp/affon-hf-release/bin/affon apps/hf-inference/audit/diagnose-vit.ts
+```
+
+All 35 captured operations pass on CPU and Metal at the unchanged tolerance.
+To measure propagation of the initial embedding difference through PyTorch:
+
+```sh
+AFFON_DEVICE=cpu AFFON_HF_MODEL_DIR=/tmp/affon-hf-vit \
+  /tmp/affon-hf-release/bin/affon apps/hf-inference/audit/capture-vit-native.ts
+/tmp/affon-hf-venv/bin/python apps/hf-inference/audit/probe-vit-sensitivity.py \
+  --directory /tmp/affon-hf-vit --device cpu
+```
+
+Replacing only PyTorch's embedding output with Affon's slightly different
+embedding reproduces some later tolerance failures. This is evidence of
+rounding-error amplification, not a full explanation or a compatibility pass.
+See the [saved results](../../../docs/ml/expanded-inference-audit.md) for the
+measurements and remaining validation work.
+
+## Direct Hub inference without Python
+
+`hub-smoke.ts` downloads the original pinned DistilGPT-2 or ViT artifacts through
+`@affon/huggingface`, selects the processor, and runs native inference. It needs
+Hao native HTTP streaming and system shasum, mkdir, mv, and rm for cache
+maintenance; it does not use curl or the Python environment.
+
+```sh
+AFFON_DEVICE=cpu AFFON_HF_CACHE=/tmp/affon-hub-cache \
+  /tmp/affon-hf-release/bin/affon apps/hf-inference/audit/hub-smoke.ts
+AFFON_DEVICE=cpu AFFON_HF_FAMILY=vit AFFON_HF_CACHE=/tmp/affon-hub-cache \
+  /tmp/affon-hf-release/bin/affon apps/hf-inference/audit/hub-smoke.ts
+```
+
+Repeat with `AFFON_HF_OFFLINE=1` to verify cache-only loading. Text generates four
+tokens; vision classifies a deterministic synthetic RGB array. These are smoke
+checks, not expanded accuracy claims.
+
+For independent parity checks on downloaded artifacts, set `AFFON_HF_MODEL_DIR`
+to the returned snapshot and `AFFON_HF_REFERENCE_DIR` to an existing prepared
+reference directory when running `audit.ts` or `audit-domain.ts`. Python remains
+an optional oracle-generation dependency, not a model loading dependency.
+
+## Calibrate ViT patch-projection sensitivity
+
+Capture all reference cases on each native backend (the case-zero aliases remain
+available for the older sensitivity probe), then run the PyTorch interventions:
+
+```sh
+AFFON_DEVICE=cpu AFFON_HF_MODEL_DIR=/tmp/affon-hf-vit \
+  /tmp/affon-hf-release/bin/affon apps/hf-inference/audit/capture-vit-native.ts
+AFFON_DEVICE=metal AFFON_HF_MODEL_DIR=/tmp/affon-hf-vit \
+  /tmp/affon-hf-release/bin/affon apps/hf-inference/audit/capture-vit-native.ts
+/tmp/affon-hf-audit-venv/bin/python apps/hf-inference/audit/probe-vit-projection.py \
+  --directory /tmp/affon-hf-vit \
+  --output apps/hf-inference/audit/reports/vit-base/projection-calibration.json
+```
+
+The probe verifies checkpoint hashes and baseline reproduction, substitutes
+three equivalent patch projections and each native embedding, and compares
+whole PyTorch blocks fed identical native inputs. Reports separate CLS tokens,
+patch tokens, logits, and the first failing hidden state. Original tolerances
+and strict audit failures are preserved. See the [findings](../../../docs/ml/expanded-inference-audit.md#patch-projection-calibration-on-both-backends).
+
+## Real-image calibration across PyTorch execution paths
+
+The real-image preparation tool reuses the pinned local ViT weights and downloads
+three public reference images. It saves original image hashes and decoded RGB
+alongside CPU/eager, CPU/SDPA and, when available, MPS/eager reference outputs.
+Use the checked-in manifest to reject changed sample bytes on reproduction:
+
+```sh
+/tmp/affon-hf-audit-venv/bin/python apps/hf-inference/audit/prepare-vit-real-images.py \
+  --model-directory /tmp/affon-hf-vit --output /tmp/affon-hf-vit-real \
+  --expected-manifest apps/hf-inference/audit/reports/vit-real-images/reference.json
+AFFON_DEVICE=cpu AFFON_HF_MODEL_DIR=/tmp/affon-hf-vit-real \
+  /tmp/affon-hf-release/bin/affon apps/hf-inference/audit/capture-vit-native.ts
+AFFON_DEVICE=metal AFFON_HF_MODEL_DIR=/tmp/affon-hf-vit-real \
+  /tmp/affon-hf-release/bin/affon apps/hf-inference/audit/capture-vit-native.ts
+/tmp/affon-hf-audit-venv/bin/python apps/hf-inference/audit/compare-vit-real-images.py \
+  --directory /tmp/affon-hf-vit-real \
+  --output apps/hf-inference/audit/reports/vit-real-images/calibration.json
+```
+
+`capture-vit-native.ts` preprocesses saved decoded RGB whenever present. The
+strict `audit-domain.ts` also supports these fixtures via `input_kind: reference_rgb`.
+PyTorch image decoding remains audit preparation; the application still uses
+browser decoding. No image files or large tensor captures are committed.
+See the [real-image findings](../../../docs/ml/expanded-inference-audit.md#real-image-and-reference-backend-calibration).

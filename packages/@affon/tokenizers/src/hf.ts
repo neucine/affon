@@ -121,45 +121,46 @@ function encodeHFByteLevelText(text: string): string {
   return out
 }
 
-function splitHFByteLevel(text: string, addPrefixSpace: boolean | undefined): string[] {
+function splitHFByteLevel(text: string, addPrefixSpace: boolean | undefined, useRegex = true): string[] {
   if (text.length === 0) return []
   const source = addPrefixSpace && text[0] !== ' ' ? ` ${text}` : text
-  const pieces: string[] = []
-  const matches = source.matchAll(/\S+/g)
-  for (const match of matches) {
-    const value = match[0]
-    const index = match.index ?? 0
-    const hasLeadingSpace = index > 0 && /\s/.test(source[index - 1])
-    pieces.push(hasLeadingSpace ? ` ${value}` : value)
-  }
-  return pieces
+  if (!useRegex) return [source]
+  // GPT-2 ByteLevel boundaries: retain whitespace and split contractions,
+  // letters, numbers and punctuation before applying BPE merges.
+  return source.match(/'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+/gu) ?? []
 }
 
 function splitHFText(text: string, preTokenizer: HFPreTokenizerSpec | null | undefined): string[] {
   const kind = preTokenizer?.type ?? 'Whitespace'
+  if (kind === 'BertPreTokenizer') {
+    // BERT treats ASCII symbols as punctuation as well as Unicode P categories.
+    return text.match(/[!-/:-@\[-`{-~\p{P}]|[^\s!-/:-@\[-`{-~\p{P}]+/gu) ?? []
+  }
   if (kind === 'Whitespace' || kind === 'WhitespaceSplit') {
     return splitHFWordLevel(text, kind)
   }
   if (kind === 'ByteLevel') {
-    return splitHFByteLevel(text, preTokenizer?.add_prefix_space)
+    return splitHFByteLevel(text, preTokenizer?.add_prefix_space, preTokenizer?.use_regex)
   }
   if (kind === 'Sequence') {
     const pretokenizers = preTokenizer?.pretokenizers ?? []
     let sawByteLevel = false
     let byteLevelAddPrefixSpace: boolean | undefined
+    let byteLevelUseRegex: boolean | undefined
     let sawWhitespace = false
     for (let i = 0; i < pretokenizers.length; i++) {
       const child = pretokenizers[i]
       if (child.type === 'ByteLevel') {
         sawByteLevel = true
         byteLevelAddPrefixSpace = child.add_prefix_space
+        byteLevelUseRegex = child.use_regex
       } else if (child.type === 'Whitespace' || child.type === 'WhitespaceSplit') {
         sawWhitespace = true
       } else {
         throw new TypeError(`Unsupported HF sequence pre_tokenizer type: ${child.type}`)
       }
     }
-    if (sawByteLevel) return splitHFByteLevel(text, byteLevelAddPrefixSpace)
+    if (sawByteLevel) return splitHFByteLevel(text, byteLevelAddPrefixSpace, byteLevelUseRegex)
     if (sawWhitespace) return splitHFWordLevel(text, 'Whitespace')
     throw new TypeError('Unsupported HF sequence pre_tokenizer configuration')
   }
@@ -177,9 +178,9 @@ function decodeHFByteLevel(text: string): string {
     encoded += `%${byte.toString(16).padStart(2, '0')}`
   }
   try {
-    return decodeURIComponent(encoded).trim()
+    return decodeURIComponent(encoded)
   } catch {
-    return text.replaceAll('Ġ', ' ').trim()
+    return text.replaceAll('Ġ', ' ')
   }
 }
 
@@ -209,7 +210,7 @@ function encodeHFBPEWord(
   if (word.length === 0) return []
   const source = byteLevel ? encodeHFByteLevelText(word) : word
   const wholeWordId = vocab[source]
-  if (wholeWordId !== undefined) return [wholeWordId]
+  if (!byteLevel && wholeWordId !== undefined) return [wholeWordId]
 
   let pieces = Array.from(source)
   if (prefix && pieces.length > 1) {
@@ -293,16 +294,38 @@ function encodeHFWordPieceWord(
   return pieces
 }
 
+function normalizeBert(text: string, spec: NonNullable<HFTokenizerJSON['normalizer']>): string {
+  if (spec.type !== 'BertNormalizer') throw new TypeError(`Unsupported HF normalizer: ${spec.type}`)
+  let result = ''
+  for (const char of text) {
+    const cp = char.codePointAt(0)!
+    if (spec.clean_text !== false) {
+      if (cp === 0 || cp === 0xfffd || (/[\p{Cc}\p{Cf}]/u.test(char) && !['\t', '\n', '\r'].includes(char))) continue
+      if (char === ' ' || char === '\t' || char === '\n' || char === '\r' || /\p{Zs}/u.test(char)) { result += ' '; continue }
+    }
+    const chinese = (cp >= 0x4e00 && cp <= 0x9fff) || (cp >= 0x3400 && cp <= 0x4dbf)
+      || (cp >= 0x20000 && cp <= 0x2a6df) || (cp >= 0x2a700 && cp <= 0x2b73f)
+      || (cp >= 0x2b740 && cp <= 0x2b81f) || (cp >= 0x2b820 && cp <= 0x2ceaf)
+      || (cp >= 0xf900 && cp <= 0xfaff) || (cp >= 0x2f800 && cp <= 0x2fa1f)
+    result += spec.handle_chinese_chars !== false && chinese ? ` ${char} ` : char
+  }
+  if (spec.lowercase !== false) result = Array.from(result, char => char.toLowerCase()).join('')
+  if (spec.strip_accents ?? (spec.lowercase !== false)) result = result.normalize('NFD').replace(/\p{Mn}/gu, '')
+  return result
+}
+
 class HFTokenizer implements TextTokenizer {
   private vocab: Record<string, number>
   private reverse: Map<number, string>
   private modelType: string
   private preTokenizer: HFPreTokenizerSpec | null | undefined
+  private normalizer: HFTokenizerJSON['normalizer']
   private merges: Map<string, number>
   private continuingSubwordPrefix: string | undefined
   private endOfWordSuffix: string | undefined
   private maxInputCharsPerWord: number | undefined
   private isByteLevel: boolean
+  private addedTokens: NonNullable<HFTokenizerJSON['added_tokens']>
   readonly specialTokens: Readonly<SpecialTokens>
   private specialTokensSet: Set<string>
   readonly specialTokenIds: Readonly<{ bos?: number; eos?: number; pad?: number; unk?: number; sep?: number }>
@@ -314,6 +337,14 @@ class HFTokenizer implements TextTokenizer {
 
     this.modelType = inferHFModelType(spec)
     this.vocab = { ...spec.model.vocab }
+    this.addedTokens = (spec.added_tokens ?? []).slice().sort((a, b) => b.content.length - a.content.length)
+    for (const token of this.addedTokens) {
+      if (!token.content || !Number.isInteger(token.id) || token.id < 0) throw new TypeError('Invalid HF added token')
+      if (this.vocab[token.content] !== undefined && this.vocab[token.content] !== token.id) {
+        throw new TypeError(`Conflicting added token id for ${token.content}`)
+      }
+      this.vocab[token.content] = token.id
+    }
     this.reverse = new Map<number, string>()
     for (const [token, id] of Object.entries(this.vocab)) {
       if (!Number.isInteger(id) || id < 0) {
@@ -326,6 +357,8 @@ class HFTokenizer implements TextTokenizer {
     }
 
     this.preTokenizer = spec.pre_tokenizer
+    this.normalizer = spec.normalizer
+    if (this.normalizer && this.normalizer.type !== 'BertNormalizer') throw new TypeError('Unsupported HF normalizer')
     this.merges = new Map<string, number>()
     const mergeEntries = spec.model.merges ?? []
     for (let i = 0; i < mergeEntries.length; i++) {
@@ -364,9 +397,37 @@ class HFTokenizer implements TextTokenizer {
   }
 
   encode(text: string, opts?: TextEncodeOpts): number[] {
-    const pieces = splitHFText(text, this.preTokenizer)
     const ids: number[] = []
     if (opts?.addBos) ids.push(this.tokenIdOrThrow(this.specialTokens.bos, 'bos'))
+    let start = 0
+    let cursor = 0
+    const isWord = (char: string) => /[\p{L}\p{N}\p{M}_]/u.test(char)
+    while (cursor < text.length) {
+      const token = this.addedTokens.find(candidate => {
+        if (!text.startsWith(candidate.content, cursor)) return false
+        if (!candidate.single_word) return true
+        const before = Array.from(text.slice(0, cursor)).pop() ?? ''
+        const after = Array.from(text.slice(cursor + candidate.content.length))[0] ?? ''
+        return !isWord(before) && !isWord(after)
+      })
+      if (!token) { cursor++; continue }
+      let ordinary = text.slice(start, cursor)
+      if (token.lstrip) ordinary = ordinary.replace(/\s+$/u, '')
+      ids.push(...this.encodeOrdinary(ordinary), token.id)
+      cursor += token.content.length
+      if (token.rstrip) {
+        while (cursor < text.length && /\s/u.test(text[cursor])) cursor++
+      }
+      start = cursor
+    }
+    ids.push(...this.encodeOrdinary(text.slice(start)))
+    if (opts?.addEos) ids.push(this.tokenIdOrThrow(this.specialTokens.eos, 'eos'))
+    return truncateSingleIds(ids, opts)
+  }
+
+  private encodeOrdinary(text: string): number[] {
+    const pieces = splitHFText(this.normalizer ? normalizeBert(text, this.normalizer) : text, this.preTokenizer)
+    const ids: number[] = []
 
     if (this.modelType === 'WordLevel') {
       for (let i = 0; i < pieces.length; i++) {
@@ -409,8 +470,7 @@ class HFTokenizer implements TextTokenizer {
       throw new TypeError(`Unsupported HF tokenizer model type: ${this.modelType}`)
     }
 
-    if (opts?.addEos) ids.push(this.tokenIdOrThrow(this.specialTokens.eos, 'eos'))
-    return truncateSingleIds(ids, opts)
+    return ids
   }
 
   decode(ids: readonly number[], opts?: TextDecodeOpts): string {

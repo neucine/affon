@@ -90,6 +90,7 @@ export function shadowCapturedMeta(kind: string, inputs: readonly StaticTensorMe
     case 'sqrt':
     case 'sigmoid':
     case 'silu':
+    case 'erf':
     case 'tanh':
     case 'sign':
     case 'gelu':

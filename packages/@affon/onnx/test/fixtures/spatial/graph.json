@@ -1,0 +1,283 @@
+{
+  "format": "affon-onnx-static/v1",
+  "opset": 17,
+  "source_sha256": "1a54221f686a7a11fd46105a3152b85fc8b78fe2255725b9c2012a2afa2b9879",
+  "inputs": {
+    "x": [
+      2,
+      4,
+      5,
+      6
+    ]
+  },
+  "outputs": [
+    "grouped",
+    "depthwise",
+    "pointwise",
+    "overlap",
+    "padded",
+    "clipped",
+    "pooled",
+    "flat"
+  ],
+  "constants": {
+    "grouped_w": [
+      6,
+      2,
+      2,
+      3
+    ],
+    "grouped_b": [
+      6
+    ],
+    "depth_w": [
+      4,
+      1,
+      3,
+      2
+    ],
+    "point_w": [
+      3,
+      4,
+      1,
+      1
+    ],
+    "overlap_w": [
+      2,
+      4,
+      3,
+      3
+    ]
+  },
+  "nodes": [
+    {
+      "op": "Conv",
+      "name": "",
+      "inputs": [
+        "x",
+        "grouped_w",
+        "grouped_b"
+      ],
+      "output": "grouped",
+      "shape": [
+        2,
+        6,
+        2,
+        6
+      ],
+      "attrs": {
+        "kernel": [
+          2,
+          3
+        ],
+        "strides": [
+          2,
+          1
+        ],
+        "dilations": [
+          2,
+          1
+        ],
+        "pads": [
+          1,
+          0,
+          0,
+          2
+        ],
+        "group": 2
+      }
+    },
+    {
+      "op": "Conv",
+      "name": "",
+      "inputs": [
+        "x",
+        "depth_w"
+      ],
+      "output": "depthwise",
+      "shape": [
+        2,
+        4,
+        3,
+        5
+      ],
+      "attrs": {
+        "kernel": [
+          3,
+          2
+        ],
+        "strides": [
+          2,
+          1
+        ],
+        "dilations": [
+          1,
+          2
+        ],
+        "pads": [
+          0,
+          1,
+          2,
+          0
+        ],
+        "group": 4
+      }
+    },
+    {
+      "op": "Conv",
+      "name": "",
+      "inputs": [
+        "x",
+        "point_w"
+      ],
+      "output": "pointwise",
+      "shape": [
+        2,
+        3,
+        5,
+        6
+      ],
+      "attrs": {
+        "kernel": [
+          1,
+          1
+        ],
+        "strides": [
+          1,
+          1
+        ],
+        "dilations": [
+          1,
+          1
+        ],
+        "pads": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "group": 1
+      }
+    },
+    {
+      "op": "Conv",
+      "name": "",
+      "inputs": [
+        "x",
+        "overlap_w"
+      ],
+      "output": "overlap",
+      "shape": [
+        2,
+        2,
+        3,
+        3
+      ],
+      "attrs": {
+        "kernel": [
+          3,
+          3
+        ],
+        "strides": [
+          2,
+          2
+        ],
+        "dilations": [
+          1,
+          1
+        ],
+        "pads": [
+          1,
+          1,
+          1,
+          1
+        ],
+        "group": 1
+      }
+    },
+    {
+      "op": "Pad",
+      "name": "",
+      "inputs": [
+        "x"
+      ],
+      "output": "padded",
+      "shape": [
+        2,
+        4,
+        6,
+        9
+      ],
+      "attrs": {
+        "pads": [
+          1,
+          2,
+          0,
+          1
+        ]
+      }
+    },
+    {
+      "op": "Clip",
+      "name": "",
+      "inputs": [
+        "padded"
+      ],
+      "output": "clipped",
+      "shape": [
+        2,
+        4,
+        6,
+        9
+      ],
+      "attrs": {
+        "min": -0.4000000059604645,
+        "max": 0.699999988079071
+      }
+    },
+    {
+      "op": "GlobalAveragePool",
+      "name": "",
+      "inputs": [
+        "clipped"
+      ],
+      "output": "pooled",
+      "shape": [
+        2,
+        4,
+        1,
+        1
+      ],
+      "attrs": {}
+    },
+    {
+      "op": "Flatten",
+      "name": "",
+      "inputs": [
+        "pooled"
+      ],
+      "output": "flat",
+      "shape": [
+        2,
+        4
+      ],
+      "attrs": {
+        "shape": [
+          2,
+          4
+        ]
+      }
+    }
+  ],
+  "conversion": {
+    "original_nodes": 8,
+    "folded_operators": {},
+    "runtime_operators": {
+      "Conv": 4,
+      "Pad": 1,
+      "Clip": 1,
+      "GlobalAveragePool": 1,
+      "Flatten": 1
+    }
+  }
+}

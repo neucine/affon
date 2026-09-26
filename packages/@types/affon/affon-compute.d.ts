@@ -1,4 +1,8 @@
 declare module "affon:compute" {
+  /** Inference-only CPU centered reflect STFT. Signal f32, window f64; output f64 [bins, frames]. */
+  export function stft_power(signal: Tensor, window: Tensor, hop: number, paddedLength?: number, frames?: number): Tensor
+  export function filterbank(spectrum: Tensor, filters: Tensor): Tensor
+
   /**
    * @summary Tensor shape tuple.
    * @category Core
@@ -6,6 +10,7 @@ declare module "affon:compute" {
    * Describes the public shape of a compute tensor as a readonly tuple of axis
    * sizes.
    */
+
   type Shape = readonly number[];
   /**
    * @summary Semantic tensor axis names.
@@ -1267,6 +1272,8 @@ declare module "affon:compute" {
    * @semantics Applies rectified linear activation elementwise and preserves shape.
    */
   function relu<S extends Shape = Shape, D extends DType = DType>(x: Tensor<S, D>): Tensor<S, D>;
+  /** Normalize over one axis using population variance; apply affine weights separately. */
+  function layer_norm<S extends Shape = Shape, D extends DType = DType>(x: Tensor<S, D>, axis: number, eps?: number): Tensor<S, D>;
   /**
    * @summary GELU activation.
    * @category Activation
@@ -1291,6 +1298,14 @@ declare module "affon:compute" {
    * @semantics Alias of `silu(...)`.
    */
   function swish<S extends Shape = Shape, D extends DType = DType>(x: Tensor<S, D>): Tensor<S, D>;
+  /**
+   * @summary Error function using the A&S 7.1.26 approximation.
+   * @category Activation
+   * @semantics Preserves shape. CPU f32/f64 and Metal f32; CUDA is not supported.
+   * @remarks Approximate accuracy is 5e-7 absolute for f32 and 1.5e-7 for f64.
+   * Gradients use the analytic derivative of erf.
+   */
+  function erf<S extends Shape = Shape, D extends DType = DType>(x: Tensor<S, D>): Tensor<S, D>;
   /**
    * @summary Hyperbolic tangent activation.
    * @category Activation
@@ -1768,6 +1783,8 @@ declare module "affon:compute" {
    * who prefer `compute.foo(...)` style imports.
    */
   const compute: {
+  stft_power: typeof stft_power;
+  filterbank: typeof filterbank;
     axes: typeof axes;
     tensor: typeof tensor;
     empty: typeof empty;
@@ -1798,11 +1815,13 @@ declare module "affon:compute" {
     square: typeof square;
     clamp: typeof clamp;
     relu: typeof relu;
+    layer_norm: typeof layer_norm;
     gelu: typeof gelu;
     silu: typeof silu;
     swish: typeof swish;
     sigmoid: typeof sigmoid;
     tanh: typeof tanh;
+    erf: typeof erf;
     softmax: typeof softmax;
     sum: typeof sum;
     mean: typeof mean;
@@ -1956,11 +1975,13 @@ declare module "affon:compute" {
     square,
     clamp,
     relu,
+    layer_norm,
     gelu,
     sigmoid,
     silu,
     swish,
     tanh,
+    erf,
     softmax,
     cross_entropy_indexed,
     sum,

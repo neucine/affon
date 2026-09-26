@@ -44,3 +44,8 @@ declare class AffonError extends Error {
   readonly nativeStack?: string
   constructor(code: AffonErrorCode, message: string)
 }
+
+/** Schedule a callback after the given delay in milliseconds. */
+declare function setTimeout(callback: () => void, delay?: number): number
+/** Cancel a pending timer. */
+declare function clearTimeout(id: number): void
