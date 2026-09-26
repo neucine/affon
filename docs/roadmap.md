@@ -278,3 +278,11 @@ rounds show approximately 5% faster full requests; strict Whisper/AST parity, 91
 regressions and CPU ONNX checks pass. The old affine opt-in switch is removed.
 Next consider the eight concatenations that each encode two input-copy commands
 within one operation; cross-operation batching/async remains deferred.
+
+The completed inference baseline is committed across Affon `becafce4`, compute
+`0dfaf41`, and Hao `af9af07`. The next architecture step is the
+[bounded Metal execution-scope proposal](core/metal-execution-scopes.md): begin with
+internal graph scopes that retain resources, enforce host-access barriers and
+complete before returning. General asynchronous eager tensors remain a later phase.
+Next implement the ownership/barrier audit and eligibility inventory before a
+private prototype; no scheduler change has been made by the proposal.

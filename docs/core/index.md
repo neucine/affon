@@ -25,3 +25,8 @@ observable behavior or support status.
 - Differentiate scalar losses with `grad(loss, params)`.
 - Update parameters with optimizers such as `sgd(...)`, `adam(...)`, or `adamw(...)`.
 - Inspect support status before relying on backend-specific execution.
+
+Design proposals:
+
+- [Bounded Metal execution scopes](metal-execution-scopes.md): graph-level command
+  accumulation with synchronous return, ownership and validation requirements.
