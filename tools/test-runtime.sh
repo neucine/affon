@@ -34,7 +34,6 @@ esac
   "$ROOT/test/e2e/nn" \
   "$ROOT/test/e2e/dataset" \
   "$ROOT/test/e2e/checkpoint"
-"$AFFON_BIN" test "$ROOT/packages/@affon/transformers/test"
-"$AFFON_BIN" test "$ROOT/packages/@affon/lm/test"
+"$AFFON_BIN" test "$ROOT/packages/@affon/models/test"
 "$AFFON_BIN" test "$ROOT/packages/@affon/tokenizers/test"
 "$AFFON_BIN" test "$ROOT/apps/decoder-lm/test"

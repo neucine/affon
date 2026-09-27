@@ -3,16 +3,9 @@ import telemetry from 'std:telemetry'
 import { axes, compile, exportBundleFile, tensor } from 'affon:compute'
 import type { Tensor } from 'affon:compute'
 
-import {
-  createPackedTextCorpusFromConfig,
-  DecoderModel,
-  generate,
-  saveTokenRows,
-  type DecoderModelModule,
-  type DecoderModelOptions,
-  type PackedFileCorpusConfig,
-  type PackedTextCorpus,
-} from '../../../packages/@affon/lm/src/index.ts'
+import { DecoderModel, type DecoderModelModule, type DecoderModelOptions } from './model.ts'
+import { generate } from './causal-lm.ts'
+import { createPackedTextCorpusFromConfig, saveTokenRows, type PackedFileCorpusConfig, type PackedTextCorpus } from './data/index.ts'
 import {
   createHFTokenizerFromFile,
   createLookupTokenizer,

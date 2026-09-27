@@ -17,8 +17,9 @@ Key files:
 - `training.ts`: training loop and checkpoint logic
 - `workflow.ts`: config-driven runner used by the example scripts
 
-Reusable decoder LM model, loss, generation, and token-window primitives live in
-`../../packages/@affon/lm/src/` rather than this app directory.
+The configurable training model lives in `src/model.ts`; its loss and generation
+helpers live in `src/causal-lm.ts`. Reusable blocks come from `@affon/models`.
+Corpus preparation, token windows, and token-cache persistence live in `src/data/`.
 
 Offline graph exports are meant to stay renderer-agnostic. The shared offline
 tooling now lives under `../../tools/graph-viewer/`.
@@ -63,4 +64,4 @@ AFFON_TRAIN_CONFIG=apps/decoder-lm/configs/train-decoder-lm-wikitext.config.json
 training uses the compiled forward path while validation remains eager so it
 always reads the parameters updated by the compiled training graph.
 
-The smaller reusable transformer primitives remain under `../../packages/@affon/transformers/src/`.
+The smaller reusable transformer primitives remain under `../../packages/@affon/models/src/shared/`.

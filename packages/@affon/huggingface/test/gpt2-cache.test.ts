@@ -4,7 +4,7 @@ import fs from 'std:fs'
 import checkpoint from 'affon:checkpoint'
 import { tensor } from 'affon:compute'
 import type { Tensor, Device } from 'affon:compute'
-import { load_gpt2 } from '../src/gpt2.ts'
+import { load_gpt2 } from '../src/adapters/gpt2.ts'
 
 let directory = ''
 let model: ReturnType<typeof load_gpt2>

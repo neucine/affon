@@ -1,9 +1,15 @@
 # @affon/huggingface
 
 Experimental Hugging Face integration for native Affon inference. This package
-is a peer of `@affon/transformers`: Transformers owns reusable architecture
-blocks; this package owns HF configuration interpretation, weight mapping,
-model/task dispatch, and processor integration across model domains.
+owns HF configuration interpretation, weight mapping, model/task dispatch, and
+processor integration. Native GPT-2, BERT, and ViT execution is owned by
+`@affon/models`. These adapters map HF configuration and checkpoint tensors into
+the model constructors; processors and checkpoint validation remain here.
+
+Native checkpoint adapters live in `src/adapters/`. The shared
+`encoder-checkpoint.ts` validates, places, and converts checkpoint tensors; it
+does not implement forward operations. ViT image processing lives separately
+in `src/vit-processor.ts`. Public loader and processor exports are unchanged.
 
 It has no Python or PyTorch execution dependency. The audit uses Python only
 to prepare artifacts and generate independent reference results.
@@ -88,7 +94,7 @@ See the [audit results](../../../docs/ml/expanded-inference-audit.md).
 
 - This package owns the HF-specific model implementations and compatibility
   checks, shared loading API, and domain processor integration.
-- `@affon/transformers` and other architecture packages own reusable blocks;
+- `@affon/models` owns model definitions and shared blocks;
   `@affon/tokenizers` owns tokenization algorithms and tokenizer JSON support.
 - Compute kernels belong in `affon:compute`/`affon:nn`; low-level tensor
   persistence belongs in `affon:checkpoint`.

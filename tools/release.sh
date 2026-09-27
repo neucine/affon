@@ -129,11 +129,8 @@ run_release_tests() {
   export RUNTIME_PACKAGE_PATH="${RUNTIME_PACKAGE_PATH:-$ROOT/packages}"
   run zig build test -Doptimize=ReleaseSafe
   run bun x tsc -p test/types/tsconfig.json --noEmit
-  run bun x tsc -p packages/@affon/transformers/tsconfig.json --noEmit
-  run bun x tsc -p packages/@affon/lm/tsconfig.json --noEmit
+  run bun x tsc -p packages/@affon/models/tsconfig.json --noEmit
   run bun x tsc -p packages/@affon/tokenizers/tsconfig.json --noEmit
-  run bun x tsc -p packages/@affon/cnn/tsconfig.json --noEmit
-  run bun x tsc -p packages/@affon/vision/tsconfig.json --noEmit
   run bun x tsc -p apps/decoder-lm/tsconfig.json --noEmit
   run "$ROOT/tools/test-runtime.sh" "$ROOT/zig-out/bin/affon"
 }

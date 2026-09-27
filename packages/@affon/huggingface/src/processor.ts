@@ -5,7 +5,7 @@ import type { Device } from 'affon:compute'
 import { createHFTokenizerFromFile } from '../../tokenizers/src/index.ts'
 import { load_bert_processor } from './bert-processor.ts'
 import { process_mobilenet_image } from './mobilenet-processor.ts'
-import { process_rgb_image } from './vit.ts'
+import { process_rgb_image } from './vit-processor.ts'
 import type { ModelTask } from './model.ts'
 
 export type ProcessorsByTask = {

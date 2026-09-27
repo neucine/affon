@@ -93,7 +93,7 @@ by the underlying runtime under `std:*` specifiers.
 - **Dataset pipelines** for tabular and text workflows, including token windows and tokenizer adapters
 - **Checkpoint persistence** for model and optimizer state
 - **Runtime diagnostics** with `std:telemetry.metrics()`, traces, and memory signals
-- **First-party packages** for transformers, language-model workflows, tokenizers, CNN, and vision work
+- **First-party packages** for models, Hugging Face integration, tokenizers, and ONNX execution
 - **Runnable apps** including the decoder language-model reference workload
 
 ## Stability
@@ -128,7 +128,7 @@ cases.
 - Machine learning: [NN Concepts](docs/ml/nn/index.md), [Metrics Concepts](docs/ml/metrics.md), [Optim Concepts](docs/ml/optim.md), [Checkpoints](docs/ml/checkpoints.md), [Text Datasets](docs/ml/text-datasets.md), [ML Glossary](docs/ml/glossary.md)
 - Runtime: [Install](docs/runtime/install.md), [Configuration](docs/runtime/configuration.md), [Module Loader](docs/runtime/module-loader.md), [Memory Debugging](docs/runtime/memory-debugging.md)
 - Apps: [apps/](apps/), [Decoder LM](apps/decoder-lm/README.md)
-- Packages: [packages/](packages/), [Transformers](packages/@affon/transformers/README.md), [Hugging Face](packages/@affon/huggingface/README.md), [LM](packages/@affon/lm/README.md), [Tokenizers](packages/@affon/tokenizers/README.md)
+- Packages: [packages/](packages/), [Models](packages/@affon/models/README.md), [Hugging Face](packages/@affon/huggingface/README.md), [Tokenizers](packages/@affon/tokenizers/README.md)
 - Editor: [Affon for VS Code](https://github.com/neucine/affon-vscode)
 
 ## License

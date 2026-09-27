@@ -1,7 +1,7 @@
 import fs from 'std:fs'
 import { describe, expect, test, values } from 'std:test'
 import { tensor } from 'affon:compute'
-import { erf_gelu } from '../../../packages/@affon/huggingface/src/encoder-ops.ts'
+import { erf_gelu } from '../../../packages/@affon/models/src/shared/encoder.ts'
 
 describe('encoder GELU approximation', () => {
   test('matches independent PyTorch erf-GELU values over [-8, 8]', () => {

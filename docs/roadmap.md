@@ -93,9 +93,9 @@ becoming roadmap commitments.
   dispatch, processor integration, and pinned public Hub snapshots with verified
   offline caching through Hao native HTTP streaming. Shards, authentication,
   and removing remaining cache utility dependencies remain work.
-- Architecture packages own reusable blocks. Existing `@affon/transformers`,
-  `@affon/lm`, `@affon/cnn`, and `@affon/vision` are starting points; add
-  audio/multimodal packages when used.
+- `@affon/models` owns model families and shared components. The former `lm`
+  and `transformers` packages are consolidated. Native GPT-2/BERT/ViT execution
+  is separated from HF loading into family modules. Add families within models as needed.
 - Tokenizers and domain processors own input/output compatibility. Do not
   encode an assumption that every model consumes text IDs or generates tokens.
 - `affon:compute` and `affon:nn` own primitives justified by application workloads and their audits.

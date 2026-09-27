@@ -1,22 +1,25 @@
 # First-Party Packages
 
-First-party packages live under the `@affon/` scope, above the runtime and below complete apps.
+First-party packages sit above the runtime and below complete apps. Boundaries
+follow ownership and dependencies:
 
-Package ownership follows three axes:
+- `@affon/models`: model definitions, execution behavior, and shared model components.
+- `@affon/huggingface`: HF artifacts, config/weight adaptation, loading, and processors.
+- `@affon/tokenizers`: tokenizer implementations and compatibility.
+- `@affon/onnx`: prepared graph import and execution.
 
-- graph-format packages own import and execution infrastructure
-- architecture packages own reusable model structure
-- domain packages own data and task conventions
-- model-family packages own stable family-level assembly and conventions
+Model families belong inside `models`; shared components belong in `models/src/shared`.
+Generation belongs with the models that support it. Basic layers remain in
+`affon:nn`, tensor execution in `affon:compute`, and basic data operations in
+`affon:dataset`. Complete training and serving workflows belong in `apps/`.
 
-Complete runnable workloads should live under `../apps/` once they outgrow focused package examples.
+The former `lm` and `transformers` packages have been consolidated into `models`.
+Reusable blocks are exported by `@affon/models`. The configurable example
+`DecoderModel`, its loss, and its generation helper belong to `apps/decoder-lm/src`
+and are exported by the app entry point. Corpus helpers are available from
+`apps/decoder-lm/src/data/index.ts`. There is no top-level decoder model family.
 
-## Current Packages
-
-- `@affon/onnx/`: experimental prepared ONNX graph loading, conversion and execution.
-- `@affon/huggingface/`: HF artifact integration, native model loading, and processors across domains.
-- `@affon/transformers/`: transformer architecture blocks and helpers.
-- `@affon/tokenizers/`: tokenizer implementation and ecosystem compatibility.
-- `@affon/lm/`: language-model family APIs and reusable LM corpus packing.
-- `@affon/vision/`: vision-domain scaffold.
-- `@affon/cnn/`: CNN architecture scaffold.
+Native GPT-2, BERT, and ViT execution lives in `models/src/gpt2`, `bert`, and
+`vit`. HF adapters translate config and checkpoint tensors into their constructor
+contracts. ONNX-specific orchestration remains a separate follow-up. See
+[models](./@affon/models/README.md). Empty `cnn` and `vision` scaffolds were removed.

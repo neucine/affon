@@ -4,7 +4,7 @@ import telemetry from "std:telemetry";
 import checkpoint from "affon:checkpoint";
 import type { Device, Tensor } from "affon:compute";
 import { load_graph } from "../../../packages/@affon/onnx/src/index.ts";
-import { load_vit } from "../../../packages/@affon/huggingface/src/vit.ts";
+import { load_vit } from "../../../packages/@affon/huggingface/src/adapters/vit.ts";
 import { load_model } from "../../../packages/@affon/huggingface/src/index.ts";
 import type { OnnxImageClassifier } from "../../../packages/@affon/huggingface/src/index.ts";
 import { compare_values } from "../audit/compare.ts";

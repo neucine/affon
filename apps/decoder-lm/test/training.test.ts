@@ -5,11 +5,8 @@ import { seed, tensor } from 'affon:compute'
 import { run } from 'std:process'
 import type { Tensor } from 'affon:compute'
 
-import {
-  createPackedTextCorpus,
-  DecoderModel,
-  pack_token_windows,
-} from '@affon/lm'
+import { DecoderModel } from '../src/model.ts'
+import { createPackedTextCorpus, pack_token_windows } from '../src/data/index.ts'
 import { createHFTokenizerFromFile, createLookupTokenizer } from '@affon/tokenizers'
 import {
   evaluateDecoderLM,

@@ -250,6 +250,6 @@ Interpretation:
 
 See:
 
-- [packages/@affon/lm/test/memory.test.ts](../../packages/@affon/lm/test/memory.test.ts)
+- [apps/decoder-lm/test/memory.test.ts](../../apps/decoder-lm/test/memory.test.ts)
 - [tools/metal-footprint-watch.sh](../../tools/metal-footprint-watch.sh)
 - [tools/lm-head-loss-pressure-repro.ts](../../tools/lm-head-loss-pressure-repro.ts)

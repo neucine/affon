@@ -98,9 +98,9 @@ apps/hf-inference/
   audit/                    # Parity tools, reference generators, reports
 ```
 
-The app's inference orchestration lives in the sibling `inference/` layer. Shared HF model
-implementations and processors remain in `packages/@affon/huggingface/src/`;
-the app imports them instead of duplicating model internals. `server.ts` remains
+The app's inference orchestration lives in the sibling `inference/` layer.
+The app imports HF loaders and processors from `packages/@affon/huggingface/src/`.
+Those loaders construct GPT-2, BERT, and ViT from `packages/@affon/models/src/`. `server.ts` remains
 the launch entry point. Run from the repository root so static assets resolve.
 
 ```sh

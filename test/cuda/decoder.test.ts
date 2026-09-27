@@ -1,7 +1,7 @@
 import { expect, test } from 'std:test'
 import { tensor, seed, setDevice, grad, clear_grad, adam, clip_grad_norm } from 'affon:compute'
-import { DecoderModel } from '../../packages/@affon/lm/src/model.ts'
-import { CausalLMLoss, generate } from '../../packages/@affon/lm/src/causal-lm.ts'
+import { DecoderModel } from '../../apps/decoder-lm/src/model.ts'
+import { CausalLMLoss, generate } from '../../apps/decoder-lm/src/causal-lm.ts'
 
 test('CUDA decoder training matches CPU with tied embeddings and causal attention', () => {
   function train(device: 'cpu' | 'cuda') {

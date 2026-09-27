@@ -1,9 +1,9 @@
 import { load_whisper, type WhisperOptions } from './whisper.ts'
 import fs from 'std:fs'
 import type { Device } from 'affon:compute'
-import { load_gpt2 } from './gpt2.ts'
-import { load_bert } from './bert.ts'
-import { load_vit } from './vit.ts'
+import { load_gpt2 } from './adapters/gpt2.ts'
+import { load_bert } from './adapters/bert.ts'
+import { load_vit } from './adapters/vit.ts'
 import { load_onnx_classifier } from './onnx.ts'
 import type { OnnxModelOptions, OnnxClassifier } from './onnx.ts'
 
