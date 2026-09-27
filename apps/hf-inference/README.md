@@ -94,10 +94,6 @@ the audio tab explains that it is unavailable. `POST /api/classify-audio` accept
 raw `audio/wav` bytes and returns top predictions, source audio metadata,
 truncation status, device, and inference/total timing.
 
-The [spoken “yes” fixture](tests/fixtures/command-yes.wav) was synthesized locally
-with macOS Samantha; it contains no user recording. See the
-[audio audit](onnx/reports/audio/summary.md) for reference results and remaining gaps.
-
 ### Speech to text (Whisper)
 
 The **Speech to text** tab runs `openai/whisper-tiny.en` using a native frontend
@@ -129,5 +125,3 @@ The optional model loads once; each transcription owns its decoder caches.
 `POST /api/transcribe` takes `audio/wav` bytes and returns text, token IDs,
 encoder/inference/total timings and truncation status. The UI is kept in
 `public/transcription.js`, separate from inference and serving code.
-
-See the [Whisper audit and next decision](onnx/reports/whisper/summary.md).

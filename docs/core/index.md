@@ -8,7 +8,6 @@ Read these pages in this order if you are new to the compute layer:
 
 - [Compute Concepts](./compute.md) - compute tensors, parameters, programs, modules, compilation, and observability
 - [Compute Kernel Matrix](./kernel-matrix.md) - current backend/device support by operation family
-- [Optimization Checkpoint](compute-optimization-checkpoint.md) - completed work, remaining gaps, evidence, and how to resume
 - [Compute Semantic Coverage](./compute-semantic-coverage.md) - correctness claims, evidence, and closure gaps
 - [Error Handling](./errors.md)
 
@@ -27,7 +26,7 @@ observable behavior or support status.
 - Update parameters with optimizers such as `sgd(...)`, `adam(...)`, or `adamw(...)`.
 - Inspect support status before relying on backend-specific execution.
 
-Design proposals:
+Implementation contracts:
 
 - [Bounded Metal execution scopes](metal-execution-scopes.md): graph-level command
   accumulation with synchronous return, ownership and validation requirements.

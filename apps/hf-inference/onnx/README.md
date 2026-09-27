@@ -56,10 +56,6 @@ latency or long-term memory-stability measurement.
 
 ## Second architecture: MobileNetV2
 
-[MobileNetV2 results](reports/mobilenet/summary.md) exercise the same converter and
-executor with a CNN. No MobileNet architecture or weight-name mapping is present
-in native code. The generic spatial lowerings are owned by `packages/@affon/onnx/src/spatial.ts`.
-
 ```sh
 python apps/hf-inference/onnx/export-image-model.py \
   --model google/mobilenet_v2_1.0_224 \
@@ -130,18 +126,3 @@ checks run natively. Converter rejection tests cover unsupported opsets,
 dynamic inputs, implicit padding, nonzero Pad fill, dynamic convolution bias
 and unsupported runtime operations. Additional independent spatial fixtures test
 batches, groups, depthwise kernels, overlap, dilation and asymmetric padding.
-
-See [export validation](reports/export.json), [operator inventory](reports/conversion.json)
-and [comparison results](reports/summary.md).
-
-The first probe matched ViT logits without a second ViT implementation.
-The second probe now matches MobileNetV2 logits with generic operator extensions;
-[reuse accounting](reports/mobilenet/summary.md) distinguishes existing machinery
-from new work. These two configurations do not establish general HF coverage,
-dynamic shapes, hidden-state parity, or lower overall engineering cost. The runtime, converter and regression fixtures now live in the experimental
-[`@affon/onnx` package](../../../packages/@affon/onnx/README.md). Model exports,
-reference tooling and reports stay here. HF loading selects it explicitly with
-`backend: 'onnx'`; use `--routes hf-onnx` with the runner to verify that path.
-The old app `convert.py` command delegates to the package converter.
-
-See [package integration verification](reports/package-integration.md) for the HF backend checks.

@@ -45,23 +45,4 @@ its mutable EOS setting. Image/token processors remain in the integration layer.
 
 Generic ONNX classifier integration still needs its own boundary review.
 Strict ViT reference parity has existing gaps; extraction does not claim to fix
-those or improve performance. The app test process reports 2 live Hao resources
-(1,672 bytes) at shutdown; that diagnostic remains uninvestigated.
-
-## Extraction validation (2026-09-28)
-
-Model, decoder-app, and HF API type checks pass. The combined model/HF/decoder-app
-suite passes 82 tests with 2 declared skips using the softmax-scope runtime.
-Direct-construction tests exercise each family without HF files and reject
-invalid parameter shapes. Existing GPT-2 cache, generation, and EOS tests pass.
-BERT passes the existing Metal independent-reference audit. ViT logits and every
-hidden state exactly match pre-extraction execution for both reference inputs
-on CPU and Metal; the independent-reference audit still reports its known gaps.
-This validation makes no performance claim.
-
-Whisper accepts normalized configuration, embeddings, prepared stage callbacks,
-and a text-decoding callback. It does not import ONNX, tokenizers, or HF loading.
-The HF adapter validates supported artifacts and graph cache capacity before
-constructing it. Existing phase callbacks and trace names are preserved.
-Whisper extraction validation: 61 model/HF/inference tests passed, plus the
-prepared Whisper Metal check (all per-step logits and transcript tokens pass).
+those or improve performance.

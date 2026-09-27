@@ -73,16 +73,6 @@ Negative indices/axes are normalized during conversion; empty slices, nonunit
 steps and runtime control tensors are rejected. Cached decoding uses ordinary
 multiple graph inputs and outputs, without HF-specific graph operations.
 
-Metal dense last-axis layer normalization computes statistics once per row in
-the compute core, preserving the existing reduction order. Other axes keep the
-general kernel. On Metal, the executor automatically compiles the normalization
-scale/bias expression, allowing compute to fuse eligible dense suffix-broadcast
-f32 multiply/add operations with separate-operation rounding. CPU and unsupported
-layouts retain ordinary operations. No affine-fusion configuration is required;
-the former `AFFON_ONNX_AFFINE_FUSION` switch has been removed. Fresh Whisper
-comparisons show a repeatable roughly 5% full-request improvement with the current
-runtime; see the [command audit](../../../apps/hf-inference/benchmarks/reports/whisper-command-audit/README.md).
-
 
 Metal graph calls automatically batch compatible kernels within bounded execution
 scopes. Each `forward` call completes GPU work before returning its outputs.

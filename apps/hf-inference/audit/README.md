@@ -1,10 +1,8 @@
 # Hugging Face inference audit
 
-Independent reference checkers for the experimental native GPT-2, BERT, and
-ViT implementations in [@affon/huggingface](../../../packages/@affon/huggingface/README.md). These exercise the [cross-domain inference roadmap](../../../docs/roadmap.md).
-The shared package owns inference and processors; this app owns reference
-generation, comparisons, diagnostics, and reports. See the [expanded results](../../../docs/ml/expanded-inference-audit.md)
-for current passes, failures, and measured memory limits.
+Reference preparation and comparison tools for model-family implementations,
+HF processors, and checkpoint adapters. Generated evidence belongs outside the
+repository. Curated cross-repository findings are maintained in affon-arch.
 
 ## Prepare a reference
 
@@ -59,17 +57,6 @@ weights, and deterministic evaluation semantics (no dropout).
 ## Scope and limits
 
 The following limits describe the GPT-2 path; encoder/vision probes are below.
-
-- Standard tied-head GPT-2 with `gelu_new`, f32, one unpadded sequence.
-- One `model.safetensors`; no shards or automatic dtype conversion. Shared Hub
-  downloading and verified offline caching live in `@affon/huggingface`.
-- Full-prefix recomputation; no KV cache, batching, streaming, or sampling.
-- Strict weight names/shapes; unsupported known attention/config variants fail.
-- Timing fields are diagnostic wall times, include host reads/comparison, and
-  are not throughput benchmarks. Memory stability and compilation are unaudited.
-- A passing tiny checkpoint does not certify GPT-2 at production dimensions or
-  any other HF architecture. The [gap report](../../../docs/ml/inference-gaps.md)
-  records actual validation.
 
 Run offline regression tests with:
 
@@ -194,12 +181,6 @@ AFFON_DEVICE=cpu AFFON_HF_MODEL_DIR=/tmp/affon-hf-vit \
   --directory /tmp/affon-hf-vit --device cpu
 ```
 
-Replacing only PyTorch's embedding output with Affon's slightly different
-embedding reproduces some later tolerance failures. This is evidence of
-rounding-error amplification, not a full explanation or a compatibility pass.
-See the [saved results](../../../docs/ml/expanded-inference-audit.md) for the
-measurements and remaining validation work.
-
 ## Direct Hub inference without Python
 
 `hub-smoke.ts` downloads the original pinned DistilGPT-2 or ViT artifacts through
@@ -235,14 +216,8 @@ AFFON_DEVICE=metal AFFON_HF_MODEL_DIR=/tmp/affon-hf-vit \
   /tmp/affon-hf-release/bin/affon apps/hf-inference/audit/capture-vit-native.ts
 /tmp/affon-hf-audit-venv/bin/python apps/hf-inference/audit/probe-vit-projection.py \
   --directory /tmp/affon-hf-vit \
-  --output apps/hf-inference/audit/reports/vit-base/projection-calibration.json
+  --output /tmp/affon-hf-vit/projection-calibration.json
 ```
-
-The probe verifies checkpoint hashes and baseline reproduction, substitutes
-three equivalent patch projections and each native embedding, and compares
-whole PyTorch blocks fed identical native inputs. Reports separate CLS tokens,
-patch tokens, logits, and the first failing hidden state. Original tolerances
-and strict audit failures are preserved. See the [findings](../../../docs/ml/expanded-inference-audit.md#patch-projection-calibration-on-both-backends).
 
 ## Real-image calibration across PyTorch execution paths
 
@@ -254,18 +229,12 @@ Use the checked-in manifest to reject changed sample bytes on reproduction:
 ```sh
 /tmp/affon-hf-audit-venv/bin/python apps/hf-inference/audit/prepare-vit-real-images.py \
   --model-directory /tmp/affon-hf-vit --output /tmp/affon-hf-vit-real \
-  --expected-manifest apps/hf-inference/audit/reports/vit-real-images/reference.json
+  --expected-manifest /tmp/affon-hf-vit-real/reference.json
 AFFON_DEVICE=cpu AFFON_HF_MODEL_DIR=/tmp/affon-hf-vit-real \
   /tmp/affon-hf-release/bin/affon apps/hf-inference/audit/capture-vit-native.ts
 AFFON_DEVICE=metal AFFON_HF_MODEL_DIR=/tmp/affon-hf-vit-real \
   /tmp/affon-hf-release/bin/affon apps/hf-inference/audit/capture-vit-native.ts
 /tmp/affon-hf-audit-venv/bin/python apps/hf-inference/audit/compare-vit-real-images.py \
   --directory /tmp/affon-hf-vit-real \
-  --output apps/hf-inference/audit/reports/vit-real-images/calibration.json
+  --output /tmp/affon-hf-vit-real/calibration.json
 ```
-
-`capture-vit-native.ts` preprocesses saved decoded RGB whenever present. The
-strict `audit-domain.ts` also supports these fixtures via `input_kind: reference_rgb`.
-PyTorch image decoding remains audit preparation; the application still uses
-browser decoding. No image files or large tensor captures are committed.
-See the [real-image findings](../../../docs/ml/expanded-inference-audit.md#real-image-and-reference-backend-calibration).

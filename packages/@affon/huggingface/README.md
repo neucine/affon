@@ -92,11 +92,6 @@ conversion, reduced-precision weights, custom Python execution, and a universal
 Legacy GPT-2 causal-mask buffers are accepted only after validating their full
 contents; legacy ViT scalar sizes and omitted preprocessing defaults are handled.
 
-The audited GPT-2 and BERT cases pass on CPU and Metal. ViT preprocessing and
-classifier outputs pass, but some strict hidden-state comparisons remain
-outside tolerance. Package extraction does not expand that compatibility claim.
-See the [audit results](../../../docs/ml/expanded-inference-audit.md).
-
 ## Ownership
 
 - This package owns the HF-specific model implementations and compatibility

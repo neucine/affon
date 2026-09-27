@@ -42,12 +42,6 @@ prefixes catch incorrect offsets, output sentinels catch unintended writes, and
 all results are checked with independent CPU dot products. Multi-matrix calls
 exercise shared input offsets and distinct output regions.
 
-The benchmark harness is unchanged from the dispatch-visibility baseline, allowing
-normal baseline compatibility checks. Its native dispatch events test the actual
-observed routes, rather than duplicating the selector in the harness. Strict model
-reference checks cover the graph/fusion paths as well as the isolated operator
-suite. See the [consolidation report](../../test/benchmarks/reports/metal-unified/NOTES.md).
-
 
 ## Batched MPS ownership
 
@@ -65,6 +59,3 @@ the scope byte target do not bound all driver allocation. The existing 64 MiB
 lease target permits a single oversized operation, which completes alone.
 The new native test exercises both MPS and custom chains through chunk splits,
 early Tensor destruction, abort, injected completion failure and recovery.
-
-See the [batching report](../../test/benchmarks/reports/metal-matmul-batching/NOTES.md)
-for isolated chains, full model correctness, request timings and measured memory.

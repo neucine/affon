@@ -60,5 +60,5 @@ Run the benchmark reporting tests with:
 python3 -m unittest discover -s test/benchmarks -p 'test_*.py'
 ```
 
-The saved initial Metal baseline is in
-[test/benchmarks/reports/metal-initial](benchmarks/reports/metal-initial/README.md).
+Benchmark run outputs and investigation logs are local artifacts; keep reusable
+runners, case registries, and correctness fixtures in this repository.
