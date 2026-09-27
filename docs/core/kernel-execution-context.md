@@ -1,7 +1,7 @@
 # Shared kernel execution contract
 
 Metal kernel invocation now goes through `pipeline/backend/metal/kernel.zig`.
-The unary, binary, broadcast, layer normalization, RMS normalization, residual-add
+The unary, binary, broadcast, softmax, layer normalization, RMS normalization, residual-add
 normalization, suffix affine, ordinary f32 matmul, fused f32 matmul epilogues,
 cat/stack, whole-tensor and axis-reduction wrappers use this contract instead of
 separately calling lease admission, poisoning and completion functions. Kernel dispatch still
@@ -334,3 +334,13 @@ negative-stride fallback preparation retain their prior behavior.
 
 See the [packed-axis report](../../test/benchmarks/reports/metal-axis-views/NOTES.md)
 for matched performance, command counts, allocation retention and validation.
+
+
+## Softmax migration
+
+Dense-row, rank-two and generic ND Metal f32 softmax now bind input/output through
+`kernel.Context` and use the common encoded-success finish. Pipelines and copied
+metadata are unchanged, with no hidden workspace or arithmetic changes. Inside
+trusted graph scopes, softmax joins existing chunks; ordinary eager calls remain
+synchronous. The [Whisper softmax report](../../apps/hf-inference/benchmarks/reports/whisper-softmax-batching/README.md)
+records decoder commands falling from 18 to 7 and the matched request measurements.
