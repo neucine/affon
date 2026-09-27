@@ -1,5 +1,5 @@
-import { snapshot_download } from './hub.ts'
-import type { HubOptions } from './hub.ts'
+import { snapshot_download } from './hub/snapshot.ts'
+import type { HubOptions } from './hub/snapshot.ts'
 import { load_model } from './model.ts'
 import type { ModelOptions, NativeModelTask } from './model.ts'
 import { load_processor } from './processor.ts'

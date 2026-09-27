@@ -1,11 +1,11 @@
-import { load_ast_processor } from './ast-processor.ts'
-import { load_whisper_processor } from './whisper-processor.ts'
+import { load_ast_processor } from './processors/ast.ts'
+import { load_whisper_processor } from './processors/whisper.ts'
 import fs from 'std:fs'
 import type { Device } from 'affon:compute'
 import { createHFTokenizerFromFile } from '../../tokenizers/src/index.ts'
-import { load_bert_processor } from './bert-processor.ts'
-import { process_mobilenet_image } from './mobilenet-processor.ts'
-import { process_rgb_image } from './vit-processor.ts'
+import { load_bert_processor } from './processors/bert.ts'
+import { process_mobilenet_image } from './processors/mobilenet.ts'
+import { process_rgb_image } from './processors/vit.ts'
 import type { ModelTask } from './model.ts'
 
 export type ProcessorsByTask = {

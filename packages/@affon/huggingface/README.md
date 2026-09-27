@@ -9,7 +9,13 @@ the model constructors; processors and checkpoint validation remain here.
 Native checkpoint adapters live in `src/adapters/`. The shared
 `encoder-checkpoint.ts` validates, places, and converts checkpoint tensors; it
 does not implement forward operations. ViT image processing lives separately
-in `src/vit-processor.ts`. Public loader and processor exports are unchanged.
+in `src/processors/vit.ts`. Public loader and processor exports are unchanged.
+
+Family input preparation lives in `src/processors/`, with reused audio and RGB
+helpers in `processors/shared/`. Hub snapshot/cache handling lives in
+`src/hub/snapshot.ts`. The root `model.ts`, `processor.ts`, and `pretrained.ts`
+remain dispatch/composition entry points. Existing ONNX and Whisper execution
+orchestration remains separate from preprocessing.
 
 It has no Python or PyTorch execution dependency. The audit uses Python only
 to prepare artifacts and generate independent reference results.

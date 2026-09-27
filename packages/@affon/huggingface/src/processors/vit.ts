@@ -1,7 +1,7 @@
 import fs from 'std:fs'
 import { tensor } from 'affon:compute'
 import type { Device, Tensor } from 'affon:compute'
-import { resize_rgb } from './resize-rgb.ts'
+import { resize_rgb } from './shared/resize-rgb.ts'
 
 /** Prepare RGB8 arrays using the local ViT bilinear resize/rescale/normalize config.
  * @param directory Directory containing preprocessor_config.json.

@@ -1,5 +1,5 @@
 import fs from 'std:fs'
-import { createHFTokenizerFromJSON } from '../../tokenizers/src/index.ts'
+import { createHFTokenizerFromJSON } from '../../../tokenizers/src/index.ts'
 
 /** Load BERT single/pair templates and right padding using @affon/tokenizers.
  * @param directory Directory containing tokenizer.json and tokenizer_config.json.

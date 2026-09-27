@@ -1,7 +1,7 @@
 import fs from 'std:fs'
 import { getEnv } from 'std:process'
-import { load_whisper_processor } from '../../../packages/@affon/huggingface/src/whisper-processor.ts'
-import { decode_wav } from '../../../packages/@affon/huggingface/src/audio.ts'
+import { load_whisper_processor } from '../../../packages/@affon/huggingface/src/processors/whisper.ts'
+import { decode_wav } from '../../../packages/@affon/huggingface/src/processors/shared/audio.ts'
 const bytes = new Uint8Array(
   JSON.parse(fs.readFileSync(getEnv('PROFILE_AUDIO_BYTES')!)),
 )

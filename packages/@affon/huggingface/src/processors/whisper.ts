@@ -12,7 +12,7 @@ import {
   reshape,
   type Device,
 } from 'affon:compute'
-import { resample_audio } from './audio.ts'
+import { resample_audio } from './shared/audio.ts'
 
 /** Whisper tiny English: 30-second padded, centered Slaney log-Mel features. */
 export function load_whisper_processor(

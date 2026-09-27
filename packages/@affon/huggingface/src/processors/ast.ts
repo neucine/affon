@@ -1,6 +1,6 @@
 import fs from 'std:fs'
 import { tensor, type Device } from 'affon:compute'
-import { resample_audio } from './audio.ts'
+import { resample_audio } from './shared/audio.ts'
 
 // Radix-2 FFT in double precision; output rounds to complex64 like HF's NumPy STFT.
 function power_spectrum(real: Float64Array) {

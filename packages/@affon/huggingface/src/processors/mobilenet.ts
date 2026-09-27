@@ -1,6 +1,6 @@
 import fs from "std:fs";
 import { tensor, type Device } from "affon:compute";
-import { resize_rgb } from "./resize-rgb.ts";
+import { resize_rgb } from "./shared/resize-rgb.ts";
 
 /** MobileNetV2's RGB8 bilinear shortest-edge resize, center crop and f32 normalization. */
 export function process_mobilenet_image(
