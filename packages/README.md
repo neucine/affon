@@ -21,5 +21,6 @@ and are exported by the app entry point. Corpus helpers are available from
 
 Native GPT-2, BERT, and ViT execution lives in `models/src/gpt2`, `bert`, and
 `vit`. HF adapters translate config and checkpoint tensors into their constructor
-contracts. ONNX-specific orchestration remains a separate follow-up. See
+contracts. Whisper execution lives in `models/src/whisper`, with prepared graph
+loading in its HF adapter. Generic ONNX classifier integration remains a follow-up. See
 [models](./@affon/models/README.md). Empty `cnn` and `vision` scaffolds were removed.

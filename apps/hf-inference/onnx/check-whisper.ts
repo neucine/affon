@@ -2,7 +2,7 @@ import fs from 'std:fs'
 import checkpoint from 'affon:checkpoint'
 import {getEnv} from 'std:process'
 import type {Device, Tensor} from 'affon:compute'
-import {load_whisper} from '../../../packages/@affon/huggingface/src/whisper.ts'
+import {load_whisper} from '../../../packages/@affon/huggingface/src/adapters/whisper.ts'
 import {load_whisper_processor} from '../../../packages/@affon/huggingface/src/processors/whisper.ts'
 const root=getEnv('AFFON_WHISPER_DIR')??'/tmp/affon-onnx-whisper',device=(getEnv('AFFON_DEVICE')??'cpu') as Device
 const reference=checkpoint.load(`${root}/reference.safetensors`) as Record<string,Tensor>

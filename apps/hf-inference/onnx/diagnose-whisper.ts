@@ -2,7 +2,7 @@
 import fs from 'std:fs'
 import telemetry from 'std:telemetry'
 import { getEnv } from 'std:process'
-import { load_whisper } from '../../../packages/@affon/huggingface/src/whisper.ts'
+import { load_whisper } from '../../../packages/@affon/huggingface/src/adapters/whisper.ts'
 import { load_whisper_processor } from '../../../packages/@affon/huggingface/src/processors/whisper.ts'
 import { decode_wav } from '../../../packages/@affon/huggingface/src/processors/shared/audio.ts'
 const root = getEnv('AFFON_WHISPER_DIR') ?? '/private/tmp/affon-onnx-whisper'

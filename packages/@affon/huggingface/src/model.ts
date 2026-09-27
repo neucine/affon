@@ -1,4 +1,4 @@
-import { load_whisper, type WhisperOptions } from './whisper.ts'
+import { load_whisper, type WhisperOptions } from './adapters/whisper.ts'
 import fs from 'std:fs'
 import type { Device } from 'affon:compute'
 import { load_gpt2 } from './adapters/gpt2.ts'

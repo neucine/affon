@@ -16,6 +16,6 @@ export type { OnnxModelOptions, OnnxClassifier, OnnxImageClassifier, OnnxAudioCl
 export { load_ast_processor } from './processors/ast.ts'
 export { decode_wav, resample_audio } from './processors/shared/audio.ts'
 
-export { load_whisper } from './whisper.ts'
-export type { WhisperOptions } from './whisper.ts'
+export { load_whisper } from './adapters/whisper.ts'
+export type { WhisperOptions } from './adapters/whisper.ts'
 export { load_whisper_processor } from './processors/whisper.ts'

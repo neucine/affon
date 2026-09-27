@@ -14,8 +14,9 @@ in `src/processors/vit.ts`. Public loader and processor exports are unchanged.
 Family input preparation lives in `src/processors/`, with reused audio and RGB
 helpers in `processors/shared/`. Hub snapshot/cache handling lives in
 `src/hub/snapshot.ts`. The root `model.ts`, `processor.ts`, and `pretrained.ts`
-remain dispatch/composition entry points. Existing ONNX and Whisper execution
-orchestration remains separate from preprocessing.
+remain dispatch/composition entry points. Whisper graph loading lives in `adapters/whisper.ts`; execution and decoding
+are owned by `models/src/whisper/`. Generic ONNX classifier integration remains
+separate from preprocessing.
 
 It has no Python or PyTorch execution dependency. The audit uses Python only
 to prepare artifacts and generate independent reference results.
@@ -248,8 +249,8 @@ const result = model.transcribe(processor.process(audio.samples, audio.sampling_
 This bounded integration supports the prepared `openai/whisper-tiny.en` bundle.
 It uses a centered 400-point STFT, Slaney Mel filters and 30-second zero padding.
 Frontend DSP runs in Affon TypeScript; encoder/decoder graphs run on the selected
-device. HF orchestrates encoder output, per-request self/cross-attention caches,
-suppression rules and token decoding. The graph executor remains independent of
+device. The Whisper model orchestrates encoder output, per-request self/cross-attention
+caches, suppression rules and token generation; the HF adapter supplies text decoding. The graph executor remains independent of
 HF architecture names. The local-only ONNX task API is required; `from_pretrained`
 still loads native architecture adapters only. See the app README for preparation
 and the short-WAV/254-token limits. No timestamps or silence detection are promised.

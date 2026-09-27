@@ -2,7 +2,7 @@ import fs from 'std:fs'
 import checkpoint from 'affon:checkpoint'
 import { getEnv } from 'std:process'
 import type { Tensor } from 'affon:compute'
-import { load_whisper } from '../../../packages/@affon/huggingface/src/whisper.ts'
+import { load_whisper } from '../../../packages/@affon/huggingface/src/adapters/whisper.ts'
 const root = getEnv('AFFON_WHISPER_DIR') ?? '/private/tmp/affon-onnx-whisper'
 const policy = JSON.parse(fs.readFileSync(`${root}/whisper.json`))
 const suppress = new Set<number>(policy.suppress_tokens)
