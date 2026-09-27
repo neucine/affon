@@ -34,6 +34,8 @@ declare module "affon:compute/native" {
     clip_grad_norm(parameters: readonly Tensor[], max_norm: number, eps?: number): number
     clear_grad(parameters: readonly Tensor[]): void
     no_grad<T>(fn: () => T): T
+    /** Internal graph-scope validation hook; not a public batching API. */
+    $with_graph_execution<T>(fn: () => T): { value: T; encoded: number; submitted: number; peak_leased_bytes: number; memory_drains: number }
     rand(shape: readonly number[], options?: { dtype?: "f32" | "f64"; axes?: readonly string[] }): Tensor
     randn(shape: readonly number[], options?: { dtype?: "f32" | "f64"; axes?: readonly string[] }): Tensor
     seed(value: number): void

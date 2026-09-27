@@ -82,3 +82,10 @@ layouts retain ordinary operations. No affine-fusion configuration is required;
 the former `AFFON_ONNX_AFFINE_FUSION` switch has been removed. Fresh Whisper
 comparisons show a repeatable roughly 5% full-request improvement with the current
 runtime; see the [command audit](../../../apps/hf-inference/benchmarks/reports/whisper-command-audit/README.md).
+
+
+Metal graph calls automatically batch compatible kernels within bounded execution
+scopes. Each `forward` call completes GPU work before returning its outputs.
+Profiling callbacks use synchronous per-operation execution so their timing and
+callback behavior stay consistent. This requires no caller option; CPU execution
+and the `load_graph` return shape are unchanged.

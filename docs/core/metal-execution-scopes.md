@@ -1,8 +1,37 @@
 # Proposal: bounded Metal execution scopes
 
-Status: design only. The committed inference baseline remains synchronous per
-operation. No scope API or asynchronous tensor behavior is implemented by this
-proposal.
+Status: bounded batching is enabled at the public Metal ONNX graph boundary.
+Each graph call completes before returning; profiling callbacks bypass batching.
+Ordinary eager calls outside that boundary retain synchronous completion. Planned
+slot reuse remains an opt-in native graph prototype, separate from ONNX leases.
+There is no public scope API or asynchronous tensor behavior.
+The [shared kernel context](kernel-execution-context.md) now centralizes bindings,
+scratch ownership and invocation mode, replacing per-wrapper admission code.
+
+The [storage-lifetime and host-access audit](metal-execution-scopes-audit.md)
+is complete against compute `0dfaf41` and Affon `f0b465e0`. It inventories all
+85 command-creation call sites and defines the first prototype's allowlist and
+synchronous boundaries. That inventory describes the audited checkpoint, not the
+subsequent prototype's shifted code locations. Prototype validation is recorded in
+the graph storage reuse plan below.
+
+The subsequent [graph storage reuse plan](graph-memory-plan.md) separates logical
+value lifetime from physical buffer lifetime. Its opt-in allocation-analysis
+component and private native execution path are now implemented in compute. They
+use reusable whole-buffer slots before considering a larger arena, with graph
+outputs and live aliases protected. The prototype admits only an explicitly fixed,
+unfused dense-f32 schedule and rejects nested entry. The separate ONNX validation
+boundary covers the eager loop and existing compiled affine calls without enabling
+whole-ONNX slot reuse. See the
+[integration report](../../apps/hf-inference/benchmarks/reports/graph-scope/README.md).
+The subsequent audited broadcast expansion reduces decoder command submissions
+from 180 to 136; its correctness, memory and latency evidence is in the
+[broadcast report](../../apps/hf-inference/benchmarks/reports/graph-scope-broadcast/README.md).
+The subsequent normalization and fused-affine migration reduces submissions to
+110. Its [matched validation report](../../apps/hf-inference/benchmarks/reports/graph-scope-normalization/README.md)
+records 23.0% lower long-request median latency, a 2.20 MiB tracked Storage peak
+increase. The boundary is now enabled by default; see the
+[activation checks](../../apps/hf-inference/benchmarks/reports/graph-scope-default/README.md).
 
 ## Decision and scope
 
@@ -97,6 +126,10 @@ HTTP layer should have no Metal scheduling policy.
    that does not claim asynchronous CUDA support.
 7. Only pure inference operations are eligible initially. Training, optimizer
    mutation and externally visible in-place writes stay on the existing path.
+8. ONNX calls with a per-node `profile` callback remain entirely synchronous in
+   the first prototype. `no_grad` is not itself a scope boundary. The private
+   bridge runs only the trusted synchronous graph body; nested native affine
+   execution joins it, while unrelated/reentrant graph entry is rejected.
 
 ## State machine and boundaries
 
@@ -130,10 +163,30 @@ not Tensor identity. Hold the lease until completion, not merely until submissio
 The allocator must not recycle a pooled block while such a lease exists. Retaining
 an Objective-C MTLBuffer alone is insufficient if a pool can reuse its contents.
 
+This excludes returning pending resources to the **ordinary** pool. Planned reuse
+inside a scope is a separate, explicit mechanism: a scope-owned physical slot can
+hold successive logical values after the prior value's last GPU use is ordered
+before the next write. See the graph storage reuse plan for alias lifetimes, output
+ownership and backend dependency requirements. The conservative retain-all path
+remains the execution oracle until that mechanism is implemented and validated.
+
 Scratch buffers created below Storage need equivalent ownership through the context.
 Copied scalar metadata passed with encoder APIs and MPS object lifetimes must be
 audited against the actual encoding path. Keep a stable context/command-buffer
 owner across existing per-operation autorelease pools.
+
+The audit confirms that both Metal `.pooled` and `.scratch` allocations can reuse
+the same size-bucket pool. Retain Storage at the actual backend call, including
+prepared inputs and fusion temporaries; retaining only graph inputs is insufficient.
+Count the allocation's bucket capacity, not just `Storage.bytes`, in the memory
+budget. Buffer destruction also marks its resource purgeable, so an Objective-C
+reference alone does not prevent every premature-release hazard.
+
+Status-checking kernels share one `ctx.statusBuffer`: its CPU reset occurs before
+command creation and its CPU read occurs after completion. Keep every such call
+synchronous, draining **before reset**, until a separate status-slot design exists.
+Raw pointer exports must remain unavailable during an active scope initially;
+draining at pointer acquisition alone cannot constrain a pointer used later.
 
 Track pending leased bytes separately from live Tensor bytes. Start with internal
 prototype limits for encoded operation count and unique retained backing bytes;
@@ -186,7 +239,9 @@ counters separately to explain the outcome.
 
 1. **Ownership/barrier audit:** enumerate every command creation, direct host access,
    workspace lifetime and pool-return path. Deliver an eligibility list and explicit
-   synchronous fallback boundaries before enabling accumulation.
+   synchronous fallback boundaries before enabling accumulation. Completed by the
+   linked audit; next is its bounded compute-only prototype with a default-deny
+   operation admission guard, Storage leases, fallible drains and failure tests.
 2. **Private prototype:** add a compute execution context with resource leases and
    one chunk in flight. Start with dense pure f32 elementwise chains, then blits and
    MPS. Keep existing execution as a test oracle. No broad default change yet.

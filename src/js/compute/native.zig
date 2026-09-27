@@ -1414,6 +1414,48 @@ fn jsNoGrad(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.
     return abi.jsCall(ctx, argv[0], abi.jsUndefined(ctx), &.{});
 }
 
+// Private validation bridge for a trusted synchronous graph body. Not a public
+// batching API: no Promise, user profiling callback, or nested owner is accepted.
+fn jsWithGraphExecution(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    if (argc != 1 or !abi.jsIsFunction(ctx, argv[0])) return typeError(ctx, "graph scope requires a synchronous graph body");
+    var scope = compute.pipeline.execution.leased_scope.Context{ .allocator = allocator };
+    scope.begin() catch return errorValue(ctx, "graph scope requires no_grad and non-reentrant execution");
+    defer scope.abort();
+    const value = abi.jsCall(ctx, argv[0], abi.jsUndefined(ctx), &.{});
+    if (abi.jsIsException(value)) return value;
+    if (abi.jsIsObject(value)) {
+        const then = abi.jsGetProperty(ctx, value, "then");
+        defer abi.jsFreeValue(ctx, then);
+        if (abi.jsIsException(then)) {
+            abi.jsFreeValue(ctx, value);
+            return then;
+        }
+        if (abi.jsIsFunction(ctx, then)) {
+            abi.jsFreeValue(ctx, value);
+            return typeError(ctx, "graph scope cannot return a Promise or thenable");
+        }
+    }
+    const stats = scope.finish() catch {
+        abi.jsFreeValue(ctx, value);
+        return errorValue(ctx, "graph scope completion failed");
+    };
+    const packet = abi.jsNewObject(ctx);
+    if (abi.jsIsException(packet)) {
+        abi.jsFreeValue(ctx, value);
+        return packet;
+    }
+    if (abi.jsSetProperty(ctx, packet, "value", value) < 0 or
+        abi.jsSetProperty(ctx, packet, "encoded", abi.jsFloat64(ctx, @floatFromInt(stats.encoded))) < 0 or
+        abi.jsSetProperty(ctx, packet, "submitted", abi.jsFloat64(ctx, @floatFromInt(stats.submitted))) < 0 or
+        abi.jsSetProperty(ctx, packet, "peak_leased_bytes", abi.jsFloat64(ctx, @floatFromInt(stats.peak_leased_bytes))) < 0 or
+        abi.jsSetProperty(ctx, packet, "memory_drains", abi.jsFloat64(ctx, @floatFromInt(stats.memory_drains))) < 0)
+    {
+        abi.jsFreeValue(ctx, packet);
+        return errorValue(ctx, "failed to create graph scope diagnostics");
+    }
+    return packet;
+}
+
 fn jsRandom(ctx: abi.JSContext, shape_value: abi.JSValueConst, normal: bool) abi.JSValue {
     const shape = readShape(ctx, shape_value, "shape") orelse return typeError(ctx, "shape must be an array of non-negative integers");
     defer allocator.free(shape);
@@ -2508,6 +2550,7 @@ const functions = [_]abi.JSFunction{
     .{ .name = "$zero_grad_", .callback = jsInternalZeroGrad, .length = 1 },
     .{ .name = "$backward_", .callback = jsTensorBackward, .length = 0 },
     .{ .name = "no_grad", .callback = jsNoGrad, .length = 1 },
+    .{ .name = "$with_graph_execution", .callback = jsWithGraphExecution, .length = 1 },
     .{ .name = "rand", .callback = jsRand, .length = 1 },
     .{ .name = "randn", .callback = jsRandn, .length = 1 },
     .{ .name = "seed", .callback = jsSeed, .length = 1 },

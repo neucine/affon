@@ -37,3 +37,28 @@ regressions, which are skipped when its driver probe reports unavailable.
 For synchronized benchmark timings, build with `zig build -Doptimize=ReleaseFast`
 and run `./zig-out/bin/affon tools/bench-cuda.ts`. Uploads and first-use compilation
 are outside the timed region; scalar reads synchronize each measured operation.
+
+
+## Compute performance benchmarks
+
+[test/benchmarks](benchmarks/README.md) contains the model-independent compute
+benchmark cases, Affon/PyTorch workers, coverage reports and regression checks.
+It runs separately from the normal correctness suite because timing requires a
+ReleaseFast binary and a quiet host. The Python environment needs `torch` and
+`safetensors`.
+
+```sh
+/path/to/python test/benchmarks/run.py \
+  --affon /path/to/release/bin/affon \
+  --compute /path/to/compute \
+  --output /tmp/compute-bench-new
+```
+
+Run the benchmark reporting tests with:
+
+```sh
+python3 -m unittest discover -s test/benchmarks -p 'test_*.py'
+```
+
+The saved initial Metal baseline is in
+[test/benchmarks/reports/metal-initial](benchmarks/reports/metal-initial/README.md).

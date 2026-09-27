@@ -178,3 +178,11 @@ on exit. It measures a 128-token prefill followed by 32 forced single-token
 steps, with full logit readback. API wall times include synchronous Metal work
 and host overhead; they are not GPU timestamps. `no_grad` is an inclusive scope.
 Use the regular short and scaling benchmarks for uninstrumented comparisons.
+
+## Model-independent compute coverage
+
+Operator and batched-sequence comparisons now have a separate shared-fixture suite
+in [test/benchmarks](../../../test/benchmarks/README.md). It reports live
+Compute OpTag coverage, uncovered operations, Affon/PyTorch ratios and optional
+Affon-versus-baseline regression checks. Model measurements here remain the
+end-to-end complement to that suite.

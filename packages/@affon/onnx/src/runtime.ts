@@ -4,6 +4,7 @@ import { capabilities } from './capabilities.ts'
 import fs from 'std:fs'
 import checkpoint from 'affon:checkpoint'
 import * as compute from 'affon:compute'
+import native from 'affon:compute/native'
 import {
   abs,
   add,
@@ -52,6 +53,18 @@ const same = (a: number[], b: number[]) =>
   JSON.stringify(a) === JSON.stringify(b)
 
 export function load_graph(directory: string, device: Device = 'cpu') {
+  const { graph, forward } = create_graph(directory, device, true)
+  return { graph, forward }
+}
+
+// Internal validation entry; deliberately not exported by the package index.
+// The switch preserves an ordinary-execution oracle without a public policy knob.
+export function load_graph_for_scope_validation(directory: string, device: Device = 'cpu', scoped = true) {
+  return create_graph(directory, device, scoped)
+}
+
+function create_graph(directory: string, device: Device, scoped: boolean) {
+  let scope_stats: Omit<ReturnType<typeof native.$with_graph_execution>, 'value'> | null = null
   const graph = JSON.parse(
     fs.readFileSync(`${directory}/graph.json`),
   ) as Manifest
@@ -161,9 +174,10 @@ export function load_graph(directory: string, device: Device = 'cpu') {
       elapsed_ms: number
     }) => void,
   ) {
+    scope_stats = null
     if (Object.keys(inputs).length !== Object.keys(graph.inputs).length)
       throw Error('Incorrect graph inputs')
-    return no_grad(() => {
+    const execute = () => {
       const values = new Map(constants),
         remaining = new Map(uses)
       for (const [name, shape] of Object.entries(graph.inputs)) {
@@ -297,7 +311,15 @@ export function load_graph(directory: string, device: Device = 'cpu') {
       return Object.fromEntries(
         graph.outputs.map((name) => [name, values.get(name)!]),
       )
+    }
+    return no_grad(() => {
+      // A profiling callback is arbitrary user code and retains synchronous
+      // elapsed-time semantics; it must never run inside the native scope.
+      if (!scoped || device !== 'metal' || profile) return execute()
+      const { value, ...stats } = native.$with_graph_execution(execute)
+      scope_stats = stats
+      return value
     })
   }
-  return { graph, forward }
+  return { graph, forward, scope_stats: () => scope_stats }
 }

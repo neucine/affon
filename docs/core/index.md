@@ -8,6 +8,7 @@ Read these pages in this order if you are new to the compute layer:
 
 - [Compute Concepts](./compute.md) - compute tensors, parameters, programs, modules, compilation, and observability
 - [Compute Kernel Matrix](./kernel-matrix.md) - current backend/device support by operation family
+- [Optimization Checkpoint](compute-optimization-checkpoint.md) - completed work, remaining gaps, evidence, and how to resume
 - [Compute Semantic Coverage](./compute-semantic-coverage.md) - correctness claims, evidence, and closure gaps
 - [Error Handling](./errors.md)
 
