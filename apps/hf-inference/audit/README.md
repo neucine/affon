@@ -321,3 +321,63 @@ generated tokens on a warm request. A request during the concurrent CPU audit
 took 55.98 seconds, and the first request after it exited took 16.93 seconds.
 Desktop latency is therefore sensitive to other work and differs from isolated
 benchmark throughput; the timings do not establish a guaranteed response time.
+
+### Native telemetry profiling
+
+The SmolLM2 benchmark now uses the shared benchmark helper
+`src/benchmark/telemetry.ts` to wrap load, warmup, and measured prefill/decode
+phases with `std:telemetry.trace`. The report includes a `profiles` array with
+native counter deltas and memory gauge snapshots for each phase. Host elapsed
+milliseconds remain useful for throughput; they are not GPU timestamps.
+
+```sh
+AFFON_DEVICE=metal AFFON_METAL_COMMAND_TIMING=1 AFFON_SMOLLM2_SIZE=135M \
+  AFFON_BENCH_REPORT=/tmp/smollm-profile.json \
+  /tmp/affon-smollm-release/bin/affon apps/hf-inference/src/benchmark/smollm2.ts
+```
+
+The native `compute.execution.metal_command_*` counters separate preparation,
+submission, completion waits, and GPU command-buffer duration. Only interpret
+GPU totals when `metal_gpu_timing_complete` is true; null means no timed
+commands were observed, not zero GPU cost. These are command-buffer timings,
+not per-kernel attribution. GPU duration overlaps host submission/wait intervals;
+do not add these together or infer an asynchronous speedup from their difference.
+Peak memory gauges are process-lifetime values sampled at phase boundaries,
+not measured phase-local peaks. Counter intervals are process-wide: use an
+otherwise idle, single-workload process. Profiling has overhead.
+
+For native operation spans and matmul shape events, enable the existing console
+with `RUNTIME_TELEMETRY_CONSOLE=1 RUNTIME_TELEMETRY_CONSOLE_PORT=8767`.
+Named `hf.smollm2.*` spans mark the benchmark phases. The bounded trace ring
+requires continuous collection for a complete long run; check the console API's
+`missed` field before aggregating traces. The JSON phase report does not export
+that ring or claim per-operation GPU timing.
+
+Validation on the cached 135M model observed 23,100 timed commands across 15
+decode steps, with complete GPU timestamps. The two measured decode intervals
+were 6.125–6.207 seconds of host elapsed time and 0.533–0.567 seconds of summed
+GPU command time. This was a diagnostics check on a running desktop, not an
+isolated speed comparison. The profiler tests also expose an existing test-runner
+teardown diagnostic (two Hao resources, 1,672 bytes), reproduced using only native
+`startSpan(...).end(...)` calls without the new helper; its cause is unresolved.
+
+### Bounded Llama command batching
+
+Llama's trusted inference forward body now uses the existing bounded Metal
+execution scope (32 invocations / 64 MiB of leased capacity per chunk; oversized
+invocations execute alone). Outputs complete before return, and session cache
+updates occur only after successful completion. CPU and CUDA are unchanged.
+
+On the same 135M, 40-prompt-token / 16-output-token profiling workload, the two
+measured 15-step decode intervals fell from 6.125–6.207 s to 2.609–2.659 s
+(about 2.4 to 5.7 tokens/s). Command buffers fell from 23,100 to 7,260; GPU
+command timestamps were complete. Generated text was identical. The batched
+1.7B benchmark measured 3.50–3.56 tokens/s; its earlier unbatched benchmark
+measured 2.54–2.55, but that earlier run did not enable command timing.
+These short desktop runs do not establish universal speedups or memory stability.
+
+The small independent Llama oracle, cache isolation and retained-output tests
+pass on Metal; all four 360M reference cases pass. The batched 1.7B run matches
+all tested generated IDs and logits, retaining the same six failing hidden-state
+comparisons (22 values) at the unchanged tolerance. The 1.7B audit therefore
+continues to exit unsuccessfully. Batching does not fix that existing drift.

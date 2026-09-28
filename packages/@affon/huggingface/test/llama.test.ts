@@ -49,3 +49,15 @@ test('Llama rejects unsupported variants and malformed dimensions before weight 
     }
   } finally { await run({cmd:'rm',args:['-rf',temp]}) }
 })
+
+test('Llama retained outputs survive subsequent cached and uncached calls', () => {
+  const model = load_llama(directory, device)
+  const first = model.forward(reference.ids), session = model.create_session()
+  const cached = session.forward(reference.ids)
+  for (let i = 0; i < 5; i++) session.forward([7])
+  model.forward([1,2,3])
+  session.reset()
+  close(first.logits, reference.logits)
+  close(cached.logits, reference.logits)
+  first.hidden_states.forEach((state, i) => close(state, reference.hidden_states[i]))
+})

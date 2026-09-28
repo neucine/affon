@@ -16,4 +16,3 @@ Small API demonstrations should stay close to the package or runtime surface the
 
 - `hf-inference/` audits pretrained Hugging Face inference against independent references.
 - `decoder-lm/` is the decoder language-model reference workload.
-- `image-classification/` is the likely first vision app once vision work begins.

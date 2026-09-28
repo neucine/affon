@@ -1,3 +1,4 @@
+import native from 'affon:compute/native'
 import { add, cat, contiguous, div, index_select, masked_fill, matmul, mean, mul, neg, no_grad, permute, reshape, silu, softmax, sqrt, square, tensor, transpose } from 'affon:compute'
 import type { Device, Tensor } from 'affon:compute'
 import { parameter_checks, positive_dimensions } from '../shared/parameters.ts'
@@ -44,7 +45,7 @@ export function create_llama(config: LlamaConfig, weights: LlamaWeights, device:
     validate(ids)
     const offset = past?.length ?? 0, length = ids.length, total = offset + length
     if (total > contextLength) throw Error('Llama cache exceeds context limit')
-    return no_grad(() => {
+    const execute = () => {
       let x = reshape(index_select(weights.tokenEmbedding, 0, tensor(Array.from(ids), { dtype: 'f32', device })), [1, length, d])
       const angles = Array.from({ length }, (_, t) => Array.from({ length: head }, (_, i) => (offset + t) / Math.pow(config.ropeTheta, 2 * (i % (head / 2)) / head)))
       const cos = tensor([angles.map(row => [row.map(Math.cos)])], { dtype: 'f32', device })
@@ -74,7 +75,10 @@ export function create_llama(config: LlamaConfig, weights: LlamaWeights, device:
       }
       x = norm(x, weights.finalNorm); hidden_states.push(x)
       return { logits: matmul(x, outputWeight), hidden_states, cache }
-    })
+    }
+    // Only this trusted synchronous body enters the existing bounded scope.
+    // Completion precedes return, so session caches are published only on success.
+    return no_grad(() => device === 'metal' ? native.$with_graph_execution(execute).value : execute())
   }
   function forward(ids: readonly number[]) {
     const { logits, hidden_states } = run(ids)
