@@ -28,7 +28,8 @@ import { createHFTokenizerFromFile, createLookupTokenizer } from '@affon/tokeniz
 ```
 
 HF ByteLevel BPE preserves whitespace and uses GPT-2 token boundaries before
-applying merge ranks. `add_prefix_space` and `use_regex` are respected. Added
+applying merge ranks. SmolLM2’s `Digits(individual_digits=true) → ByteLevel`
+sequence preserves individual Unicode numeric-character boundaries. `add_prefix_space` and `use_regex` are respected. Added
 tokens are matched before pre-tokenization, with longest matches preferred and
 `single_word`, `lstrip`, and `rstrip` constraints applied. Added IDs are included
 in vocabulary lookup/size; only special tokens are removed by `skipSpecialTokens`.

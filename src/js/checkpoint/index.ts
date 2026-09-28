@@ -1,6 +1,6 @@
 import { AffonError } from 'affon:errors'
 import fs from 'std:fs'
-import { loadStateTree, restorePersistedState, saveStateTree } from 'affon:compute/persistence.ts'
+import { inspectCheckpoint, loadStateTree, restorePersistedState, saveStateTree } from 'affon:compute/persistence.ts'
 
 function restore(target: any, source: string | Record<string, any>): any {
   const state = typeof source === 'string' ? loadStateTree(source) : source
@@ -123,12 +123,14 @@ function loadBundle(prefix: string): CheckpointBundle {
 const checkpoint = {
   save: saveStateTree,
   load: loadStateTree,
+  inspect: inspectCheckpoint,
   restore,
   saveBundle,
   loadBundle,
 }
 
 export const save = checkpoint.save
+export const inspect = checkpoint.inspect
 export const load = checkpoint.load
 export { restore, saveBundle, loadBundle }
 export default checkpoint

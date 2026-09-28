@@ -1,3 +1,4 @@
+import { load_smollm2_processor } from './processors/smollm2.ts'
 import { load_ast_processor } from './processors/ast.ts'
 import { load_whisper_processor } from './processors/whisper.ts'
 import fs from 'std:fs'
@@ -11,7 +12,7 @@ import type { ModelTask } from './model.ts'
 export type ProcessorsByTask = {
   'automatic-speech-recognition': ReturnType<typeof load_whisper_processor>
   'audio-classification': ReturnType<typeof load_ast_processor>
-  'text-generation': ReturnType<typeof createHFTokenizerFromFile>
+  'text-generation': ReturnType<typeof createHFTokenizerFromFile> | ReturnType<typeof load_smollm2_processor>
   'feature-extraction': ReturnType<typeof load_bert_processor>
   'image-classification': {
     process: (rgb: number[][][]) => ReturnType<typeof process_rgb_image>
@@ -33,6 +34,8 @@ export function load_processor(
   const config = JSON.parse(fs.readFileSync(`${directory}/config.json`))
   if (config.model_type === 'gpt2' && options.task === 'text-generation')
     return createHFTokenizerFromFile(`${directory}/tokenizer.json`)
+  if (config.model_type === 'llama' && options.task === 'text-generation')
+    return load_smollm2_processor(directory)
   if (config.model_type === 'bert' && options.task === 'feature-extraction')
     return load_bert_processor(directory)
   if (config.model_type === 'vit' && options.task === 'image-classification') {

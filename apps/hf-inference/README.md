@@ -125,3 +125,14 @@ The optional model loads once; each transcription owns its decoder caches.
 `POST /api/transcribe` takes `audio/wav` bytes and returns text, token IDs,
 encoder/inference/total timings and truncation status. The UI is kept in
 `public/transcription.js`, separate from inference and serving code.
+
+### SmolLM2 instruction generation
+
+Set `AFFON_SMOLLM2=135M`, `360M`, or `1.7B` with a freshly built runtime
+(`1` remains an alias for `135M`). The Text generation tab adds the selected
+instruction model alongside DistilGPT-2. Set `AFFON_TEXT_ONLY=1` to load only
+that model and make it the default, avoiding other model allocations.
+Pinned BF16 checkpoints run with native f32 execution. CPU, Metal, and CUDA
+are selectable; each backend needs validation on its own host.
+See [serving](src/serve/README.md#smollm2-instructions) for launch/API usage and
+[audits](audit/README.md#smollm2) for reference validation.

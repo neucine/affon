@@ -144,6 +144,15 @@ function splitHFText(text: string, preTokenizer: HFPreTokenizerSpec | null | und
   }
   if (kind === 'Sequence') {
     const pretokenizers = preTokenizer?.pretokenizers ?? []
+    // SmolLM2 splits each Unicode numeric character before byte-level BPE.
+    // Preserve those boundaries: a following ByteLevel stage must not merge digits.
+    if (pretokenizers[0]?.type === 'Digits') {
+      if (pretokenizers.length !== 2 || pretokenizers[0].individual_digits !== true
+        || pretokenizers[1].type !== 'ByteLevel') throw new TypeError('Unsupported Digits pre_tokenizer sequence')
+      const byte = pretokenizers[1]
+      return (text.match(/\p{N}|[^\p{N}]+/gu) ?? []).flatMap(part =>
+        splitHFByteLevel(part, byte.add_prefix_space, byte.use_regex))
+    }
     let sawByteLevel = false
     let byteLevelAddPrefixSpace: boolean | undefined
     let byteLevelUseRegex: boolean | undefined

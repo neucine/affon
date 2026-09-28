@@ -79,8 +79,8 @@ export function saveStateTree(state: ComputeState | ModuleRuntime, path: string)
   ;(native as any).saveNative(Object.entries(flat).map(([name, value]) => ({ name, value })), path)
 }
 
-export function loadStateTree(path: string): Record<string, ComputeValue> {
-  return (native as any).loadNative(path) as Record<string, ComputeValue>
+export function loadStateTree(path: string, options?: { names?: readonly string[] }): Record<string, ComputeValue> {
+  return (native as any).loadNative(path, options?.names) as Record<string, ComputeValue>
 }
 
 export function restorePersistedState(target: any, source: Record<string, ComputeValue>, prefix = ''): any {
@@ -115,4 +115,8 @@ export function restorePersistedState(target: any, source: Record<string, Comput
   if (typeof target === 'function' || target == null) return target
   if (typeof target === 'number' || typeof target === 'string' || typeof target === 'boolean') return target
   throw new AffonError('invalid_arg', 'checkpoint.restore(target, source) expected a persistable state tree')
+}
+
+export function inspectCheckpoint(path: string): Record<string, {dtype: string; shape: number[]}> {
+  return (native as any).inspectCheckpoint(path)
 }

@@ -4,6 +4,7 @@ Model definitions and their execution behavior, built on `affon:compute` and
 `affon:nn`. This package replaces `@affon/lm` and `@affon/transformers`.
 
 - `src/gpt2/`: tied-head GPT-2 forward, request-local cache sessions, and greedy generation.
+- `src/llama/`: tied-head, bias-free Llama decoder with RMSNorm, unscaled RoPE, GQA, and request-local cached greedy generation (SmolLM2 variant).
 - `src/bert/`: absolute-position BERT encoder, hidden states, and pooling.
 - `src/vit/`: fixed-size RGB ViT classifier and hidden states.
 - `src/whisper/`: prepared encoder/decoder execution, request-local caches, and greedy transcription.
@@ -29,7 +30,7 @@ this directory. Corpus and training workflow tests live under `apps/decoder-lm/t
 
 ## Construction and integration
 
-`create_gpt2`, `create_bert`, and `create_vit` accept typed, normalized config and
+`create_gpt2`, `create_llama`, `create_bert`, and `create_vit` accept typed, normalized config and
 structured tensor parameters. They do not read files, interpret HF keys, or load
 checkpoints. Parameters must be f32 on the selected device. Linear matrices use
 [input, output]; ViT patch weights use [output, RGB, patch, patch]. Constructors

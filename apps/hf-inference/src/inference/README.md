@@ -4,7 +4,7 @@ Reusable application-level inference, independent of HTTP, browser assets,
 environment variables, and server configuration.
 
 - `models.ts`: `load_models(options)`, pinned model metadata, and shared types.
-- `text.ts`: `generate_text(models, prompt, max_new_tokens)`.
+- `text.ts`: `generate_text(models, prompt, max_new_tokens, model_key?)`.
 - `image.ts`: `classify_image(models, rgb_bytes, width, height, device)`.
 - `classification.ts`: stable softmax and top-five ranking.
 
@@ -31,3 +31,8 @@ Run from the repository root:
 ```sh
 affon test apps/hf-inference/tests/inference/classification.test.ts
 ```
+
+Set `smollm2: "135M"`, `"360M"`, or `"1.7B"` in load options; `true` aliases
+135M. Pass `"smollm2"` as the generation model key. With `text_only: true`, only
+the selected SmolLM2 loads and omitted generation keys select it. Otherwise
+DistilGPT-2 remains the default. `device` accepts CPU, Metal, or CUDA.

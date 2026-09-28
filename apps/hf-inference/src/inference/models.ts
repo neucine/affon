@@ -1,11 +1,14 @@
 import {
   from_pretrained,
+  type ModelsByTask, type ProcessorsByTask,
   load_model,
   load_processor,
 } from '../../../../packages/@affon/huggingface/src/index.ts'
 /** Model loading options, independent of HTTP and environment variables. */
 export interface InferenceOptions {
-  device: 'cpu' | 'metal'
+  smollm2?: boolean | SmolLM2Size
+  text_only?: boolean
+  device: 'cpu' | 'metal' | 'cuda'
   cache_dir: string
   vision_cache_dir: string
   vit_onnx_dir?: string
@@ -21,6 +24,21 @@ export const TEXT_MODEL = {
   id: 'distilbert/distilgpt2',
   revision: '2290a62682d06624634c1f46a6ad5be0f47f38aa',
 } as const
+export const SMOLLM2_MODELS = {
+  '135M': { id: 'HuggingFaceTB/SmolLM2-135M-Instruct', revision: '12fd25f77366fa6b3b4b768ec3050bf629380bac' },
+  '360M': { id: 'HuggingFaceTB/SmolLM2-360M-Instruct', revision: 'a10cc1512eabd3dde888204e902eca88bddb4951' },
+  '1.7B': { id: 'HuggingFaceTB/SmolLM2-1.7B-Instruct', revision: '31b70e2e869a7173562077fd711b654946d38674' },
+} as const
+export type SmolLM2Size = keyof typeof SMOLLM2_MODELS
+export const SMOLLM2_MODEL = SMOLLM2_MODELS['135M']
+type ImageEntry = {
+  id: string; label: string; backend: 'native' | 'onnx'
+  model: Pick<ModelsByTask['image-classification'], 'config' | 'forward'> | {
+    config: {id2label?: Record<string,string>}
+    forward: (pixels: ReturnType<ProcessorsByTask['image-classification']['process']>) => {output: ReturnType<ModelsByTask['image-classification']['forward']>['output']}
+  }
+  processor: ProcessorsByTask['image-classification']
+}
 export const IMAGE_MODEL = {
   id: 'google/vit-base-patch16-224',
   revision: '3f49326eb077187dfe1c2a2bb15fbd74e6ab91e3',
@@ -28,13 +46,27 @@ export const IMAGE_MODEL = {
 
 /** Load pinned native checkpoints and configured local graphs once for reuse. */
 export async function load_models(config: InferenceOptions) {
-  const { model, processor } = await from_pretrained(TEXT_MODEL.id, {
-    revision: TEXT_MODEL.revision,
-    cache_dir: config.cache_dir,
-    task: 'text-generation',
-    device: config.device,
-    local_files_only: config.local_files_only,
+  const size = config.smollm2 === true ? '135M' : config.smollm2 || undefined
+  if (size && !Object.hasOwn(SMOLLM2_MODELS, size)) throw Error('Unknown SmolLM2 size')
+  if (config.text_only && !size) throw Error('Text-only mode requires a SmolLM2 size')
+  const smolSpec = size ? SMOLLM2_MODELS[size] : undefined
+  const primarySpec = config.text_only ? smolSpec! : TEXT_MODEL
+  const default_text_model = config.text_only ? 'smollm2' : 'distilgpt2'
+  const { model, processor } = await from_pretrained(primarySpec.id, {
+    revision: primarySpec.revision, cache_dir: config.cache_dir,
+    task: 'text-generation', device: config.device, local_files_only: config.local_files_only,
   })
+  const texts: Record<string, { id: string; label: string; chat: boolean; model: typeof model; processor: typeof processor }> = {
+    [default_text_model]: { id: primarySpec.id, label: config.text_only ? `SmolLM2 ${size} Instruct` : 'DistilGPT-2', chat: Boolean(config.text_only), model, processor },
+  }
+  if (smolSpec && !config.text_only) {
+    const smollm2 = await from_pretrained(smolSpec.id, {
+      revision: smolSpec.revision, cache_dir: config.cache_dir,
+      task: 'text-generation', device: config.device, local_files_only: config.local_files_only,
+    })
+    texts['smollm2'] = { id: smolSpec.id, label: `SmolLM2 ${size} Instruct`, chat: true, model: smollm2.model, processor: smollm2.processor }
+  }
+  if (config.text_only) return {text: {model, processor}, texts, default_text_model, images: {} as Record<string, ImageEntry>, vision: undefined, audio: undefined, speech: undefined}
   const vision = await from_pretrained(IMAGE_MODEL.id, {
     revision: IMAGE_MODEL.revision,
     cache_dir: config.vision_cache_dir,
@@ -42,21 +74,7 @@ export async function load_models(config: InferenceOptions) {
     device: config.device,
     local_files_only: config.local_files_only,
   })
-  const images: Record<
-    string,
-    {
-      id: string
-      label: string
-      backend: 'native' | 'onnx'
-      model: {
-        config: { id2label?: Record<string, string> }
-        forward: (pixels: ReturnType<typeof vision.processor.process>) => {
-          output: ReturnType<typeof vision.model.forward>['output']
-        }
-      }
-      processor: typeof vision.processor
-    }
-  > = {
+  const images: Record<string, ImageEntry> = {
     'vit-native': {
       id: IMAGE_MODEL.id,
       label: 'ViT native',
@@ -137,6 +155,6 @@ export async function load_models(config: InferenceOptions) {
         }),
       }
     : undefined
-  return { text: { model, processor }, vision, images, audio, speech }
+  return { text: { model, processor }, texts, default_text_model, vision, images, audio, speech }
 }
 export type InferenceModels = Awaited<ReturnType<typeof load_models>>

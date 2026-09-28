@@ -2,7 +2,7 @@
 
 Experimental Hugging Face integration for native Affon inference. This package
 owns HF configuration interpretation, weight mapping, model/task dispatch, and
-processor integration. Native GPT-2, BERT, and ViT execution is owned by
+processor integration. Native GPT-2, Llama, BERT, and ViT execution is owned by
 `@affon/models`. These adapters map HF configuration and checkpoint tensors into
 the model constructors; processors and checkpoint validation remain here.
 
@@ -51,8 +51,12 @@ require removing the affected snapshot and downloading it again.
 
 The transport uses Hao native HTTP with bounded-memory file streaming and
 incremental SHA-256; curl is no longer required. Cache maintenance still uses
-`shasum`, `mkdir`, `mv`, and `rm` on PATH (validated on macOS). Downloads have a 500 MiB weight-file
-limit and a 20 MiB limit per JSON artifact. Checksums detect subsequent cache
+`shasum`, `mkdir`, `mv`, and `rm` on PATH (validated on macOS). Downloads allow up to 8 GiB per weight file, 16 GiB per snapshot,
+256 shards, and 20 MiB per JSON artifact. Single `model.safetensors` and indexed
+`model.safetensors.index.json` snapshots are supported. Flat shard filenames,
+index ownership, completeness, and duplicate tensor names are checked. Adapters
+inspect metadata first and load one source tensor at a time; execution remains
+f32, so BF16 storage does not halve resident model memory. Checksums detect subsequent cache
 corruption; they are computed locally, not publisher signatures. Private/gated
 repositories, branch/tag resolution, resumable downloads, timeouts/retries, and Windows portability remain future work. No tokens are read or sent.
 
@@ -75,6 +79,7 @@ weight loading. Inputs retain their domain-specific shapes.
 | Task | Model type | Forward input | Current boundary |
 | --- | --- | --- | --- |
 | `text-generation` | `gpt2` | One array of token IDs | Tied head, `gelu_new`, cached greedy generation |
+| `text-generation` | `llama` | One array of token IDs | Tied head, SiLU, full unscaled RoPE, GQA; verified with SmolLM2-135M-Instruct |
 | `feature-extraction` | `bert` | Batched IDs, attention masks, type IDs | Absolute positions, GELU, base encoder with pooler |
 | `image-classification` | `vit` | Batch-one f32 NCHW tensor | Fixed-size RGB, biased QKV, GELU, classifier |
 
@@ -85,9 +90,9 @@ uses `@affon/tokenizers`.
 
 ## Artifacts and compatibility
 
-Requires `config.json` and one f32 `model.safetensors`, plus the appropriate
+Requires `config.json` and one `model.safetensors` (f32, or BF16 widened to f32), plus the appropriate
 processor files, either downloaded directly or already local. Shards, pickle
-conversion, reduced-precision weights, custom Python execution, and a universal
+conversion, reduced-precision execution, custom Python execution, and a universal
 `pipeline` API are not supported. Weight names and shapes are checked strictly.
 Legacy GPT-2 causal-mask buffers are accepted only after validating their full
 contents; legacy ViT scalar sizes and omitted preprocessing defaults are handled.
@@ -256,3 +261,42 @@ frame selection and log normalization; the final features move to the requested
 device. This requires an Affon runtime containing the spectral primitives and
 removes the previous TypeScript FFT implementation. No Python or external audio
 process is used at inference time.
+
+### SmolLM2 instruction generation
+
+`HuggingFaceTB/SmolLM2-135M-Instruct` is pinned to
+`12fd25f77366fa6b3b4b768ec3050bf629380bac`. Use `from_pretrained` with
+`task: 'text-generation'` and that revision, then:
+
+```ts
+if (!('encode_chat' in processor)) throw Error('Expected a chat processor')
+const ids = processor.encode_chat([{role: 'user', content: 'What is the capital of France?'}])
+const output = model.generate(ids, 32)
+console.log(processor.decode(output.slice(ids.length), {skipSpecialTokens: true}))
+```
+
+The native Llama adapter supports this bounded tied-head, bias-free variant with
+RMSNorm, SiLU gating, grouped-query attention and full non-interleaved RoPE.
+Scaled RoPE, untied heads, attention/MLP biases, and sliding windows are rejected.
+The model configuration permits 8192 tokens; the playground deliberately limits
+formatted prompts to 256 tokens and outputs to 64. Large-context performance is
+not validated. Each generation owns its cache; appending copies growing K/V
+buffers. No quantized execution is provided.
+
+The original ~269 MB BF16 checkpoint downloads through the existing Hub path.
+`checkpoint.load` widens BF16 values exactly to f32 on CPU before device placement;
+weights therefore occupy ~538 MB in f32, excluding temporary buffers and caches.
+A runtime containing BF16 checkpoint loading is required. Python is unnecessary
+for downloading or inference.
+
+The processor implements only the pinned SmolLM2 chat template, including its
+default system message, and rejects other templates. It does not execute Jinja.
+The tokenizer supports the model's Digits → ByteLevel pre-tokenization.
+`load_llama` also accepts prepared local f32 artifacts independently of chat processing.
+See the app audit README for reproducible reference checks and numerical limits.
+
+The playground catalog also pins SmolLM2-360M-Instruct and 1.7B-Instruct; both
+use this same adapter and chat processor. Their weights require roughly 1.45 GB
+and 6.85 GB respectively after widening to f32, before runtime buffers. See
+`apps/hf-inference/src/inference/models.ts` for exact revisions and the audit
+README for backend-specific validation results.

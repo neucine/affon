@@ -549,22 +549,72 @@ fn jsSaveNative(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]
     return abi.jsUndefined(ctx);
 }
 
+fn readCheckpointBytes(file: compat.FdFile, bytes: []u8) !void {
+    var offset: usize = 0;
+    while (offset < bytes.len) {
+        const count = try file.read(bytes[offset..@min(bytes.len, offset + 1024 * 1024)]);
+        if (count == 0) return error.UnexpectedEndOfFile;
+        offset += count;
+    }
+}
+
 fn jsLoadNative(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    return readCheckpoint(ctx, argc, argv, false);
+}
+fn jsInspectCheckpoint(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    return readCheckpoint(ctx, argc, argv, true);
+}
+
+fn readCheckpoint(ctx: abi.JSContext, argc: c_int, argv: [*c]abi.JSValueConst, inspect: bool) abi.JSValue {
     if (argc < 1) return typeError(ctx, "checkpoint.load expects a path");
     const path = abi.jsStringAlloc(ctx, argv[0], allocator) catch return typeError(ctx, "checkpoint.load expects a string path");
     defer allocator.free(path);
-    const file = compat.readFileAlloc(allocator, path, 500 * 1024 * 1024) catch return errorValue(ctx, "checkpoint.load failed to read file");
-    defer allocator.free(file);
-    if (file.len < 8) return errorValue(ctx, "checkpoint.load file is too small");
-    const header_size = std.mem.readInt(u64, file[0..8], .little);
-    if (header_size > file.len - 8) return errorValue(ctx, "checkpoint.load has an invalid header");
-    const parsed = std.json.parseFromSlice(std.json.Value, allocator, file[8 .. 8 + @as(usize, @intCast(header_size))], .{}) catch return errorValue(ctx, "checkpoint.load has invalid metadata");
+    const file = compat.FdFile.openRead(path) catch return errorValue(ctx, "checkpoint.load failed to open file");
+    defer file.close();
+    const file_size = file.size() catch return errorValue(ctx, "checkpoint.load failed to stat file");
+    if (file_size < 8) return errorValue(ctx, "checkpoint.load file is too small");
+    var prefix: [8]u8 = undefined;
+    readCheckpointBytes(file, &prefix) catch return errorValue(ctx, "checkpoint.load truncated header");
+    const header_size = std.mem.readInt(u64, &prefix, .little);
+    // Bound JSON allocation independently of checkpoint payload size.
+    if (header_size > 16 * 1024 * 1024 or header_size > file_size - 8) return errorValue(ctx, "checkpoint.load has an invalid header");
+    const header = allocator.alloc(u8, @intCast(header_size)) catch return errorValue(ctx, "checkpoint.load out of memory");
+    defer allocator.free(header);
+    readCheckpointBytes(file, header) catch return errorValue(ctx, "checkpoint.load truncated header");
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, header, .{}) catch return errorValue(ctx, "checkpoint.load has invalid metadata");
     defer parsed.deinit();
+    var selected = std.ArrayList([]const u8).empty;
+    defer {
+        for (selected.items) |name| allocator.free(name);
+        selected.deinit(allocator);
+    }
+    const selective = !inspect and argc > 1 and !abi.jsIsUndefined(argv[1]);
+    if (selective) {
+        if (!abi.jsIsArray(ctx, argv[1])) return typeError(ctx, "checkpoint.load names must be an array");
+        const length_value = abi.jsGetProperty(ctx, argv[1], "length");
+        defer abi.jsFreeValue(ctx, length_value);
+        var count: i32 = 0;
+        if (abi.jsToInt32(ctx, &count, length_value) < 0 or count < 0) return typeError(ctx, "Invalid checkpoint names");
+        for (0..@as(usize, @intCast(count))) |i| {
+            const item = abi.jsGetArrayElement(ctx, argv[1], @intCast(i));
+            defer abi.jsFreeValue(ctx, item);
+            if (!abi.jsIsString(item)) return typeError(ctx, "checkpoint names must be strings");
+            const name = abi.jsStringAlloc(ctx, item, allocator) catch return errorValue(ctx, "checkpoint.load out of memory");
+            var owned = true;
+            defer if (owned) allocator.free(name);
+            for (selected.items) |previous| {
+                if (std.mem.eql(u8, previous, name)) return errorValue(ctx, "Duplicate checkpoint name");
+            }
+            selected.append(allocator, name) catch return errorValue(ctx, "checkpoint.load out of memory");
+            owned = false;
+        }
+    }
+    var matched: usize = 0;
     const result = abi.jsNewObject(ctx);
     if (abi.jsIsException(result)) return result;
     var owns_result = true;
     defer if (owns_result) abi.jsFreeValue(ctx, result);
-    const raw = file[8 + @as(usize, @intCast(header_size)) ..];
+    const raw_size = file_size - 8 - header_size;
     if (parsed.value != .object) return errorValue(ctx, "checkpoint.load header must be an object");
     const root = parsed.value.object;
     for (root.keys(), root.values()) |name, metadata| {
@@ -578,7 +628,9 @@ fn jsLoadNative(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]
         }
         const dtype_text = object.get("dtype") orelse return errorValue(ctx, "checkpoint.load metadata is missing dtype");
         if (dtype_text != .string) return errorValue(ctx, "checkpoint.load dtype must be a string");
-        const dtype = checkpointDType(dtype_text.string) orelse return errorValue(ctx, "checkpoint.load has unsupported dtype");
+        // BF16 is a storage format here; execution remains f32. Widening is exact.
+        const is_bf16 = std.mem.eql(u8, dtype_text.string, "BF16");
+        const dtype = if (is_bf16) engine_api.DType.f32 else checkpointDType(dtype_text.string) orelse return errorValue(ctx, "checkpoint.load has unsupported dtype");
         const shape_value = object.get("shape") orelse return errorValue(ctx, "checkpoint.load metadata is missing shape");
         if (shape_value != .array) return errorValue(ctx, "checkpoint.load shape must be an array");
         const dims = allocator.alloc(usize, shape_value.array.items.len) catch return errorValue(ctx, "checkpoint.load out of memory");
@@ -596,25 +648,70 @@ fn jsLoadNative(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]
         }
         const start = std.math.cast(usize, offsets.array.items[0].integer) orelse return errorValue(ctx, "checkpoint.load offset is too large");
         const end = std.math.cast(usize, offsets.array.items[1].integer) orelse return errorValue(ctx, "checkpoint.load offset is too large");
-        if (end < start or end > raw.len) return errorValue(ctx, "checkpoint.load offsets exceed file size");
-        const byte_len = std.math.mul(usize, numel, dtype.size()) catch return errorValue(ctx, "checkpoint.load tensor is too large");
+        if (end < start or end > raw_size) return errorValue(ctx, "checkpoint.load offsets exceed file size");
+        const byte_len = std.math.mul(usize, numel, if (is_bf16) @as(usize, 2) else dtype.size()) catch return errorValue(ctx, "checkpoint.load tensor is too large");
         if (byte_len != end - start) return errorValue(ctx, "checkpoint.load tensor byte length mismatch");
+        const name_z = allocator.dupeZ(u8, name) catch return errorValue(ctx, "checkpoint.load out of memory");
+        defer allocator.free(name_z);
+        if (inspect) {
+            const info = abi.jsNewObject(ctx);
+            if (abi.jsIsException(info)) return info;
+            defer abi.jsFreeValue(ctx, info);
+            const shape = abi.jsNewArray(ctx);
+            if (abi.jsIsException(shape)) return shape;
+            for (dims, 0..) |dim, i| {
+                if (abi.jsSetArrayElement(ctx, shape, @intCast(i), abi.jsFloat64(ctx, @floatFromInt(dim))) < 0) {
+                    abi.jsFreeValue(ctx, shape);
+                    return errorValue(ctx, "checkpoint.inspect failed to create shape");
+                }
+            }
+            if (abi.jsSetProperty(ctx, info, "shape", shape) < 0) return errorValue(ctx, "checkpoint.inspect failed to create shape");
+            if (abi.jsSetProperty(ctx, info, "dtype", abi.jsString(ctx, dtype_text.string)) < 0) return errorValue(ctx, "checkpoint.inspect failed to create dtype");
+            if (abi.jsSetProperty(ctx, result, name_z.ptr, abi.jsDupValue(ctx, info)) < 0) return errorValue(ctx, "checkpoint.inspect failed to create result");
+            continue;
+        }
+        if (selective) {
+            var wanted = false;
+            for (selected.items) |requested| {
+                if (std.mem.eql(u8, requested, name)) {
+                    wanted = true;
+                    break;
+                }
+            }
+            if (!wanted) continue;
+            matched += 1;
+        }
         const value = Tensor.createContiguous(allocator, dims, dtype, .cpu, false) catch return errorValue(ctx, "checkpoint.load out of memory");
         var owns_value = true;
         defer if (owns_value) value.deinit();
         const writable = value.storage.?.writableBytes() catch return errorValue(ctx, "checkpoint.load failed to allocate Tensor");
-        if (writable.len != end - start) return errorValue(ctx, "checkpoint.load tensor byte length mismatch");
-        @memcpy(writable, raw[start..end]);
+        file.seekTo(8 + header_size + start) catch return errorValue(ctx, "checkpoint.load seek failed");
+        if (is_bf16) {
+            // A fixed buffer avoids retaining a second, checkpoint-sized allocation.
+            var buffer: [64 * 1024]u8 = undefined;
+            var offset: usize = 0;
+            while (offset < numel) {
+                const count: usize = @min(buffer.len / 2, numel - offset);
+                readCheckpointBytes(file, buffer[0 .. count * 2]) catch return errorValue(ctx, "checkpoint.load truncated tensor");
+                for (0..count) |i| {
+                    const bits: u32 = @as(u32, std.mem.readInt(u16, buffer[i * 2 ..][0..2], .little)) << 16;
+                    @memcpy(writable[(offset + i) * 4 ..][0..4], std.mem.asBytes(&bits));
+                }
+                offset += count;
+            }
+        } else {
+            readCheckpointBytes(file, writable) catch return errorValue(ctx, "checkpoint.load truncated tensor");
+        }
         const js_value = createTensorObject(ctx, value);
         owns_value = false;
         if (abi.jsIsException(js_value)) return js_value;
         var owns_js_value = true;
         defer if (owns_js_value) abi.jsFreeValue(ctx, js_value);
-        const name_z = allocator.dupeZ(u8, name) catch return errorValue(ctx, "checkpoint.load out of memory");
-        defer allocator.free(name_z);
+
         owns_js_value = false;
         if (abi.jsSetProperty(ctx, result, name_z.ptr, js_value) < 0) return abi.jsThrowError(ctx, "checkpoint.load failed to create result");
     }
+    if (selective and matched != selected.items.len) return errorValue(ctx, "Missing requested checkpoint tensor");
     owns_result = false;
     return result;
 }
@@ -2610,7 +2707,8 @@ const functions = [_]abi.JSFunction{
     .{ .name = "allInRange", .callback = jsAllInRange, .length = 3 },
     .{ .name = "rowsAreOneHot", .callback = jsRowsAreOneHot, .length = 2 },
     .{ .name = "saveNative", .callback = jsSaveNative, .length = 2 },
-    .{ .name = "loadNative", .callback = jsLoadNative, .length = 1 },
+    .{ .name = "loadNative", .callback = jsLoadNative, .length = 2 },
+    .{ .name = "inspectCheckpoint", .callback = jsInspectCheckpoint, .length = 1 },
 };
 const function_ptrs = blk: {
     var pointers: [functions.len]*const abi.JSFunction = undefined;

@@ -24,10 +24,27 @@ const state = checkpoint.load('model.safetensors')
 checkpoint.restore(model, state)
 ```
 
-Loading accepts SafeTensors `F32`, `F64`, and `I64` entries and ignores the
+Loading accepts SafeTensors `F32`, `F64`, and `I64` entries. `BF16` storage is
+widened exactly to f32 on CPU; BF16 execution and writing are not supported.
+Loading ignores the
 optional `__metadata__` string mapping used by external producers such as
 Hugging Face. Unsupported dtypes and malformed tensor entries are rejected.
 Reading a file does not perform model architecture or weight-name conversion.
+
+## Selective loading
+
+```ts
+const metadata = checkpoint.inspect('model.safetensors')
+// Reports original storage dtype and shape without allocating tensor payloads.
+const selected = checkpoint.load('model.safetensors', {names: ['model.embed_tokens.weight']})
+```
+
+The loader seeks directly to selected tensors and streams BF16 widening through
+64 KiB chunks. It validates all tensor metadata even for an empty selection;
+missing or duplicate requested names are errors. JSON headers are limited to
+16 MiB. The previous 500 MiB whole-file limit is removed. Loading all tensors
+still requires memory for all resulting values. HF index/shard resolution lives
+in `@affon/huggingface`, above this single-file API.
 
 ## Bundles
 

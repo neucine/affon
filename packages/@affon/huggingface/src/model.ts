@@ -1,3 +1,4 @@
+import { load_llama } from './adapters/llama.ts'
 import { load_whisper, type WhisperOptions } from './adapters/whisper.ts'
 import fs from 'std:fs'
 import type { Device } from 'affon:compute'
@@ -9,7 +10,7 @@ import type { OnnxModelOptions, OnnxClassifier } from './onnx.ts'
 
 /** Native model contracts by supported task; inputs remain domain-specific. */
 export type ModelsByTask = {
-  'text-generation': ReturnType<typeof load_gpt2>
+  'text-generation': ReturnType<typeof load_gpt2> | ReturnType<typeof load_llama>
   'feature-extraction': ReturnType<typeof load_bert>
   'image-classification': ReturnType<typeof load_vit>
 }
@@ -26,7 +27,7 @@ export type ModelOptions<T extends NativeModelTask> = {
 
 /**
  * Load a supported HF architecture and task from a prepared local directory.
- * @param directory Directory containing config.json and one f32 model.safetensors.
+ * @param directory Directory containing config.json and one f32 or BF16 model.safetensors (BF16 widens to f32).
  * @param options Explicit task and execution device (CPU by default).
  * @returns Native model with a task-specific forward signature.
  * @throws If the task/model-type combination or model configuration is unsupported.
@@ -64,6 +65,8 @@ export function load_model(
     throw Error('Unsupported HF execution backend')
   if (options.task === 'text-generation' && config.model_type === 'gpt2')
     return load_gpt2(directory, device)
+  if (options.task === 'text-generation' && config.model_type === 'llama')
+    return load_llama(directory, device)
   if (options.task === 'feature-extraction' && config.model_type === 'bert')
     return load_bert(directory, device)
   if (options.task === 'image-classification' && config.model_type === 'vit')

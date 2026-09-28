@@ -4,6 +4,7 @@ let running = false,
   ready = false,
   busy = false,
   selected = null
+let imageAvailable = true
 let audioFile = null,
   audioURL = null,
   audioAvailable = false
@@ -20,17 +21,19 @@ function controls() {
   $('audio-file').disabled = running || decoding
   $('classify-audio').disabled =
     running || decoding || !ready || busy || !audioAvailable || !audioFile
+  $('text-model').disabled = running || !ready || busy
   $('generate').disabled = running || !ready || busy
   $('classify').disabled =
     running ||
     decoding ||
     !ready ||
     busy ||
+    !imageAvailable ||
     !selected ||
     selected.source !== 'upload'
-  $('image-model').disabled = running || decoding || !ready || busy
-  $('image').disabled = running || decoding
-  $('load-url').disabled = running || decoding || !ready || busy
+  $('image-model').disabled = running || decoding || !ready || busy || !imageAvailable
+  $('image').disabled = running || decoding || !imageAvailable
+  $('load-url').disabled = running || decoding || !ready || busy || !imageAvailable
   $('image-url').disabled = running || decoding
 }
 for (const tab of ['image', 'text', 'audio', 'speech'])
@@ -45,6 +48,22 @@ async function health() {
     const h = await (await fetch('/api/health')).json()
     ready = h.ready
     busy = h.busy
+    if (h.text_models && JSON.stringify(h.text_models) !== $('text-model').dataset.catalog) {
+      const previous = $('text-model').value
+      $('text-model').replaceChildren(...h.text_models.map(model => {
+        const option = document.createElement('option')
+        option.value = model.key; option.textContent = model.label; option.dataset.chat = String(model.chat)
+        return option
+      }))
+      $('text-model').value = h.text_models.some(m => m.key === previous) ? previous : h.text_models[0].key
+      $('text-model').dataset.catalog = JSON.stringify(h.text_models)
+      updateTextModel()
+      if (h.default_text_model === 'smollm2' && $('prompt').value.trim() === 'The future of computing is')
+        $('prompt').value = 'What is the capital of France?'
+    }
+    imageAvailable = Boolean(h.image_models?.length)
+    $('image-tab').disabled = !imageAvailable
+    if (!imageAvailable && !$('image-panel').hidden) $('text-tab').click()
     transcription.health(h.speech_model)
     audioAvailable = Boolean(h.audio_model)
     $('audio-model-info').textContent = audioAvailable
@@ -67,7 +86,7 @@ async function health() {
         $('image-model').value = previous
       $('image-model').dataset.catalog = JSON.stringify(h.image_models)
     }
-    $('device').textContent = h.device === 'metal' ? 'Metal GPU' : 'CPU'
+    $('device').textContent = h.device === 'metal' ? 'Metal GPU' : h.device === 'cuda' ? 'CUDA GPU' : 'CPU'
     $('status').textContent =
       h.error ||
       (ready
@@ -229,30 +248,71 @@ $('image-model').addEventListener('change', () => {
 $('classify').addEventListener('click', () => {
   if (selected?.source === 'upload') classifySelected()
 })
+function updateTextModel() {
+  const chat = $('text-model').selectedOptions[0]?.dataset.chat === 'true'
+  $('text-description').textContent = chat
+    ? 'SmolLM2 answers a single instruction. Responses can contain factual and reasoning errors.'
+    : 'DistilGPT-2 continues a passage.'
+  $('prompt-label').textContent = chat ? 'Your instruction' : 'Start a passage'
+  $('generate').textContent = chat ? 'Generate response' : 'Generate completion'
+}
+$('text-model').addEventListener('change', () => {
+  updateTextModel()
+  $('output').textContent = 'Ready for a new generation.'
+  $('stats').textContent = ''; $('error').textContent = ''
+  if ($('prompt').value.trim() === 'The future of computing is' && $('text-model').value === 'smollm2')
+    $('prompt').value = 'What is the capital of France?'
+})
+
+let stopGeneration = false
+$('stop-generation').addEventListener('click', () => {
+  stopGeneration = true
+  $('stop-generation').disabled = true
+  $('status').textContent = 'Stopping…'
+})
 $('form').addEventListener('submit', async (e) => {
   e.preventDefault()
+  if (running) return
   running = true
+  stopGeneration = false
   controls()
+  $('stop-generation').hidden = false
+  $('stop-generation').disabled = false
   $('error').textContent = ''
+  $('output').textContent = ''
+  $('stats').textContent = ''
   $('status').textContent = 'Generating…'
-  try {
-    const r = await fetch('/api/generate', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        prompt: $('prompt').value,
-        max_new_tokens: Number($('tokens').value),
-      }),
+  let id
+  async function post(path, body) {
+    const response = await fetch(path, {
+      method: 'POST', headers: {'content-type':'application/json'}, body:JSON.stringify(body),
     })
-    const data = await r.json()
-    if (!r.ok) throw Error(data.error || 'Generation failed')
-    $('output').textContent = data.text
-    $('stats').textContent =
-      `${data.prompt_tokens} prompt tokens · ${data.generated_tokens} generated tokens · ${(data.elapsed_ms / 1000).toFixed(2)} seconds`
+    const data = await response.json()
+    if (!response.ok) throw Error(data.error || 'Generation failed')
+    return data
+  }
+  try {
+    const started = await post('/api/generate/start', {
+      prompt:$('prompt').value, model:$('text-model').value,
+      max_new_tokens:Number($('tokens').value),
+    })
+    id = started.id
+    while (!stopGeneration) {
+      const data = await post('/api/generate/next', {id})
+      $('output').textContent = data.text
+      $('stats').textContent =
+        `${data.model} · ${data.truncated ? 'Token limit reached · ' : ''}${data.prompt_tokens} prompt tokens · ${data.generated_tokens} generated tokens · ${(data.elapsed_ms / 1000).toFixed(2)} seconds`
+      if (data.done) { id = undefined; break }
+    }
+    if (stopGeneration && id) $('stats').textContent += ' · Stopped'
   } catch (e) {
     $('error').textContent = e.message
   } finally {
+    if (id) {
+      try { await post('/api/generate/cancel', {id}) } catch { /* Idle expiry also releases disconnected clients. */ }
+    }
     running = false
+    $('stop-generation').hidden = true
     health()
   }
 })

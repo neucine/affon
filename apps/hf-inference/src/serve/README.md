@@ -4,7 +4,7 @@ The `serve/` app is one native Affon process. Hao's `std:http.serve()` serves
 the browser UI and JSON API; Affon loads DistilGPT-2 and ViT once and performs
 inference directly. Bun, Node and Python are not required for serving.
 Set `AFFON_DEVICE=metal` for Apple GPU execution; the default is CPU.
-This is a local demo, not a chat-tuned assistant or a production server.
+This is a local demo. Optional SmolLM2 adds instruction following.
 
 Run from the repository root, using a build that includes Hao's HTTP server:
 
@@ -39,7 +39,7 @@ The playground now loads both DistilGPT-2 and
 `google/vit-base-patch16-224@3f49326eb077187dfe1c2a2bb15fbd74e6ab91e3` once.
 Choose **Image classification**, upload a photo, and click **Classify uploaded image**.
 The result shows the top five ImageNet labels and softmax scores normalized
-across all 1,000 classes. Text completion remains available in the second tab.
+across all 1,000 classes. Text generation remains available in the second tab.
 
 Image files are decoded locally by the browser, with transparency composited
 onto white. Photos larger than 512 pixels on their longest side are reduced
@@ -107,3 +107,59 @@ the launch entry point. Run from the repository root so static assets resolve.
 affon test apps/hf-inference/tests/inference/classification.test.ts
 affon apps/hf-inference/tests/serve/image-url-check.ts
 ```
+
+### SmolLM2 instructions
+
+Build the updated runtime, then enable SmolLM2 alongside DistilGPT-2:
+
+```sh
+zig build -Doptimize=ReleaseFast --prefix /tmp/affon-smollm-release install
+AFFON_SMOLLM2=1 AFFON_DEVICE=metal AFFON_HF_CACHE=/tmp/affon-hub-cache \
+  /tmp/affon-smollm-release/bin/affon apps/hf-inference/src/serve/server.ts
+```
+
+In **Text generation**, select **SmolLM2 135M Instruct**. Each request is a fresh
+single-turn instruction; no conversation history is retained. The server applies
+the pinned chat template, stops on `<|im_end|>`, and returns only assistant text.
+Token-limit truncation is shown in the UI. The 256-token prompt limit includes
+chat formatting. SmolLM2 is optional; without the flag, only DistilGPT-2 appears.
+With offline mode enabled, its verified snapshot must already be cached.
+
+`POST /api/generate` accepts `model: "smollm2"` or `"distilgpt2"` (the default).
+Unknown/unavailable models return 400. `GET /api/health` advertises `text_models`.
+
+```sh
+curl http://127.0.0.1:8765/api/generate -H 'Content-Type: application/json' \
+  -d '{"model":"smollm2","prompt":"What is the capital of France?","max_new_tokens":24}'
+```
+
+The tiny model is experimental: factual accuracy and reasoning remain limited.
+
+For larger models, choose `AFFON_SMOLLM2=360M` or `1.7B`. Only one SmolLM2 size
+loads per process. On a memory-constrained machine use text-only serving:
+
+```sh
+AFFON_SMOLLM2=1.7B AFFON_TEXT_ONLY=1 AFFON_DEVICE=metal \
+  AFFON_HF_CACHE=/tmp/affon-hub-cache \
+  /tmp/affon-smollm-release/bin/affon apps/hf-inference/src/serve/server.ts
+```
+
+This makes SmolLM2 the default and disables image/audio features. Health includes
+`default_text_model`; generation requests may omit `model`. `AFFON_DEVICE=cuda`
+is accepted for a Linux CUDA build, but Mac measurements do not validate CUDA.
+
+### Live text generation
+
+The browser renders a new decoded text snapshot after each generated token.
+Native HTTP responses remain buffered: `POST /api/generate/start` accepts the
+same JSON input as `/api/generate` and returns a session `id`. Repeated
+`POST /api/generate/next` requests with `{id}` each compute exactly one token,
+returning the normal result fields plus `done`. The browser stops on EOS or the
+token budget. Full-prefix decoding preserves byte-level Unicode boundaries.
+
+Only one generation session may own the model at a time. `POST
+/api/generate/cancel` releases it; idle sessions expire after 90 seconds.
+Stop finishes the current token step, then releases the cache. Closing the tab
+stops further token requests, and idle expiry releases its remaining cache.
+Other inference requests receive 429 while a session is reserved. The original
+buffered `/api/generate` endpoint remains available.

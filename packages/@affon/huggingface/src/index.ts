@@ -19,3 +19,7 @@ export { decode_wav, resample_audio } from './processors/shared/audio.ts'
 export { load_whisper } from './adapters/whisper.ts'
 export type { WhisperOptions } from './adapters/whisper.ts'
 export { load_whisper_processor } from './processors/whisper.ts'
+
+export { load_llama } from './adapters/llama.ts'
+export { load_smollm2_processor, format_smollm2_chat } from './processors/smollm2.ts'
+export type { SmolLM2Message } from './processors/smollm2.ts'

@@ -92,8 +92,9 @@ AFFON_DEVICE=cpu AFFON_AUDIT_BUILD=Debug \
 
 Point `AFFON_HF_MODEL_DIR` at the wide fixture to run that probe. Change
 `AFFON_DEVICE` to `metal` or `cuda` only on hosts supporting those backends.
-Artifacts must fit the current 500 MiB-per-file loader cap. No sharded loading
-or production-sized model-family coverage is implied.
+The loader streams selected weights; the former 500 MiB file cap is removed.
+Indexed shards are covered by synthetic offline tests. Production coverage is
+limited to the explicitly tested models.
 
 Reports now include before/after-load and per-case memory telemetry. This samples
 process footprint and tensor allocation counters; it does not measure sustained
@@ -238,3 +239,85 @@ AFFON_DEVICE=metal AFFON_HF_MODEL_DIR=/tmp/affon-hf-vit-real \
   --directory /tmp/affon-hf-vit-real \
   --output /tmp/affon-hf-vit-real/calibration.json
 ```
+
+## SmolLM2
+
+Download and smoke-test the original pinned BF16 checkpoint without Python:
+
+```sh
+AFFON_DEVICE=metal /tmp/affon-smollm-release/bin/affon apps/hf-inference/audit/hub-smollm2.ts
+```
+
+Requires a current optimized build with BF16 checkpoint widening. Repeat with
+`AFFON_HF_OFFLINE=1` to verify cache-only operation. Prepare independent references
+from the downloaded snapshot using the audit Python environment:
+
+```sh
+python apps/hf-inference/audit/prepare-smollm2.py \
+  --directory /tmp/affon-hub-cache/models--HuggingFaceTB--SmolLM2-135M-Instruct/12fd25f77366fa6b3b4b768ec3050bf629380bac
+AFFON_DEVICE=cpu AFFON_SMOLLM2_DIR=/path/to/snapshot \
+  /tmp/affon-smollm-release/bin/affon apps/hf-inference/audit/check-smollm2.ts
+```
+
+Repeat the final command with `AFFON_DEVICE=metal`. The oracle uses PyTorch f32,
+eager attention, evaluation mode, and uncached greedy generation. Four prompts
+cover basic questions, rewriting, digits, Unicode, and whitespace. Checks require
+exact chat formatting, input IDs, eight-step cached/uncached output IDs, and
+decoded completions. All hidden states, full logits, and chunked cached logits
+use `abs(error) <= 5e-4 + 1e-4 * abs(reference)`. This model-specific absolute
+tolerance is looser than the GPT-2 audit's `1e-4`; strict parity at that older
+threshold is not claimed. Reports and model artifacts stay outside the repository.
+
+The offline tiny random Llama oracle uses a tighter `1e-5` absolute threshold,
+with two layers, grouped-query attention and nonzero rotary positions. Regenerate
+it with `packages/@affon/huggingface/test/generate-llama-reference.py`; run
+`affon test packages/@affon/huggingface/test/llama.test.ts` on CPU and Metal.
+These bounded checks do not establish general Llama-family or long-context support.
+
+### Larger SmolLM2 models and comparable benchmarks
+
+`hub-smollm2.ts` accepts `AFFON_SMOLLM2_SIZE=135M|360M|1.7B` and uses the
+pinned catalog in `src/inference/models.ts`. Pass the matching `--size` to
+`prepare-smollm2.py`; `check-smollm2.ts` reads the selected snapshot/reference
+from `AFFON_SMOLLM2_DIR`. References require a complete verified snapshot.
+
+Run one model per process, with a warmup and two measured 16-token requests:
+
+```sh
+AFFON_DEVICE=metal AFFON_SMOLLM2_SIZE=360M \
+  AFFON_HF_CACHE=/tmp/affon-hub-cache AFFON_BENCH_REPORT=/tmp/smollm360-metal.json \
+  /usr/bin/time -l /tmp/affon-smollm-release/bin/affon \
+  apps/hf-inference/src/benchmark/smollm2.ts
+```
+
+Repeat with `1.7B`. On Linux use `AFFON_DEVICE=cuda`, a CUDA-enabled Affon build,
+and `/usr/bin/time -v` instead of `-l`. The command uses verified cached snapshots
+by default; set `AFFON_HF_OFFLINE=0` to allow native downloads. Reports separate
+prefill from subsequent decoding and include sampled telemetry. OS peak RSS
+includes runtime and temporary allocations; neither metric is just weight size.
+Loading time includes cache hashing and tokenizer preparation. The short fixed
+workload does not establish long-context speed, memory stability, or model quality.
+BF16 files are widened to f32; quantized execution is not implemented here.
+
+Measured on an M4 MacBook Pro with 16 GB unified memory, ReleaseFast, Metal,
+2026-09-28 (40 prompt tokens, 16 generated tokens; average of two post-warmup runs):
+
+| Model | Prefill | Subsequent decode | OS peak physical footprint |
+| --- | ---: | ---: | ---: |
+| SmolLM2-360M-Instruct | 569 ms | 2.39 tokens/s | 1.71 GiB |
+| SmolLM2-1.7B-Instruct | 484 ms | 2.54 tokens/s | 6.74 GiB |
+
+These are observations for this workload, not a general model-size speed ranking.
+The 360M CPU and Metal oracles pass. For 1.7B, all four prompts' tokenization,
+eight-token cached/uncached greedy outputs, full logits, and cached chunk logits
+pass. Six late-layer hidden-state comparisons contain 22 out-of-tolerance values;
+the audit remains **failing**, with no tolerance relaxation. Its report records
+all numerical failures before exiting unsuccessfully. CUDA has not been run on
+this Mac and requires a separate Linux GPU validation.
+
+The 1.7B text-only playground was also verified end to end: “What is the capital
+of France?” returned “The capital of France is Paris.” in 5.88 seconds for eight
+generated tokens on a warm request. A request during the concurrent CPU audit
+took 55.98 seconds, and the first request after it exited took 16.93 seconds.
+Desktop latency is therefore sensitive to other work and differs from isolated
+benchmark throughput; the timings do not establish a guaranteed response time.

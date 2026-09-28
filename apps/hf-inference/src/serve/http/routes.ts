@@ -1,6 +1,6 @@
 import type { PlaygroundConfig } from '../config.ts'
-import { TEXT_MODEL, type InferenceModels } from '../../inference/models.ts'
-import { generate_text } from '../../inference/text.ts'
+import { type InferenceModels } from '../../inference/models.ts'
+import { generate_text, create_text_generation } from '../../inference/text.ts'
 import { transcribe_audio } from '../../inference/speech.ts'
 import { classify_audio } from '../../inference/audio.ts'
 import { classify_image } from '../../inference/image.ts'
@@ -17,6 +17,17 @@ export function create_handler(
   const { port, origin, device } = config
   const assets = load_assets()
   let busy = false
+  let active: {id: string; generation: ReturnType<typeof create_text_generation>} | undefined
+  let expiry: ReturnType<typeof setTimeout> | undefined
+  function release() {
+    if (expiry !== undefined) clearTimeout(expiry)
+    active?.generation.close()
+    active = undefined
+  }
+  function touch() {
+    if (expiry !== undefined) clearTimeout(expiry)
+    expiry = setTimeout(release, 90000)
+  }
   return async (request: HttpServerRequest): Promise<HttpServerResponse> => {
     const [path, query = ''] = request.url.split('?')
     if (request.headers.host !== `127.0.0.1:${port}`)
@@ -25,11 +36,13 @@ export function create_handler(
     if (request.method === 'GET' && path === '/api/health')
       return json({
         ready: true,
-        busy,
+        busy: busy || Boolean(active),
         error: null,
-        model: TEXT_MODEL.id,
+        model: models.texts[models.default_text_model].id,
+        default_text_model: models.default_text_model,
+        text_models: Object.entries(models.texts).map(([key, text]) => ({key, id: text.id, label: text.label, chat: text.chat})),
         models: [
-          TEXT_MODEL.id,
+          ...Object.values(models.texts).map(text => text.id),
           ...Object.values(models.images).map((image) => image.id),
         ],
         speech_model: models.speech
@@ -55,6 +68,9 @@ export function create_handler(
       request.method !== 'POST' ||
       ![
         '/api/generate',
+        '/api/generate/start',
+        '/api/generate/next',
+        '/api/generate/cancel',
         '/api/classify',
         '/api/image-url',
         '/api/classify-audio',
@@ -74,7 +90,26 @@ export function create_handler(
         return json({ error: String(error) }, 400)
       }
     }
-    if (busy)
+    if (path === '/api/generate/next' || path === '/api/generate/cancel') {
+      if (!request.headers['content-type']?.startsWith('application/json'))
+        return json({error: 'Send application/json'}, 415)
+      let id: unknown
+      try { id = request.json<{id?: unknown}>()?.id } catch { return json({error:'Invalid JSON'}, 400) }
+      if (!active || id !== active.id) return json({error:'Generation expired or unavailable'}, 404)
+      if (busy) return json({error:'A generation step is already running'}, 429)
+      if (path.endsWith('/cancel')) { release(); return json({cancelled:true}) }
+      busy = true
+      try {
+        const result = active.generation.next()
+        if (result.done) release()
+        else touch()
+        return json(result)
+      } catch (error) {
+        release()
+        return json({error:String(error)}, 500)
+      } finally { busy = false }
+    }
+    if (busy || active)
       return json(
         {
           error: 'The model is busy. Try again after this completion finishes.',
@@ -131,11 +166,13 @@ export function create_handler(
       if (!request.headers['content-type']?.startsWith('application/json'))
         return json({ error: 'Send application/json' }, 415)
       const input = request.json<{
+        model?: unknown
         prompt?: unknown
         max_new_tokens?: unknown
       } | null>()
       const budget = input?.max_new_tokens ?? 24
       if (
+        (input?.model !== undefined && typeof input.model !== 'string') ||
         typeof input?.prompt !== 'string' ||
         !input.prompt.trim() ||
         input.prompt.length > 4096 ||
@@ -150,7 +187,14 @@ export function create_handler(
           },
           400,
         )
-      return json(generate_text(models, input.prompt, Number(budget)))
+      if (path === '/api/generate/start') {
+        const generation = create_text_generation(models, input.prompt, Number(budget), input.model as string | undefined)
+        const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+        active = {id, generation}
+        touch()
+        return json({id})
+      }
+      return json(generate_text(models, input.prompt, Number(budget), input.model as string | undefined))
     } catch (error) {
       return json({ error: String(error) }, 400)
     } finally {
