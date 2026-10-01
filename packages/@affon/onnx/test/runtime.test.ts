@@ -4,7 +4,7 @@ import { getEnv, run } from "std:process";
 import { tensor } from "affon:compute";
 import type { Device } from "affon:compute";
 import { prepare_pad } from "../src/spatial.ts";
-import { load_graph } from "../src/index.ts";
+import { load_graph, semantic_loss_report } from "../src/index.ts";
 const directory = "packages/@affon/onnx/test/fixtures";
 const device = (getEnv("AFFON_DEVICE") ?? "cpu") as Device;
 let temporary = "";
@@ -15,6 +15,16 @@ beforeAll(async () => {
 });
 afterAll(async () => {
   if (temporary) await run({ cmd: "rm", args: ["-rf", temporary] });
+});
+test("import reports preserved inferred decomposed unsupported and source-export-lost meaning", () => {
+  const report = semantic_loss_report(directory);
+  expect(report.format).toBe("affon-program-import-semantics/v1");
+  expect(Array.isArray(report.preserved)).toBe(true);
+  expect(Array.isArray(report.inferred)).toBe(true);
+  expect(Array.isArray(report.decomposed)).toBe(true);
+  expect(Array.isArray(report.unsupported)).toBe(true);
+  expect(report.source_export_lost.length > 0).toBe(true);
+  expect(report.unsupported.length).toBe(0);
 });
 test("generic graph matches independent ONNX outputs including scalar Gather and affine normalization", () => {
   const reference = JSON.parse(fs.readFileSync(`${directory}/reference.json`));

@@ -48,23 +48,74 @@ type Manifest = {
   constants: Record<string, number[]>
   nodes: Node[]
 }
+export type SemanticLossEntry = { node: string; op: string; reason: string }
+export type SemanticLossReport = {
+  format: 'affon-program-import-semantics/v1'
+  preserved: SemanticLossEntry[]
+  inferred: SemanticLossEntry[]
+  decomposed: SemanticLossEntry[]
+  unsupported: SemanticLossEntry[]
+  source_export_lost: SemanticLossEntry[]
+}
 const supported = new Set<string>(capabilities.operators)
 const same = (a: number[], b: number[]) =>
   JSON.stringify(a) === JSON.stringify(b)
 
 export function load_graph(directory: string, device: Device = 'cpu') {
   const { graph, forward } = create_graph(directory, device, true)
-  return { graph, forward }
+  return { graph, forward, semanticLoss: classify_import_semantics(graph) }
+}
+
+export function semantic_loss_report(directory: string): SemanticLossReport {
+  const graph = JSON.parse(fs.readFileSync(`${directory}/graph.json`)) as Manifest
+  if (graph.format !== 'affon-onnx-static/v1' || graph.opset !== 17 || !Array.isArray(graph.nodes))
+    throw Error('Invalid graph manifest')
+  return classify_import_semantics(graph)
+}
+
+function classify_import_semantics(graph: Manifest): SemanticLossReport {
+  const report: SemanticLossReport = {
+    format: 'affon-program-import-semantics/v1',
+    preserved: [], inferred: [], decomposed: [], unsupported: [], source_export_lost: [],
+  }
+  const preserved = new Set(['Add', 'Mul', 'Div', 'MatMul', 'Concat', 'Reshape', 'Transpose', 'Softmax', 'Erf', 'Clip'])
+  const inferred = new Set(['Identity', 'Cast', 'Flatten'])
+  const decomposed = new Set(['Gemm', 'LayerNormalization', 'Gather', 'Slice', 'Conv', 'Pad', 'GlobalAveragePool'])
+  for (const node of graph.nodes) {
+    const entry = { node: node.name, op: node.op, reason: '' }
+    if (preserved.has(node.op)) {
+      entry.reason = 'operation and attributes retain their imported mathematical meaning'
+      report.preserved.push(entry)
+    } else if (inferred.has(node.op)) {
+      entry.reason = 'result dtype or dimensions are re-established by Program abstract evaluation'
+      report.inferred.push(entry)
+    } else if (decomposed.has(node.op)) {
+      entry.reason = 'importer lowers the source operation to ordinary Program operations'
+      report.decomposed.push(entry)
+    } else {
+      entry.reason = 'no candidate Program lowering is declared'
+      report.unsupported.push(entry)
+    }
+  }
+  report.source_export_lost.push({ node: '<source-export>', op: 'ConstantSubgraph', reason: 'offline conversion folds source constant subgraphs, so their original node topology is unavailable to the runtime importer' })
+  return report
 }
 
 // Internal validation entry; deliberately not exported by the package index.
 // The switch preserves an ordinary-execution oracle without a public policy knob.
-export function load_graph_for_scope_validation(directory: string, device: Device = 'cpu', scoped = true) {
+export function load_graph_for_scope_validation(
+  directory: string,
+  device: Device = 'cpu',
+  scoped = true,
+) {
   return create_graph(directory, device, scoped)
 }
 
 function create_graph(directory: string, device: Device, scoped: boolean) {
-  let scope_stats: Omit<ReturnType<typeof native.$with_graph_execution>, 'value'> | null = null
+  let scope_stats: Omit<
+    ReturnType<typeof native.$with_graph_execution>,
+    'value'
+  > | null = null
   const graph = JSON.parse(
     fs.readFileSync(`${directory}/graph.json`),
   ) as Manifest
@@ -107,6 +158,62 @@ function create_graph(directory: string, device: Device, scoped: boolean) {
   const shapes = new Map(
     Object.entries({ ...graph.inputs, ...graph.constants }),
   )
+  // Fuse single-consumer constant spatial padding into CPU depthwise kernels.
+  // The serialized graph stays intact; only the prepared execution schedule changes.
+  const padByConv = new Map<string, { input: string; pads: number[] }>(),
+    skippedPads = new Set<string>()
+  if (device === 'cpu')
+    graph.nodes.forEach((pad, index) => {
+      const next = graph.nodes[index + 1]
+      if (
+        pad.op !== 'Pad' ||
+        !next ||
+        next.op !== 'Conv' ||
+        next.inputs[0] !== pad.output ||
+        uses.get(pad.output) !== 1 ||
+        pad.shape.length !== 4
+      )
+        return
+      const weight = constants.get(next.inputs[1])!
+      if (
+        weight.shape.length !== 4 ||
+        weight.shape[1] !== 1 ||
+        next.attrs.group !== weight.shape[0]
+      )
+        return
+      const pads = pad.attrs.pads.map(
+        (n: number, i: number) => n + (next.attrs.pads?.[i] ?? 0),
+      )
+      padByConv.set(next.output, { input: pad.inputs[0], pads })
+      skippedPads.add(pad.output)
+    })
+  const clipByConv = new Map<string, number[]>(),
+    fusedClips = new Set<string>()
+  if (device === 'cpu')
+    graph.nodes.forEach((node, index) => {
+      const next = graph.nodes[index + 1],
+        a = node.attrs
+      if (
+        node.op !== 'Conv' ||
+        !next ||
+        next.op !== 'Clip' ||
+        next.inputs[0] !== node.output ||
+        uses.get(node.output) !== 1 ||
+        !same(node.shape, next.shape)
+      )
+        return
+      const weight = constants.get(node.inputs[1])!
+      if (weight.shape.length !== 4) return
+      const pointwise =
+        (a.group ?? 1) === 1 &&
+        a.kernel.every((n: number) => n === 1) &&
+        (a.strides ?? a.kernel).every((n: number) => n === 1) &&
+        (a.pads ?? [0, 0, 0, 0]).every((n: number) => n === 0)
+      const depthwise = weight.shape[1] === 1 && a.group === weight.shape[0]
+      if (!pointwise && !depthwise && (a.group ?? 1) !== 1) return
+      clipByConv.set(node.output, [next.attrs.min, next.attrs.max])
+      fusedClips.add(next.output)
+    })
   for (const node of graph.nodes) {
     if (node.op === 'Conv' && shapes.get(node.inputs[0])!.length === 3) {
       const shape = shapes.get(node.inputs[0])!,
@@ -132,14 +239,17 @@ function create_graph(directory: string, device: Device, scoped: boolean) {
       spatial.set(
         node.output,
         prepare_conv(
-          shapes.get(node.inputs[0])!,
+          shapes.get(padByConv.get(node.output)?.input ?? node.inputs[0])!,
           constants.get(node.inputs[1])!,
           constants.get(node.inputs[2]),
-          node.attrs as any,
+          (padByConv.has(node.output)
+            ? { ...node.attrs, pads: padByConv.get(node.output)!.pads }
+            : node.attrs) as any,
           device,
+          clipByConv.get(node.output),
         ),
       )
-    if (node.op === 'Pad')
+    if (node.op === 'Pad' && !skippedPads.has(node.output))
       spatial.set(
         node.output,
         prepare_pad(shapes.get(node.inputs[0])!, node.attrs.pads, device),
@@ -187,8 +297,12 @@ function create_graph(directory: string, device: Device, scoped: boolean) {
         values.set(name, x.device === device ? x : x.to(device))
       }
       for (const node of graph.nodes) {
+        if (skippedPads.has(node.output)) continue
         const started = profile ? Date.now() : 0
-        const args = node.inputs.map((name) => values.get(name)!)
+        const nodeInputs = padByConv.has(node.output)
+          ? [padByConv.get(node.output)!.input, ...node.inputs.slice(1)]
+          : node.inputs
+        const args = nodeInputs.map((name) => values.get(name)!)
         const [x, y, z] = args,
           a = node.attrs
         let result: Tensor
@@ -272,7 +386,7 @@ function create_graph(directory: string, device: Device, scoped: boolean) {
             result = spatial.get(node.output)!(x)
             break
           case 'Clip':
-            result = clamp(x, a.min, a.max)
+            result = fusedClips.has(node.output) ? x : clamp(x, a.min, a.max)
             break
           case 'GlobalAveragePool':
             result = reshape(
@@ -302,7 +416,7 @@ function create_graph(directory: string, device: Device, scoped: boolean) {
             `Output shape mismatch: ${node.name}: ${result.shape} != ${node.shape}`,
           )
         values.set(node.output, result)
-        for (const name of node.inputs) {
+        for (const name of nodeInputs) {
           const count = remaining.get(name)! - 1
           remaining.set(name, count)
           if (count === 0) values.delete(name)

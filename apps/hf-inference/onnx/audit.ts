@@ -87,6 +87,10 @@ for (let i = 0; i < 2; i++) {
 const report = {
   route,
   device,
+  semantic_loss:
+    route === "graph"
+      ? (model as ReturnType<typeof load_graph>).semanticLoss
+      : null,
   warmups,
   iterations,
   load_ms,

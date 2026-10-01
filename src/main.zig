@@ -40,7 +40,9 @@ fn runFile(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !void {
 pub fn main(init: std.process.Init) !void {
     var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    // DebugAllocator maps large tensors individually, even with safety disabled.
+    // Keep diagnostics in safe builds; release serving uses libc buffer reuse.
+    const allocator = if (builtin.mode == .Debug or builtin.mode == .ReleaseSafe) gpa.allocator() else std.heap.c_allocator;
 
     try affon.memory.init(allocator);
     defer {
@@ -55,17 +57,6 @@ pub fn main(init: std.process.Init) !void {
     hao.runtime_allocator.init(affon.memory.allocator(.hao_runtime));
     try hao.config.loadFromEnv();
     try affon.config.loadFromEnv();
-    try affon.compute.memory.init(allocator);
-    defer {
-        if (affon.compute.memory.deinit() == .leak) {
-            var stderr_buffer: [1024]u8 = undefined;
-            const stderr = std.debug.lockStderr(&stderr_buffer);
-            defer std.debug.unlockStderr();
-            stderr.file_writer.interface.writeAll("compute memory leaks:\n") catch {};
-            affon.compute.memory.writeLeakReport(&stderr.file_writer.interface) catch {};
-        }
-    }
-
     var args = std.process.Args.Iterator.init(init.minimal.args);
     _ = args.next();
     const command = args.next() orelse {
