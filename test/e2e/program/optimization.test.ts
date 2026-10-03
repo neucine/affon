@@ -1,5 +1,6 @@
 import { add, cross_entropy, mean, mul, sub } from "affon:ops"
 import { describe, expect, test } from "std:test"
+import telemetry from "std:telemetry"
 import { Session, Tensor, gradient, optimize, program, update_parameters } from "affon:compute"
 import {
   binary_cross_entropy,
@@ -12,6 +13,42 @@ import {
 import { accumulate, adam, adamw, scheduled, schedules, sgd } from "affon:optim"
 
 describe("Program optimization", () => {
+  test("controls compile variants and publishes runtime telemetry", () => {
+    const source = program("public_optimization_controls", p => add(
+      p.argument("left", Tensor.f32([2])),
+      p.argument("right", Tensor.f32([2])),
+    ))
+    const session = new Session({
+      device: "cpu",
+      determinism: "strict",
+      telemetry: { backendTiming: true, hardwareMetrics: true },
+    })
+    const summary = session.compile(source, { optimizationLevel: "safe", explanationLevel: "summary" })
+    const reference = session.compile(source, { optimizationLevel: "none", explanationLevel: "detailed" })
+    const optimized = session.compile(source, { optimizationLevel: "safe", explanationLevel: "detailed" })
+    expect(reference === optimized).toBe(false)
+    expect(summary === optimized).toBe(false)
+    expect(session.compile(source, { optimizationLevel: "safe", explanationLevel: "detailed" }) === optimized).toBe(true)
+    const summaryExplanation = summary.explain() as any
+    const detailedExplanation = optimized.explain() as any
+    expect(detailedExplanation.schema_version).toBe(1)
+    expect(detailedExplanation.executable.optimizations.length >= summaryExplanation.executable.optimizations.length).toBe(true)
+
+    const left = session.tensor([1, 2])
+    const right = session.tensor([3, 4])
+    const beforeRuns = telemetry.metrics().find(metric => metric.scope === "compute.execution" && metric.name === "runs_total")?.value ?? 0
+    const result = telemetry.trace("test.optimized_add", () => optimized.run({ left, right }))
+    expect(result.to_array()).toEqual([4, 6])
+    const metrics = telemetry.metrics()
+    expect(metrics.find(metric => metric.scope === "compute.execution" && metric.name === "runs_total")?.value).toBe(beforeRuns + 1)
+    expect((metrics.find(metric => metric.scope === "compute.backend" && metric.name === "elapsed_nanoseconds_total")?.value ?? 0) >= 0).toBe(true)
+
+    result.dispose()
+    left.dispose()
+    right.dispose()
+    session.dispose()
+  })
+
   test("updates explicitly selected parameters from a gradient Program", () => {
     const objective = program("low_level_objective", p => {
       const value = p.argument("value", Tensor.f32([1]))
@@ -23,6 +60,9 @@ describe("Program optimization", () => {
     const update = update_parameters(objective, derivatives, sgd({ learning_rate: 0.1 }))
 
     expect(update.inspect().transitions[0].parameters).toEqual(["low_level_objective.weight"])
+    expect(update.inspect().transitions[0].parameter_ids).toEqual([
+      update.inspect().nodes.find(node => node.provenance === "low_level_objective.weight")!.id,
+    ])
     const session = new Session()
     const state = session.initialize(update)
     const value = session.tensor([2])

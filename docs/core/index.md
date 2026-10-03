@@ -13,9 +13,14 @@ Program -> Session.compile -> Executable.run -> evaluated Tensor
 - `affon:optim` creates immutable optimizer descriptions consumed by
   `optimize(...)`.
 
-Start with [Compute Programs](./compute.md), then consult the
+Start with [Compute Programs](./compute.md), use
+[Optimization, Profiling, and Evidence](./optimization-and-profiling.md) for
+compiler/runtime controls and extension rules, then consult the
 [Backend Support](./backend-support.md) for device contracts and
 [Error Handling](./errors.md) for failure and cleanup patterns.
+
+The draft [Interactive Program Inspection](./inspection-visualization.md)
+describes a generic viewer built on the serialized `ProgramInspection` contract.
 
 ## Smallest useful example
 

@@ -8,10 +8,17 @@ import {
   program,
   update_parameters,
   type Callable,
+  type CompileOptions,
+  type CompilationExplanation,
   type Executable,
   type FormalTensor,
   type Program,
   type ProgramArguments,
+  type ProgramComponentInspection,
+  type ProgramInspectionKind,
+  type ProgramNode,
+  type TelemetryOptions,
+  type SessionOptions,
   type TensorSpec,
 } from "affon:compute"
 import { accumulate, adam, scheduled, schedules, sgd, type AccumulatingOptimizer, type Adam, type Optimizer, type ScheduledOptimizer, type SGD } from "affon:optim"
@@ -70,6 +77,22 @@ const classifier = program("classifier", p => {
   const value = p.argument("image", image)
   return linear({ out_features: 10 })({ x: value }, "projection")
 })
+const classifierInspection = classifier.inspect()
+const schemaVersion: 1 = classifierInspection.schema_version
+const inspectionKind: ProgramInspectionKind = classifierInspection.kind
+const inspectedNode: ProgramNode = classifierInspection.nodes[0]
+const inspectedComponent: ProgramComponentInspection | undefined = classifierInspection.components[0]
+void schemaVersion
+void inspectionKind
+void inspectedNode
+void inspectedComponent
+const publicTelemetryOptions: TelemetryOptions = { backendTiming: true }
+const publicSessionOptions: SessionOptions = { device: "cpu", determinism: "strict", telemetry: publicTelemetryOptions }
+const publicCompileOptions: CompileOptions = { optimizationLevel: "none", numericalPolicy: "exact_only", optimizationGoal: "memory", explanationLevel: "detailed", residualPolicy: "retain" }
+const controlledSession = new Session(publicSessionOptions)
+const controlledExecutable = controlledSession.compile(classifier, publicCompileOptions)
+const explanation: CompilationExplanation = controlledExecutable.explain()
+void explanation
 const loss = program("classifier_loss", p => {
   const logits = classifier({ image: p.argument("image", image) })
   return cross_entropy(logits, p.argument("labels", Tensor.i64([32])))

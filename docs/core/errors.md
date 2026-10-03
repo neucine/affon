@@ -1,57 +1,63 @@
-# Error Handling in AFFON
+# Error Handling
 
-AFFON provides a structured error handling system that bridges the Zig native runtime and JavaScript. All runtime errors are instances of the `AffonError` class.
+Native runtime failures are reported as `AffonError`, a JavaScript `Error` with
+a machine-readable `code`.
 
 ## `AffonError` Class
 
 Runtime errors extend the standard JavaScript `Error` but add first-class properties for machine-readable codes and native stack traces.
 
 ```typescript
+import { Session } from 'affon:compute'
+import { reshape } from 'affon:ops'
+
+const session = new Session({ device: 'cpu' })
+
 try {
-  const t = session.tensor([1, 2, 3])
-  reshape(t, [2, 5]) // Throws shape_mismatch
-} catch (err) {
-  if (err instanceof AffonError) {
-    console.log(err.code)         // "shape_mismatch"
-    console.log(err.message)      // "reshape: 3 elems cannot become shape [2,5]"
-    console.log(err.nativeStack)  // Optional Zig backtrace (debug builds)
+  const value = session.tensor([1, 2, 3])
+  reshape(value, [2, 5])
+} catch (error) {
+  if (error instanceof AffonError) {
+    console.error(error.code, error.message)
+    if (error.nativeStack) console.error(error.nativeStack)
+  } else {
+    throw error
   }
 }
 ```
 
-### Properties
+Do not match human-readable messages. Branch on `code` only when an application
+can recover meaningfully; otherwise preserve the original error and stack.
 
-| Property | Type | Description |
-|---|---|---|
-| `name` | `'AffonError'` | Fixed string to identify the class. |
-| `message` | `string` | Human-readable description of the error. |
-| `code` | `AffonErrorCode` | Machine-readable union of predefined constants. |
-| `stack` | `string` | Standard JavaScript V8/JSC stack trace. |
-| `nativeStack` | `string` \| `undefined` | Zig native backtrace from the runtime (available in debug builds). |
+## Properties
 
-## Error Codes
+| Property | Type | Meaning |
+| --- | --- | --- |
+| `name` | `'AffonError'` | Stable class name |
+| `message` | `string` | Human-readable context |
+| `code` | `AffonErrorCode` | Stable error category |
+| `stack` | `string` or `undefined` | JavaScript stack |
+| `nativeStack` | `string` or `undefined` | Optional Zig backtrace |
 
-The `code` property uses a union type `AffonErrorCode` for type-safe handling:
+Common codes include `invalid_arg`, `missing_arg`, `shape_mismatch`,
+`invalid_shape`, `invalid_dtype`, `device_mismatch`, `out_of_memory`, and
+`internal`. The complete union is defined in
+[the global declarations](../../packages/@types/affon/globals.d.ts).
 
-- `invalid_arg`: Function argument error (e.g. wrong type or value).
-- `missing_arg`: Required argument was undefined or null.
-- `shape_mismatch`: Dimension conflict (e.g. matmul shape mismatch).
-- `invalid_shape`: Requested shape is impossible (e.g. empty dimension).
-- `invalid_dtype`: Unsupported data type for the requested operation.
-- `device_mismatch`: Tensors are on different devices (e.g. CPU vs Metal).
-- `out_of_memory`: Native allocation failed.
-- `internal`: Unexpected runtime bug.
+Normal JavaScript authoring mistakes can still raise `TypeError`, `RangeError`,
+or package-specific errors. `AffonError` is the boundary for structured native
+runtime failures, not a replacement for every JavaScript error.
 
-For the full list, see the [global type definitions](../../packages/@types/affon/globals.d.ts).
+## Native stacks
 
-## Native Stack Traces
+Set `AFFON_NATIVE_STACK_TRACE=1` when diagnosing native failures. When a native
+backtrace is available, Affon attaches it as `nativeStack`. Availability and
+symbol detail depend on the build and platform, so applications must not require
+it for normal error handling.
 
-In debug builds (`zig build`), AFFON captures the native Zig call stack at the moment an error occurs and attaches it to the JavaScript error object. This is invaluable for debugging errors that originate deep within the native kernels.
+## Resource cleanup
 
-The `.nativeStack` property is a string containing the Zig backtrace symbols and addresses.
-
-## Performance
-
-AFFON's error system is designed for high-performance reporting:
-- **Zero-Copy**: Error strings are generated using stack-allocated buffers into the JSC context, avoiding heap allocations and syscalls on the common error path.
-- **Cached Prototypes**: The `AffonError` class and constructor are evaluated once at startup and cached in the native bridge to minimize overhead when throwing.
+`Tensor`, `Executable`, `ExecutionState`, and `Session` implement idempotent
+`dispose()` and `Symbol.dispose`. Long-running processes should release owned
+resources deterministically. Disposing a Session prevents new work through it;
+child objects retain their storage until they are also disposed.

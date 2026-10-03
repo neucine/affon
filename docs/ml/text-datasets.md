@@ -11,22 +11,27 @@ This layer is intentionally generic:
 
 It does not own transformer model code, generation, or model-family-specific forward passes.
 
-The current text API is usable now, but it should be read as an early slice of a broader dataset pipeline direction. Across tabular, text, and future image helpers, the intended shared shape is:
+Text and tabular pipelines share this shape:
 - read examples
 - transform examples
 - derive or select inputs
 - derive or select targets
 - batch
-- tensorize
+- tensorize into an explicit `Session`
 
 Text-specific operators such as tokenization, pair templating, and truncation stay domain-specific inside that shared pipeline grammar.
 
-On the tabular side, the same shared grammar now surfaces through `.input(...)`, `.target(...)`, and `.tensorLoader(...)`, even though the underlying transforms remain column-oriented.
+On the tabular side, the same grammar surfaces through `.input(...)`,
+`.target(...)`, and `.tensorLoader(...)`, while transforms remain
+column-oriented.
 
 ## Import Shape
 
 ```typescript
 import dataset from 'affon:dataset'
+import { Session } from 'affon:compute'
+
+const session = new Session({ device: 'cpu' })
 ```
 
 Most text APIs live under `dataset.text.*`.
@@ -219,7 +224,7 @@ const classified = dataset.text
   .input('inputIds')
   .target('labels')
 
-for (const batch of classified.tensorLoader({ batchSize: 32, padId: 0 })) {
+for (const batch of classified.tensorLoader({ session, batchSize: 32, padId: 0 })) {
   // batch.inputIds: i64 tensor
   // batch.attentionMask: i64 tensor
   // batch.labels: i64 tensor
@@ -247,7 +252,7 @@ const multilabel = dataset.text
   .input('inputIds')
   .target('labels')
 
-for (const batch of multilabel.tensorLoader({ batchSize: 32, padId: 0 })) {
+for (const batch of multilabel.tensorLoader({ session, batchSize: 32, padId: 0 })) {
   // batch.labels: multi-hot i64 tensor [batch, numClasses]
 }
 ```
@@ -270,7 +275,7 @@ const scored = dataset.text
   .input('inputIds')
   .target('labels')
 
-for (const batch of scored.tensorLoader({ batchSize: 32, padId: 0 })) {
+for (const batch of scored.tensorLoader({ session, batchSize: 32, padId: 0 })) {
   // batch.labels: f32 tensor
 }
 ```
@@ -293,7 +298,7 @@ const pairs = dataset.text
   })
   .input('inputIds', 'tokenTypeIds')
 
-for (const batch of pairs.tensorLoader({ batchSize: 16, padId: 0 })) {
+for (const batch of pairs.tensorLoader({ session, batchSize: 16, padId: 0 })) {
   // batch.inputIds
   // batch.attentionMask
   // batch.tokenTypeIds
@@ -310,58 +315,16 @@ Pair templating:
 
 If the tokenizer exposes `specialTokenIds.sep`, the preset can use it directly. Otherwise pass `separatorText`.
 
-## Batch Shapes
+## Batch shapes and ownership
 
-Common tensorized outputs:
+Tensor loaders return evaluated `Tensor` values owned by the supplied Session.
+Token IDs, attention masks, token-type IDs, and class labels use `i64`.
+Regression labels use `f32`; multi-label targets are `i64` multi-hot matrices.
 
-Single text:
-
-```typescript
-{
-  inputIds: Tensor<number[], "i64">
-  attentionMask: Tensor<number[], "i64">
-}
-```
-
-Single-label classification:
-
-```typescript
-{
-  inputIds: Tensor<number[], "i64">
-  attentionMask: Tensor<number[], "i64">
-  labels: Tensor<number[], "i64">
-}
-```
-
-Multi-label classification:
-
-```typescript
-{
-  inputIds: Tensor<number[], "i64">
-  attentionMask: Tensor<number[], "i64">
-  labels: Tensor<number[], "i64">
-}
-```
-
-Regression:
-
-```typescript
-{
-  inputIds: Tensor<number[], "i64">
-  attentionMask: Tensor<number[], "i64">
-  labels: Tensor<number[], "f32">
-}
-```
-
-Text pairs:
-
-```typescript
-{
-  inputIds: Tensor<number[], "i64">
-  attentionMask: Tensor<number[], "i64">
-  tokenTypeIds: Tensor<number[], "i64">
-}
-```
+Sequence fields have shape `[batch, width]`, where `width` is the longest row in
+the batch after truncation. Scalar labels have shape `[batch]`; multi-label
+targets have shape `[batch, classes]`. Dispose batches promptly in long-running
+training loops, or dispose the owning Session when the complete workload ends.
 
 ## Boundary
 

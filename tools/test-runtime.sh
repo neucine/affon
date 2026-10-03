@@ -12,6 +12,7 @@ export RUNTIME_PACKAGE_PATH="${RUNTIME_PACKAGE_PATH:-$ROOT/packages}"
   "$ROOT/test/e2e/dataset" \
   "$ROOT/test/e2e/checkpoint"
 "$AFFON_BIN" test "$ROOT/packages/@affon/models/test"
+"$AFFON_BIN" test "$ROOT/packages/@affon/inspector/test"
 "$AFFON_BIN" test "$ROOT/packages/@affon/tokenizers/test"
 "$AFFON_BIN" test \
   "$ROOT/packages/@affon/huggingface/test" \

@@ -7,6 +7,7 @@ follow ownership and dependencies:
 - `@affon/huggingface`: HF artifacts, config/weight adaptation, loading, and processors.
 - `@affon/tokenizers`: tokenizer implementations and compatibility.
 - `@affon/onnx`: prepared graph import and execution.
+- `@affon/inspector`: DOM-free indexing and graph projections for core inspection contracts.
 
 Model families belong inside `models`; shared components belong in `models/src/shared`.
 Generation belongs with the models that support it. Parameterized layer factories

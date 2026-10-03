@@ -82,6 +82,9 @@ describe("Program authoring and transforms", () => {
     }, "layer.0"))
 
     const inspection = model.inspect()
+    expect(inspection.schema_version).toBe(1)
+    expect(inspection.constant_values).toBe("inline")
+    expect(inspection.provenance_id.startsWith("affon:")).toBe(true)
     expect(inspection.nodes.map(node => node.id)).toEqual(inspection.nodes.map((_, index) => index))
     expect(inspection.nodes.find(node => node.name === "layer.0.projection.bias")!.path).toEqual([
       { program: "path_block", instance: "layer.0" },
@@ -95,6 +98,49 @@ describe("Program authoring and transforms", () => {
     expect(Object.isFrozen(inspection.nodes.at(-1)!.path[0])).toBe(true)
     expect(inspection.arguments[0].name).toBe("value")
     expect(inspection.nodes[inspection.outputs[0]].operands).toEqual([0, 1])
+    expect(inspection.components.length).toBe(2)
+    expect(inspection.components[0].program).toBe("path_block")
+    expect(inspection.components[0].bindings).toEqual({ value: 0 })
+    expect(inspection.components[0].outputs).toEqual([inspection.outputs[0]])
+    expect(inspection.components[1].path).toEqual([
+      { program: "path_block", instance: "layer.0" },
+      { program: "path_leaf", instance: "projection" },
+    ])
+    expect(Object.isFrozen(inspection.components)).toBe(true)
+    expect(Object.isFrozen(inspection.components[0].bindings)).toBe(true)
+  })
+
+  test("captures exact multi-output component interfaces without author annotations", () => {
+    const child = program("interface_child", p => {
+      const left = p.argument("left", Tensor.f32([2]))
+      const right = p.argument("right", Tensor.f32([2]))
+      return [add(left, right), add(right, right)]
+    })
+    const parent = program("interface_parent", p => {
+      const x = p.argument("x", Tensor.f32([2]))
+      const y = p.argument("y", Tensor.f32([2]))
+      return child({ left: x, right: y }, "pair")
+    })
+    const inspection = parent.inspect()
+    expect(inspection.components).toEqual([{
+      id: "component:interface_child@pair#0",
+      program: "interface_child",
+      instance: "pair",
+      path: [{ program: "interface_child", instance: "pair" }],
+      bindings: { left: 0, right: 1 },
+      outputs: inspection.outputs,
+    }])
+
+    const repeated = program("repeated_interface", p => {
+      const x = p.argument("x", Tensor.f32([2]))
+      const first = child({ left: x, right: x }, "shared")
+      const second = child({ left: x, right: x }, "shared")
+      return add(first[0], second[0])
+    }).inspect()
+    expect(repeated.components.map(component => component.id)).toEqual([
+      "component:interface_child@shared#0",
+      "component:interface_child@shared#1",
+    ])
   })
 
   test("authors and composes a shape-specialized child from a callable", () => {

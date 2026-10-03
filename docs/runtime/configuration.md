@@ -15,7 +15,7 @@ mutability class.
 
 | Variable | Field | Mutability | Default | Values |
 | --- | --- | --- | --- | --- |
-| `AFFON_DEVICE` | `device.default` | runtime | auto-detected (`metal` on macOS when available, `cuda` on other platforms when available, otherwise `cpu`) | `cpu`, `metal`, `cuda` |
+| `AFFON_DEVICE` | `device.default` | startup | auto-detected (`metal` on macOS when available, `cuda` on other platforms when available, otherwise `cpu`) | `cpu`, `metal`, `cuda` |
 | `AFFON_CUDA_DEVICE` | CUDA device ordinal | startup | `0` | non-negative integer |
 | `AFFON_NATIVE_STACK_TRACE` | `debug.native_stack_trace` | runtime | `false` | boolean |
 | `AFFON_METAL_THREADGROUP_SIZE` | `device.metal.threadgroup_size` | startup | `256` | positive integer |
@@ -24,6 +24,7 @@ mutability class.
 | `AFFON_METAL_POOL_OVERSIZE_THRESHOLD_BYTES` | `device.metal.pool_oversize_threshold_bytes` | startup | `536870912` | positive integer bytes |
 | `AFFON_METAL_POOL_MAX_TOTAL_BYTES` | `device.metal.pool_max_total_bytes` | startup | `1073741824` | positive integer bytes |
 | `AFFON_METAL_POOL_SIZE_CLASSES` | `device.metal.pool_size_classes` | startup | `65536:512,1048576:512,*:8` | comma-separated `threshold:max_buffers` entries plus final `*:max_buffers` catch-all |
+| `AFFON_CPU_THREADS` | `device.cpu.threads` | startup | `1` | positive integer |
 | `AFFON_CPU_PARALLEL_THRESHOLD` | `device.cpu.parallel_threshold` | runtime | `65536` | positive integer |
 | `AFFON_CSV_CHUNK_SIZE` | `csv.chunk_size` | runtime | `65536` | positive integer bytes |
 | `AFFON_REPR_MAX_ITEMS` | `repr.max_items` | runtime | `6` | positive integer |

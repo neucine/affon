@@ -11,6 +11,25 @@ declare module "affon:compute" {
   export type ProgramDType = "f32" | "f64" | "i64";
   /** Compute device selected when a Session is created. */
   export type Device = "cpu" | "metal" | "cuda" | `cuda:${number}`;
+  export type OptimizationLevel = "none" | "safe";
+  export type NumericalPolicy = "exact_only" | "backend_equivalent" | "approximate";
+  export type OptimizationGoal = "balanced" | "latency" | "throughput" | "memory";
+  export type ExplanationLevel = "summary" | "detailed";
+  export type ResidualPolicy = "automatic" | "retain" | "recompute";
+  export type CompileOptions = Readonly<{
+    optimizationLevel?: OptimizationLevel;
+    numericalPolicy?: NumericalPolicy;
+    optimizationGoal?: OptimizationGoal;
+    explanationLevel?: ExplanationLevel;
+    residualPolicy?: ResidualPolicy;
+  }>;
+  export type TelemetryOptions = Readonly<{ backendTiming?: boolean; hardwareMetrics?: boolean }>;
+  export type SessionOptions = Readonly<{
+    device?: Device;
+    determinism?: "strict" | "allow_nondeterministic";
+    telemetry?: false | TelemetryOptions;
+  }>;
+  export type CompilationExplanation = Readonly<Record<string, unknown>>;
   /** Immutable tensor dimensions in row-major order. */
   export type ProgramShape = readonly number[];
   /** Scalar or rectangular nested-array tensor data. */
@@ -50,30 +69,50 @@ declare module "affon:compute" {
   }>;
   /** Outermost-to-innermost Program uses containing an inspected node. */
   export type ProgramPath = readonly ProgramPathSegment[];
+  /** Kinds of values and operations represented in an inspected Program graph. */
+  export type ProgramNodeKind = "argument" | "parameter" | "state" | "constant" | "intermediate" | "operation" | "composition" | "gradient";
+  /** Authored and automatically transformed Program categories. */
+  export type ProgramInspectionKind = "authored" | "gradient" | "optimize";
+  /** One value or operation in the serialized Program dependency graph. */
+  export type ProgramNode = Readonly<{
+    id: number;
+    kind: ProgramNodeKind;
+    path: ProgramPath;
+    role?: "argument" | "parameter" | "state" | "constant";
+    name?: string;
+    provenance?: string;
+    spec: TensorSpec;
+    op?: string;
+    operands?: readonly number[];
+    options?: Readonly<Record<string, unknown>>;
+    value?: unknown;
+    value_summary?: Readonly<{ elements: number }>;
+  }>;
+  /** Exact interface captured automatically for one nested Program invocation. */
+  export type ProgramComponentInspection = Readonly<{
+    id: string;
+    program: string;
+    instance: string;
+    path: ProgramPath;
+    bindings: Readonly<Record<string, number>>;
+    outputs: readonly number[];
+  }>;
   /** Serializable structural view returned by Program.inspect(). */
   export type ProgramInspection = Readonly<{
+    schema_version: 1;
     name: string;
     provenance: string;
-    kind: string;
+    provenance_id: string;
+    kind: ProgramInspectionKind;
+    constant_values: "inline" | "summary" | "redacted";
     arguments: readonly ProgramFormal[];
     parameters: readonly ProgramFormal[];
     state: readonly ProgramFormal[];
     constants: readonly ProgramFormal[];
-    nodes: readonly Readonly<{
-      id: number;
-      kind: "argument" | "parameter" | "state" | "constant" | "intermediate" | "operation" | "composition" | "gradient";
-      path: ProgramPath;
-      role?: "argument" | "parameter" | "state" | "constant";
-      name?: string;
-      provenance?: string;
-      spec: TensorSpec;
-      op?: string;
-      operands?: readonly number[];
-      options?: Readonly<Record<string, unknown>>;
-      value?: unknown;
-    }>[];
+    nodes: readonly ProgramNode[];
+    components: readonly ProgramComponentInspection[];
     outputs: readonly number[];
-    transitions: readonly Readonly<{ kind: "optimize"; optimizer: Optimizer; parameters: readonly string[] }>[];
+    transitions: readonly Readonly<{ kind: "optimize"; optimizer: Optimizer; parameters: readonly string[]; parameter_ids: readonly number[] }>[];
   }>;
 
   /**
@@ -252,6 +291,8 @@ declare module "affon:compute" {
     /** Stable native input order used after named validation. */
     readonly native_input_order: readonly string[];
     readonly disposed: boolean;
+    /** Return the immutable compiler/executable explanation for this variant. */
+    explain(): CompilationExplanation;
     /** Validate named arguments and execute with optional initialized state. */
     run(arguments_: ProgramArguments, state?: ExecutionState): EvaluatedProgramOutput<Out>;
     dispose(): void;
@@ -260,14 +301,16 @@ declare module "affon:compute" {
   /** Owns evaluated tensors, compiled executable caches, and execution state for one device. */
   export class Session {
     /** Create a Session on the requested device, or on the runtime-selected default device. */
-    constructor(options?: { device?: Device });
+    constructor(options?: SessionOptions);
     /** Device used for all tensors and executions owned by this Session. */
     readonly device: Device;
+    readonly determinism: "strict" | "allow_nondeterministic";
+    readonly telemetry: false | Required<TelemetryOptions>;
     readonly disposed: boolean;
     /** Create an evaluated tensor owned by this Session. */
     tensor(values: TensorData, options?: { dtype?: ProgramDType; axes?: readonly string[] }): Tensor;
     /** Compile a Program, returning the cached executable for repeated compilation of the same Program. */
-    compile<Out extends FormalTensor | readonly FormalTensor[]>(source: Program<Record<string, FormalTensor>, Out>): Executable<Out>;
+    compile<Out extends FormalTensor | readonly FormalTensor[]>(source: Program<Record<string, FormalTensor>, Out>, options?: CompileOptions): Executable<Out>;
     /** Materialize Program parameters and model state using deterministic initialization. */
     initialize(source: Program, options?: { seed?: number; parameters?: Readonly<Record<string, TensorInitializerValue>>; model_state?: Readonly<Record<string, TensorInitializerValue>> }): ExecutionState;
     /** Return whether this Session owns the supplied Tensor, Executable, or ExecutionState. */

@@ -26,11 +26,19 @@ describe('decoder-lm Program model', () => {
     expect(inspection.nodes.find(node => node.name === 'decoder.blocks.0.attention.norm.weight')!.path).toEqual([
       { program: 'decoder_model', instance: 'decoder' },
       { program: 'decoder_block', instance: 'blocks.0' },
+      { program: 'decoder_self_attention', instance: 'attention' },
     ])
-    expect(inspection.nodes.find(node => node.path.some(segment => segment.program === 'decoder_attention'))!.path).toEqual([
+    expect(inspection.nodes.find(node => node.path.some(segment => segment.program === 'decoder_attention_core'))!.path).toEqual([
       { program: 'decoder_model', instance: 'decoder' },
       { program: 'decoder_block', instance: 'blocks.0' },
-      { program: 'decoder_attention', instance: 'attention' },
+      { program: 'decoder_self_attention', instance: 'attention' },
+      { program: 'decoder_attention_core', instance: 'core' },
+    ])
+    expect(inspection.components.filter(component => component.path.some(segment => segment.instance === 'blocks.0')).map(component => component.program)).toEqual([
+      'decoder_block',
+      'decoder_self_attention',
+      'decoder_attention_core',
+      'decoder_feed_forward',
     ])
     expect(inspection.nodes[inspection.outputs[0]].path).toEqual([
       { program: 'decoder_model', instance: 'decoder' },

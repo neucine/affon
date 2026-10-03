@@ -84,9 +84,11 @@ authoring preserves the parent builder while that child is authored, so this
 pattern retains the same callable form without requiring a `.forward(...)` or
 explicit binding method.
 
-Call `program.inspect()` to read immutable arguments, parameters, model state,
-constants, graph nodes, outputs, and declared transitions. Calling a Program
-outside authoring is an error; execution always goes through a compiled
+Call `program.inspect()` to read the versioned, immutable arguments, parameters,
+model state, constants, graph nodes, component interfaces, outputs, and declared
+transitions. Component bindings and outputs are captured automatically when a
+nested Program is called; authors provide no inspection metadata. Calling a
+Program outside authoring is an error; execution always goes through a compiled
 `Executable`.
 
 ## Compile and Run
@@ -107,6 +109,13 @@ const logits = executable.run({ image }, state)
 is compiled again. `Executable.run` accepts named arguments only. Parameters
 and model state are supplied from an `ExecutionState`, and values from another
 Session are rejected.
+
+Compilation policy is explicit per executable, while runtime instrumentation
+is published through `std:telemetry`. See [Optimization, Profiling, and
+Evidence](./optimization-and-profiling.md) for `none`/`safe` variants,
+numerical and optimization-goal controls, compiler explanations, runtime
+telemetry, and the rules for feeding measurements back into optimizer
+development.
 
 Evaluated tensors expose `shape`, `ndim`, `dtype`, `device`, optional `axes`,
 `item()`, `to_array()`, `toString()`, `repr()`, and `dispose()`.

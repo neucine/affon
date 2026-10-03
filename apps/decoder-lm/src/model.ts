@@ -64,7 +64,7 @@ export function DecoderModel(vocabSize: number, dModel: number, options: Decoder
       p.argument('input', Tensor.f32([batch, length, dModel])),
       transpose(p.argument('token_embedding', Tensor.f32([vocabSize, dModel])), [1, 0]),
     )) : undefined
-    const attention = program('decoder_attention', p => {
+    const attentionCore = program('decoder_attention_core', p => {
       const query = p.argument('query', Tensor.f32([batch, opts.numHeads, length, headWidth]))
       const key = p.argument('key', Tensor.f32([batch, opts.numHeads, length, headWidth]))
       const value = p.argument('value', Tensor.f32([batch, opts.numHeads, length, headWidth]))
@@ -73,22 +73,31 @@ export function DecoderModel(vocabSize: number, dModel: number, options: Decoder
       const weights = softmax(masked_fill(div(matmul(query, transpose(key, [0, 1, 3, 2])), scale), mask, -3.4028234663852886e38), 3)
       return reshape(contiguous(transpose(matmul(weights, value), [0, 2, 1, 3])), [batch, length, dModel])
     })
+    const selfAttention = program('decoder_self_attention', p => {
+      const x = p.argument('input', Tensor.f32([batch, length, dModel]))
+      const mask = p.argument('mask', Tensor.i64([1, 1, length, length]))
+      const scale = p.argument('scale', Tensor.f32([1]))
+      const split = (value: FormalTensor) => transpose(reshape(value, [batch, length, opts.numHeads, headWidth]), [0, 2, 1, 3])
+      const normalized = normalize({ x }, 'norm')
+      const query = split(project({ x: normalized }, 'query'))
+      const key = split(project({ x: normalized }, 'key'))
+      const value = split(project({ x: normalized }, 'value'))
+      const attended = attentionCore({ query, key, value, mask, scale }, 'core')
+      return contiguous(project({ x: attended }, 'output'))
+    })
+    const feedForward = program('decoder_feed_forward', p => {
+      const x = p.argument('input', Tensor.f32([batch, length, dModel]))
+      const hidden = normalize({ x }, 'norm')
+      const expanded = expand({ x: hidden }, 'expand')
+      const contracted = contract({ x: gelu(expanded) }, 'contract')
+      return contiguous(contracted)
+    })
     const block = program('decoder_block', p => {
       let x = p.argument('input', Tensor.f32([batch, length, dModel]))
       const mask = p.argument('mask', Tensor.i64([1, 1, length, length]))
       const scale = p.argument('scale', Tensor.f32([1]))
-      const split = (value: FormalTensor) => transpose(reshape(value, [batch, length, opts.numHeads, headWidth]), [0, 2, 1, 3])
-      const normalized = normalize({ x }, 'attention.norm')
-      const query = split(project({ x: normalized }, 'attention.query'))
-      const key = split(project({ x: normalized }, 'attention.key'))
-      const value = split(project({ x: normalized }, 'attention.value'))
-      const attended = attention({ query, key, value, mask, scale }, 'attention')
-      const projected = project({ x: attended }, 'attention.output')
-      x = add(x, contiguous(projected))
-      const hidden = normalize({ x }, 'feed_forward.norm')
-      const expanded = expand({ x: hidden }, 'feed_forward.expand')
-      const contracted = contract({ x: gelu(expanded) }, 'feed_forward.contract')
-      return add(x, contiguous(contracted))
+      x = add(x, selfAttention({ input: x, mask, scale }, 'attention'))
+      return add(x, feedForward({ input: x }, 'feed_forward'))
     })
     const source = program('decoder_model', p => {
       const ids = p.argument('token_ids', Tensor.i64([batch, length], axes ? { axes } : undefined))

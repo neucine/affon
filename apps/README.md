@@ -18,3 +18,4 @@ Small API demonstrations should stay close to the package or runtime surface the
 - `decoder-lm/` is the decoder language-model reference workload.
 - [model-package/](model-package/README.md) experiments with a shared artifact manifest and local runtime adapters.
 - [vision-serving/](vision-serving/README.md) compares an Affon V2 inference service with an ONNX Runtime baseline and provides a KServe deployment example.
+- [program-inspector/](program-inspector/README.md) opens serialized Program inspections as synchronized structure, graph, and details views.

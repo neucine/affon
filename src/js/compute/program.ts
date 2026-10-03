@@ -3,6 +3,28 @@ import type { LRSchedule, Optimizer } from "affon:optim"
 
 export type ProgramDType = "f32" | "f64" | "i64"
 export type Device = "cpu" | "metal" | "cuda" | `cuda:${number}`
+export type OptimizationLevel = "none" | "safe"
+export type NumericalPolicy = "exact_only" | "backend_equivalent" | "approximate"
+export type OptimizationGoal = "balanced" | "latency" | "throughput" | "memory"
+export type ExplanationLevel = "summary" | "detailed"
+export type ResidualPolicy = "automatic" | "retain" | "recompute"
+export type CompileOptions = Readonly<{
+  optimizationLevel?: OptimizationLevel
+  numericalPolicy?: NumericalPolicy
+  optimizationGoal?: OptimizationGoal
+  explanationLevel?: ExplanationLevel
+  residualPolicy?: ResidualPolicy
+}>
+export type TelemetryOptions = Readonly<{
+  backendTiming?: boolean
+  hardwareMetrics?: boolean
+}>
+export type SessionOptions = Readonly<{
+  device?: Device
+  determinism?: "strict" | "allow_nondeterministic"
+  telemetry?: false | TelemetryOptions
+}>
+export type CompilationExplanation = Readonly<Record<string, unknown>>
 export type ProgramShape = readonly number[]
 export type TensorData = number | readonly TensorData[]
 export type TensorInitializerValue = TensorData | Readonly<{
@@ -23,6 +45,50 @@ export type TensorValueOptions = Readonly<{
   axes?: readonly string[]
 }>
 
+const compileOptionValues = {
+  optimizationLevel: new Set<OptimizationLevel>(["none", "safe"]),
+  numericalPolicy: new Set<NumericalPolicy>(["exact_only", "backend_equivalent", "approximate"]),
+  optimizationGoal: new Set<OptimizationGoal>(["balanced", "latency", "throughput", "memory"]),
+  explanationLevel: new Set<ExplanationLevel>(["summary", "detailed"]),
+  residualPolicy: new Set<ResidualPolicy>(["automatic", "retain", "recompute"]),
+} as const
+
+function normalizedCompileOptions(options: CompileOptions = {}): Required<CompileOptions> {
+  const result: Required<CompileOptions> = {
+    optimizationLevel: options.optimizationLevel ?? "safe",
+    numericalPolicy: options.numericalPolicy ?? "backend_equivalent",
+    optimizationGoal: options.optimizationGoal ?? "balanced",
+    explanationLevel: options.explanationLevel ?? "summary",
+    residualPolicy: options.residualPolicy ?? "retain",
+  }
+  for (const [name, values] of Object.entries(compileOptionValues) as [keyof Required<CompileOptions>, Set<string>][]) {
+    if (!values.has(result[name])) throw new TypeError(`unsupported ${name}: ${result[name]}`)
+  }
+  return Object.freeze(result)
+}
+
+function normalizedSessionOptions(options: SessionOptions = {}): Readonly<Record<string, unknown>> {
+  const determinism = options.determinism ?? "strict"
+  if (determinism !== "strict" && determinism !== "allow_nondeterministic") throw new TypeError(`unsupported determinism: ${determinism}`)
+  if (options.telemetry === false) return Object.freeze({ determinism, telemetry: null })
+  return Object.freeze({ determinism, telemetry: Object.freeze({
+    backendTiming: options.telemetry?.backendTiming ?? false,
+    hardwareMetrics: options.telemetry?.hardwareMetrics ?? false,
+  }) })
+}
+
+function freezeJson<T>(value: T): T {
+  if (Array.isArray(value)) {
+    for (const item of value) freezeJson(item)
+    return Object.freeze(value) as T
+  }
+  if (value && typeof value === "object") {
+    for (const item of Object.values(value as Record<string, unknown>)) freezeJson(item)
+    return Object.freeze(value)
+  }
+  return value
+}
+
 export interface Tensor {
   readonly shape: readonly number[]
   readonly axes?: readonly string[]
@@ -40,16 +106,17 @@ export interface Tensor {
 
 type FormalRole = "argument" | "parameter" | "state" | "constant" | "intermediate"
 type ProgramValue = TensorData
-type NodeKind = FormalRole | "operation" | "composition" | "gradient"
+export type ProgramNodeKind = FormalRole | "operation" | "composition" | "gradient"
+export type ProgramInspectionKind = "authored" | "gradient" | "optimize"
 export type ProgramPathSegment = Readonly<{
   program: string
   instance: string
 }>
 export type ProgramPath = readonly ProgramPathSegment[]
 
-type ProgramNode = Readonly<{
+export type ProgramNode = Readonly<{
   id: number
-  kind: NodeKind
+  kind: ProgramNodeKind
   path: ProgramPath
   role?: Exclude<FormalRole, "intermediate">
   name?: string
@@ -59,12 +126,36 @@ type ProgramNode = Readonly<{
   operands?: readonly number[]
   options?: Readonly<Record<string, unknown>>
   value?: ProgramValue
+  value_summary?: Readonly<{ elements: number }>
+}>
+
+export type ProgramComponentInspection = Readonly<{
+  id: string
+  program: string
+  instance: string
+  path: ProgramPath
+  bindings: Readonly<Record<string, number>>
+  outputs: readonly number[]
 }>
 
 const EMPTY_PROGRAM_PATH: ProgramPath = Object.freeze([])
 
 function composedPath(program: string, instance: string, path: ProgramPath): ProgramPath {
   return Object.freeze([Object.freeze({ program, instance }), ...path])
+}
+
+function componentId(path: ProgramPath): string {
+  return `component:${path.map(segment => `${encodeURIComponent(segment.program)}@${encodeURIComponent(segment.instance)}`).join("/")}`
+}
+
+function provenanceId(provenance: string): string {
+  let first = 0x811c9dc5, second = 0x9e3779b9
+  for (let index = 0; index < provenance.length; index++) {
+    const code = provenance.charCodeAt(index)
+    first = Math.imul(first ^ code, 0x01000193)
+    second = Math.imul(second ^ (code + index), 0x85ebca6b)
+  }
+  return `affon:${(first >>> 0).toString(16).padStart(8, "0")}${(second >>> 0).toString(16).padStart(8, "0")}:${provenance.length}`
 }
 
 export type ProgramFormal = Readonly<{
@@ -82,16 +173,20 @@ export type Initializer =
   | Readonly<{ kind: "xavier_uniform" | "xavier_normal" }>
 
 export type ProgramInspection = Readonly<{
+  schema_version: 1
   name: string
   provenance: string
-  kind: string
+  provenance_id: string
+  kind: ProgramInspectionKind
+  constant_values: "inline" | "summary" | "redacted"
   arguments: readonly ProgramFormal[]
   parameters: readonly ProgramFormal[]
   state: readonly ProgramFormal[]
   constants: readonly ProgramFormal[]
   nodes: readonly ProgramNode[]
+  components: readonly ProgramComponentInspection[]
   outputs: readonly number[]
-  transitions: readonly Readonly<{ kind: "optimize"; optimizer: Optimizer; parameters: readonly string[] }>[]
+  transitions: readonly Readonly<{ kind: "optimize"; optimizer: Optimizer; parameters: readonly string[]; parameter_ids: readonly number[] }>[]
 }>
 
 const PROGRAM = Symbol.for("affon.compute.program")
@@ -532,10 +627,19 @@ export class ProgramBuilder {
   readonly [BUILDER] = true
   private readonly programName: string
   private readonly nodeList: ProgramNode[] = []
+  private readonly componentList: ProgramComponentInspection[] = []
+  private readonly componentCounts = new Map<string, number>()
   private readonly names = new Map<string, ProgramNode>()
   private finished = false
 
   constructor(name: string) { this.programName = name }
+
+  private recordComponent(component: Omit<ProgramComponentInspection, "id">): void {
+    const base = componentId(component.path)
+    const occurrence = this.componentCounts.get(base) ?? 0
+    this.componentCounts.set(base, occurrence + 1)
+    this.componentList.push(Object.freeze({ ...component, id: `${base}#${occurrence}` }))
+  }
 
   private formal(role: "argument" | "parameter" | "state", name: string, spec: TensorSpec, path: ProgramPath = EMPTY_PROGRAM_PATH): FormalTensor {
     if (this.finished) throw new Error("ProgramBuilder may only be used inside program()")
@@ -629,10 +733,34 @@ export class ProgramBuilder {
       }
     }
     const outputs = inspection.outputs.map(id => mapped.get(id)!)
+    const path = composedPath(child.name, instance, EMPTY_PROGRAM_PATH)
+    this.recordComponent({
+      program: child.name,
+      instance,
+      path,
+      bindings: Object.freeze(Object.fromEntries(inspection.arguments.map(formal => {
+        const argument = inspection.nodes.find(node => node.name === formal.name && node.role === "argument")!
+        return [formal.name, mapped.get(argument.id)!.id]
+      }))),
+      outputs: Object.freeze(outputs.map(output => output.id)),
+    })
+    for (const childComponent of inspection.components) {
+      const nestedPath = composedPath(child.name, instance, childComponent.path)
+      this.recordComponent({
+        program: childComponent.program,
+        instance: childComponent.instance,
+        path: nestedPath,
+        bindings: Object.freeze(Object.fromEntries(Object.entries(childComponent.bindings).map(([name, id]) => [name, mapped.get(id)!.id]))),
+        outputs: Object.freeze(childComponent.outputs.map(id => mapped.get(id)!.id)),
+      })
+    }
     return outputs.length === 1 ? outputs[0] : Object.freeze(outputs)
   }
 
-  finish(): readonly ProgramNode[] { this.finished = true; return Object.freeze([...this.nodeList]) }
+  finish(): Readonly<{ nodes: readonly ProgramNode[]; components: readonly ProgramComponentInspection[] }> {
+    this.finished = true
+    return Object.freeze({ nodes: Object.freeze([...this.nodeList]), components: Object.freeze([...this.componentList]) })
+  }
 }
 
 export interface Callable<Bindings extends Record<string, FormalTensor>, Out> {
@@ -662,7 +790,22 @@ function formals(nodes: readonly ProgramNode[], role: ProgramFormal["role"]): re
   return Object.freeze(nodes.filter(node => node.role === role).map(node => Object.freeze({ name: node.name!, role, spec: node.spec, provenance: node.provenance! })))
 }
 
-function createProgram(name: string, kind: ProgramInspection["kind"], nodes: readonly ProgramNode[], outputs: readonly number[], transitions: ProgramInspection["transitions"] = []): Program {
+function createProgram(
+  name: string,
+  kind: ProgramInspectionKind,
+  nodes: readonly ProgramNode[],
+  outputs: readonly number[],
+  transitions: ProgramInspection["transitions"] = [],
+  components: readonly ProgramComponentInspection[] = [],
+): Program {
+  const transitionSnapshot = Object.freeze([...transitions])
+  const componentCounts = new Map<string, number>()
+  const componentSnapshot = Object.freeze(components.map(component => {
+    const base = componentId(component.path)
+    const occurrence = componentCounts.get(base) ?? 0
+    componentCounts.set(base, occurrence + 1)
+    return Object.freeze({ ...component, id: `${base}#${occurrence}` })
+  }))
   const provenance = `${name}:${JSON.stringify({
     kind,
     nodes: nodes.map(node => ({
@@ -677,20 +820,25 @@ function createProgram(name: string, kind: ProgramInspection["kind"], nodes: rea
       options: node.options,
       value: node.value,
     })),
+    components: componentSnapshot,
     outputs,
-    transitions,
+    transitions: transitionSnapshot,
   })}`
   const inspection: ProgramInspection = Object.freeze({
+    schema_version: 1,
     name,
     provenance,
+    provenance_id: provenanceId(provenance),
     kind,
+    constant_values: "inline",
     arguments: formals(nodes, "argument"),
     parameters: formals(nodes, "parameter"),
     state: formals(nodes, "state"),
     constants: formals(nodes, "constant"),
     nodes,
+    components: componentSnapshot,
     outputs: Object.freeze([...outputs]),
-    transitions,
+    transitions: transitionSnapshot,
   })
   const callable = ((...args: unknown[]) => {
     if (!activeBuilder) throw new TypeError("Programs are symbolic; call them only while authoring another program, then execute a compiled Executable")
@@ -720,8 +868,8 @@ export function program<Out extends FormalTensor | readonly FormalTensor[]>(name
     const result = author(builder)
     const outputs = Array.isArray(result) ? result : [result]
     if (outputs.length === 0 || outputs.some(value => !(value instanceof FormalTensor))) throw new TypeError("program callback must return a FormalTensor or a non-empty FormalTensor array")
-    const nodes = builder.finish()
-    return createProgram(name, "authored", nodes, outputs.map(value => value.id)) as Program<Record<string, FormalTensor>, Out>
+    const inspection = builder.finish()
+    return createProgram(name, "authored", inspection.nodes, outputs.map(value => value.id), [], inspection.components) as Program<Record<string, FormalTensor>, Out>
   } finally {
     activeBuilder = parentBuilder
   }
@@ -745,7 +893,7 @@ export function gradient(loss: Program<Record<string, FormalTensor>, FormalTenso
     nodes.push(node)
     return node.id
   })
-  return createProgram(`${loss.name}_gradient`, "gradient", Object.freeze(nodes), outputs)
+  return createProgram(`${loss.name}_gradient`, "gradient", Object.freeze(nodes), outputs, [], source.components)
 }
 
 function scheduleSnapshot(value: LRSchedule): LRSchedule {
@@ -935,11 +1083,22 @@ function combineModelAndLoss(
     mapped.set(node.id, clone.id)
   }
 
+  const components = [
+    ...modelInspection.components,
+    ...lossInspection.components.map(component => Object.freeze({
+      ...component,
+      bindings: Object.freeze(Object.fromEntries(Object.entries(component.bindings).map(([name, id]) => [name, mapped.get(id)!]))),
+      outputs: Object.freeze(component.outputs.map(id => mapped.get(id)!)),
+    })),
+  ]
+
   return createProgram(
     `${model.name}_${loss.name}`,
     "authored",
     Object.freeze(nodes),
     lossInspection.outputs.map(id => mapped.get(id)!),
+    [],
+    Object.freeze(components),
   ) as Program<Record<string, FormalTensor>, FormalTensor>
 }
 
@@ -1029,8 +1188,9 @@ export function update_parameters(
   }
   const snapshot = optimizerSnapshot(optimizer)
   const parameters = Object.freeze(selected)
-  const transition = Object.freeze({ kind: "optimize" as const, optimizer: snapshot, parameters })
-  const result = createProgram(`${source.name}_${snapshot.kind}_update`, "optimize", sourceInspection.nodes, sourceInspection.outputs, Object.freeze([...sourceInspection.transitions, transition])) as Program<Record<string, FormalTensor>, FormalTensor>
+  const parameter_ids = Object.freeze(parameters.map(provenance => sourceInspection.nodes.find(node => node.role === "parameter" && node.provenance === provenance)!.id))
+  const transition = Object.freeze({ kind: "optimize" as const, optimizer: snapshot, parameters, parameter_ids })
+  const result = createProgram(`${source.name}_${snapshot.kind}_update`, "optimize", sourceInspection.nodes, sourceInspection.outputs, Object.freeze([...sourceInspection.transitions, transition]), sourceInspection.components) as Program<Record<string, FormalTensor>, FormalTensor>
   parameterUpdateSources.set(result, { source, gradients, optimizer: snapshot, parameters })
   return result
 }
@@ -1243,6 +1403,18 @@ export class Executable<Out extends FormalTensor | readonly FormalTensor[] = For
     this.native_input_order = Object.freeze(this.inputFormals.map(value => value.name))
   }
   get disposed(): boolean { return this.#disposed }
+  explain(): CompilationExplanation {
+    if (this.#disposed) throw new Error("Executable has been disposed")
+    if (this.optimization) return freezeJson({
+      schema_version: 1,
+      kind: "composite_optimization",
+      source: this.optimization.source.explain(),
+      gradients: this.optimization.gradients.explain(),
+      optimizer: this.optimization.optimizer,
+      parameters: this.optimization.parameters,
+    })
+    return freezeJson(JSON.parse(native.explainExecutable(this.nativeExecutable)))
+  }
   run(arguments_: ProgramArguments, state?: ExecutionState): EvaluatedProgramOutput<Out> {
     if (this.#disposed) throw new Error("Executable has been disposed")
     if (this.session.disposed) throw new Error("Session has been disposed")
@@ -1311,13 +1483,18 @@ export class Executable<Out extends FormalTensor | readonly FormalTensor[] = For
 
 export class Session {
   readonly device: Device
-  readonly #cache = new Map<Program, Executable<any>>()
+  readonly determinism: "strict" | "allow_nondeterministic"
+  readonly telemetry: false | Required<TelemetryOptions>
+  readonly #cache = new Map<Program, Map<string, Executable<any>>>()
   readonly #native: any
   #disposed = false
 
-  constructor(options: { device?: Device } = {}) {
+  constructor(options: SessionOptions = {}) {
     this.device = options.device ?? "cpu"
-    this.#native = native.createSession(this.device as any)
+    const normalized = normalizedSessionOptions(options) as any
+    this.determinism = normalized.determinism
+    this.telemetry = normalized.telemetry ?? false
+    this.#native = native.createSession(this.device as any, JSON.stringify(normalized))
   }
   get disposed(): boolean { return this.#disposed }
   tensor(values: TensorData, options: { dtype?: ProgramDType; axes?: readonly string[] } = {}): Tensor {
@@ -1352,23 +1529,30 @@ export class Session {
     this.adopt(value)
     return value as Tensor
   }
-  compile<Out extends FormalTensor | readonly FormalTensor[]>(source: Program<Record<string, FormalTensor>, Out>): Executable<Out> {
+  compile<Out extends FormalTensor | readonly FormalTensor[]>(source: Program<Record<string, FormalTensor>, Out>, options: CompileOptions = {}): Executable<Out> {
     if (this.#disposed) throw new Error("Session has been disposed")
     if (!isProgram(source)) throw new TypeError("Session.compile expects a Program")
-    const cached = this.#cache.get(source)
+    const normalized = normalizedCompileOptions(options)
+    const key = JSON.stringify(normalized)
+    let variants = this.#cache.get(source)
+    const cached = variants?.get(key)
     if (cached && !cached.disposed) return cached as Executable<Out>
-    if (cached) this.#cache.delete(source)
+    if (cached) variants!.delete(key)
+    if (!variants) {
+      variants = new Map()
+      this.#cache.set(source, variants)
+    }
     const optimization = parameterUpdateSources.get(source)
     let executable: Executable<Out>
     if (optimization) {
       executable = new Executable(this, source, null, {
-        source: this.compile(optimization.source),
-        gradients: this.compile(optimization.gradients),
+        source: this.compile(optimization.source, normalized),
+        gradients: this.compile(optimization.gradients, normalized),
         optimizer: optimization.optimizer,
         parameters: optimization.parameters,
       }) as Executable<Out>
-    } else executable = new Executable(this, source, native.compileProgram(this.#native, JSON.stringify(source.inspect()))) as Executable<Out>
-    this.#cache.set(source, executable)
+    } else executable = new Executable(this, source, native.compileProgram(this.#native, JSON.stringify(source.inspect()), JSON.stringify(normalized))) as Executable<Out>
+    variants.set(key, executable)
     return executable
   }
   initialize(source: Program, options: { seed?: number; parameters?: Readonly<Record<string, TensorInitializerValue>>; model_state?: Readonly<Record<string, TensorInitializerValue>> } = {}): ExecutionState {
@@ -1593,7 +1777,7 @@ export class Session {
   }
   dispose(): void {
     if (this.#disposed) return
-    for (const executable of this.#cache.values()) executable.dispose()
+    for (const variants of this.#cache.values()) for (const executable of variants.values()) executable.dispose()
     this.#cache.clear()
     this.#native.dispose()
     this.#disposed = true

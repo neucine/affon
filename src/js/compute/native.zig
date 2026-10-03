@@ -1,6 +1,7 @@
 const std = @import("std");
 const hao = @import("hao");
 const compute = @import("compute");
+const telemetry = @import("zig_libs").telemetry;
 const config = @import("../../config.zig");
 const compat = @import("../../support/compat.zig");
 
@@ -10,9 +11,108 @@ const tensor_type_id: u32 = 1;
 const session_type_id: u32 = 2;
 const executable_type_id: u32 = 3;
 
+const ComputeTelemetrySink = struct {
+    active_run_id: ?u64 = null,
+    active_scope: ?telemetry.Scope = null,
+
+    fn sink(self: *ComputeTelemetrySink) compute.EvidenceSink {
+        return .{ .context = self, .emitFn = emit };
+    }
+
+    fn metric(group: []const u8, name: []const u8, kind: telemetry.MetricKind, unit: telemetry.MetricUnit) telemetry.MetricDefinition {
+        return .{ .group = group, .name = name, .kind = kind, .unit = unit };
+    }
+
+    fn u64Value(value: u64) i64 {
+        return @intCast(@min(value, @as(u64, std.math.maxInt(i64))));
+    }
+
+    fn usizeValue(value: usize) i64 {
+        return std.math.cast(i64, value) orelse std.math.maxInt(i64);
+    }
+
+    fn event(self: *ComputeTelemetrySink, name: []const u8, attributes: []const telemetry.Attribute) void {
+        if (self.active_scope) |scope| scope.addEventNow(name, attributes);
+    }
+
+    fn emit(context: *anyopaque, record: compute.EvidenceRecord) void {
+        const self: *ComputeTelemetrySink = @ptrCast(@alignCast(context));
+        switch (record.event) {
+            .storage_allocated => |value| {
+                const bytes = usizeValue(value.bytes);
+                telemetry.add(metric("compute.storage", "allocated_bytes_total", .counter, .bytes), bytes);
+                telemetry.add(metric("compute.storage", "live_bytes", .gauge, .bytes), bytes);
+            },
+            .storage_released => |value| {
+                const bytes = usizeValue(value.bytes);
+                telemetry.add(metric("compute.storage", "released_bytes_total", .counter, .bytes), bytes);
+                telemetry.add(metric("compute.storage", "live_bytes", .gauge, .bytes), -bytes);
+            },
+            .execution_started => |value| {
+                if (self.active_scope) |scope| scope.endError();
+                self.active_run_id = value.run_id.int();
+                self.active_scope = telemetry.startSpan(telemetry.trace.currentContext(), "compute.execution", .internal, &.{
+                    .{ .key = "compute.session_id", .value = .{ .integer = usizeValue(record.session_id.int()) } },
+                    .{ .key = "compute.run_id", .value = .{ .integer = u64Value(value.run_id.int()) } },
+                    .{ .key = "compute.executable_id", .value = .{ .integer = u64Value(value.executable_id) } },
+                });
+                telemetry.add(metric("compute.execution", "runs_total", .counter, .count), 1);
+            },
+            .step_executed => |value| self.event("compute.step", &.{
+                .{ .key = "compute.step_index", .value = .{ .integer = usizeValue(value.step_index) } },
+            }),
+            .invocation_submitted => |value| {
+                telemetry.add(metric("compute.execution", "invocations_total", .counter, .count), 1);
+                self.event("compute.invocation", &.{
+                    .{ .key = "compute.step_index", .value = .{ .integer = usizeValue(value.step_index) } },
+                    .{ .key = "compute.invocation_id", .value = .{ .integer = u64Value(value.invocation_id) } },
+                });
+            },
+            .backend_timing => |value| {
+                const elapsed = u64Value(value.elapsed_ns);
+                telemetry.add(metric("compute.backend", "elapsed_nanoseconds_total", .counter, .nanoseconds), elapsed);
+                self.event("compute.backend_timing", &.{
+                    .{ .key = "compute.invocation_id", .value = .{ .integer = u64Value(value.invocation_id) } },
+                    .{ .key = "compute.kernel_index", .value = .{ .integer = value.kernel_index } },
+                    .{ .key = "compute.kernel_count", .value = .{ .integer = value.kernel_count } },
+                    .{ .key = "compute.elapsed_ns", .value = .{ .integer = elapsed } },
+                });
+            },
+            .synchronization => |value| {
+                telemetry.add(metric("compute.synchronization", "count", .counter, .count), 1);
+                self.event("compute.synchronization", &.{
+                    .{ .key = "compute.reason", .value = .{ .string = @tagName(value.reason) } },
+                });
+            },
+            .hardware_metric_availability => |value| self.event("compute.hardware_metric_availability", &.{
+                .{ .key = "compute.metric", .value = .{ .string = @tagName(value.metric) } },
+                .{ .key = "compute.availability", .value = .{ .string = @tagName(value.availability) } },
+            }),
+            .hardware_metric_sample => |value| self.event("compute.hardware_metric", &.{
+                .{ .key = "compute.metric", .value = .{ .string = @tagName(value.metric) } },
+                .{ .key = "compute.value", .value = .{ .integer = u64Value(value.value) } },
+                .{ .key = "compute.scale", .value = .{ .integer = u64Value(value.scale) } },
+            }),
+            .execution_completed => |value| {
+                if (self.active_run_id == value.run_id.int()) {
+                    if (self.active_scope) |scope| scope.end();
+                    self.active_scope = null;
+                    self.active_run_id = null;
+                }
+            },
+            .session_shutdown => {
+                if (self.active_scope) |scope| scope.endError();
+                self.active_scope = null;
+                self.active_run_id = null;
+            },
+        }
+    }
+};
+
 const SessionObject = struct {
     value: ?*compute.Session,
     backend: compute.Backend,
+    telemetry_sink: ComputeTelemetrySink = .{},
     children: usize = 0,
     disposed: bool = false,
     host_alive: bool = true,
@@ -27,6 +127,7 @@ const TensorObject = struct {
 const ExecutableObject = struct {
     value: ?*compute.Executable,
     owner: *SessionObject,
+    explanation_json: []u8,
     needs_seed: bool,
     owner_released: bool = false,
 };
@@ -96,6 +197,7 @@ fn executableFinalizer(_: u32, handle: u64) callconv(.c) void {
     const object: *ExecutableObject = @ptrFromInt(@as(usize, @intCast(handle)));
     if (object.value) |value| value.deinit();
     if (!object.owner_released) releaseSession(object.owner);
+    allocator.free(object.explanation_json);
     allocator.destroy(object);
 }
 
@@ -452,14 +554,42 @@ fn buildJsonProgram(source: JsonProgram, output_ids: []const usize) !BuiltProgra
     return .{ .value = try builder.finish(outputs), .mapped = mapped };
 }
 
-fn createExecutableObject(ctx: abi.JSContext, value: *compute.Executable, owner: *SessionObject, needs_seed: bool) abi.JSValue {
-    const object = allocator.create(ExecutableObject) catch { value.deinit(); return errorValue(ctx, "out of memory"); };
+fn createExecutableObject(ctx: abi.JSContext, value: *compute.Executable, owner: *SessionObject, needs_seed: bool, explanation_json: []u8) abi.JSValue {
+    const object = allocator.create(ExecutableObject) catch { allocator.free(explanation_json); value.deinit(); return errorValue(ctx, "out of memory"); };
     retainSession(owner);
-    object.* = .{ .value = value, .owner = owner, .needs_seed = needs_seed };
+    object.* = .{ .value = value, .owner = owner, .needs_seed = needs_seed, .explanation_json = explanation_json };
     const result = abi.createJSHostObject(ctx, executable_type_id, @intCast(@intFromPtr(object)), executableFinalizer);
     if (abi.jsIsException(result)) { executableFinalizer(executable_type_id, @intCast(@intFromPtr(object))); return result; }
     if (abi.jsSetFunction(ctx, result, "dispose", jsDisposeExecutable, 0) < 0) return errorValue(ctx, "failed to create Executable object");
     return result;
+}
+
+const JsonSessionTelemetry = struct {
+    backendTiming: bool = false,
+    hardwareMetrics: bool = false,
+};
+const JsonSessionOptions = struct {
+    determinism: []const u8 = "strict",
+    telemetry: ?JsonSessionTelemetry = JsonSessionTelemetry{},
+};
+const JsonCompileOptions = struct {
+    optimizationLevel: []const u8 = "safe",
+    numericalPolicy: []const u8 = "backend_equivalent",
+    optimizationGoal: []const u8 = "balanced",
+    explanationLevel: []const u8 = "summary",
+    residualPolicy: []const u8 = "retain",
+};
+
+fn compileOptionsFromJson(bytes: []const u8) !compute.CompileOptions {
+    const parsed = try std.json.parseFromSlice(JsonCompileOptions, allocator, bytes, .{ .ignore_unknown_fields = false });
+    defer parsed.deinit();
+    return .{
+        .optimization_level = if (std.mem.eql(u8, parsed.value.optimizationLevel, "none")) .none else if (std.mem.eql(u8, parsed.value.optimizationLevel, "safe")) .safe else return error.InvalidOptimizationLevel,
+        .numerical_policy = if (std.mem.eql(u8, parsed.value.numericalPolicy, "exact_only")) .exact_only else if (std.mem.eql(u8, parsed.value.numericalPolicy, "backend_equivalent")) .backend_equivalent else if (std.mem.eql(u8, parsed.value.numericalPolicy, "approximate")) .approximate else return error.InvalidNumericalPolicy,
+        .optimization_goal = if (std.mem.eql(u8, parsed.value.optimizationGoal, "balanced")) .balanced else if (std.mem.eql(u8, parsed.value.optimizationGoal, "latency")) .latency else if (std.mem.eql(u8, parsed.value.optimizationGoal, "throughput")) .throughput else if (std.mem.eql(u8, parsed.value.optimizationGoal, "memory")) .memory else return error.InvalidOptimizationGoal,
+        .explanation_level = if (std.mem.eql(u8, parsed.value.explanationLevel, "summary")) .summary else if (std.mem.eql(u8, parsed.value.explanationLevel, "detailed")) .detailed else return error.InvalidExplanationLevel,
+        .residual_policy = if (std.mem.eql(u8, parsed.value.residualPolicy, "automatic")) .automatic else if (std.mem.eql(u8, parsed.value.residualPolicy, "retain")) .retain else if (std.mem.eql(u8, parsed.value.residualPolicy, "recompute")) .recompute else return error.InvalidResidualPolicy,
+    };
 }
 
 fn jsCreateSession(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
@@ -468,9 +598,32 @@ fn jsCreateSession(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [
     defer allocator.free(text);
     const backend = parseBackend(text) orelse return typeError(ctx, "unsupported device");
     if (!compute.backendAvailable(backend)) return errorValue(ctx, "backend unavailable");
-    const value = compute.createSession(allocator, backend) catch return errorValue(ctx, "session creation failed");
-    const object = allocator.create(SessionObject) catch { value.deinit() catch unreachable; return errorValue(ctx, "out of memory"); };
-    object.* = .{ .value = value, .backend = backend };
+    var parsed_options: ?std.json.Parsed(JsonSessionOptions) = null;
+    defer if (parsed_options) |*parsed| parsed.deinit();
+    var options_json_owned: ?[]u8 = null;
+    defer if (options_json_owned) |bytes| allocator.free(bytes);
+    if (argc >= 2) {
+        options_json_owned = abi.jsStringAlloc(ctx, argv[1], allocator) catch return typeError(ctx, "Session options must be JSON");
+        parsed_options = std.json.parseFromSlice(JsonSessionOptions, allocator, options_json_owned.?, .{ .ignore_unknown_fields = false }) catch return typeError(ctx, "invalid Session options");
+    }
+    const options = if (parsed_options) |parsed| parsed.value else JsonSessionOptions{};
+    const determinism: compute.DeterminismPolicy = if (std.mem.eql(u8, options.determinism, "strict")) .strict else if (std.mem.eql(u8, options.determinism, "allow_nondeterministic")) .allow_nondeterministic else {
+        var message: [160]u8 = undefined;
+        const rendered = std.fmt.bufPrintZ(&message, "unsupported determinism policy: '{s}'", .{options.determinism}) catch return typeError(ctx, "unsupported determinism policy");
+        return typeError(ctx, rendered.ptr);
+    };
+    const object = allocator.create(SessionObject) catch return errorValue(ctx, "out of memory");
+    object.* = .{ .value = null, .backend = backend };
+    const telemetry_options = options.telemetry orelse JsonSessionTelemetry{};
+    const value = compute.createConfiguredSession(allocator, backend, .{
+        .determinism = determinism,
+        .evidence_sink = if (options.telemetry == null) null else object.telemetry_sink.sink(),
+        .observation = .{ .backend_timing = telemetry_options.backendTiming, .hardware_metrics = telemetry_options.hardwareMetrics },
+    }) catch {
+        allocator.destroy(object);
+        return errorValue(ctx, "session creation failed");
+    };
+    object.value = value;
     const result = abi.createJSHostObject(ctx, session_type_id, @intCast(@intFromPtr(object)), sessionFinalizer);
     if (abi.jsIsException(result)) { sessionFinalizer(session_type_id, @intCast(@intFromPtr(object))); return result; }
     if (abi.jsSetFunction(ctx, result, "dispose", jsDisposeSession, 0) < 0) return errorValue(ctx, "failed to create Session object");
@@ -565,11 +718,11 @@ fn jsSessionFull(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c
     return createTensorObjectOwned(ctx, value, owner.backend, owner);
 }
 
-fn compileNativeProgram(ctx: abi.JSContext, owner: *SessionObject, program_value: *const compute.Program, needs_seed: bool) abi.JSValue {
+fn compileNativeProgram(ctx: abi.JSContext, owner: *SessionObject, program_value: *const compute.Program, needs_seed: bool, options: compute.CompileOptions) abi.JSValue {
     // Fusion can remove instruction boundaries referenced by automatic residual
     // recomputation. Retaining residuals keeps the public Program path valid
     // while preserving the rest of the safe optimization profile.
-    var compilation = owner.value.?.compile(program_value, .{ .residual_policy = .retain }) catch return errorValue(ctx, "Program compilation failed");
+    var compilation = owner.value.?.compile(program_value, options) catch return errorValue(ctx, "Program compilation failed");
     if (compilation == .diagnostics) {
         const entries = compilation.diagnostics.entries();
         var message: [256]u8 = undefined;
@@ -581,9 +734,12 @@ fn compileNativeProgram(ctx: abi.JSContext, owner: *SessionObject, program_value
         return errorValue(ctx, rendered.ptr);
     }
     const executable = compilation.executable;
+    var explanation = compute.createExplanation(allocator, program_value, program_value, executable) catch { compilation.deinit(); return errorValue(ctx, "Program explanation failed"); };
+    defer explanation.deinit();
+    const explanation_json = explanation.serialize(allocator) catch { compilation.deinit(); return errorValue(ctx, "Program explanation serialization failed"); };
     executable.retain();
     compilation.deinit();
-    return createExecutableObject(ctx, executable, owner, needs_seed);
+    return createExecutableObject(ctx, executable, owner, needs_seed, explanation_json);
 }
 
 fn jsCompileProgram(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
@@ -592,6 +748,12 @@ fn jsCompileProgram(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: 
     if (owner.disposed) return typeError(ctx, "Session has been disposed");
     const json = abi.jsStringAlloc(ctx, argv[1], allocator) catch return typeError(ctx, "Program must be JSON");
     defer allocator.free(json);
+    var options: compute.CompileOptions = .{ .residual_policy = .retain };
+    if (argc >= 3) {
+        const options_json = abi.jsStringAlloc(ctx, argv[2], allocator) catch return typeError(ctx, "compile options must be JSON");
+        defer allocator.free(options_json);
+        options = compileOptionsFromJson(options_json) catch return typeError(ctx, "invalid compile options");
+    }
     var parsed = std.json.parseFromSlice(JsonProgram, allocator, json, .{ .ignore_unknown_fields = true }) catch return typeError(ctx, "invalid Program JSON");
     defer parsed.deinit();
     const source = parsed.value;
@@ -614,7 +776,7 @@ fn jsCompileProgram(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: 
         }
         var derivative = compute.differentiate(allocator, built.value, .{ .output = built.mapped[loss_id], .with_respect_to = variables }) catch return errorValue(ctx, "Program differentiation failed");
         defer derivative.deinit();
-        return compileNativeProgram(ctx, owner, derivative.program(), true);
+        return compileNativeProgram(ctx, owner, derivative.program(), true, options);
     }
     if (std.mem.eql(u8, source.kind, "optimize")) return typeError(ctx, "optimize Program native lowering is not implemented");
     var built = buildJsonProgram(source, source.outputs) catch |err| {
@@ -623,7 +785,14 @@ fn jsCompileProgram(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: 
         return errorValue(ctx, rendered.ptr);
     };
     defer built.deinit();
-    return compileNativeProgram(ctx, owner, built.value, false);
+    return compileNativeProgram(ctx, owner, built.value, false, options);
+}
+
+fn jsExplainExecutable(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    if (argc < 1) return typeError(ctx, "explainExecutable expects Executable");
+    const object = executableObject(ctx, argv[0]) orelse return typeError(ctx, "invalid Executable");
+    if (object.value == null) return typeError(ctx, "Executable has been disposed");
+    return abi.jsString(ctx, object.explanation_json);
 }
 
 fn jsDisposeExecutable(ctx: abi.JSContext, this_value: abi.JSValueConst, _: c_int, _: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
@@ -1031,10 +1200,11 @@ fn readCheckpoint(ctx: abi.JSContext, argc: c_int, argv: [*c]abi.JSValueConst, i
 
 const functions = [_]abi.JSFunction{
     .{ .name = "defaultDevice", .callback = jsDefaultDevice, .length = 0 },
-    .{ .name = "createSession", .callback = jsCreateSession, .length = 1 },
+    .{ .name = "createSession", .callback = jsCreateSession, .length = 2 },
     .{ .name = "sessionTensor", .callback = jsSessionTensor, .length = 4 },
     .{ .name = "sessionFull", .callback = jsSessionFull, .length = 4 },
-    .{ .name = "compileProgram", .callback = jsCompileProgram, .length = 2 },
+    .{ .name = "compileProgram", .callback = jsCompileProgram, .length = 3 },
+    .{ .name = "explainExecutable", .callback = jsExplainExecutable, .length = 1 },
     .{ .name = "runExecutable", .callback = jsRunExecutable, .length = 2 },
     .{ .name = "stftPower", .callback = jsStftPower, .length = 5 },
     .{ .name = "filterbank", .callback = jsFilterbank, .length = 2 },
