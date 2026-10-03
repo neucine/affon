@@ -105,7 +105,7 @@ declare module "affon:dataset" {
 
     /**
      * Collect all selected rows and columns into a single tensor.
-     * Exports `f32` by default for canonical `Session` execution and `p.nn` layers.
+     * Exports `f32` by default for canonical `Session` execution and `affon:nn` layers.
      * @example const { data, schema } = ds.select('x1', 'x2').toTensor()
      */
     toTensor(opts: ToTensorOpts): TensorResult
@@ -113,7 +113,7 @@ declare module "affon:dataset" {
     /**
      * Split into feature and target tensors.
      * Requires `.features()` and `.target()` to be set first.
-     * Exports `f32` by default for canonical `Session` execution and `p.nn` layers.
+     * Exports `f32` by default for canonical `Session` execution and `affon:nn` layers.
      */
     toTensors(opts: ToTensorOpts): TensorsResult
 

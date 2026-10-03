@@ -42,6 +42,13 @@ declare module "affon:compute" {
     spec: TensorSpec;
     provenance: string;
   }>;
+  /** One automatically generated step in a node's nested Program-composition path. */
+  export type ProgramPathSegment = Readonly<{
+    program: string;
+    instance: string;
+  }>;
+  /** Outermost-to-innermost Program uses containing an inspected node. */
+  export type ProgramPath = readonly ProgramPathSegment[];
   /** Serializable structural view returned by Program.inspect(). */
   export type ProgramInspection = Readonly<{
     name: string;
@@ -54,6 +61,7 @@ declare module "affon:compute" {
     nodes: readonly Readonly<{
       id: number;
       kind: "argument" | "parameter" | "state" | "constant" | "intermediate" | "operation" | "composition" | "gradient";
+      path: ProgramPath;
       role?: "argument" | "parameter" | "state" | "constant";
       name?: string;
       provenance?: string;
@@ -137,11 +145,9 @@ declare module "affon:compute" {
   }
 
   /** Immutable, inspectable compute graph. */
-  export interface Program<Args extends readonly unknown[] = readonly FormalTensor[], Out = FormalTensor | readonly FormalTensor[]> {
-    /** Compose this Program positionally while another Program is being authored. */
-    (...arguments_: Args): Out;
-    /** Compose this Program with named bindings while another Program is being authored. */
-    (arguments_: Record<string, FormalTensor>): Out;
+  export interface Program<Bindings extends Record<string, FormalTensor> = Record<string, FormalTensor>, Out = FormalTensor | readonly FormalTensor[]> {
+    /** Compose this Program with named bindings and an optional parent-local instance name. */
+    (bindings: Bindings, instance?: string): Out;
     /** Stable author-supplied Program name. */
     readonly name: string;
     /** Provenance identifier distinguishing authored and transformed Programs. */
@@ -183,20 +189,8 @@ declare module "affon:compute" {
       ? readonly Tensor[]
       : never;
 
-  /** Built-in parameterized neural-network components for Program authors. */
-  export interface ProgramNN {
-    /** Apply a learned affine projection along the final axis. */
-    linear(value: FormalTensor, options: { name: string; out_features: number; bias?: boolean }): FormalTensor;
-    /** Look up integer indices in a learned embedding table. */
-    embedding(indices: FormalTensor, options: { name: string; num_embeddings: number; embedding_dim: number; dtype?: ProgramDType }): FormalTensor;
-    /** Normalize the trailing dimensions and optionally learn scale and bias. */
-    layer_norm(value: FormalTensor, options: { name: string; normalized_shape?: number; epsilon?: number; affine?: boolean }): FormalTensor;
-  }
-
   /** Authoring context passed to program(). */
   export interface ProgramBuilder {
-    /** Parameterized neural-network building blocks. */
-    readonly nn: ProgramNN;
     /** Declare a named value that must be supplied to every execution. */
     argument(name: string, spec: TensorSpec): FormalTensor;
     /** Declare named trainable state with an optional initialization recipe. */
@@ -205,8 +199,6 @@ declare module "affon:compute" {
     state(name: string, spec: TensorSpec, options?: { initializer?: Initializer }): FormalTensor;
     /** Embed immutable validated data in the Program graph. */
     constant(name: string, value: TensorData, spec: TensorSpec): FormalTensor;
-    /** Compose an authored child Program using a stable namespace alias and named bindings. */
-    use(child: Program, options: { as: string; [name: string]: unknown }): FormalTensor | readonly FormalTensor[];
   }
 
   /**
@@ -215,21 +207,21 @@ declare module "affon:compute" {
    * @output Returns an inspectable Program. Calling it is only valid while composing another authored Program.
    * @example const square = program("square", p => mul(p.argument("x", Tensor.f32([4])), p.argument("x", Tensor.f32([4]))))
    */
-  export function program<Out extends FormalTensor | readonly FormalTensor[]>(name: string, author: (p: ProgramBuilder) => Out): Program<readonly FormalTensor[], Out>;
+  export function program<Out extends FormalTensor | readonly FormalTensor[]>(name: string, author: (p: ProgramBuilder) => Out): Program<Record<string, FormalTensor>, Out>;
   /**
    * Transform a scalar loss Program into a Program that returns derivatives.
    * @input independent_variables names one value or an ordered list of values to differentiate.
    * @errors Throws when the source is not scalar, a requested name is absent, or an operation has no gradient rule.
    */
-  export function gradient(loss: Program<readonly FormalTensor[], FormalTensor>, independent_variables: string): Program<readonly FormalTensor[], FormalTensor>;
-  export function gradient(loss: Program<readonly FormalTensor[], FormalTensor>, independent_variables: readonly string[]): Program;
+  export function gradient(loss: Program<Record<string, FormalTensor>, FormalTensor>, independent_variables: string): Program<Record<string, FormalTensor>, FormalTensor>;
+  export function gradient(loss: Program<Record<string, FormalTensor>, FormalTensor>, independent_variables: readonly string[]): Program;
   /**
    * Combine a reusable model Program with a scalar loss Program or built-in loss template and transform the result into a training step.
    * @input Model outputs bind positionally to the loss Program's leading arguments. Remaining loss arguments become training inputs.
    * @semantics Preserves the model's parameter and state provenance so an ExecutionState initialized for the training step can run the standalone model for evaluation or inference.
    * @output Returns a Program compiled and run like any other Program, using an ExecutionState for parameters and optimizer state.
    */
-  export function optimize(model: Program<readonly FormalTensor[], FormalTensor | readonly FormalTensor[]>, loss: Program<readonly FormalTensor[], FormalTensor> | LossProgramTemplate, optimizer: Optimizer): Program<readonly FormalTensor[], FormalTensor>;
+  export function optimize(model: Program<Record<string, FormalTensor>, FormalTensor | readonly FormalTensor[]>, loss: Program<Record<string, FormalTensor>, FormalTensor> | LossProgramTemplate, optimizer: Optimizer): Program<Record<string, FormalTensor>, FormalTensor>;
 
   /** Session-owned mutable execution data for parameters, model state, optimizer state, and RNG state. */
   export interface ExecutionState {
@@ -252,7 +244,7 @@ declare module "affon:compute" {
   /** Compiled, Session-bound form of a Program. */
   export interface Executable<Out extends FormalTensor | readonly FormalTensor[] = FormalTensor | readonly FormalTensor[]> {
     /** Source Program compiled by the Session. */
-    readonly program: Program<readonly FormalTensor[], Out>;
+    readonly program: Program<Record<string, FormalTensor>, Out>;
     /** Session that owns this executable and its returned tensors. */
     readonly session: Session;
     /** Names of evaluated arguments accepted by run(). */
@@ -281,7 +273,7 @@ declare module "affon:compute" {
     /** Create an evaluated tensor owned by this Session. */
     tensor(values: TensorData, options?: { dtype?: ProgramDType; axes?: readonly string[] }): Tensor;
     /** Compile a Program, returning the cached executable for repeated compilation of the same Program. */
-    compile<Out extends FormalTensor | readonly FormalTensor[]>(source: Program<readonly FormalTensor[], Out>): Executable<Out>;
+    compile<Out extends FormalTensor | readonly FormalTensor[]>(source: Program<Record<string, FormalTensor>, Out>): Executable<Out>;
     /** Materialize Program parameters and model state using deterministic initialization. */
     initialize(source: Program, options?: { seed?: number; parameters?: Readonly<Record<string, TensorInitializerValue>>; model_state?: Readonly<Record<string, TensorInitializerValue>> }): ExecutionState;
     /** Return whether this Session owns the supplied Tensor, Executable, or ExecutionState. */

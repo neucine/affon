@@ -15,7 +15,7 @@ beginner terminology.
 
 ## Public Boundaries
 
-- `p.nn` owns parameterized neural-network declarations inside a Program.
+- `affon:nn` owns callable factories for parameterized neural-network declarations.
 - `affon:compute` owns tensors, Programs, Sessions, differentiation, built-in
   loss templates under `losses`, and Program transforms such as `optimize`.
 - `affon:ops` owns tensor operations shared by formal and evaluated tensors.

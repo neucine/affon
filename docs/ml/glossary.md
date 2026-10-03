@@ -3,8 +3,10 @@
 - **Program** — An immutable, inspectable computation authored with
   `program(name, p => output)`.
 - **ProgramBuilder (`p`)** — The scoped authoring object that declares argument,
-  parameter, state, and constant roles. Its `p.nn` namespace declares supported
-  parameterized neural-network operations.
+  parameter, state, and constant roles.
+- **layer factory** — An ordinary callable from `affon:nn` that fixes
+  hyperparameters, then expands parameters and operations from named formal-tensor
+  bindings and an optional instance name.
 - **formal tensor** — A symbolic tensor value used only while authoring a
   Program. Operations on it add nodes to that Program.
 - **evaluated tensor** — A Session-owned value containing computed data.
@@ -19,11 +21,13 @@
 - **ExecutionState** — Session-owned parameters, model state, optimizer state,
   and RNG state materialized for a Program.
 - **Program composition** — Using an authored child Program inside a parent
-  Program, either by calling it during authoring or with `p.use(...)`.
+  Program by calling it with named bindings and an optional instance name.
+  Inspection gives composed nodes an automatically generated path of Program
+  names and instance names.
 - **operation** — A function from `affon:ops`. The same spelling handles formal
   and evaluated tensors while preserving their distinct semantics.
 - **parameter** — Trainable Program state declared with `p.parameter(...)` or by
-  a parameterized `p.nn` helper.
+  a parameterized `affon:nn` factory.
 - **model state** — Persistent non-parameter data declared with `p.state(...)`.
 - **gradient Program** — A Program produced by `gradient(loss, names)`.
 - **loss template** — An immutable descriptor from `affon:compute`'s `losses`

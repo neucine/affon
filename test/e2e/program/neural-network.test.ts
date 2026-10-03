@@ -1,32 +1,34 @@
 import { describe, expect, test } from 'std:test'
-import { Session, Tensor, program, type FormalTensor, type ProgramBuilder } from 'affon:compute'
+import { Session, Tensor, program, type FormalTensor } from 'affon:compute'
+import { embedding, layer_norm, linear } from 'affon:nn'
 import { cross_entropy } from 'affon:ops'
 
 describe('Program neural-network authoring', () => {
   test('authors reusable linear, embedding, normalization, and ordinary function composition', () => {
-    const encoder = (p: ProgramBuilder, value: FormalTensor) => {
-      value = p.nn.linear(value, { name: 'input', out_features: 4 })
-      value = p.nn.layer_norm(value, { name: 'norm' })
-      return p.nn.linear(value, { name: 'output', out_features: 2, bias: false })
+    const input = linear({ out_features: 4 })
+    const norm = layer_norm()
+    const output = linear({ out_features: 2, bias: false })
+    const encoder = ({ x }: { x: FormalTensor }, name = 'encoder') => {
+      let value = input({ x }, `${name}.input`)
+      value = norm({ x: value }, `${name}.norm`)
+      return output({ x: value }, `${name}.output`)
     }
-    const model = program('canonical_nn', p => encoder(p, p.argument('x', Tensor.f32([2, 3]))))
+    const model = program('canonical_nn', p => encoder({ x: p.argument('x', Tensor.f32([2, 3])) }, 'encoder'))
     expect(model.inspect().parameters.map(value => value.name)).toEqual([
-      'input_weight', 'input_bias', 'norm_weight', 'norm_bias', 'output_weight',
+      'encoder.input.weight', 'encoder.input.bias', 'encoder.norm.weight', 'encoder.norm.bias', 'encoder.output.weight',
     ])
     const modelInspection = model.inspect()
     expect(modelInspection.nodes[modelInspection.outputs[0]].spec.shape).toEqual([2, 2])
 
-    const lookup = program('lookup', p => p.nn.embedding(p.argument('indices', Tensor.i64([2])), {
-      name: 'tokens', num_embeddings: 8, embedding_dim: 3,
-    }))
-    expect(lookup.inspect().parameters[0].name).toBe('tokens_weight')
+    const tokens = embedding({ num_embeddings: 8, embedding_dim: 3 })
+    const lookup = program('lookup', p => tokens({ indices: p.argument('indices', Tensor.i64([2])) }, 'tokens'))
+    expect(lookup.inspect().parameters[0].name).toBe('tokens.weight')
     const lookupInspection = lookup.inspect()
     expect(lookupInspection.nodes[lookupInspection.outputs[0]].spec.shape).toEqual([2, 3])
   })
 
   test('authors cross entropy as an ordinary operation and validates label specs', () => {
     const loss = program('classification_loss', p => {
-      expect((p.nn as any).cross_entropy).toBeUndefined()
       const logits = p.argument('logits', Tensor.f32([2, 3]))
       const labels = p.argument('labels', Tensor.i64([2]))
       return cross_entropy(logits, labels)
@@ -45,9 +47,8 @@ describe('Program neural-network authoring', () => {
   })
 
   test('executes canonical layers with Session-owned values', () => {
-    const model = program('linear_runtime', p => p.nn.linear(p.argument('x', Tensor.f32([2, 2])), {
-      name: 'head', out_features: 2,
-    }))
+    const head = linear({ out_features: 2 })
+    const model = program('linear_runtime', p => head({ x: p.argument('x', Tensor.f32([2, 2])) }, 'head'))
     const session = new Session({ device: 'cpu' })
     const state = session.initialize(model, { seed: 7 })
     const x = session.tensor([[1, 0], [0, 1]])

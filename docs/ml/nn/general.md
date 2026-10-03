@@ -1,39 +1,41 @@
 # Program Components
 
-Neural-network declarations are methods of the active `ProgramBuilder`:
+Neural-network declarations are ordinary callable factories:
 
 ```ts
-const y = p.nn.linear(x, {
-  name: 'projection',
+const projection = linear({
   out_features: 128,
 })
+const y = projection({ x }, 'projection')
 ```
 
-This placement is deliberate. A layer declaration creates named parameters in
-the Program being authored; it is not an eager, stateful callable object.
+The first call fixes hyperparameters. The returned function binds formal tensors
+and expands named parameters into the Program that owns those tensors.
 
 ## Reusable pieces
 
 Use ordinary functions for reusable architecture fragments:
 
 ```ts
-import type { FormalTensor, ProgramBuilder } from 'affon:compute'
+import type { FormalTensor } from 'affon:compute'
+import { linear } from 'affon:nn'
 import { gelu } from 'affon:ops'
 
-function feedForward(p: ProgramBuilder, x: FormalTensor, width: number) {
-  const hidden = p.nn.linear(x, { name: 'up', out_features: width })
-  return p.nn.linear(gelu(hidden), {
-    name: 'down',
-    out_features: x.spec.shape.at(-1)!,
-  })
+function feedForward(width: number) {
+  const up = linear({ out_features: width })
+  return ({ x }: { x: FormalTensor }, name = 'feed_forward') => {
+    const hidden = up({ x }, `${name}.up`)
+    return linear({ out_features: x.spec.shape.at(-1)! })({ x: gelu(hidden) }, `${name}.down`)
+  }
 }
 ```
 
 Use a child Program when the piece should have its own inspectable identity and
-be composed into multiple parents. A Program can be called positionally while
-another Program is being authored, or bound explicitly with
-`p.use(child, { as, ...arguments })`. The `as` alias namespaces the child's
-parameters, state, and constants.
+be composed into multiple parents. Call it with named bindings and an optional
+instance name: `child({ value }, 'projection')`. The instance name namespaces the
+child's parameters, state, and constants. It also automatically extends the
+inspected composition path of every copied child node. Nested uses therefore
+remain groupable without adding group nodes or manual path annotations.
 
 ## State roles
 

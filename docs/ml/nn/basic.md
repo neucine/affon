@@ -1,15 +1,15 @@
 # Linear, Embedding, and Normalization
 
-The active Program builder exposes the parameterized neural-network operations.
+`affon:nn` exports factories for parameterized neural-network operations.
 
 ## Linear
 
 ```ts
-const output = p.nn.linear(input, {
-  name: 'output',
+const projection = linear({
   out_features: 10,
   bias: true,
 })
+const output = projection({ x: input }, 'output')
 ```
 
 `linear` transforms the final input axis and preserves all leading axes:
@@ -19,17 +19,18 @@ const output = p.nn.linear(input, {
 ```
 
 The input feature width is inferred from the formal tensor specification. The
-`name` is required and determines the parameter names in the Program.
+optional instance name determines dotted parameter names such as
+`output.weight` and `output.bias`; it defaults to `linear`.
 
 ## Embedding
 
 ```ts
 const tokens = p.argument('tokens', Tensor.i64([32, 128]))
-const hidden = p.nn.embedding(tokens, {
-  name: 'token_embedding',
+const tokenEmbedding = embedding({
   num_embeddings: 32_000,
   embedding_dim: 768,
 })
+const hidden = tokenEmbedding({ indices: tokens }, 'token_embedding')
 ```
 
 Embedding inputs are integer indices. The output appends the embedding width to
@@ -38,14 +39,14 @@ the index shape.
 ## Layer normalization
 
 ```ts
-const normalized = p.nn.layer_norm(hidden, {
-  name: 'final_norm',
+const normalize = layer_norm({
   normalized_shape: 768,
   epsilon: 1e-5,
   affine: true,
 })
+const normalized = normalize({ x: hidden }, 'final_norm')
 ```
 
-When `affine` is enabled, the builder declares learned scale and bias
+When `affine` is enabled, the factory declares learned scale and bias
 parameters. For unparameterized immediate normalization, use
 `layer_norm(x, axis, epsilon)` from `affon:ops`.

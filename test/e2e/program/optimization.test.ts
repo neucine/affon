@@ -1,13 +1,14 @@
 import { cross_entropy, mean, mul } from "affon:ops"
 import { describe, expect, test } from "std:test"
 import { Session, Tensor, losses, optimize, program } from "affon:compute"
+import { linear } from "affon:nn"
 import { accumulate, adam, adamw, scheduled, schedules, sgd } from "affon:optim"
 
 describe("Program optimization", () => {
   test("combines reusable model and loss Programs while preserving inference state", () => {
     const model = program("reusable_classifier", p => {
       const x = p.argument("x", Tensor.f32([2, 2]))
-      return p.nn.linear(x, { name: "head", out_features: 2 })
+      return linear({ out_features: 2 })({ x }, "head")
     })
     const loss = program("classification_loss", p => cross_entropy(
       p.argument("logits", Tensor.f32([2, 2])),
@@ -40,10 +41,8 @@ describe("Program optimization", () => {
   })
 
   test("materializes built-in loss templates in the losses namespace", () => {
-    const model = program("builtin_loss_model", p => p.nn.linear(
-      p.argument("x", Tensor.f32([2, 2])),
-      { name: "head", out_features: 2 },
-    ))
+    const head = linear({ out_features: 2 })
+    const model = program("builtin_loss_model", p => head({ x: p.argument("x", Tensor.f32([2, 2])) }, "head"))
     const optimizer = sgd({ learning_rate: 0.01 })
     const templates = [
       losses.cross_entropy(),

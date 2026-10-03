@@ -1,6 +1,7 @@
 import { add, cat, contiguous, embedding, index_select, layer_norm, masked_fill, mean, mul, slice, squeeze, unsqueeze } from "affon:ops"
 import { describe, expect, test } from "std:test"
 import { Session, Tensor, gradient, losses, optimize, program } from "affon:compute"
+import { linear } from "affon:nn"
 import { adam } from "affon:optim"
 
 describe("Program execution state and lowering", () => {
@@ -20,9 +21,8 @@ describe("Program execution state and lowering", () => {
     const foreignValue = secondSession.tensor([2, 3])
     expect(() => executable.run({ value: foreignValue })).toThrow()
 
-    const model = program("trainable_model", p => {
-      return p.nn.linear(p.argument("x", Tensor.f32([2, 2])), { name: "head", out_features: 2 })
-    })
+    const head = linear({ out_features: 2 })
+    const model = program("trainable_model", p => head({ x: p.argument("x", Tensor.f32([2, 2])) }, "head"))
     const step = optimize(model, losses.cross_entropy(), adam({ learning_rate: 0.01 }))
     const state = firstSession.initialize(step, { seed: 7 })
     const x = firstSession.tensor([[1, 0], [0, 1]])

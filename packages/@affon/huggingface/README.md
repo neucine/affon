@@ -121,7 +121,7 @@ contents; ViT scalar sizes and omitted preprocessing defaults are handled.
   checks, shared loading API, and domain processor integration.
 - `@affon/models` owns model definitions and shared blocks;
   `@affon/tokenizers` owns tokenization algorithms and tokenizer JSON support.
-- Tensor operations and program-bound layers belong in `affon:ops` and `p.nn`;
+- Tensor operations and parameterized layer factories belong in `affon:ops` and `affon:nn`;
   execution belongs in `affon:compute`, while low-level tensor
   persistence belongs in `affon:checkpoint`.
 - Reference generation, comparisons, diagnostics, and reports stay in

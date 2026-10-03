@@ -41,10 +41,16 @@ export interface Tensor {
 type FormalRole = "argument" | "parameter" | "state" | "constant" | "intermediate"
 type ProgramValue = TensorData
 type NodeKind = FormalRole | "operation" | "composition" | "gradient"
+export type ProgramPathSegment = Readonly<{
+  program: string
+  instance: string
+}>
+export type ProgramPath = readonly ProgramPathSegment[]
 
 type ProgramNode = Readonly<{
   id: number
   kind: NodeKind
+  path: ProgramPath
   role?: Exclude<FormalRole, "intermediate">
   name?: string
   provenance?: string
@@ -54,6 +60,12 @@ type ProgramNode = Readonly<{
   options?: Readonly<Record<string, unknown>>
   value?: ProgramValue
 }>
+
+const EMPTY_PROGRAM_PATH: ProgramPath = Object.freeze([])
+
+function composedPath(program: string, instance: string, path: ProgramPath): ProgramPath {
+  return Object.freeze([Object.freeze({ program, instance }), ...path])
+}
 
 export type ProgramFormal = Readonly<{
   name: string
@@ -88,7 +100,7 @@ const BUILDER = Symbol.for("affon.compute.program_builder")
 const EMIT = Symbol("affon.compute.emit_operation")
 const FORMAL_OPERATION = Symbol("affon.compute.formal_operation")
 const FORMAL_SCALAR = Symbol("affon.compute.formal_scalar")
-const optimizationSources = new WeakMap<Program, { loss: Program<readonly FormalTensor[], FormalTensor>; optimizer: Optimizer }>()
+const optimizationSources = new WeakMap<Program, { loss: Program<Record<string, FormalTensor>, FormalTensor>; optimizer: Optimizer }>()
 
 function freezeSpec(dtype: ProgramDType, shape: readonly number[], axes?: readonly string[]): TensorSpec {
   if (dtype !== "f32" && dtype !== "f64" && dtype !== "i64") throw new TypeError(`unsupported TensorSpec dtype: ${dtype}`)
@@ -466,9 +478,23 @@ export function $formalScalarLike(reference: FormalTensor, value: number): Forma
   return (reference as any).owner[FORMAL_SCALAR](reference, value)
 }
 
+/** Internal parameter-declaration hook used by affon:nn factories. */
+export function $formalParameter(reference: FormalTensor, name: string, spec: TensorSpec, options: { initializer?: Initializer } = {}): FormalTensor {
+  if (!(reference instanceof FormalTensor)) throw new TypeError("parameterized layers require a formal tensor binding")
+  return (reference as any).owner.parameter(name, spec, options)
+}
+
 function assertName(name: string, label: string): void {
   if (typeof name !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new TypeError(`${label} name must be a JavaScript identifier`)
 }
+
+function assertQualifiedName(name: string, label: string): void {
+  if (typeof name !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*(\.(?:[A-Za-z_][A-Za-z0-9_]*|[0-9]+))*$/.test(name)) {
+    throw new TypeError(`${label} name must be a dot-separated identifier`)
+  }
+}
+
+function qualifiedName(...segments: string[]): string { return segments.join(".") }
 
 function initializerSnapshot(value: Initializer, spec: TensorSpec): Initializer {
   if (!value || typeof value !== "object") throw new TypeError("initializer must be an Initializer descriptor")
@@ -497,66 +523,21 @@ function initializerSnapshot(value: Initializer, spec: TensorSpec): Initializer 
   }
 }
 
-export interface ProgramNN {
-  linear(value: FormalTensor, options: { name: string; out_features: number; bias?: boolean }): FormalTensor
-  embedding(indices: FormalTensor, options: { name: string; num_embeddings: number; embedding_dim: number; dtype?: ProgramDType }): FormalTensor
-  layer_norm(value: FormalTensor, options: { name: string; normalized_shape?: number; epsilon?: number; affine?: boolean }): FormalTensor
-}
-
-class BoundProgramNN implements ProgramNN {
-  constructor(private readonly builder: ProgramBuilder) {}
-
-  linear(value: FormalTensor, options: { name: string; out_features: number; bias?: boolean }): FormalTensor {
-    assertName(options.name, "linear")
-    const inFeatures = value.spec.shape.at(-1)
-    if (!Number.isSafeInteger(inFeatures) || !Number.isSafeInteger(options.out_features) || options.out_features <= 0) throw new TypeError("linear requires known positive feature sizes")
-    const weight = this.builder.parameter(`${options.name}_weight`, Tensor.spec(value.spec.dtype, [inFeatures!, options.out_features]), { initializer: { kind: "xavier_uniform" } })
-    let result = $formalOperation("matmul", [value, weight])
-    if (options.bias !== false) result = $formalOperation("add", [result, this.builder.parameter(`${options.name}_bias`, Tensor.spec(value.spec.dtype, [options.out_features]), { initializer: { kind: "zeros" } })])
-    return result
-  }
-
-  embedding(indices: FormalTensor, options: { name: string; num_embeddings: number; embedding_dim: number; dtype?: ProgramDType }): FormalTensor {
-    assertName(options.name, "embedding")
-    if (!Number.isSafeInteger(options.num_embeddings) || options.num_embeddings <= 0) throw new TypeError("embedding num_embeddings must be a positive integer")
-    if (!Number.isSafeInteger(options.embedding_dim) || options.embedding_dim <= 0) throw new TypeError("embedding embedding_dim must be a positive integer")
-    const table = this.builder.parameter(`${options.name}_weight`, Tensor.spec(options.dtype ?? "f32", [options.num_embeddings, options.embedding_dim]), { initializer: { kind: "normal", mean: 0, standard_deviation: 0.02 } })
-    return $formalOperation("embedding", [table, indices])
-  }
-
-  layer_norm(value: FormalTensor, options: { name: string; normalized_shape?: number; epsilon?: number; affine?: boolean }): FormalTensor {
-    assertName(options.name, "layer_norm")
-    const width = options.normalized_shape ?? value.spec.shape.at(-1) ?? 0
-    if (!Number.isSafeInteger(width) || width <= 0) throw new TypeError("layer_norm normalized_shape must be a positive integer")
-    if (value.spec.shape.at(-1) !== width) throw new TypeError("layer_norm normalized_shape must match the last input dimension")
-    const epsilon = options.epsilon ?? 1e-5
-    if (!Number.isFinite(epsilon) || epsilon <= 0) throw new TypeError("layer_norm epsilon must be positive and finite")
-    let result = $formalOperation("layer_norm", [value], [value.spec.shape.length - 1, epsilon])
-    if (options.affine !== false) {
-      const weight = this.builder.parameter(`${options.name}_weight`, Tensor.spec(value.spec.dtype, [width]), { initializer: { kind: "ones" } })
-      const bias = this.builder.parameter(`${options.name}_bias`, Tensor.spec(value.spec.dtype, [width]), { initializer: { kind: "zeros" } })
-      result = $formalOperation("add", [$formalOperation("mul", [result, weight]), bias])
-    }
-    return result
-  }
-
-}
-
 export class ProgramBuilder {
   readonly [BUILDER] = true
-  readonly nn: ProgramNN
   private readonly programName: string
   private readonly nodeList: ProgramNode[] = []
   private readonly names = new Map<string, ProgramNode>()
   private finished = false
 
-  constructor(name: string) { this.programName = name; this.nn = Object.freeze(new BoundProgramNN(this)) }
+  constructor(name: string) { this.programName = name }
 
-  private formal(role: "argument" | "parameter" | "state", name: string, spec: TensorSpec): FormalTensor {
+  private formal(role: "argument" | "parameter" | "state", name: string, spec: TensorSpec, path: ProgramPath = EMPTY_PROGRAM_PATH): FormalTensor {
     if (this.finished) throw new Error("ProgramBuilder may only be used inside program()")
-    assertName(name, role)
+    if (role === "argument") assertName(name, role)
+    else assertQualifiedName(name, role)
     if (this.names.has(name)) throw new TypeError(`duplicate formal name: ${name}`)
-    const node = Object.freeze({ id: this.nodeList.length, kind: role, role, name, provenance: `${this.programName}.${name}`, spec })
+    const node = Object.freeze({ id: this.nodeList.length, kind: role, path, role, name, provenance: `${this.programName}.${name}`, spec })
     this.nodeList.push(node)
     this.names.set(name, node)
     return new FormalTensor(this, node.id, spec, role, name)
@@ -575,23 +556,28 @@ export class ProgramBuilder {
     if (initializer) (this.nodeList[value.id] as any) = Object.freeze({ ...this.nodeList[value.id], options: Object.freeze({ initializer }) })
     return value
   }
-  constant(name: string, value: ProgramValue, spec: TensorSpec): FormalTensor {
-    assertName(name, "constant")
+  private constantAtPath(name: string, value: ProgramValue, spec: TensorSpec, path: ProgramPath): FormalTensor {
+    assertQualifiedName(name, "constant")
     if (this.names.has(name)) throw new TypeError(`duplicate formal name: ${name}`)
     const snapshot = snapshotTensorData(value, { label: "constant", finite: true, integer: spec.dtype === "i64" })
     const scalarShorthand = typeof snapshot.data === "number" && elementCount(spec.shape) === 1
     if (!scalarShorthand && (snapshot.shape.length !== spec.shape.length || snapshot.shape.some((size, index) => size !== spec.shape[index]))) {
       throw new TypeError("constant value does not match its TensorSpec")
     }
-    const node = Object.freeze({ id: this.nodeList.length, kind: "constant" as const, role: "constant" as const, name, provenance: `${this.programName}.${name}`, spec, value: snapshot.data })
+    const node = Object.freeze({ id: this.nodeList.length, kind: "constant" as const, path, role: "constant" as const, name, provenance: `${this.programName}.${name}`, spec, value: snapshot.data })
     this.nodeList.push(node)
     this.names.set(name, node)
     return new FormalTensor(this, node.id, spec, "constant", name)
   }
 
-  [EMIT](op: string, operands: readonly FormalTensor[], spec: TensorSpec, options?: Readonly<Record<string, unknown>>): FormalTensor {
+  constant(name: string, value: ProgramValue, spec: TensorSpec): FormalTensor {
+    return this.constantAtPath(name, value, spec, EMPTY_PROGRAM_PATH)
+  }
+
+  [EMIT](op: string, operands: readonly FormalTensor[], spec: TensorSpec, options?: Readonly<Record<string, unknown>>, path: ProgramPath = EMPTY_PROGRAM_PATH): FormalTensor {
+    if (this.finished) throw new Error("FormalTensor values may only be used inside program()")
     if (operands.some(value => !(value instanceof FormalTensor) || (value as any).owner !== this)) throw new TypeError(`${op} operands must belong to this ProgramBuilder`)
-    const node = Object.freeze({ id: this.nodeList.length, kind: "operation" as const, op, operands: Object.freeze(operands.map(value => value.id)), spec, ...(options ? { options: freezeMetadata({ ...options }) } : {}) })
+    const node = Object.freeze({ id: this.nodeList.length, kind: "operation" as const, path, op, operands: Object.freeze(operands.map(value => value.id)), spec, ...(options ? { options: freezeMetadata({ ...options }) } : {}) })
     this.nodeList.push(node)
     return new FormalTensor(this, node.id, spec, "intermediate")
   }
@@ -610,44 +596,31 @@ export class ProgramBuilder {
     return this[EMIT](op, [value], freezeSpec(dtype, shape), { axis: normalized, keep_dims })
   }
 
-  use(child: Program, options: { as: string; [name: string]: unknown }): FormalTensor | readonly FormalTensor[] {
-    if (!isProgram(child)) throw new TypeError("p.use expects a Program")
-    const { as, ...bindings } = options
-    assertName(as, "composition alias")
-    return this.compose(child, bindings as Record<string, FormalTensor>, as)
-  }
-
-  compose(child: Program, bindingsOrArguments: readonly FormalTensor[] | Record<string, FormalTensor>, alias = child.name): FormalTensor | readonly FormalTensor[] {
+  compose(child: Program, bindings: Record<string, FormalTensor>, instance = child.name): FormalTensor | readonly FormalTensor[] {
     const inspection = child.inspect()
     if (inspection.kind !== "authored") throw new TypeError("only authored Programs can be composed")
     const expectedNames = new Set(inspection.arguments.map(formal => formal.name))
-    if (Array.isArray(bindingsOrArguments)) {
-      if (bindingsOrArguments.length !== inspection.arguments.length) throw new TypeError(`${child.name} expects ${inspection.arguments.length} arguments`)
-    } else {
-      for (const name of Object.keys(bindingsOrArguments)) if (!expectedNames.has(name)) throw new TypeError(`unknown ${child.name} argument: ${name}`)
-    }
-    const supplied: Record<string, FormalTensor | undefined> = Array.isArray(bindingsOrArguments)
-      ? Object.fromEntries(inspection.arguments.map((formal, index) => [formal.name, bindingsOrArguments[index]]))
-      : bindingsOrArguments as Record<string, FormalTensor>
+    for (const name of Object.keys(bindings)) if (!expectedNames.has(name)) throw new TypeError(`unknown ${child.name} argument: ${name}`)
     const mapped = new Map<number, FormalTensor>()
     for (const formal of inspection.arguments) {
-      const value = supplied[formal.name]
+      const value = bindings[formal.name]
       if (!(value instanceof FormalTensor)) throw new TypeError(`${child.name} requires argument ${formal.name}`)
       if (!sameSpec(value.spec, formal.spec)) throw new TypeError(`${child.name}.${formal.name} does not match its TensorSpec`)
       mapped.set(inspection.nodes.find(node => node.name === formal.name && node.role === "argument")!.id, value)
     }
     for (const node of inspection.nodes) {
       if (mapped.has(node.id)) continue
+      const path = composedPath(child.name, instance, node.path)
       if (node.role === "parameter" || node.role === "state") {
-        const localName = `${alias}_${node.name}`
-        const formal = this.formal(node.role, localName, node.spec)
+        const localName = qualifiedName(instance, node.name!)
+        const formal = this.formal(node.role, localName, node.spec, path)
         if (node.options) (this.nodeList[formal.id] as any) = Object.freeze({ ...this.nodeList[formal.id], options: node.options })
         mapped.set(node.id, formal)
       } else if (node.role === "constant") {
-        const localName = `${alias}_${node.name}`
-        mapped.set(node.id, this.constant(localName, node.value!, node.spec))
+        const localName = qualifiedName(instance, node.name!)
+        mapped.set(node.id, this.constantAtPath(localName, node.value!, node.spec, path))
       } else if (node.operands) {
-        mapped.set(node.id, this[EMIT](node.op ?? "composition", node.operands.map(id => mapped.get(id)!), node.spec, { ...(node.options ?? {}), from: child.name, as: alias }))
+        mapped.set(node.id, this[EMIT](node.op ?? "composition", node.operands.map(id => mapped.get(id)!), node.spec, { ...(node.options ?? {}), from: child.name, instance }, path))
       }
     }
     const outputs = inspection.outputs.map(id => mapped.get(id)!)
@@ -657,9 +630,8 @@ export class ProgramBuilder {
   finish(): readonly ProgramNode[] { this.finished = true; return Object.freeze([...this.nodeList]) }
 }
 
-export interface Program<Args extends readonly unknown[] = readonly FormalTensor[], Out = FormalTensor | readonly FormalTensor[]> {
-  (...arguments_: Args): Out
-  (arguments_: Record<string, FormalTensor>): Out
+export interface Program<Bindings extends Record<string, FormalTensor> = Record<string, FormalTensor>, Out = FormalTensor | readonly FormalTensor[]> {
+  (bindings: Bindings, instance?: string): Out
   readonly name: string
   readonly provenance: string
   inspect(): ProgramInspection
@@ -707,6 +679,7 @@ function createProgram(name: string, kind: ProgramInspection["kind"], nodes: rea
     kind,
     nodes: nodes.map(node => ({
       kind: node.kind,
+      path: node.path,
       role: node.role,
       name: node.name,
       provenance: node.provenance,
@@ -733,8 +706,12 @@ function createProgram(name: string, kind: ProgramInspection["kind"], nodes: rea
   })
   const callable = ((...args: unknown[]) => {
     if (!activeBuilder) throw new TypeError("Programs are symbolic; call them only while authoring another program, then execute a compiled Executable")
-    const bindings = args.length === 1 && args[0] && typeof args[0] === "object" && !(args[0] instanceof FormalTensor) ? args[0] : args
-    return activeBuilder.compose(callable as Program, bindings as any)
+    if (args.length < 1 || args.length > 2 || !args[0] || typeof args[0] !== "object" || Array.isArray(args[0]) || args[0] instanceof FormalTensor) {
+      throw new TypeError(`${name} expects named bindings and an optional instance name`)
+    }
+    const instance = args[1] ?? name
+    assertName(instance as string, "composition instance")
+    return activeBuilder.compose(callable as Program, args[0] as Record<string, FormalTensor>, instance as string)
   }) as InternalProgram
   Object.defineProperties(callable, {
     [PROGRAM]: { value: true },
@@ -745,7 +722,7 @@ function createProgram(name: string, kind: ProgramInspection["kind"], nodes: rea
   return Object.freeze(callable)
 }
 
-export function program<Out extends FormalTensor | readonly FormalTensor[]>(name: string, author: (p: ProgramBuilder) => Out): Program<readonly FormalTensor[], Out> {
+export function program<Out extends FormalTensor | readonly FormalTensor[]>(name: string, author: (p: ProgramBuilder) => Out): Program<Record<string, FormalTensor>, Out> {
   assertName(name, "program")
   if (typeof author !== "function") throw new TypeError("program expects an authoring callback")
   if (activeBuilder) throw new Error("program() cannot be nested; compose an existing Program by calling it")
@@ -756,15 +733,15 @@ export function program<Out extends FormalTensor | readonly FormalTensor[]>(name
     const outputs = Array.isArray(result) ? result : [result]
     if (outputs.length === 0 || outputs.some(value => !(value instanceof FormalTensor))) throw new TypeError("program callback must return a FormalTensor or a non-empty FormalTensor array")
     const nodes = builder.finish()
-    return createProgram(name, "authored", nodes, outputs.map(value => value.id)) as Program<readonly FormalTensor[], Out>
+    return createProgram(name, "authored", nodes, outputs.map(value => value.id)) as Program<Record<string, FormalTensor>, Out>
   } finally {
     activeBuilder = null
   }
 }
 
-export function gradient(loss: Program<readonly FormalTensor[], FormalTensor>, independent_variables: string): Program<readonly FormalTensor[], FormalTensor>
-export function gradient(loss: Program<readonly FormalTensor[], FormalTensor>, independent_variables: readonly string[]): Program
-export function gradient(loss: Program<readonly FormalTensor[], FormalTensor>, independent_variables: string | readonly string[]): Program {
+export function gradient(loss: Program<Record<string, FormalTensor>, FormalTensor>, independent_variables: string): Program<Record<string, FormalTensor>, FormalTensor>
+export function gradient(loss: Program<Record<string, FormalTensor>, FormalTensor>, independent_variables: readonly string[]): Program
+export function gradient(loss: Program<Record<string, FormalTensor>, FormalTensor>, independent_variables: string | readonly string[]): Program {
   if (!isProgram(loss)) throw new TypeError("gradient expects a Program")
   const source = loss.inspect()
   const output = source.nodes[source.outputs[0]]
@@ -775,7 +752,8 @@ export function gradient(loss: Program<readonly FormalTensor[], FormalTensor>, i
   const outputs = names.map(name => {
     const formal = source.parameters.find(parameter => parameter.name === name) ?? source.arguments.find(argument => argument.name === name)
     if (!formal) throw new TypeError(`unknown independent variable: ${name}`)
-    const node = Object.freeze({ id: nodes.length, kind: "gradient" as const, op: "gradient", operands: Object.freeze([source.outputs[0]]), spec: formal.spec, options: Object.freeze({ with_respect_to: formal.provenance }) })
+    const formalNode = source.nodes.find(node => node.provenance === formal.provenance)!
+    const node = Object.freeze({ id: nodes.length, kind: "gradient" as const, path: formalNode.path, op: "gradient", operands: Object.freeze([source.outputs[0]]), spec: formal.spec, options: Object.freeze({ with_respect_to: formal.provenance }) })
     nodes.push(node)
     return node.id
   })
@@ -916,9 +894,9 @@ function optimizerSnapshot(value: Optimizer): Optimizer {
 }
 
 function combineModelAndLoss(
-  model: Program<readonly FormalTensor[], FormalTensor | readonly FormalTensor[]>,
-  loss: Program<readonly FormalTensor[], FormalTensor>,
-): Program<readonly FormalTensor[], FormalTensor> {
+  model: Program<Record<string, FormalTensor>, FormalTensor | readonly FormalTensor[]>,
+  loss: Program<Record<string, FormalTensor>, FormalTensor>,
+): Program<Record<string, FormalTensor>, FormalTensor> {
   if (!isProgram(model) || !isProgram(loss)) {
     throw new TypeError("optimize(model, loss, optimizer) expects model and loss Programs")
   }
@@ -974,13 +952,13 @@ function combineModelAndLoss(
     "authored",
     Object.freeze(nodes),
     lossInspection.outputs.map(id => mapped.get(id)!),
-  ) as Program<readonly FormalTensor[], FormalTensor>
+  ) as Program<Record<string, FormalTensor>, FormalTensor>
 }
 
 function lossProgramFromTemplate(
-  model: Program<readonly FormalTensor[], FormalTensor | readonly FormalTensor[]>,
+  model: Program<Record<string, FormalTensor>, FormalTensor | readonly FormalTensor[]>,
   template: LossProgramTemplate,
-): Program<readonly FormalTensor[], FormalTensor> {
+): Program<Record<string, FormalTensor>, FormalTensor> {
   const inspection = model.inspect()
   if (inspection.outputs.length !== 1) throw new TypeError(`${template.kind} requires a model with one output`)
   const outputSpec = inspection.nodes[inspection.outputs[0]].spec
@@ -1019,15 +997,15 @@ function lossProgramFromTemplate(
 }
 
 export function optimize(
-  model: Program<readonly FormalTensor[], FormalTensor | readonly FormalTensor[]>,
-  loss: Program<readonly FormalTensor[], FormalTensor> | LossProgramTemplate,
+  model: Program<Record<string, FormalTensor>, FormalTensor | readonly FormalTensor[]>,
+  loss: Program<Record<string, FormalTensor>, FormalTensor> | LossProgramTemplate,
   optimizer: Optimizer,
-): Program<readonly FormalTensor[], FormalTensor>
+): Program<Record<string, FormalTensor>, FormalTensor>
 export function optimize(
-  model: Program<readonly FormalTensor[], FormalTensor | readonly FormalTensor[]>,
-  loss: Program<readonly FormalTensor[], FormalTensor> | LossProgramTemplate,
+  model: Program<Record<string, FormalTensor>, FormalTensor | readonly FormalTensor[]>,
+  loss: Program<Record<string, FormalTensor>, FormalTensor> | LossProgramTemplate,
   optimizer: Optimizer,
-): Program<readonly FormalTensor[], FormalTensor> {
+): Program<Record<string, FormalTensor>, FormalTensor> {
   if (!isProgram(model)) throw new TypeError("optimize expects a model Program")
   if (!isProgram(loss) && (!loss || typeof loss !== "object")) {
     throw new TypeError("optimize expects a loss Program or built-in loss template")
@@ -1040,7 +1018,7 @@ export function optimize(
   if (source.parameters.length === 0) throw new TypeError("optimize requires at least one parameter")
   const snapshot = optimizerSnapshot(optimizer)
   const transition = Object.freeze({ kind: "optimize" as const, optimizer: snapshot, parameters: Object.freeze(source.parameters.map(parameter => parameter.provenance)) })
-  const result = createProgram(`${model.name}_${lossProgram.name}_${snapshot.kind}`, "optimize", source.nodes, source.outputs, Object.freeze([...source.transitions, transition])) as Program<readonly FormalTensor[], FormalTensor>
+  const result = createProgram(`${model.name}_${lossProgram.name}_${snapshot.kind}`, "optimize", source.nodes, source.outputs, Object.freeze([...source.transitions, transition])) as Program<Record<string, FormalTensor>, FormalTensor>
   optimizationSources.set(result, { loss: combined, optimizer: snapshot })
   return result
 }
@@ -1220,7 +1198,7 @@ export class ExecutionState {
 }
 
 export class Executable<Out extends FormalTensor | readonly FormalTensor[] = FormalTensor | readonly FormalTensor[]> {
-  readonly program: Program<readonly FormalTensor[], Out>
+  readonly program: Program<Record<string, FormalTensor>, Out>
   readonly session: Session
   readonly argument_names: readonly string[]
   readonly argument_specs: readonly ProgramFormal[]
@@ -1235,7 +1213,7 @@ export class Executable<Out extends FormalTensor | readonly FormalTensor[] = For
   private readonly optimization?: { loss: Executable; gradient: Executable; optimizer: Optimizer }
   #disposed = false
 
-  constructor(session: Session, source: Program<readonly FormalTensor[], Out>, nativeExecutable: any, optimization?: { loss: Executable; gradient: Executable; optimizer: Optimizer }) {
+  constructor(session: Session, source: Program<Record<string, FormalTensor>, Out>, nativeExecutable: any, optimization?: { loss: Executable; gradient: Executable; optimizer: Optimizer }) {
     const inspection = source.inspect()
     this.program = source
     this.session = session
@@ -1362,7 +1340,7 @@ export class Session {
     this.adopt(value)
     return value as Tensor
   }
-  compile<Out extends FormalTensor | readonly FormalTensor[]>(source: Program<readonly FormalTensor[], Out>): Executable<Out> {
+  compile<Out extends FormalTensor | readonly FormalTensor[]>(source: Program<Record<string, FormalTensor>, Out>): Executable<Out> {
     if (this.#disposed) throw new Error("Session has been disposed")
     if (!isProgram(source)) throw new TypeError("Session.compile expects a Program")
     const cached = this.#cache.get(source)

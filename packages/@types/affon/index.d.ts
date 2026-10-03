@@ -3,6 +3,7 @@
 /// <reference path="./affon-compute-program.d.ts" />
 /// <reference path="./affon-compute-native.d.ts" />
 /// <reference path="./affon-ops.d.ts" />
+/// <reference path="./affon-nn.d.ts" />
 /// <reference path="./affon-optim-program.d.ts" />
 /// <reference path="./affon-checkpoint.d.ts" />
 /// <reference path="./affon-dataset.d.ts" />

@@ -20,13 +20,15 @@ builder declares inputs by role, and `affon:ops` supplies the computation:
 
 ```ts
 import { Tensor, program } from "affon:compute"
+import { linear } from "affon:nn"
 
+const head = linear({ out_features: 10 })
 const classifier = program("classifier", p => {
   const image = p.argument(
     "image",
     Tensor.f32([32, 784], { axes: ["batch", "feature"] }),
   )
-  return p.nn.linear(image, { name: "head", out_features: 10 })
+  return head({ x: image }, "head")
 })
 ```
 
@@ -63,15 +65,18 @@ import { add } from "affon:ops"
 
 const ensemble = program("ensemble", p => {
   const image = p.argument("image", Tensor.f32([32, 784]))
-  const first = classifier(image)
-  const second = p.use(classifier, { as: "second", image })
+  const first = classifier({ image })
+  const second = classifier({ image }, "second")
   return add(first, second)
 })
 ```
 
-`p.use` is the explicit named form. Its `as` alias namespaces the child
-parameters, state, and constants. Initializers and semantic metadata survive
-composition.
+A Program call accepts named bindings and an optional instance name. Without
+one, the child Program name is used. The instance name namespaces child parameters,
+state, and constants with dot-separated names. Initializers and semantic metadata
+survive composition. Inspection automatically records each copied node's nested
+composition `path`; authors never set paths manually. The executable graph
+remains flat and retains ordinary operand IDs.
 
 Call `program.inspect()` to read immutable arguments, parameters, model state,
 constants, graph nodes, outputs, and declared transitions. Calling a Program
@@ -135,9 +140,9 @@ import { cross_entropy } from "affon:ops"
 const loss = program("classifier_loss", p => {
   const image = p.argument("image", Tensor.f32([32, 784]))
   const labels = p.argument("labels", Tensor.i64([32]))
-  return cross_entropy(classifier(image), labels)
+  return cross_entropy(classifier({ image }), labels)
 })
-const gradients = gradient(loss, ["classifier_head_weight", "classifier_head_bias"])
+const gradients = gradient(loss, ["classifier.head.weight", "classifier.head.bias"])
 
 const lossExecutable = session.compile(loss)
 const gradientExecutable = session.compile(gradients)

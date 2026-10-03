@@ -19,6 +19,7 @@ const sources = [_]hao.SourceModule{
     .{ .specifier = "affon:compute", .source = @embedFile("js/compute/public.ts") },
     .{ .specifier = "affon:_internal/compute/program", .source = @embedFile("js/compute/program.ts") },
     .{ .specifier = "affon:ops", .source = @embedFile("js/ops.ts") },
+    .{ .specifier = "affon:nn", .source = @embedFile("js/nn.ts") },
     .{ .specifier = "affon:optim", .source = @embedFile("js/optim.ts") },
     .{ .specifier = "affon:compute/persistence.ts", .source = @embedFile("js/compute/persistence.ts") },
     .{ .specifier = "affon:checkpoint", .source = @embedFile("js/checkpoint/index.ts") },

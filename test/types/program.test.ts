@@ -16,6 +16,7 @@ import {
 } from "affon:compute"
 import { accumulate, adam, scheduled, schedules, sgd, type AccumulatingOptimizer, type Adam, type Optimizer, type ScheduledOptimizer, type SGD } from "affon:optim"
 import * as compute from "affon:compute"
+import { linear, type Layer } from "affon:nn"
 
 // @ts-expect-error The removed compute compatibility module must stay unavailable.
 import "affon:compute/legacy"
@@ -60,13 +61,13 @@ const defaultRandom = Tensor.randn([2, 3], { seed: 7 })
 Tensor.bool([2])
 const classifier = program("classifier", p => {
   const value = p.argument("image", image)
-  return p.nn.linear(value, { name: "projection", out_features: 10 })
+  return linear({ out_features: 10 })({ x: value }, "projection")
 })
 const loss = program("classifier_loss", p => {
-  const logits = classifier(p.argument("image", image))
+  const logits = classifier({ image: p.argument("image", image) })
   return cross_entropy(logits, p.argument("labels", Tensor.i64([32])))
 })
-const derivatives = gradient(loss, ["classifier_projection_weight", "classifier_projection_bias"])
+const derivatives = gradient(loss, ["classifier.projection.weight", "classifier.projection.bias"])
 const optimizer = adam({ learning_rate: 0.001 })
 const momentumOptimizer = sgd({ momentum: 0.9 })
 const accumulatingOptimizer = accumulate(optimizer, { steps: 4 })
@@ -145,11 +146,16 @@ assertType<IsExact<(typeof executionState.rng_state)[string], number>>()
 
 program("composed", p => {
   const value = p.argument("image", image)
-  const ordinary = classifier(value)
-  const explicit = p.use(classifier, { as: "second", image: value })
+  // @ts-expect-error Programs compose through named bindings.
+  classifier(value)
+  const ordinary = classifier({ image: value })
+  const explicit = classifier({ image: value }, "second")
   void explicit
   return ordinary as FormalTensor
 })
+
+const projection: Layer<{ x: FormalTensor }> = linear({ out_features: 4 })
+program("layer_factory", p => projection({ x: p.argument("x", Tensor.f32([2, 3])) }, "head"))
 
 program("roles", p => {
   const value = p.argument("value", Tensor.f32([4]))
@@ -169,6 +175,10 @@ program("ops", p => {
   value.add(value)
   // @ts-expect-error Program builders declare values; operations live in affon:ops.
   p.cat([value, value])
+  // @ts-expect-error Neural-network layers are ordinary factories from affon:nn.
+  p.nn.linear(value, { name: "removed", out_features: 2 })
+  // @ts-expect-error Program composition is expressed by calling the Program.
+  p.use(classifier, { as: "removed", image: value })
   return reshape(joined, [2, 2])
 })
 

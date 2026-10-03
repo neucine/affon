@@ -1,12 +1,17 @@
 import { describe, expect, test } from "std:test"
 import { Session, Tensor, program } from "affon:compute"
 import * as compute from "affon:compute"
+import * as nn from "affon:nn"
 import * as optim from "affon:optim"
 
 describe("Program public surface and values", () => {
   test("exports only constructible public runtime entry points", () => {
     expect((compute as any).default).toBe(undefined)
+    expect((nn as any).default).toBe(undefined)
     expect((optim as any).default).toBe(undefined)
+    expect(typeof nn.linear).toBe("function")
+    expect(typeof nn.embedding).toBe("function")
+    expect(typeof nn.layer_norm).toBe("function")
     expect((compute as any).FormalTensor).toBe(undefined)
     expect((compute as any).ProgramBuilder).toBe(undefined)
     expect((compute as any).Executable).toBe(undefined)

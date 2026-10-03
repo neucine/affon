@@ -11,7 +11,7 @@ reusable computation explicit as a `Program`, then runs that Program in a
 | tensor shape and dtype declaration | `Tensor.f32(shape)`, `Tensor.i64(shape)` |
 | model input | `p.argument(name, spec)` |
 | trainable value | `p.parameter(name, spec, options)` |
-| layer declaration | `p.nn.linear(...)`, `p.nn.embedding(...)` |
+| layer declaration | `linear(options)(bindings, name?)`, `embedding(options)(bindings, name?)` |
 | tensor function | `affon:ops` |
 | reusable model | `program(name, p => output)` |
 | device context | `new Session({ device })` |
@@ -70,23 +70,21 @@ Affon:
 
 ```ts
 import { Tensor, program } from 'affon:compute'
+import { linear } from 'affon:nn'
 import { gelu } from 'affon:ops'
 
+const hiddenLayer = linear({ out_features: 32 })
+const outputLayer = linear({ out_features: 2 })
 const model = program('classifier', p => {
   const x = p.argument('x', Tensor.f32([1, 4]))
-  const hidden = gelu(p.nn.linear(x, {
-    name: 'hidden',
-    out_features: 32,
-  }))
-  return p.nn.linear(hidden, {
-    name: 'output',
-    out_features: 2,
-  })
+  const hidden = gelu(hiddenLayer({ x }, 'hidden'))
+  return outputLayer({ x: hidden }, 'output')
 })
 ```
 
-`p.nn` is builder-bound because these calls declare named parameters in the
-active Program. General operations live in `affon:ops`; there are no canonical
+Layer factories infer the owning Program from their formal tensor bindings and
+declare dotted parameter names such as `hidden.weight`. General operations live
+in `affon:ops`; there are no canonical
 tensor methods such as `x.matmul(y)` and no global operation exports from
 `affon:compute`.
 

@@ -192,6 +192,7 @@ const JsonSpec = struct {
 const JsonNode = struct {
     id: usize,
     kind: []const u8,
+    path: ?std.json.Value = null,
     role: ?[]const u8 = null,
     name: ?[]const u8 = null,
     provenance: ?[]const u8 = null,

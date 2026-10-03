@@ -9,8 +9,8 @@ follow ownership and dependencies:
 - `@affon/onnx`: prepared graph import and execution.
 
 Model families belong inside `models`; shared components belong in `models/src/shared`.
-Generation belongs with the models that support it. Program-bound layers live
-under `p.nn`, tensor operations in `affon:ops`, execution in `affon:compute`, and
+Generation belongs with the models that support it. Parameterized layer factories
+live in `affon:nn`, tensor operations in `affon:ops`, execution in `affon:compute`, and
 basic data operations in `affon:dataset`. Complete training and serving workflows
 belong in `apps/`.
 

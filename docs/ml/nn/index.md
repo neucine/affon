@@ -1,7 +1,7 @@
 # NN Concepts
 
-Neural-network authoring lives on the active Program builder under `p.nn`.
-These helpers declare parameterized operations directly in the Program;
+Neural-network authoring uses callable factories from `affon:nn`.
+These factories declare parameterized operations in the Program that owns their bound tensors;
 losses, execution, and differentiation remain Program-level concerns.
 
 ## Topic Guides
@@ -17,18 +17,15 @@ losses, execution, and differentiation remain Program-level concerns.
 
 ```ts
 import { program, Tensor } from 'affon:compute'
+import { linear } from 'affon:nn'
 import { relu } from 'affon:ops'
 
+const hiddenLayer = linear({ out_features: 256 })
+const outputLayer = linear({ out_features: 10 })
 const classifier = program('classifier', p => {
   const input = p.argument('input', Tensor.f32([32, 768]))
-  const hidden = relu(p.nn.linear(input, {
-    name: 'hidden',
-    out_features: 256,
-  }))
-  return p.nn.linear(hidden, {
-    name: 'output',
-    out_features: 10,
-  })
+  const hidden = relu(hiddenLayer({ x: input }, 'hidden'))
+  return outputLayer({ x: hidden }, 'output')
 })
 ```
 
@@ -42,11 +39,13 @@ Standard training losses are available as templates from the `losses`
 namespace in `affon:compute` and are combined with a reusable model through
 `optimize(model, loss, optimizer)`.
 
-Reusable components are ordinary functions that receive a `ProgramBuilder`
-and call its `p.nn` methods. This keeps one spelling for each NN operation.
+Reusable components are ordinary functions. A factory separates fixed
+hyperparameters from the named tensor bindings and optional instance name used
+when it expands.
 
-Callable module objects are not part of the public API. Model structure,
-parameters, state, differentiation, and optimization are expressed as Programs.
+Stateful module objects are not part of the public API. Layer factories are
+ordinary functions; inspectable model structure, parameters, state,
+differentiation, and optimization are expressed as Programs.
 
 ## Related Docs
 

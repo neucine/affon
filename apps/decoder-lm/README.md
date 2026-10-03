@@ -20,8 +20,12 @@ const logits = executable.run({ token_ids }, state)
 
 Training, evaluation, checkpointing, and generation receive the model, Session,
 and ExecutionState explicitly. Inspect authored structure with
-`model.forward(batch, length).inspect()`; there is no eager/captured-graph mode
-or Module-shaped compatibility object.
+`model.forward(batch, length).inspect()`. Decoder blocks, normalization,
+projections, and causal attention are reusable child Programs, so every copied
+node carries an automatically generated composition path such as
+`layer_0 (decoder_block) / attention (decoder_attention)`. Embeddings and the
+tied language-model head are composed Programs too. There is no eager/captured-
+graph mode or Module-shaped compatibility object.
 
 Corpus preparation and token-window persistence live in `src/data`. Complete
 workflow configuration is handled by `src/workflow.ts`.

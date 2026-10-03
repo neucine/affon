@@ -14,7 +14,7 @@ Program -> Session.compile -> Executable.run -> evaluated Tensor
   `optimize(...)`.
 
 Start with [Compute Programs](./compute.md), then consult the
-[Compute Kernel Matrix](./kernel-matrix.md) for backend coverage and
+[Backend Support](./backend-support.md) for device contracts and
 [Error Handling](./errors.md) for failure and cleanup patterns.
 
 ## Smallest useful example

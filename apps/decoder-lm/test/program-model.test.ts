@@ -10,7 +10,22 @@ describe('decoder-lm Program model', () => {
     const forward = model.forward(2, 3)
     const loss = model.loss(2, 3)
     const step = model.train(2, 3, adam({ learning_rate: 0.001 }))
-    expect(forward.inspect().parameters.length).toBe(20)
+    const inspection = forward.inspect()
+    expect(inspection.parameters.length).toBe(20)
+    expect(inspection.nodes.find(node => node.path.some(segment => segment.program === 'decoder_embeddings'))!.path).toEqual([
+      { program: 'decoder_embeddings', instance: 'embeddings' },
+    ])
+    expect(inspection.nodes.find(node => node.name === 'layer_0.attention_norm.weight')!.path).toEqual([
+      { program: 'decoder_block', instance: 'layer_0' },
+      { program: 'decoder_norm', instance: 'attention_norm' },
+    ])
+    expect(inspection.nodes.find(node => node.path.some(segment => segment.program === 'decoder_attention'))!.path).toEqual([
+      { program: 'decoder_block', instance: 'layer_0' },
+      { program: 'decoder_attention', instance: 'attention' },
+    ])
+    expect(inspection.nodes[inspection.outputs[0]].path).toEqual([
+      { program: 'decoder_tied_head', instance: 'lm_head' },
+    ])
     expect(loss.inspect().parameters).toEqual([])
     expect(loss.inspect().arguments.map(value => value.name)).toEqual(['logits', 'labels'])
     expect(step.inspect().transitions[0].parameters.length).toBe(20)
