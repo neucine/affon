@@ -1,5 +1,6 @@
 import fs from 'std:fs'
 import { describe, expect, test } from 'std:test'
+import { Tensor, program } from 'affon:compute'
 
 import { loadDecoderLMWorkflowConfig, trainDecoderLMFromConfig } from '../src/index.ts'
 import type { DecoderLMWorkflowConfig } from '../src/workflow.ts'
@@ -29,7 +30,7 @@ describe('@affon/decoder-lm Program workflow', () => {
     const value = fixture('train')
     const loaded = loadDecoderLMWorkflowConfig(value.configPath)
     const result = trainDecoderLMFromConfig(loaded)
-    expect(result.summary.program.name).toBe('decoder_model')
+    expect(result.summary.program.name).toBe('decoder_lm')
     expect(result.summary.program.parameters > 0).toBe(true)
     expect(result.summary.history.length).toBe(1)
     expect(Number.isFinite(result.summary.finalTrainLoss)).toBe(true)
@@ -40,8 +41,11 @@ describe('@affon/decoder-lm Program workflow', () => {
   test('uses Session compilation for the requested Program', () => {
     const value = fixture('compiled')
     const result = trainDecoderLMFromConfig(value.config)
-    expect(result.session.compile(result.model.forward(1, 3)).program.inspect().kind).toBe('authored')
-    expect(result.summary.program.provenance).toBe(result.model.forward(2, 3).provenance)
+    const inference = program('workflow_inference', p => result.model({
+      token_ids: p.argument('token_ids', Tensor.i64([1, 3], { axes: ['batch', 'token'] })),
+    }, 'decoder'))
+    expect(result.session.compile(inference).program.inspect().kind).toBe('authored')
+    expect(result.summary.program.parameters).toBe(inference.inspect().parameters.length)
     result.state.dispose(); result.session.dispose()
   })
 

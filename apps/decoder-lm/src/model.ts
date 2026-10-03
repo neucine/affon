@@ -1,6 +1,6 @@
 import { add, contiguous, div, embedding as embedding_lookup, gelu, masked_fill, matmul, reshape, softmax, transpose } from 'affon:ops'
-import { Tensor, program, type FormalTensor, type Program } from 'affon:compute'
-import { cross_entropy, embedding, layer_norm, linear, type LossCallable } from 'affon:nn'
+import { Tensor, program, type Callable, type FormalTensor, type Program } from 'affon:compute'
+import { embedding, layer_norm, linear } from 'affon:nn'
 
 export interface DecoderModelOptions {
   numLayers: number
@@ -13,16 +13,14 @@ export interface DecoderModelOptions {
   tieEmbeddings?: boolean
 }
 
-export interface DecoderModel {
+export interface DecoderModel extends Callable<{ token_ids: FormalTensor }, FormalTensor> {
   readonly vocabSize: number
   readonly dModel: number
   readonly options: Readonly<DecoderModelOptions>
-  readonly objective: LossCallable
-  forward(batchSize: number, sequenceLength: number): DecoderProgram
-  loss(batchSize: number, sequenceLength: number): DecoderProgram
 }
 
 type DecoderProgram = Program<Record<string, FormalTensor>, FormalTensor>
+const programCaches = new WeakMap<DecoderModel, Map<string, DecoderProgram>>()
 
 function positiveInteger(value: number, name: string) {
   if (!Number.isInteger(value) || value <= 0) throw new AffonError('invalid_arg', `${name} must be a positive integer`)
@@ -42,15 +40,13 @@ export function DecoderModel(vocabSize: number, dModel: number, options: Decoder
   if (options.dropout !== undefined && options.dropout !== 0) throw new AffonError('invalid_arg', 'Program decoder does not support dropout')
 
   const opts = Object.freeze({ ...options })
-  const forwardPrograms = new Map<string, DecoderProgram>()
-  const lossPrograms = new Map<string, DecoderProgram>()
+  const components = new Map<string, DecoderProgram>()
   const project = linear({ out_features: dModel })
   const expand = linear({ out_features: opts.hiddenDim })
   const contract = linear({ out_features: dModel })
   const normalize = layer_norm({ normalized_shape: dModel })
   const positionEmbedding = embedding({ num_embeddings: opts.maxSeqLen, embedding_dim: dModel })
   const languageModelHead = opts.tieEmbeddings ? undefined : linear({ out_features: vocabSize })
-  const objective = cross_entropy()
 
   function dimensions(batch: number, length: number) {
     positiveInteger(batch, 'DecoderModel batch size')
@@ -58,10 +54,10 @@ export function DecoderModel(vocabSize: number, dModel: number, options: Decoder
     if (length > opts.maxSeqLen) throw new AffonError('invalid_shape', 'DecoderModel sequence exceeds maxSeqLen')
   }
 
-  function core(batch: number, length: number): DecoderProgram {
+  function core(batch: number, length: number, axes?: readonly string[]): DecoderProgram {
     dimensions(batch, length)
-    const key = `core:${batch}x${length}`
-    const cached = forwardPrograms.get(key)
+    const key = `core:${batch}x${length}:${axes?.join(',') ?? ''}`
+    const cached = components.get(key)
     if (cached) return cached
     const headWidth = dModel / opts.numHeads
     const tiedHead = opts.tieEmbeddings ? program('decoder_tied_head', p => matmul(
@@ -95,7 +91,7 @@ export function DecoderModel(vocabSize: number, dModel: number, options: Decoder
       return add(x, contiguous(contracted))
     })
     const source = program('decoder_model', p => {
-      const ids = p.argument('token_ids', Tensor.i64([batch, length], { axes: ['batch', 'token'] }))
+      const ids = p.argument('token_ids', Tensor.i64([batch, length], axes ? { axes } : undefined))
       // The token table is owned here because the tied output head deliberately shares it.
       const tokenEmbedding = p.parameter('token_embedding.weight', Tensor.f32([vocabSize, dModel]), {
         initializer: { kind: 'normal', standard_deviation: 0.02 },
@@ -115,30 +111,44 @@ export function DecoderModel(vocabSize: number, dModel: number, options: Decoder
       if (tiedHead) return tiedHead({ input: normalized, token_embedding: tokenEmbedding }, 'lm_head')
       return languageModelHead!({ x: normalized }, 'lm_head')
     })
-    forwardPrograms.set(key, source)
+    components.set(key, source)
     return source
   }
 
-  function loss(batch: number, length: number): DecoderProgram {
-    dimensions(batch, length)
-    const key = `${batch}x${length}`
-    const cached = lossPrograms.get(key)
-    if (cached) return cached
-    const source = program('decoder_loss', p => {
-      const logits = p.argument('logits', Tensor.f32([batch, length, vocabSize]))
-      const labels = p.argument('labels', Tensor.i64([batch, length], { axes: ['batch', 'token'] }))
-      return objective({ input: logits, target: labels }, 'objective')
-    })
-    lossPrograms.set(key, source)
-    return source
-  }
-
-  return Object.freeze({
-    vocabSize,
-    dModel,
-    options: opts,
-    objective,
-    forward: (batchSize: number, sequenceLength: number) => core(batchSize, sequenceLength),
-    loss,
+  const callable = ((bindings: { token_ids: FormalTensor }, instance = 'decoder') => {
+    if (!bindings || typeof bindings !== 'object' || Array.isArray(bindings) || Object.keys(bindings).length !== 1 || !('token_ids' in bindings)) {
+      throw new TypeError('DecoderModel expects only the token_ids binding')
+    }
+    const ids = bindings.token_ids
+    if (!ids?.spec || ids.spec.dtype !== 'i64' || ids.spec.shape.length !== 2) {
+      throw new TypeError('DecoderModel token_ids must be an i64 tensor shaped [batch, sequence]')
+    }
+    const [batch, length] = ids.spec.shape
+    return core(batch, length, ids.spec.axes)({ token_ids: ids }, instance)
+  }) as DecoderModel
+  Object.defineProperties(callable, {
+    vocabSize: { value: vocabSize, enumerable: true },
+    dModel: { value: dModel, enumerable: true },
+    options: { value: opts, enumerable: true },
   })
+  return Object.freeze(callable)
+}
+
+/** Internal execution boundary used by the app; public examples author this Program explicitly. */
+export function decoderProgram(model: DecoderModel, batch: number, length: number): DecoderProgram {
+  positiveInteger(batch, 'decoderProgram batch size')
+  positiveInteger(length, 'decoderProgram sequence length')
+  let programs = programCaches.get(model)
+  if (!programs) {
+    programs = new Map()
+    programCaches.set(model, programs)
+  }
+  const key = `${batch}x${length}`
+  const cached = programs.get(key)
+  if (cached) return cached
+  const source = program('decoder_lm', p => model({
+    token_ids: p.argument('token_ids', Tensor.i64([batch, length], { axes: ['batch', 'token'] })),
+  }, 'decoder'))
+  programs.set(key, source)
+  return source
 }

@@ -1,4 +1,4 @@
-import { DecoderModel } from '../src/model.ts'
+import { DecoderModel, decoderProgram } from '../src/model.ts'
 import { Session } from 'affon:compute'
 import { pack_token_windows } from '../src/data/index.ts'
 import { createLookupTokenizer } from '@affon/tokenizers'
@@ -37,7 +37,7 @@ const model = DecoderModel(tokenizer.vocabSize, 16, {
   maxSeqLen: 64,
 })
 const session = new Session()
-const state = session.initialize(model.forward(2, 2))
+const state = session.initialize(decoderProgram(model, 2, 2))
 const runtime = { model, session, state }
 
 const evalLoss = evaluateDecoderLM(runtime, tokenWindows, { batchSize: 2 })

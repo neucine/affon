@@ -37,6 +37,12 @@ child's parameters, state, and constants. It also automatically extends the
 inspected composition path of every copied child node. Nested uses therefore
 remain groupable without adding group nodes or manual path annotations.
 
+A callable may also read `value.spec`, author or select a cached
+shape-specialized child Program, and compose it during the same call. This is
+useful for complete models whose batch or sequence dimensions come from their
+bindings: the model remains `model({ input }, 'optional.name')`, while the outer
+`program(...)` remains the explicit execution and inspection boundary.
+
 ## State roles
 
 - `p.argument(...)` declares values supplied to every run.

@@ -190,7 +190,7 @@ declare module "affon:compute" {
 
   /**
    * Author a named, immutable compute graph.
-   * @semantics The callback runs once during authoring. Use affon:ops with the returned FormalTensor values to build graph nodes.
+   * @semantics The callback runs once during authoring. Use affon:ops with the returned FormalTensor values to build graph nodes. Shape-specialized child Programs may be authored and immediately composed while a parent callback is active.
    * @output Returns an inspectable Program. Calling it is only valid while composing another authored Program.
    * @example const square = program("square", p => mul(p.argument("x", Tensor.f32([4])), p.argument("x", Tensor.f32([4]))))
    */

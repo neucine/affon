@@ -97,4 +97,23 @@ describe("Program authoring and transforms", () => {
     expect(inspection.nodes[inspection.outputs[0]].operands).toEqual([0, 1])
   })
 
+  test("authors and composes a shape-specialized child from a callable", () => {
+    const reusable = ({ value }: { value: import("affon:compute").FormalTensor }, name = "reusable") => {
+      const width = value.spec.shape[0]
+      const child = program("shape_specialized_child", p => add(
+        p.argument("value", Tensor.f32([width])),
+        p.parameter("bias", Tensor.f32([width])),
+      ))
+      return child({ value }, name)
+    }
+    const parent = program("shape_specialized_parent", p => reusable({
+      value: p.argument("value", Tensor.f32([3])),
+    }, "component"))
+
+    expect(parent.inspect().parameters.map(value => value.name)).toEqual(["component.bias"])
+    expect(parent.inspect().nodes.at(-1)!.path).toEqual([
+      { program: "shape_specialized_child", instance: "component" },
+    ])
+  })
+
 })

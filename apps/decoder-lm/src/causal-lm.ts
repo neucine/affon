@@ -1,5 +1,5 @@
 import type { ExecutionState, Session, Tensor } from 'affon:compute'
-import type { DecoderModel } from './model.ts'
+import { decoderProgram, type DecoderModel } from './model.ts'
 
 export interface GenerateOptions {
   max_new_tokens?: number
@@ -39,7 +39,7 @@ export function generate(model: DecoderModel, session: Session, state: Execution
   if (resolved.forbidden.size >= model.vocabSize || [...resolved.forbidden].some(id => !Number.isInteger(id) || id < 0 || id >= model.vocabSize)) throw new AffonError('invalid_arg', 'generate forbidden_token_ids must be valid and leave at least one token')
   for (let step = 0; step < resolved.max; step++) {
     const input = session.tensor(rows, { dtype: 'i64', axes: ['batch', 'token'] })
-    const logits = session.compile(model.forward(rows.length, rows[0].length)).run({ token_ids: input }, state) as Tensor
+    const logits = session.compile(decoderProgram(model, rows.length, rows[0].length)).run({ token_ids: input }, state) as Tensor
     try {
       const values = logits.to_array() as number[][][]
       for (let batch = 0; batch < rows.length; batch++) rows[batch].push(choose(values[batch].at(-1)!, resolved))

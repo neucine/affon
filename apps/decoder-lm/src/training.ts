@@ -1,7 +1,8 @@
 import checkpoint from 'affon:checkpoint'
-import { optimize, type ExecutionState, type Session, type Tensor } from 'affon:compute'
+import { optimize, program, Tensor, type ExecutionState, type Program, type FormalTensor, type Session } from 'affon:compute'
+import { cross_entropy } from 'affon:nn'
 import { adam, adamw, type Optimizer } from 'affon:optim'
-import type { DecoderModel } from './model.ts'
+import { decoderProgram, type DecoderModel } from './model.ts'
 import type { PackedCorpusOptions, TokenBatchOptions, TokenWindow } from './data/index.ts'
 
 export type { PackedCorpusOptions, TokenBatchOptions, TokenWindow } from './data/index.ts'
@@ -17,6 +18,21 @@ export interface SavedDecoderLMCheckpoint extends DecoderLMCheckpoint { metadata
 export interface DecoderLMEpochMetrics { epoch: number; step: number; trainLoss: number; valLoss: number | null; trainPerplexity: number; valPerplexity: number | null }
 export interface DecoderLMBatchMetrics { epoch: number; batch: number; batches: number; step: number; batchLoss: number; lr: number; optimizerStepped: boolean }
 export interface DecoderLMBatchPhaseMetrics { epoch: number; batch: number; batches: number; step: number; phase: 'forward' | 'step' }
+
+const objective = cross_entropy()
+const evaluationLosses = new Map<string, Program<Record<string, FormalTensor>, FormalTensor>>()
+
+function evaluationLoss(batch: number, length: number, vocabulary: number) {
+  const key = `${batch}x${length}x${vocabulary}`
+  const cached = evaluationLosses.get(key)
+  if (cached) return cached
+  const source = program('decoder_loss', p => objective({
+    input: p.argument('logits', Tensor.f32([batch, length, vocabulary])),
+    target: p.argument('labels', Tensor.i64([batch, length], { axes: ['batch', 'token'] })),
+  }, 'objective'))
+  evaluationLosses.set(key, source)
+  return source
+}
 
 export interface DecoderLMTrainOptions extends PackedCorpusOptions, TokenBatchOptions {
   epochs: number; lr?: number; optimizer?: { kind?: 'adam' | 'adamw'; weightDecay?: number }
@@ -96,13 +112,14 @@ function runLoss(runtime: DecoderLMRuntime, rows: readonly (readonly number[])[]
   const batch = rows.length, length = rows[0].length - 1
   const inputs = runtime.session.tensor(rows.map(row => row.slice(0, -1)), { dtype: 'i64' })
   const labels = runtime.session.tensor(rows.map(row => row.slice(1)), { dtype: 'i64' })
+  const model = decoderProgram(runtime.model, batch, length)
   if (optimizer) {
-    const source = optimize(runtime.model.forward(batch, length), runtime.model.objective, optimizer)
+    const source = optimize(model, objective, optimizer)
     const result = runtime.session.compile(source).run({ token_ids: inputs, labels }, runtime.state) as Tensor
     try { return result.item() } finally { result.dispose(); inputs.dispose(); labels.dispose() }
   }
-  const logits = runtime.session.compile(runtime.model.forward(batch, length)).run({ token_ids: inputs }, runtime.state) as Tensor
-  const result = runtime.session.compile(runtime.model.loss(batch, length)).run({ logits, labels }) as Tensor
+  const logits = runtime.session.compile(model).run({ token_ids: inputs }, runtime.state) as Tensor
+  const result = runtime.session.compile(evaluationLoss(batch, length, runtime.model.vocabSize)).run({ logits, labels }) as Tensor
   try { return result.item() } finally { result.dispose(); logits.dispose(); inputs.dispose(); labels.dispose() }
 }
 

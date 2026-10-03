@@ -2,7 +2,7 @@ import fs from 'std:fs'
 import telemetry from 'std:telemetry'
 import { Session, type ExecutionState } from 'affon:compute'
 
-import { DecoderModel, type DecoderModel as DecoderModelDefinition, type DecoderModelOptions } from './model.ts'
+import { DecoderModel, decoderProgram, type DecoderModel as DecoderModelDefinition, type DecoderModelOptions } from './model.ts'
 import { generate } from './causal-lm.ts'
 import { createPackedTextCorpusFromConfig, saveTokenRows, type PackedFileCorpusConfig, type PackedTextCorpus } from './data/index.ts'
 import {
@@ -482,7 +482,8 @@ export function trainDecoderLMFromConfig(
       dropout: config.model.dropout,
     })
     const session = new Session({ device: config.device ?? 'cpu' })
-    const state = session.initialize(model.forward(config.training.batchSize, config.corpus.seqLen), { seed: config.training.shuffleSeed ?? 0 })
+    const inference = decoderProgram(model, config.training.batchSize, config.corpus.seqLen)
+    const state = session.initialize(inference, { seed: config.training.shuffleSeed ?? 0 })
     const runtime = { model, session, state }
     const lrSchedule = config.training.lrSchedule
       ? lrScheduleFromConfig(config.training.lrSchedule)
@@ -649,7 +650,7 @@ export function trainDecoderLMFromConfig(
 
     const summary: DecoderLMWorkflowSummary = {
       tokenizerFamily: tokenizer.family,
-      program: (() => { const value = model.forward(config.training.batchSize, config.corpus.seqLen); return { name: value.name, provenance: value.provenance, parameters: value.inspect().parameters.length } })(),
+      program: { name: inference.name, provenance: inference.provenance, parameters: inference.inspect().parameters.length },
       trainRows: corpus.trainRows.length,
       validationRows: corpus.validationRows.length,
       trainWindows: corpus.trainWindows.length,

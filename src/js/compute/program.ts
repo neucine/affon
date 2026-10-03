@@ -713,7 +713,7 @@ function createProgram(name: string, kind: ProgramInspection["kind"], nodes: rea
 export function program<Out extends FormalTensor | readonly FormalTensor[]>(name: string, author: (p: ProgramBuilder) => Out): Program<Record<string, FormalTensor>, Out> {
   assertName(name, "program")
   if (typeof author !== "function") throw new TypeError("program expects an authoring callback")
-  if (activeBuilder) throw new Error("program() cannot be nested; compose an existing Program by calling it")
+  const parentBuilder = activeBuilder
   const builder = new ProgramBuilder(name)
   activeBuilder = builder
   try {
@@ -723,7 +723,7 @@ export function program<Out extends FormalTensor | readonly FormalTensor[]>(name
     const nodes = builder.finish()
     return createProgram(name, "authored", nodes, outputs.map(value => value.id)) as Program<Record<string, FormalTensor>, Out>
   } finally {
-    activeBuilder = null
+    activeBuilder = parentBuilder
   }
 }
 

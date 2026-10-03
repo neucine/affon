@@ -78,6 +78,12 @@ survive composition. Inspection automatically records each copied node's nested
 composition `path`; authors never set paths manually. The executable graph
 remains flat and retains ordinary operand IDs.
 
+Reusable callables may infer static dimensions from their formal bindings,
+author a shape-specialized child Program, and compose it immediately. Program
+authoring preserves the parent builder while that child is authored, so this
+pattern retains the same callable form without requiring a `.forward(...)` or
+explicit binding method.
+
 Call `program.inspect()` to read immutable arguments, parameters, model state,
 constants, graph nodes, outputs, and declared transitions. Calling a Program
 outside authoring is an error; execution always goes through a compiled
