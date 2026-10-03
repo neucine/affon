@@ -16,8 +16,8 @@ The Program boundary is organized by responsibility:
 - `contracts.test.ts` locks down the runtime export and value contracts.
 - `authoring.test.ts` covers composition, inspection, and transforms.
 - `lifecycle.test.ts` covers Session, Tensor, and Executable ownership.
-- `optimization.test.ts` covers loss callables, optimizer descriptors,
-  accumulation, and schedules.
+- `optimization.test.ts` covers loss callables, explicit parameter updates,
+  optimizer descriptors, accumulation, and schedules.
 - `execution.test.ts` covers initialized state, validation, and lowering.
 - `tensor-construction.test.ts` covers evaluated Tensor factories and their
   default Session behavior.
@@ -27,7 +27,7 @@ The Program boundary is organized by responsibility:
   metrics.
 - `operation-contracts.test.ts` isolates representation, shape, dtype, and
   authoring failures.
-- `neural-network.test.ts` covers the `ProgramBuilder.nn` authoring helpers.
+- `neural-network.test.ts` covers reusable `affon:nn` layer callables.
 - `test/types/program.test.ts` locks down the compile-time public surface and
   verifies removed compatibility modules remain unavailable.
 

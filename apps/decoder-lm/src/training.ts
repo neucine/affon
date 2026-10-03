@@ -1,5 +1,5 @@
 import checkpoint from 'affon:checkpoint'
-import type { ExecutionState, Session, Tensor } from 'affon:compute'
+import { optimize, type ExecutionState, type Session, type Tensor } from 'affon:compute'
 import { adam, adamw, type Optimizer } from 'affon:optim'
 import type { DecoderModel } from './model.ts'
 import type { PackedCorpusOptions, TokenBatchOptions, TokenWindow } from './data/index.ts'
@@ -97,7 +97,7 @@ function runLoss(runtime: DecoderLMRuntime, rows: readonly (readonly number[])[]
   const inputs = runtime.session.tensor(rows.map(row => row.slice(0, -1)), { dtype: 'i64' })
   const labels = runtime.session.tensor(rows.map(row => row.slice(1)), { dtype: 'i64' })
   if (optimizer) {
-    const source = runtime.model.train(batch, length, optimizer)
+    const source = optimize(runtime.model.forward(batch, length), runtime.model.objective, optimizer)
     const result = runtime.session.compile(source).run({ token_ids: inputs, labels }, runtime.state) as Tensor
     try { return result.item() } finally { result.dispose(); inputs.dispose(); labels.dispose() }
   }

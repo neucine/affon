@@ -6,6 +6,8 @@ import {
   metrics,
   optimize,
   program,
+  update_parameters,
+  type Callable,
   type Executable,
   type FormalTensor,
   type Program,
@@ -20,7 +22,6 @@ import {
   cross_entropy as crossEntropyLoss,
   linear,
   mean_squared_error as meanSquaredErrorLoss,
-  type Layer,
   type LossCallable,
 } from "affon:nn"
 
@@ -74,6 +75,7 @@ const loss = program("classifier_loss", p => {
   return cross_entropy(logits, p.argument("labels", Tensor.i64([32])))
 })
 const derivatives = gradient(loss, ["classifier.projection.weight", "classifier.projection.bias"])
+const explicitUpdate = update_parameters(loss, derivatives, sgd({ learning_rate: 0.01 }))
 const optimizer = adam({ learning_rate: 0.001 })
 const momentumOptimizer = sgd({ momentum: 0.9 })
 const accumulatingOptimizer = accumulate(optimizer, { steps: 4 })
@@ -100,6 +102,7 @@ const executable = session.compile(training_step)
 const reusableExecutable = session.compile(reusableTrainingStep)
 const builtInExecutable = session.compile(builtInTrainingStep)
 const executionState = session.initialize(training_step)
+session.compile(explicitUpdate)
 const inferenceExecutable = session.compile(classifier)
 const inferenceOutput = inferenceExecutable.run({ image: runtimeTensor })
 const paired = program("paired", p => {
@@ -160,7 +163,7 @@ program("composed", p => {
   return ordinary as FormalTensor
 })
 
-const projection: Layer<{ x: FormalTensor }> = linear({ out_features: 4 })
+const projection: Callable<{ x: FormalTensor }, FormalTensor> = linear({ out_features: 4 })
 program("layer_factory", p => projection({ x: p.argument("x", Tensor.f32([2, 3])) }, "head"))
 
 program("roles", p => {

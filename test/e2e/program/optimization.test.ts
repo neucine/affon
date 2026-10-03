@@ -1,6 +1,6 @@
-import { cross_entropy, mean, mul, sub } from "affon:ops"
+import { add, cross_entropy, mean, mul, sub } from "affon:ops"
 import { describe, expect, test } from "std:test"
-import { Session, Tensor, optimize, program } from "affon:compute"
+import { Session, Tensor, gradient, optimize, program, update_parameters } from "affon:compute"
 import {
   binary_cross_entropy,
   binary_cross_entropy_with_logits,
@@ -12,6 +12,33 @@ import {
 import { accumulate, adam, adamw, scheduled, schedules, sgd } from "affon:optim"
 
 describe("Program optimization", () => {
+  test("updates explicitly selected parameters from a gradient Program", () => {
+    const objective = program("low_level_objective", p => {
+      const value = p.argument("value", Tensor.f32([1]))
+      const weight = p.parameter("weight", Tensor.f32([1]), { initializer: { kind: "ones" } })
+      const bias = p.parameter("bias", Tensor.f32([1]), { initializer: { kind: "ones" } })
+      return mean(add(mul(value, weight), bias))
+    })
+    const derivatives = gradient(objective, "weight")
+    const update = update_parameters(objective, derivatives, sgd({ learning_rate: 0.1 }))
+
+    expect(update.inspect().transitions[0].parameters).toEqual(["low_level_objective.weight"])
+    const session = new Session()
+    const state = session.initialize(update)
+    const value = session.tensor([2])
+    const result = session.compile(update).run({ value }, state)
+
+    expect(result.item()).toBe(3)
+    expect(Math.abs((state.parameters["low_level_objective.weight"].to_array() as number[])[0] - 0.8) < 1e-5).toBe(true)
+    expect(state.parameters["low_level_objective.bias"].to_array()).toEqual([1])
+    expect(() => update_parameters(objective, gradient(objective, "value"), sgd())).toThrow("source parameters")
+
+    result.dispose()
+    value.dispose()
+    state.dispose()
+    session.dispose()
+  })
+
   test("combines reusable model and loss Programs while preserving inference state", () => {
     const model = program("reusable_classifier", p => {
       const x = p.argument("x", Tensor.f32([2, 2]))

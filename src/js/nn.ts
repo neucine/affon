@@ -8,8 +8,6 @@ import {
   type ProgramDType,
 } from "affon:_internal/compute/program"
 
-export interface Layer<Bindings extends Record<string, FormalTensor>, Out extends FormalTensor = FormalTensor> extends Callable<Bindings, Out> {}
-
 export interface LossCallable<Input extends FormalTensor = FormalTensor, Target extends FormalTensor = FormalTensor>
   extends Callable<{ input: Input; target: Target }, FormalTensor> {}
 
@@ -79,7 +77,7 @@ function lossCallable(
   return Object.freeze(callable)
 }
 
-export function linear(options: LinearOptions): Layer<{ x: FormalTensor }> {
+export function linear(options: LinearOptions): Callable<{ x: FormalTensor }, FormalTensor> {
   if (!options || typeof options !== "object") throw new TypeError("linear expects options")
   const out_features = options.out_features
   const bias = options.bias ?? true
@@ -105,7 +103,7 @@ export function linear(options: LinearOptions): Layer<{ x: FormalTensor }> {
   })
 }
 
-export function embedding(options: EmbeddingOptions): Layer<{ indices: FormalTensor }> {
+export function embedding(options: EmbeddingOptions): Callable<{ indices: FormalTensor }, FormalTensor> {
   if (!options || typeof options !== "object") throw new TypeError("embedding expects options")
   const { num_embeddings, embedding_dim } = options
   const dtype = options.dtype ?? "f32"
@@ -124,7 +122,7 @@ export function embedding(options: EmbeddingOptions): Layer<{ indices: FormalTen
   })
 }
 
-export function layer_norm(options: LayerNormOptions = {}): Layer<{ x: FormalTensor }> {
+export function layer_norm(options: LayerNormOptions = {}): Callable<{ x: FormalTensor }, FormalTensor> {
   if (!options || typeof options !== "object") throw new TypeError("layer_norm expects options")
   const normalized_shape = options.normalized_shape
   const epsilon = options.epsilon ?? 1e-5

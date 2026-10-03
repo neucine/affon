@@ -1,6 +1,6 @@
-import { add, contiguous, cross_entropy, div, embedding, gelu, masked_fill, matmul, mean, mul, reshape, softmax, sqrt, sub, transpose } from 'affon:ops'
-import { Tensor, optimize, program, type FormalTensor, type Program } from 'affon:compute'
-import type { Optimizer } from 'affon:optim'
+import { add, contiguous, div, embedding as embedding_lookup, gelu, masked_fill, matmul, reshape, softmax, transpose } from 'affon:ops'
+import { Tensor, program, type FormalTensor, type Program } from 'affon:compute'
+import { cross_entropy, embedding, layer_norm, linear, type LossCallable } from 'affon:nn'
 
 export interface DecoderModelOptions {
   numLayers: number
@@ -17,9 +17,9 @@ export interface DecoderModel {
   readonly vocabSize: number
   readonly dModel: number
   readonly options: Readonly<DecoderModelOptions>
+  readonly objective: LossCallable
   forward(batchSize: number, sequenceLength: number): DecoderProgram
   loss(batchSize: number, sequenceLength: number): DecoderProgram
-  train(batchSize: number, sequenceLength: number, optimizer: Optimizer): DecoderProgram
 }
 
 type DecoderProgram = Program<Record<string, FormalTensor>, FormalTensor>
@@ -44,6 +44,13 @@ export function DecoderModel(vocabSize: number, dModel: number, options: Decoder
   const opts = Object.freeze({ ...options })
   const forwardPrograms = new Map<string, DecoderProgram>()
   const lossPrograms = new Map<string, DecoderProgram>()
+  const project = linear({ out_features: dModel })
+  const expand = linear({ out_features: opts.hiddenDim })
+  const contract = linear({ out_features: dModel })
+  const normalize = layer_norm({ normalized_shape: dModel })
+  const positionEmbedding = embedding({ num_embeddings: opts.maxSeqLen, embedding_dim: dModel })
+  const languageModelHead = opts.tieEmbeddings ? undefined : linear({ out_features: vocabSize })
+  const objective = cross_entropy()
 
   function dimensions(batch: number, length: number) {
     positiveInteger(batch, 'DecoderModel batch size')
@@ -57,35 +64,6 @@ export function DecoderModel(vocabSize: number, dModel: number, options: Decoder
     const cached = forwardPrograms.get(key)
     if (cached) return cached
     const headWidth = dModel / opts.numHeads
-    const projection = (name: string, input: number, output: number) => program(name, p => {
-      const value = p.argument('input', Tensor.f32([batch, length, input]))
-      const weight = p.parameter('weight', Tensor.f32([input, output]), { initializer: { kind: 'xavier_uniform' } })
-      const bias = p.parameter('bias', Tensor.f32([output]), { initializer: { kind: 'zeros' } })
-      return add(matmul(value, weight), bias)
-    })
-    const normalization = program('decoder_norm', p => {
-      const value = p.argument('input', Tensor.f32([batch, length, dModel]))
-      const centered = sub(value, mean(value, -1, true))
-      const epsilon = p.constant('epsilon', 1e-5, Tensor.f32([1]))
-      const normalized = div(centered, sqrt(add(mean(mul(centered, centered), -1, true), epsilon)))
-      const weight = p.parameter('weight', Tensor.f32([dModel]), { initializer: { kind: 'ones' } })
-      const bias = p.parameter('bias', Tensor.f32([dModel]), { initializer: { kind: 'zeros' } })
-      return add(mul(normalized, weight), bias)
-    })
-    const modelProjection = projection('decoder_projection', dModel, dModel)
-    const expandProjection = projection('decoder_expand_projection', dModel, opts.hiddenDim)
-    const contractProjection = projection('decoder_contract_projection', opts.hiddenDim, dModel)
-    const lmHead = opts.tieEmbeddings ? undefined : projection('decoder_lm_head', dModel, vocabSize)
-    const embeddings = program('decoder_embeddings', p => add(
-      embedding(
-        p.argument('token_embedding', Tensor.f32([vocabSize, dModel])),
-        p.argument('token_ids', Tensor.i64([batch, length], { axes: ['batch', 'token'] })),
-      ),
-      embedding(
-        p.argument('position_embedding', Tensor.f32([opts.maxSeqLen, dModel])),
-        p.argument('position_ids', Tensor.i64([length])),
-      ),
-    ))
     const tiedHead = opts.tieEmbeddings ? program('decoder_tied_head', p => matmul(
       p.argument('input', Tensor.f32([batch, length, dModel])),
       transpose(p.argument('token_embedding', Tensor.f32([vocabSize, dModel])), [1, 0]),
@@ -104,34 +82,38 @@ export function DecoderModel(vocabSize: number, dModel: number, options: Decoder
       const mask = p.argument('mask', Tensor.i64([1, 1, length, length]))
       const scale = p.argument('scale', Tensor.f32([1]))
       const split = (value: FormalTensor) => transpose(reshape(value, [batch, length, opts.numHeads, headWidth]), [0, 2, 1, 3])
-      const normalized = normalization({ input: x }, 'attention_norm')
-      const query = split(modelProjection({ input: normalized }, 'query'))
-      const key = split(modelProjection({ input: normalized }, 'key'))
-      const value = split(modelProjection({ input: normalized }, 'value'))
+      const normalized = normalize({ x }, 'attention.norm')
+      const query = split(project({ x: normalized }, 'attention.query'))
+      const key = split(project({ x: normalized }, 'attention.key'))
+      const value = split(project({ x: normalized }, 'attention.value'))
       const attended = attention({ query, key, value, mask, scale }, 'attention')
-      const projected = modelProjection({ input: attended }, 'attention_output')
+      const projected = project({ x: attended }, 'attention.output')
       x = add(x, contiguous(projected))
-      const hidden = normalization({ input: x }, 'feed_forward_norm')
-      const expanded = expandProjection({ input: hidden }, 'expand')
-      const contracted = contractProjection({ input: gelu(expanded) }, 'contract')
+      const hidden = normalize({ x }, 'feed_forward.norm')
+      const expanded = expand({ x: hidden }, 'feed_forward.expand')
+      const contracted = contract({ x: gelu(expanded) }, 'feed_forward.contract')
       return add(x, contiguous(contracted))
     })
     const source = program('decoder_model', p => {
       const ids = p.argument('token_ids', Tensor.i64([batch, length], { axes: ['batch', 'token'] }))
-      const parameter = (name: string, shape: readonly number[], initializer: any = { kind: 'xavier_uniform' }) => p.parameter(name, Tensor.f32(shape), { initializer })
-      const tokenEmbedding = parameter('token_embedding', [vocabSize, dModel], { kind: 'normal', standard_deviation: 0.02 })
-      const positionEmbedding = parameter('position_embedding', [opts.maxSeqLen, dModel], { kind: 'normal', standard_deviation: 0.02 })
+      // The token table is owned here because the tied output head deliberately shares it.
+      const tokenEmbedding = p.parameter('token_embedding.weight', Tensor.f32([vocabSize, dModel]), {
+        initializer: { kind: 'normal', standard_deviation: 0.02 },
+      })
       const positions = p.constant('position_ids', Array.from({ length }, (_, index) => index), Tensor.i64([length]))
-      let x = embeddings({ token_ids: ids, token_embedding: tokenEmbedding, position_ids: positions, position_embedding: positionEmbedding }, 'embeddings')
+      let x = add(
+        embedding_lookup(tokenEmbedding, ids),
+        positionEmbedding({ indices: positions }, 'position_embedding'),
+      )
       const allow = Array.from({ length }, (_, row) => Array.from({ length }, (_, column) => column > row ? 1 : 0))
       const mask = p.constant('causal_mask', [[allow]], Tensor.i64([1, 1, length, length]))
       const scale = p.constant('attention_scale', Math.sqrt(headWidth), Tensor.f32([1]))
       for (let layer = 0; layer < opts.numLayers; layer++) {
-        x = block({ input: x, mask, scale }, `layer_${layer}`)
+        x = block({ input: x, mask, scale }, `blocks.${layer}`)
       }
-      const normalized = normalization({ input: x }, 'final_norm')
+      const normalized = normalize({ x }, 'final_norm')
       if (tiedHead) return tiedHead({ input: normalized, token_embedding: tokenEmbedding }, 'lm_head')
-      return lmHead!({ input: normalized }, 'lm_head')
+      return languageModelHead!({ x: normalized }, 'lm_head')
     })
     forwardPrograms.set(key, source)
     return source
@@ -145,7 +127,7 @@ export function DecoderModel(vocabSize: number, dModel: number, options: Decoder
     const source = program('decoder_loss', p => {
       const logits = p.argument('logits', Tensor.f32([batch, length, vocabSize]))
       const labels = p.argument('labels', Tensor.i64([batch, length], { axes: ['batch', 'token'] }))
-      return cross_entropy(logits, labels)
+      return objective({ input: logits, target: labels }, 'objective')
     })
     lossPrograms.set(key, source)
     return source
@@ -155,8 +137,8 @@ export function DecoderModel(vocabSize: number, dModel: number, options: Decoder
     vocabSize,
     dModel,
     options: opts,
+    objective,
     forward: (batchSize: number, sequenceLength: number) => core(batchSize, sequenceLength),
     loss,
-    train: (batchSize: number, sequenceLength: number, optimizer: Optimizer) => optimize(core(batchSize, sequenceLength), loss(batchSize, sequenceLength), optimizer),
   })
 }

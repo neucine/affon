@@ -100,7 +100,12 @@ const BUILDER = Symbol.for("affon.compute.program_builder")
 const EMIT = Symbol("affon.compute.emit_operation")
 const FORMAL_OPERATION = Symbol("affon.compute.formal_operation")
 const FORMAL_SCALAR = Symbol("affon.compute.formal_scalar")
-const optimizationSources = new WeakMap<Program, { loss: Program<Record<string, FormalTensor>, FormalTensor>; optimizer: Optimizer }>()
+const parameterUpdateSources = new WeakMap<Program, {
+  source: Program<Record<string, FormalTensor>, FormalTensor>
+  gradients: Program<Record<string, FormalTensor>, FormalTensor | readonly FormalTensor[]>
+  optimizer: Optimizer
+  parameters: readonly string[]
+}>()
 
 function freezeSpec(dtype: ProgramDType, shape: readonly number[], axes?: readonly string[]): TensorSpec {
   if (dtype !== "f32" && dtype !== "f64" && dtype !== "i64") throw new TypeError(`unsupported TensorSpec dtype: ${dtype}`)
@@ -693,7 +698,7 @@ function createProgram(name: string, kind: ProgramInspection["kind"], nodes: rea
       throw new TypeError(`${name} expects named bindings and an optional instance name`)
     }
     const instance = args[1] ?? name
-    assertName(instance as string, "composition instance")
+    assertQualifiedName(instance as string, "composition instance")
     return activeBuilder.compose(callable as Program, args[0] as Record<string, FormalTensor>, instance as string)
   }) as InternalProgram
   Object.defineProperties(callable, {
@@ -841,7 +846,7 @@ function learningRateAt(value: LRSchedule, step: number): number {
 }
 
 function optimizerSnapshot(value: Optimizer): Optimizer {
-  if (!value || typeof value !== "object") throw new TypeError("optimize expects an Optimizer from affon:optim")
+  if (!value || typeof value !== "object") throw new TypeError("expected an Optimizer from affon:optim")
   if (value.kind === "accumulate") {
     if (!Number.isSafeInteger(value.steps) || value.steps < 2) throw new TypeError("accumulate steps must be an integer of at least 2")
     const optimizer = optimizerSnapshot(value.optimizer)
@@ -982,10 +987,51 @@ export function optimize(
   const output = source.nodes[source.outputs[0]]
   if (source.outputs.length !== 1 || output.spec.shape.reduce((size, value) => size * value, 1) !== 1) throw new TypeError("optimize requires a scalar Program")
   if (source.parameters.length === 0) throw new TypeError("optimize requires at least one parameter")
+  const derivatives = gradient(combined, source.parameters.map(parameter => parameter.name))
+  return update_parameters(combined, derivatives, optimizer)
+}
+
+export function update_parameters(
+  source: Program<Record<string, FormalTensor>, FormalTensor>,
+  gradients: Program<Record<string, FormalTensor>, FormalTensor | readonly FormalTensor[]>,
+  optimizer: Optimizer,
+): Program<Record<string, FormalTensor>, FormalTensor> {
+  if (!isProgram(source)) throw new TypeError("update_parameters expects a source Program")
+  if (!isProgram(gradients) || gradients.inspect().kind !== "gradient") {
+    throw new TypeError("update_parameters expects a gradient Program")
+  }
+  const sourceInspection = source.inspect()
+  const gradientInspection = gradients.inspect()
+  if (sourceInspection.kind !== "authored") throw new TypeError("update_parameters requires an authored source Program")
+  if (sourceInspection.outputs.length !== 1) throw new TypeError("update_parameters requires a single-output source Program")
+  const sameFormalSet = (left: readonly ProgramFormal[], right: readonly ProgramFormal[]): boolean =>
+    left.length === right.length && left.every((formal, index) => {
+      const other = right[index]
+      return other?.provenance === formal.provenance && sameSpec(other.spec, formal.spec)
+    })
+  if (!sameFormalSet(sourceInspection.arguments, gradientInspection.arguments) ||
+      !sameFormalSet(sourceInspection.parameters, gradientInspection.parameters) ||
+      !sameFormalSet(sourceInspection.state, gradientInspection.state)) {
+    throw new TypeError("gradient Program must be derived from the source Program")
+  }
+  const parametersByProvenance = new Map(sourceInspection.parameters.map(parameter => [parameter.provenance, parameter]))
+  const selected = gradientInspection.outputs.map(id => {
+    const node = gradientInspection.nodes.find(candidate => candidate.id === id)
+    const provenance = node?.kind === "gradient" ? (node.options as any)?.with_respect_to : undefined
+    const parameter = typeof provenance === "string" ? parametersByProvenance.get(provenance) : undefined
+    if (!node || !parameter || !sameSpec(node.spec, parameter.spec)) {
+      throw new TypeError("update_parameters gradients must correspond to source parameters")
+    }
+    return parameter.provenance
+  })
+  if (selected.length === 0 || new Set(selected).size !== selected.length) {
+    throw new TypeError("update_parameters requires unique parameter gradients")
+  }
   const snapshot = optimizerSnapshot(optimizer)
-  const transition = Object.freeze({ kind: "optimize" as const, optimizer: snapshot, parameters: Object.freeze(source.parameters.map(parameter => parameter.provenance)) })
-  const result = createProgram(`${model.name}_${lossProgram.name}_${snapshot.kind}`, "optimize", source.nodes, source.outputs, Object.freeze([...source.transitions, transition])) as Program<Record<string, FormalTensor>, FormalTensor>
-  optimizationSources.set(result, { loss: combined, optimizer: snapshot })
+  const parameters = Object.freeze(selected)
+  const transition = Object.freeze({ kind: "optimize" as const, optimizer: snapshot, parameters })
+  const result = createProgram(`${source.name}_${snapshot.kind}_update`, "optimize", sourceInspection.nodes, sourceInspection.outputs, Object.freeze([...sourceInspection.transitions, transition])) as Program<Record<string, FormalTensor>, FormalTensor>
+  parameterUpdateSources.set(result, { source, gradients, optimizer: snapshot, parameters })
   return result
 }
 
@@ -1176,10 +1222,10 @@ export class Executable<Out extends FormalTensor | readonly FormalTensor[] = For
   private readonly parameterFormals: readonly ProgramFormal[]
   private readonly stateFormals: readonly ProgramFormal[]
   private readonly inputFormals: readonly ProgramFormal[]
-  private readonly optimization?: { loss: Executable; gradient: Executable; optimizer: Optimizer }
+  private readonly optimization?: { source: Executable; gradients: Executable; optimizer: Optimizer; parameters: readonly string[] }
   #disposed = false
 
-  constructor(session: Session, source: Program<Record<string, FormalTensor>, Out>, nativeExecutable: any, optimization?: { loss: Executable; gradient: Executable; optimizer: Optimizer }) {
+  constructor(session: Session, source: Program<Record<string, FormalTensor>, Out>, nativeExecutable: any, optimization?: { source: Executable; gradients: Executable; optimizer: Optimizer; parameters: readonly string[] }) {
     const inspection = source.inspect()
     this.program = source
     this.session = session
@@ -1204,12 +1250,12 @@ export class Executable<Out extends FormalTensor | readonly FormalTensor[] = For
     if (state?.disposed) throw new Error("ExecutionState has been disposed")
     if (this.optimization) {
       if (!state) throw new TypeError("optimize Executable.run requires an ExecutionState")
-      const result = this.optimization.loss.run(arguments_, state)
+      const result = this.optimization.source.run(arguments_, state)
       let values: any[] = []
       try {
-        const gradients = this.optimization.gradient.run(arguments_, state)
+        const gradients = this.optimization.gradients.run(arguments_, state)
         values = Array.isArray(gradients) ? gradients : [gradients]
-        this.session.applyOptimizer(this.program, state, values, this.optimization.optimizer)
+        this.session.applyOptimizer(this.program, state, values, this.optimization.optimizer, this.optimization.parameters)
         return result as EvaluatedProgramOutput<Out>
       } catch (error) {
         ;(result as any)?.dispose?.()
@@ -1312,14 +1358,14 @@ export class Session {
     const cached = this.#cache.get(source)
     if (cached && !cached.disposed) return cached as Executable<Out>
     if (cached) this.#cache.delete(source)
-    const optimization = optimizationSources.get(source)
+    const optimization = parameterUpdateSources.get(source)
     let executable: Executable<Out>
     if (optimization) {
-      const names = optimization.loss.inspect().parameters.map(value => value.name)
       executable = new Executable(this, source, null, {
-        loss: this.compile(optimization.loss),
-        gradient: this.compile(gradient(optimization.loss, names)),
+        source: this.compile(optimization.source),
+        gradients: this.compile(optimization.gradients),
         optimizer: optimization.optimizer,
+        parameters: optimization.parameters,
       }) as Executable<Out>
     } else executable = new Executable(this, source, native.compileProgram(this.#native, JSON.stringify(source.inspect()))) as Executable<Out>
     this.#cache.set(source, executable)
@@ -1385,8 +1431,11 @@ export class Session {
       tensorOwners.set(tensor, this)
     }
   }
-  applyOptimizer(source: Program, state: ExecutionState, gradients: readonly unknown[], optimizer: Optimizer): void {
-    const parameters = source.inspect().parameters
+  applyOptimizer(source: Program, state: ExecutionState, gradients: readonly unknown[], optimizer: Optimizer, parameterProvenances?: readonly string[]): void {
+    const available = source.inspect().parameters
+    const parameters = parameterProvenances
+      ? parameterProvenances.map(provenance => available.find(parameter => parameter.provenance === provenance)!)
+      : available
     if (parameters.length !== gradients.length) throw new Error("gradient result does not match Program parameters")
     if (optimizer.kind === "accumulate") {
       const previousMicrostep = state.optimizer_state["$microstep"] ?? 0
@@ -1436,7 +1485,7 @@ export class Session {
           ]))
           averaged.push(this.compile(average).run({ gradient: accumulated[index].next }))
         }
-        this.applyOptimizer(source, state, averaged, optimizer.optimizer)
+        this.applyOptimizer(source, state, averaged, optimizer.optimizer, parameterProvenances)
         for (const change of accumulated) {
           delete state.optimizer_state[change.key]
           change.old?.dispose?.()
@@ -1452,7 +1501,7 @@ export class Session {
       const previousStep = state.optimizer_state["$step"] ?? 0
       if (typeof previousStep !== "number" || !Number.isSafeInteger(previousStep) || previousStep < 0) throw new TypeError("ExecutionState optimizer step must be a non-negative integer")
       const learning_rate = learningRateAt(optimizer.schedule, previousStep)
-      this.applyOptimizer(source, state, gradients, Object.freeze({ ...optimizer.optimizer, learning_rate }))
+      this.applyOptimizer(source, state, gradients, Object.freeze({ ...optimizer.optimizer, learning_rate }), parameterProvenances)
       return
     }
     const previousStep = state.optimizer_state["$step"] ?? 0

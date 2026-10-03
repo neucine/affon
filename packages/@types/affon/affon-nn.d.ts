@@ -2,9 +2,6 @@
 declare module "affon:nn" {
   import type { Callable, FormalTensor, ProgramDType } from "affon:compute";
 
-  /** An ordinary callable architecture fragment with named tensor bindings. */
-  export interface Layer<Bindings extends Record<string, FormalTensor>, Out extends FormalTensor = FormalTensor> extends Callable<Bindings, Out> {}
-
   /** A scalar objective with standardized input and target bindings. */
   export interface LossCallable<Input extends FormalTensor = FormalTensor, Target extends FormalTensor = FormalTensor> extends Callable<{ input: Input; target: Target }, FormalTensor> {}
 
@@ -33,11 +30,11 @@ declare module "affon:nn" {
   }>;
 
   /** Configure a reusable affine projection factory. */
-  export function linear(options: LinearOptions): Layer<{ x: FormalTensor }>;
+  export function linear(options: LinearOptions): Callable<{ x: FormalTensor }, FormalTensor>;
   /** Configure a reusable learned embedding-table factory. */
-  export function embedding(options: EmbeddingOptions): Layer<{ indices: FormalTensor }>;
+  export function embedding(options: EmbeddingOptions): Callable<{ indices: FormalTensor }, FormalTensor>;
   /** Configure reusable normalization over the final tensor dimension. */
-  export function layer_norm(options?: LayerNormOptions): Layer<{ x: FormalTensor }>;
+  export function layer_norm(options?: LayerNormOptions): Callable<{ x: FormalTensor }, FormalTensor>;
   /** Configure indexed multiclass cross entropy over the final input dimension. */
   export function cross_entropy(options?: LossOptions): LossCallable;
   /** Configure mean squared error for same-shaped input and target tensors. */

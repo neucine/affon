@@ -25,6 +25,28 @@ The public optimizer factories are:
 They return immutable descriptors. They do not hold parameters, expose a
 mutable learning rate, or provide a callable `step(params)` function.
 
+## Explicit parameter updates
+
+Use the lower-level transforms when gradient selection must remain visible:
+
+```ts
+import { gradient, update_parameters } from 'affon:compute'
+
+const derivatives = gradient(loss, [
+  'classifier.head.weight',
+  'classifier.head.bias',
+])
+const train = update_parameters(loss, derivatives, adamw({
+  learning_rate: 3e-4,
+}))
+```
+
+The gradient Program must be derived from the same source Program. Only its
+selected parameters are updated. Running the transformed Program returns the
+source output and atomically updates those parameters and their optimizer
+state. `optimize(model, loss, optimizer)` is the high-level form that performs
+the model/loss composition and gradient selection automatically.
+
 ## Gradient accumulation
 
 Wrap an optimizer when a larger effective batch should span several runs:
@@ -86,9 +108,9 @@ successful run updates the `ExecutionState` atomically: parameters and
 optimizer moments are replaced, `$step` advances, and the RNG counter is
 incremented. A failed run leaves the previous state installed.
 
-`gradient(loss, names)` is available when gradients themselves are the desired
-Program output. Immediate evaluated-tensor operations are intentionally not
-differentiable.
+`gradient(loss, names)` returns gradients without changing state;
+`update_parameters(loss, gradients, optimizer)` applies explicitly selected
+gradients. Immediate evaluated-tensor operations are intentionally not differentiable.
 
 ## State and lifetime
 

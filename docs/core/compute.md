@@ -134,8 +134,9 @@ needs isolation or a specific device.
 Program transforms remain declarative:
 
 ```ts
-import { gradient, program, Tensor } from "affon:compute"
+import { gradient, program, Tensor, update_parameters } from "affon:compute"
 import { cross_entropy } from "affon:ops"
+import { adamw } from "affon:optim"
 
 const loss = program("classifier_loss", p => {
   const image = p.argument("image", Tensor.f32([32, 784]))
@@ -143,15 +144,23 @@ const loss = program("classifier_loss", p => {
   return cross_entropy(classifier({ image }), labels)
 })
 const gradients = gradient(loss, ["classifier.head.weight", "classifier.head.bias"])
+const update = update_parameters(loss, gradients, adamw({ learning_rate: 3e-4 }))
 
 const lossExecutable = session.compile(loss)
 const gradientExecutable = session.compile(gradients)
+const updateExecutable = session.compile(update)
 ```
 
 `cross_entropy(logits, labels)` produces a single-element mean loss. Its
 labels must be i64 and match the logits shape without its final class axis. `gradient`
 requires a single-element output and differentiates through the compute core,
 not through an eager fallback.
+
+`update_parameters(source, gradients, optimizer)` is the low-level state
+transition. The gradient Program must come from `gradient(source, names)`, and
+only the selected parameter names are updated. The resulting Program preserves
+the source arguments and output, so running `update` above returns the current
+loss while applying the explicit gradients to its `ExecutionState`.
 
 `affon:ops` also provides `mean_squared_error`, `mean_absolute_error`,
 `binary_cross_entropy`, and `binary_cross_entropy_with_logits` for custom loss
@@ -162,7 +171,8 @@ when the standard target shape can be inferred from a model.
 
 `optimize(model, loss, optimizer)` combines a reusable model, a scalar loss
 Program or specialized loss callable, and an immutable optimizer descriptor into
-a state-transition Program. Keep the model and loss separate when the same
+a state-transition Program. Internally it composes the model and loss, derives
+all parameter gradients, and delegates to `update_parameters`. Keep the model and loss separate when the same
 model must also be compiled for evaluation or inference:
 
 ```ts

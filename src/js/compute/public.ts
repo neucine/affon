@@ -5,6 +5,7 @@ export {
   gradient,
   metrics,
   optimize,
+  update_parameters,
 } from "affon:_internal/compute/program"
 
 export type {

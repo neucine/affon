@@ -18,7 +18,8 @@ reusable computation explicit as a `Program`, then runs that Program in a
 | model parameters and state | `session.initialize(program)` |
 | compiled call | `session.compile(program).run(arguments, state)` |
 | backward pass | `gradient(program, names)` |
-| optimizer | `optimize(modelProgram, lossProgram, adamw(options))` |
+| explicit parameter update | `update_parameters(lossProgram, gradients, optimizer)` |
+| complete training transform | `optimize(modelProgram, loss, optimizer)` |
 
 `Tensor` intentionally names two related public concepts. In type position it
 is an evaluated tensor interface; in value position it is the namespace-like

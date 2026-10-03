@@ -79,16 +79,16 @@ describe("Program authoring and transforms", () => {
     }, "projection"))
     const model = program("path_model", p => block({
       value: p.argument("value", Tensor.f32([2])),
-    }, "layer_0"))
+    }, "layer.0"))
 
     const inspection = model.inspect()
     expect(inspection.nodes.map(node => node.id)).toEqual(inspection.nodes.map((_, index) => index))
-    expect(inspection.nodes.find(node => node.name === "layer_0.projection.bias")!.path).toEqual([
-      { program: "path_block", instance: "layer_0" },
+    expect(inspection.nodes.find(node => node.name === "layer.0.projection.bias")!.path).toEqual([
+      { program: "path_block", instance: "layer.0" },
       { program: "path_leaf", instance: "projection" },
     ])
     expect(inspection.nodes.at(-1)!.path).toEqual([
-      { program: "path_block", instance: "layer_0" },
+      { program: "path_block", instance: "layer.0" },
       { program: "path_leaf", instance: "projection" },
     ])
     expect(Object.isFrozen(inspection.nodes.at(-1)!.path)).toBe(true)

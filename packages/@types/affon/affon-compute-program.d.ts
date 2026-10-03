@@ -203,6 +203,13 @@ declare module "affon:compute" {
   export function gradient(loss: Program<Record<string, FormalTensor>, FormalTensor>, independent_variables: string): Program<Record<string, FormalTensor>, FormalTensor>;
   export function gradient(loss: Program<Record<string, FormalTensor>, FormalTensor>, independent_variables: readonly string[]): Program;
   /**
+   * Apply an explicit gradient Program to its source Program's selected parameters.
+   * @input gradients must be produced by gradient(source, parameterNames).
+   * @semantics Only parameters selected by the gradient Program are updated; other source parameters remain unchanged.
+   * @output Returns a state-transition Program with the same arguments and output as source.
+   */
+  export function update_parameters(source: Program<Record<string, FormalTensor>, FormalTensor>, gradients: Program<Record<string, FormalTensor>, FormalTensor | readonly FormalTensor[]>, optimizer: Optimizer): Program<Record<string, FormalTensor>, FormalTensor>;
+  /**
    * Combine a reusable model Program with a scalar loss Program or LossCallable and transform the result into a training step.
    * @input Model outputs bind positionally to the loss Program's leading arguments. Remaining loss arguments become training inputs.
    * @semantics Preserves the model's parameter and state provenance so an ExecutionState initialized for the training step can run the standalone model for evaluation or inference.

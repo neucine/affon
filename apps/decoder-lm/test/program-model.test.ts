@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'std:test'
-import { Session } from 'affon:compute'
+import { Session, optimize } from 'affon:compute'
 import { adam } from 'affon:optim'
 import { DecoderModel } from '../src/model.ts'
 import { generate } from '../src/causal-lm.ts'
@@ -9,18 +9,18 @@ describe('decoder-lm Program model', () => {
     const model = DecoderModel(16, 8, { numLayers: 1, numHeads: 2, hiddenDim: 16, causal: true, positional: 'learned', maxSeqLen: 8, tieEmbeddings: true })
     const forward = model.forward(2, 3)
     const loss = model.loss(2, 3)
-    const step = model.train(2, 3, adam({ learning_rate: 0.001 }))
+    const step = optimize(forward, model.objective, adam({ learning_rate: 0.001 }))
     const inspection = forward.inspect()
     expect(inspection.parameters.length).toBe(20)
-    expect(inspection.nodes.find(node => node.path.some(segment => segment.program === 'decoder_embeddings'))!.path).toEqual([
-      { program: 'decoder_embeddings', instance: 'embeddings' },
+    expect(inspection.parameters.slice(0, 2).map(value => value.name)).toEqual([
+      'token_embedding.weight',
+      'position_embedding.weight',
     ])
-    expect(inspection.nodes.find(node => node.name === 'layer_0.attention_norm.weight')!.path).toEqual([
-      { program: 'decoder_block', instance: 'layer_0' },
-      { program: 'decoder_norm', instance: 'attention_norm' },
+    expect(inspection.nodes.find(node => node.name === 'blocks.0.attention.norm.weight')!.path).toEqual([
+      { program: 'decoder_block', instance: 'blocks.0' },
     ])
     expect(inspection.nodes.find(node => node.path.some(segment => segment.program === 'decoder_attention'))!.path).toEqual([
-      { program: 'decoder_block', instance: 'layer_0' },
+      { program: 'decoder_block', instance: 'blocks.0' },
       { program: 'decoder_attention', instance: 'attention' },
     ])
     expect(inspection.nodes[inspection.outputs[0]].path).toEqual([
