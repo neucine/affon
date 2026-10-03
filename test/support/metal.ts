@@ -1,4 +1,4 @@
-import { tensor } from 'affon:compute'
+import { tensor } from 'affon:compute/legacy'
 
 let metalAvailableCache: boolean | null = null
 

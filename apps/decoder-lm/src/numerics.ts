@@ -1,6 +1,4 @@
-import { finite_abs_max, finite_summary } from 'affon:compute'
 import type { Tensor } from 'affon:compute'
-import nn from 'affon:nn'
 import process from 'std:process'
 
 type FiniteSummary = {
@@ -21,20 +19,14 @@ function diagnosticsModeFromEnv(value: string | null): 'off' | 'error' | 'warn' 
   return null
 }
 
-const envDiagnosticsMode = diagnosticsModeFromEnv(process.getEnv('AFFON_NN_DIAGNOSTICS'))
-if (envDiagnosticsMode && envDiagnosticsMode !== 'off') {
-  nn.diagnostics.configure({ mode: envDiagnosticsMode, include: ['finite:*'] })
-}
+let finiteChecksEnabled = diagnosticsModeFromEnv(process.getEnv('AFFON_NN_DIAGNOSTICS')) !== 'off'
 
 export function setFiniteChecksEnabled(enabled: boolean): void {
-  nn.diagnostics.configure({
-    mode: enabled ? 'error' : 'off',
-    include: enabled ? ['finite:*'] : [],
-  })
+  finiteChecksEnabled = enabled
 }
 
 export function getFiniteChecksEnabled(): boolean {
-  return nn.diagnostics.get_config().mode !== 'off'
+  return finiteChecksEnabled
 }
 
 export function describeValue(value: number): string {
@@ -45,9 +37,12 @@ export function describeValue(value: number): string {
 }
 
 export function tensorFiniteSummary(value: Tensor): FiniteSummary {
-  return finite_summary(value) as FiniteSummary
+  const values = (value.to_array() as any[]).flat(Infinity).map(Number)
+  const first = values.findIndex(entry => !Number.isFinite(entry))
+  return { ok: first < 0, first_bad_flat_index: first, first_bad_value: first < 0 ? 0 : values[first] }
 }
 
 export function tensorAbsMax(value: Tensor): number | null {
-  return finite_abs_max(value)
+  const values = (value.to_array() as any[]).flat(Infinity).map(Number)
+  return values.every(Number.isFinite) ? values.reduce((maximum, entry) => Math.max(maximum, Math.abs(entry)), 0) : null
 }

@@ -2,17 +2,15 @@
 import fs from 'std:fs'
 import { getEnv } from 'std:process'
 import telemetry from 'std:telemetry'
-import { tensor, reshape, type Tensor } from 'affon:compute'
+import { Session, type Tensor } from 'affon:compute'
 import { load_graph } from '../../../packages/@affon/onnx/src/index.ts'
 const root = getEnv('AFFON_WHISPER_DIR') ?? '/private/tmp/affon-onnx-whisper'
 const model = load_graph(`${root}/step`, 'metal')
+const session = new Session({ device: 'metal' })
+const zeros = (shape: number[]): unknown => shape.length === 1 ? Array(shape[0]).fill(0) : Array.from({ length: shape[0] }, () => zeros(shape.slice(1)))
 const inputs: Record<string, Tensor> = {}
 for (const [name, shape] of Object.entries(model.graph.inputs)) {
-  const count = shape.reduce((a, b) => a * b, 1)
-  inputs[name] = reshape(
-    tensor(Array(count).fill(0), { dtype: 'f32', device: 'metal' }),
-    shape,
-  )
+  inputs[name] = session.tensor(zeros(shape) as any, { dtype: 'f32' })
 }
 function metrics() {
   return Object.fromEntries(
@@ -44,3 +42,4 @@ fs.writeFileSync(
   getEnv('PROFILE_OUTPUT')!,
   JSON.stringify({ synthetic_inputs: true, nodes }, null, 2),
 )
+model.dispose(); session.dispose()

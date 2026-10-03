@@ -1,5 +1,5 @@
 import fs from 'std:fs'
-import dataset from 'affon:dataset'
+import { text as textDataset } from 'affon:dataset/text.ts'
 
 import type { Tokenizer, TokenizerEncodeOptions } from '../../../../packages/@affon/tokenizers/src/index.ts'
 import type { PackedCorpusOptions, TokenWindow } from './token-windows.ts'
@@ -56,7 +56,7 @@ export function splitTextCorpus(
   text: string,
   opts: TextCorpusSplitOptions = {},
 ): string[] {
-  return dataset.text.fromString(text, {
+  return textDataset.fromString(text, {
     mode: opts.mode ?? 'line',
     trim: opts.trim ?? true,
     skipEmpty: opts.skipEmpty ?? true,
@@ -80,12 +80,12 @@ function loadRowsFromPath(
   split: TextCorpusSplitOptions | undefined,
 ): string[] {
   if ((split?.mode ?? 'line') === 'line') {
-    return dataset.text.read(path, {
+    return textDataset.read(path, {
       trim: split?.trim ?? true,
       skipEmpty: split?.skipEmpty ?? true,
     }).toArray()
   }
-  return dataset.text.readParagraphs(path, {
+  return textDataset.readParagraphs(path, {
     trim: split?.trim ?? true,
     skipEmpty: split?.skipEmpty ?? true,
   }).toArray()
@@ -132,7 +132,7 @@ function tokenizeCorpusPaths(
 
   const rows: number[][] = []
   for (let i = 0; i < paths.length; i++) {
-    let textRows = dataset.text.read(paths[i], {
+    let textRows = textDataset.read(paths[i], {
       trim: opts.split?.trim ?? true,
       skipEmpty: opts.split?.skipEmpty ?? true,
     })
@@ -163,7 +163,7 @@ export function tokenizeCorpusRows(
   rows: readonly string[],
   opts: TokenizeCorpusOptions = {},
 ): number[][] {
-  return dataset.text.rows(preprocessRows(rows, opts.preprocess))
+  return textDataset.rows(preprocessRows(rows, opts.preprocess))
     .filter((text) => text.length > 0)
     .encode(tokenizer, {
       addBos: opts.addBos,
@@ -257,11 +257,11 @@ function createPackedTextCorpusFromEncodedRows(
   }
 
   const prepared = opts.shuffle
-    ? dataset.text.encoded(encodedRows).shuffle()
-    : dataset.text.encoded(encodedRows)
+    ? textDataset.encoded(encodedRows).shuffle()
+    : textDataset.encoded(encodedRows)
   const [validationDataset, trainDataset] = opts.validationSplit
     ? prepared.split(opts.validationSplit)
-    : [dataset.text.encoded([]), prepared]
+    : [textDataset.encoded([]), prepared]
   const validationRows = validationDataset.toArray()
   const trainRows = trainDataset.toArray()
 
@@ -273,13 +273,13 @@ function createPackedTextCorpusFromEncodedRows(
   return {
     trainRows,
     validationRows,
-    trainWindows: dataset.text.encoded(trainRows).window({
+    trainWindows: textDataset.encoded(trainRows).window({
       seqLen: opts.seqLen,
       stride: opts.stride,
       joinWithTokenId,
     }).toArray(),
     validationWindows: validationRows.length > 0
-      ? dataset.text.encoded(validationRows).window({
+      ? textDataset.encoded(validationRows).window({
         seqLen: opts.seqLen,
         stride: opts.stride,
         joinWithTokenId,
@@ -319,13 +319,13 @@ export function createPackedTokenCorpus(
   return {
     trainRows: trainRows.map((row) => row.slice()),
     validationRows: validationRows.map((row) => row.slice()),
-    trainWindows: dataset.text.encoded(trainRows).window({
+    trainWindows: textDataset.encoded(trainRows).window({
       seqLen: opts.seqLen,
       stride: opts.stride,
       joinWithTokenId,
     }).toArray(),
     validationWindows: validationRows.length > 0
-      ? dataset.text.encoded(validationRows).window({
+      ? textDataset.encoded(validationRows).window({
         seqLen: opts.seqLen,
         stride: opts.stride,
         joinWithTokenId,

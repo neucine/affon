@@ -1,5 +1,5 @@
 import { describe, test, expect, values } from 'std:test'
-import { std, tensor, variance } from 'affon:compute'
+import { std, tensor, variance } from 'affon:compute/legacy'
 
 describe('compute metal variance', () => {
   test('runs variance and std on metal', () => {

@@ -2,11 +2,13 @@ import { beforeAll, afterAll, test, expect } from 'std:test'
 import fs from 'std:fs'
 import { run, getEnv } from 'std:process'
 import checkpoint from 'affon:checkpoint'
-import { tensor } from 'affon:compute'
+import { Session } from 'affon:compute'
 import type { Device } from 'affon:compute'
 import { load_model } from '../src/index.ts'
 let directory=''
 const device=(getEnv('AFFON_DEVICE') ?? 'cpu') as Device
+const session=new Session({device})
+const tensor=(values:any,options:{dtype?:'f32'|'f64'|'i64';device?:Device}={})=>session.tensor(values,{dtype:options.dtype}) as any
 const config={model_type:'an-unimplemented-architecture',id2label:{'0':'a','1':'b','2':'c'}}
 beforeAll(async()=>{
   directory=(await run({cmd:'mktemp',args:['-d','/tmp/affon-hf-onnx.XXXXXX']})).stdout.trim()
@@ -18,7 +20,7 @@ beforeAll(async()=>{
       {op:'Add',name:'bias',inputs:['flat','bias'],output:'scores',shape:[1,3],attrs:{}}
     ]}))
 })
-afterAll(async()=>{if(directory)await run({cmd:'rm',args:['-rf',directory]})})
+afterAll(async()=>{if(directory)await run({cmd:'rm',args:['-rf',directory]});session.dispose()})
 test('HF ONNX backend binds task inputs/outputs without architecture dispatch',()=>{
   const model=load_model(directory,{task:'image-classification',backend:'onnx',graph_dir:directory,device})
   expect(model.backend).toBe('onnx')

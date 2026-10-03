@@ -1,4 +1,4 @@
-declare module "affon:compute" {
+declare module "affon:compute/legacy" {
   /** Inference-only CPU centered reflect STFT. Signal f32, window f64; output f64 [bins, frames]. */
   export function stft_power(signal: Tensor, window: Tensor, hop: number, paddedLength?: number, frames?: number): Tensor
   export function filterbank(spectrum: Tensor, filters: Tensor): Tensor

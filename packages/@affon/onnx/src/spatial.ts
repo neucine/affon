@@ -1,203 +1,102 @@
-// Generic static NCHW spatial lowerings. No model names or layer structure.
-import {
-  add,
-  contiguous,
-  index_select,
-  matmul,
-  mul,
-  permute,
-  reshape,
-  sum,
-  tensor,
-  transpose,
-  where,
-} from "affon:compute";
-import type { Device, Tensor } from "affon:compute";
+import { Session } from 'affon:compute'
+import type { Device, Tensor } from 'affon:compute'
 
-type Conv = {
-  kernel: number[];
-  strides?: number[];
-  dilations?: number[];
-  pads?: number[];
-  group?: number;
-};
+export type Conv = {
+  kernel: number[]
+  strides?: number[]
+  dilations?: number[]
+  pads?: number[]
+  group?: number
+}
 
-// Indices address spatial positions only and are reused across batches/channels.
-// Out-of-image positions gather index zero and are then masked to zero.
-function spatial_gather(
-  height: number,
-  width: number,
-  oh: number,
-  ow: number,
-  kh: number,
-  kw: number,
-  strides: number[],
-  dilations: number[],
-  pads: number[],
-  device: Device,
-) {
-  const indices: number[] = [],
-    mask: number[] = [];
-  let padded = false;
-  for (let y = 0; y < oh; y++)
-    for (let x = 0; x < ow; x++)
-      for (let ky = 0; ky < kh; ky++)
-        for (let kx = 0; kx < kw; kx++) {
-          const iy = y * strides[0] + ky * dilations[0] - pads[0],
-            ix = x * strides[1] + kx * dilations[1] - pads[1];
-          const valid = iy >= 0 && iy < height && ix >= 0 && ix < width;
-          indices.push(valid ? iy * width + ix : 0);
-          mask.push(valid ? 1 : 0);
-          padded ||= !valid;
-        }
-  const index = tensor(indices, { dtype: "i64", device });
-  const valid = padded ? tensor(mask, { dtype: "f32", device }) : null;
-  const zero = valid ? tensor(0, { dtype: "f32", device }) : null;
-  return (input: Tensor) => {
-    const [batch, channels] = input.shape;
-    const selected = index_select(
-      reshape(contiguous(input), [batch, channels, height * width]),
-      2,
-      index,
-    );
-    return valid ? where(valid, selected, zero!) : selected;
-  };
+export type HostTensor = { shape: number[]; values: number[] }
+
+function product(shape: readonly number[]) { return shape.reduce((size, value) => size * value, 1) }
+
+export function hostTensor(value: Tensor): HostTensor {
+  return { shape: [...value.shape], values: (value.to_array() as any[]).flat(Infinity).map(Number) }
+}
+
+export function nested(values: readonly number[], shape: readonly number[]): any {
+  let offset = 0
+  const build = (axis: number): any => axis === shape.length
+    ? values[offset++]
+    : Array.from({ length: shape[axis] }, () => build(axis + 1))
+  return build(0)
+}
+
+export function padHost(input: HostTensor, pads: readonly number[]): HostTensor {
+  if (input.shape.length !== 4 || pads.length !== 4) throw new Error('Pad requires NCHW input and four spatial pads')
+  const [batch, channels, height, width] = input.shape
+  const oh = height + pads[0] + pads[2]
+  const ow = width + pads[1] + pads[3]
+  const values = Array(batch * channels * oh * ow).fill(0)
+  for (let n = 0; n < batch; n++) for (let c = 0; c < channels; c++)
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+      const source = ((n * channels + c) * height + y) * width + x
+      const target = ((n * channels + c) * oh + y + pads[0]) * ow + x + pads[1]
+      values[target] = input.values[source]
+    }
+  return { shape: [batch, channels, oh, ow], values }
+}
+
+export function convHost(input: HostTensor, weight: HostTensor, bias: HostTensor | undefined, options: Conv, clip?: readonly number[]): HostTensor {
+  if (input.shape.length !== 4 || weight.shape.length !== 4) throw new Error('Conv requires NCHW input and OIHW weights')
+  const [batch, channels, height, width] = input.shape
+  const [outputs, channelsPerGroup, kh, kw] = weight.shape
+  const strides = options.strides ?? options.kernel
+  const dilations = options.dilations ?? [1, 1]
+  const pads = options.pads ?? [0, 0, 0, 0]
+  const groups = options.group ?? 1
+  const oh = Math.floor((height + pads[0] + pads[2] - dilations[0] * (kh - 1) - 1) / strides[0]) + 1
+  const ow = Math.floor((width + pads[1] + pads[3] - dilations[1] * (kw - 1) - 1) / strides[1]) + 1
+  if (groups < 1 || channels !== channelsPerGroup * groups || outputs % groups || oh < 1 || ow < 1) throw new Error('Invalid convolution dimensions')
+  const outputsPerGroup = outputs / groups
+  const values = Array(batch * outputs * oh * ow).fill(0)
+  for (let n = 0; n < batch; n++) for (let oc = 0; oc < outputs; oc++) {
+    const group = Math.floor(oc / outputsPerGroup)
+    for (let oy = 0; oy < oh; oy++) for (let ox = 0; ox < ow; ox++) {
+      let value = bias?.values[oc] ?? 0
+      for (let icg = 0; icg < channelsPerGroup; icg++) for (let ky = 0; ky < kh; ky++) for (let kx = 0; kx < kw; kx++) {
+        const iy = oy * strides[0] + ky * dilations[0] - pads[0]
+        const ix = ox * strides[1] + kx * dilations[1] - pads[1]
+        if (iy < 0 || iy >= height || ix < 0 || ix >= width) continue
+        const ic = group * channelsPerGroup + icg
+        const inputIndex = ((n * channels + ic) * height + iy) * width + ix
+        const weightIndex = ((oc * channelsPerGroup + icg) * kh + ky) * kw + kx
+        value += input.values[inputIndex] * weight.values[weightIndex]
+      }
+      if (clip) value = Math.min(Math.max(value, clip[0]), clip[1])
+      values[((n * outputs + oc) * oh + oy) * ow + ox] = value
+    }
+  }
+  return { shape: [batch, outputs, oh, ow], values }
+}
+
+function materializer(device: Device) {
+  const session = new Session({ device })
+  return (value: HostTensor) => session.tensor(nested(value.values, value.shape)) as Tensor
 }
 
 export function prepare_pad(shape: number[], pads: number[], device: Device) {
-  const [batch, channels, height, width] = shape;
-  if (pads.every((x) => x === 0)) return (x: Tensor) => x;
-  const oh = height + pads[0] + pads[2],
-    ow = width + pads[1] + pads[3];
-  const gather = spatial_gather(
-    height,
-    width,
-    oh,
-    ow,
-    1,
-    1,
-    [1, 1],
-    [1, 1],
-    pads,
-    device,
-  );
-  return (x: Tensor) => reshape(gather(x), [batch, channels, oh, ow]);
+  const output = materializer(device)
+  return (input: Tensor) => {
+    if (JSON.stringify(input.shape) !== JSON.stringify(shape)) throw new Error('Pad input shape mismatch')
+    return output(padHost(hostTensor(input), pads))
+  }
 }
 
-export function prepare_conv(
-  shape: number[],
-  weight: Tensor,
-  bias: Tensor | undefined,
-  a: Conv,
-  device: Device,
-) {
-  const [batch, channels, height, width] = shape,
-    [outputs, cg, kh, kw] = weight.shape;
-  // Legacy v1 manifests only had kernel; their convolution was nonoverlapping.
-  const strides = a.strides ?? a.kernel,
-    dilations = a.dilations ?? [1, 1],
-    pads = a.pads ?? [0, 0, 0, 0],
-    groups = a.group ?? 1;
-  const oh =
-    Math.floor(
-      (height + pads[0] + pads[2] - dilations[0] * (kh - 1) - 1) / strides[0],
-    ) + 1;
-  const ow =
-    Math.floor(
-      (width + pads[1] + pads[3] - dilations[1] * (kw - 1) - 1) / strides[1],
-    ) + 1;
-  if (
-    groups < 1 ||
-    channels !== cg * groups ||
-    outputs % groups ||
-    oh < 1 ||
-    ow < 1
-  )
-    throw Error("Invalid convolution dimensions");
-  const spatial = oh * ow,
-    kernel = kh * kw;
-  const affine = (x: Tensor) =>
-    bias ? add(x, reshape(bias, [1, outputs, 1, 1])) : x;
-  if (
-    groups === 1 &&
-    pads.every((x) => x === 0) &&
-    dilations.every((x) => x === 1) &&
-    strides[0] === kh &&
-    strides[1] === kw &&
-    height % kh === 0 &&
-    width % kw === 0
-  ) {
-    const matrix = contiguous(
-      transpose(reshape(weight, [outputs, channels * kernel]), 0, 1),
-    );
-    return (x: Tensor) => {
-      const blocks = reshape(contiguous(x), [batch, channels, oh, kh, ow, kw]);
-      const patches = reshape(contiguous(permute(blocks, [0, 2, 4, 1, 3, 5])), [
-        batch,
-        spatial,
-        channels * kernel,
-      ]);
-      let projected = matmul(patches, matrix);
-      if (bias) projected = add(projected, bias);
-      return permute(
-        reshape(projected, [batch, oh, ow, outputs]),
-        [0, 3, 1, 2],
-      );
-    };
+export function prepare_conv(shape: number[], weight: Tensor, bias: Tensor | undefined, options: Conv, device: Device, clip?: number[]) {
+  const output = materializer(device)
+  const hostWeight = hostTensor(weight)
+  const hostBias = bias ? hostTensor(bias) : undefined
+  return (input: Tensor) => {
+    if (JSON.stringify(input.shape) !== JSON.stringify(shape)) throw new Error('Conv input shape mismatch')
+    return output(convHost(hostTensor(input), hostWeight, hostBias, options, clip))
   }
-  const gather = spatial_gather(
-    height,
-    width,
-    oh,
-    ow,
-    kh,
-    kw,
-    strides,
-    dilations,
-    pads,
-    device,
-  );
-  if (groups === channels && outputs === channels) {
-    const kernels = reshape(weight, [1, channels, 1, kernel]);
-    return (x: Tensor) =>
-      affine(
-        reshape(
-          sum(
-            mul(
-              reshape(gather(x), [batch, channels, spatial, kernel]),
-              kernels,
-            ),
-            3,
-          ),
-          [batch, channels, oh, ow],
-        ),
-      );
-  }
-  const og = outputs / groups;
-  const matrices = contiguous(
-    transpose(reshape(weight, [groups, og, cg * kernel]), 1, 2),
-  );
-  return (x: Tensor) => {
-    const patches = reshape(gather(x), [batch, groups, cg, spatial, kernel]);
-    const grouped = reshape(contiguous(permute(patches, [1, 0, 3, 2, 4])), [
-      groups,
-      batch * spatial,
-      cg * kernel,
-    ]);
-    const projected = reshape(matmul(grouped, matrices), [
-      groups,
-      batch,
-      oh,
-      ow,
-      og,
-    ]);
-    return affine(
-      reshape(contiguous(permute(projected, [1, 0, 4, 2, 3])), [
-        batch,
-        outputs,
-        oh,
-        ow,
-      ]),
-    );
-  };
+}
+
+export function reshapeHost(input: HostTensor, shape: number[]): HostTensor {
+  if (product(input.shape) !== product(shape)) throw new Error('Reshape element count mismatch')
+  return { shape: [...shape], values: [...input.values] }
 }

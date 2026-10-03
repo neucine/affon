@@ -1,5 +1,5 @@
 import { describe, test, expect, values } from 'std:test'
-import { clamp, gather, grad, index_select, masked_fill, one_hot, sum, tensor, topk, where } from 'affon:compute'
+import { clamp, gather, grad, index_select, masked_fill, one_hot, sum, tensor, topk, where } from 'affon:compute/legacy'
 import { internal_tensor } from '../../support/compute.ts'
 
 describe('compute selection ops', () => {

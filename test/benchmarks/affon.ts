@@ -2,7 +2,7 @@ import fs from 'std:fs'
 import { getEnv } from 'std:process'
 import checkpoint from 'affon:checkpoint'
 import telemetry from 'std:telemetry'
-import * as compute from 'affon:compute'
+import * as compute from 'affon:compute/legacy'
 import native from 'affon:compute/native'
 
 const root = getEnv('COMPUTE_BENCH_FIXTURES')!

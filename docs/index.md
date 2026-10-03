@@ -6,7 +6,6 @@ and apps that build on those surfaces.
 
 ## Start Here
 
-- Direction and milestones: [Application-oriented ML roadmap](./roadmap.md).
 - New to Affon from Python or PyTorch: read [Python to AFFON](./getting-started/python-to-affon.md).
 - Installing the runtime: read [Install](./runtime/install.md).
 - Building tensor or autograd code: read [Compute Concepts](./core/compute.md).
@@ -18,8 +17,10 @@ and apps that build on those surfaces.
 
 Affon keeps the public runtime surface intentionally small:
 
-- `affon:compute` provides tensors, autograd, optimizers, schedules, modules, graph compilation, and metrics.
-- `affon:nn` provides model-building layers and losses on top of `affon:compute`.
+- `affon:compute` provides tensors, Programs, Sessions, differentiation, and Program transforms.
+- `affon:ops` provides operations shared by formal and evaluated tensors.
+- `p.nn` provides builder-bound neural-network declarations and losses.
+- `affon:optim` provides optimizer descriptors.
 - `affon:dataset` provides ingest, preprocessing, batching, text records, and tensor export.
 - `affon:checkpoint` provides training-state persistence and restoration.
 - `std:*` runtime modules provide filesystem, process, telemetry, and other runtime services.
@@ -36,7 +37,7 @@ Complete runnable workflows live under `apps/`.
 
 ## Core Numerics
 
-- [Compute Concepts](./core/compute.md) - compute tensors, parameters, modules, gradients, compilation, and graph inspection
+- [Compute Programs](./core/compute.md) - Programs, formal and evaluated tensors, Sessions, differentiation, optimization, and inspection
 - [Compute Kernel Matrix](./core/kernel-matrix.md) - current backend/device support by operation family
 - [Error Handling](./core/errors.md)
 

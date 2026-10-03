@@ -1,6 +1,6 @@
 import { describe, test, expect, values } from 'std:test'
-import nn from 'affon:nn'
-import { tensor } from 'affon:compute'
+import nn from 'affon:nn/legacy'
+import { tensor } from 'affon:compute/legacy'
 import { python } from '../../support/python.ts'
 import { trackedF32 } from './helpers.ts'
 

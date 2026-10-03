@@ -1,5 +1,5 @@
 import { describe, test, expect, values } from 'std:test'
-import { mul, softmax, sum, tensor, reshape, transpose } from 'affon:compute'
+import { mul, softmax, sum, tensor, reshape, transpose } from 'affon:compute/legacy'
 import { internal_tensor } from '../../../support/compute.ts'
 
 // Metal tests intentionally check grad placement (`grad_device`) and direct

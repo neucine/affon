@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'std:test'
-import nn from 'affon:nn'
+import nn from 'affon:nn/legacy'
 import {
   abs,
   add,
@@ -50,7 +50,7 @@ import {
   variance,
   tensor,
   where,
-} from 'affon:compute'
+} from 'affon:compute/legacy'
 
 describe('compute', () => {
   test('supports value creation, callable modules, grad, step, and compile', () => {

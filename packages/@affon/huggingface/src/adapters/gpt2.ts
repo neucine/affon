@@ -2,7 +2,8 @@ import { create_gpt2, type GPT2Weights } from '../../../models/src/gpt2/index.ts
 // HF GPT-2 config/checkpoint adaptation; execution is owned by @affon/models.
 import fs from 'std:fs'
 import { open_checkpoint } from './checkpoint.ts'
-import type { Device, Tensor } from 'affon:compute'
+import type { Device } from 'affon:compute'
+import type { ModelTensor } from '../../../models/src/shared/parameters.ts'
 import { validate_causal_buffer } from './gpt2-buffers.ts'
 type Config = {
   model_type: string; n_embd: number; n_head: number; n_layer: number;
@@ -34,7 +35,7 @@ export function load_gpt2(directory: string, device: Device = 'cpu') {
     throw new Error('Invalid GPT-2 head size or normalization epsilon')
   }
   const source = open_checkpoint(directory)
-  const weights: Record<string, Tensor> = Object.create(null)
+  const weights: Record<string, ModelTensor> = Object.create(null)
   const expected = new Set<string>()
   const d = config.n_embd
   const inner = config.n_inner ?? 4 * d
@@ -44,8 +45,7 @@ export function load_gpt2(directory: string, device: Device = 'cpu') {
     if (!info || !['F32', 'BF16'].includes(info.dtype) || JSON.stringify(info.shape) !== JSON.stringify(shape)) {
       throw new Error(`Expected f32 ${name} with shape ${JSON.stringify(shape)}`)
     }
-    const value = source.read(name)
-    weights[name] = value.device === device ? value : value.to(device)
+    weights[name] = source.read(name)
   }
   requireWeight('transformer.wte.weight', [config.vocab_size, d])
   requireWeight('transformer.wpe.weight', [config.n_positions, d])

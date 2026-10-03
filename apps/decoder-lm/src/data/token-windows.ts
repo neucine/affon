@@ -1,6 +1,5 @@
-import dataset from 'affon:dataset'
-import { axes, tensor } from 'affon:compute'
-import type { Tensor } from 'affon:compute'
+import { text } from 'affon:dataset/text.ts'
+import { type Session, type Tensor } from 'affon:compute'
 
 export type TokenWindow = number[]
 
@@ -14,6 +13,7 @@ export interface TokenBatchOptions {
   batchSize: number
   shuffle?: boolean
   shuffleSeed?: number
+  session?: Session
 }
 
 interface TokenWindowPrng {
@@ -40,8 +40,8 @@ function shuffleInPlace<T>(values: T[], prng: TokenWindowPrng): void {
   }
 }
 
-function batchToTensor(batch: readonly TokenWindow[]): Tensor<[number, number], 'f32'> {
-  return tensor(batch.map((row) => row.slice()), { dtype: 'f32', axes: [axes.batch, axes.token] }) as Tensor<[number, number], 'f32'>
+function batchToTensor(batch: readonly TokenWindow[], session: Session): Tensor {
+  return session.tensor(batch.map((row) => row.slice()), { dtype: 'i64', axes: ['batch', 'token'] })
 }
 
 function batchOrder(count: number, shuffle: boolean, prng: TokenWindowPrng): number[] {
@@ -55,33 +55,36 @@ function batchFromOrder(
   order: readonly number[],
   start: number,
   batchSize: number,
-): Tensor<[number, number], 'f32'> {
+  session: Session,
+): Tensor {
   const rows: TokenWindow[] = []
   const end = Math.min(start + batchSize, order.length)
   for (let i = start; i < end; i++) {
     rows.push(windows[order[i]].slice())
   }
-  return batchToTensor(rows)
+  return batchToTensor(rows, session)
 }
 
 export function pack_token_windows(
   rows: readonly (readonly number[])[],
   opts: PackedCorpusOptions,
 ): TokenWindow[] {
-  return dataset.text.encoded(rows).window(opts).toArray()
+  return text.encoded(rows).window(opts).toArray()
 }
 
 export function create_token_batches(
   windows: readonly TokenWindow[],
   opts: TokenBatchOptions,
-): Tensor<[number, number], 'f32'>[] {
+): Tensor[] {
   if (!Number.isInteger(opts.batchSize) || opts.batchSize <= 0) {
     throw new AffonError('invalid_arg', 'create_token_batches batchSize must be a positive integer')
   }
   const order = batchOrder(windows.length, opts.shuffle ?? false, createTokenWindowPrng(opts.shuffleSeed ?? 0))
-  const batches: Tensor<[number, number], 'f32'>[] = []
+  if (!opts.session) throw new AffonError('invalid_arg', 'create_token_batches requires a Session')
+  const session = opts.session
+  const batches: Tensor[] = []
   for (let i = 0; i < order.length; i += opts.batchSize) {
-    batches.push(batchFromOrder(windows, order, i, opts.batchSize))
+    batches.push(batchFromOrder(windows, order, i, opts.batchSize, session))
   }
   return batches
 }

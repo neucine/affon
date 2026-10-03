@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'std:test'
 import dataset, { read, DataLoader } from 'affon:dataset'
+import { Session } from 'affon:compute'
 import { createHFTokenizerFromJSON, createLookupTokenizer } from '../../../packages/@affon/tokenizers/src/index.ts'
 import { captureError } from '../../support/errors.ts'
 
@@ -16,13 +17,15 @@ describe('dataset contracts', () => {
   })
 
   test('DataLoader validates positive integer batch size', () => {
+    const session = new Session({ device: 'cpu' })
     const ds = read('test/e2e/dataset/fixtures/iris.csv').select('sepal_length')
 
     for (const batchSize of [0, -1, 1.5]) {
-      const err = captureError(() => new DataLoader(ds, { batchSize: batchSize as any }))
+      const err = captureError(() => new DataLoader(ds, { batchSize: batchSize as any, session }))
       expect(err).toBeInstanceOf(Error)
       expect(err.message).toContain('DataLoader.batchSize must be a positive integer')
     }
+    session.dispose()
   })
 
   test('split validates ratio count', () => {
@@ -34,21 +37,25 @@ describe('dataset contracts', () => {
   })
 
   test('numeric csv parse rejects invalid numeric cells', () => {
-    const err = captureError(() => read('test/e2e/dataset/fixtures/invalid-numeric.csv').toTensor())
+    const session = new Session({ device: 'cpu' })
+    const err = captureError(() => read('test/e2e/dataset/fixtures/invalid-numeric.csv').toTensor({ session }))
     expect(err).toBeInstanceOf(AffonError)
     expect(err.code).toBe('invalid_arg')
     expect(err.message).toContain('InvalidNumericValue')
+    session.dispose()
   })
 
   test('tensor export dtype is limited to f32 or f64', () => {
+    const session = new Session({ device: 'cpu' })
     const ds = read('test/e2e/dataset/fixtures/iris.csv').select('sepal_length', 'sepal_width')
 
     for (const dtype of ['i64', 'bad-dtype']) {
-      const err = captureError(() => ds.toTensor({ dtype: dtype as any }))
+      const err = captureError(() => ds.toTensor({ dtype: dtype as any, session }))
       expect(err).toBeInstanceOf(AffonError)
       expect(err.code).toBe('invalid_arg')
       expect(err.message).toContain("toTensor(): dtype must be 'f32' or 'f64'")
     }
+    session.dispose()
   })
 
   test('text dataset validates positive integer batch size', () => {
@@ -87,14 +94,16 @@ describe('dataset contracts', () => {
   })
 
   test('tensorized text loader shares padded option validation', () => {
+    const session = new Session({ device: 'cpu' })
     const tok = createLookupTokenizer(
       { '<pad>': 0, '<unk>': 1, alpha: 2 },
       { specialTokens: { pad: '<pad>', unk: '<unk>' } }
     )
     const ds = dataset.text.read('test/e2e/dataset/fixtures/lines.txt').encode(tok)
-    const err = captureError(() => ds.tensorLoader({ batchSize: 1, padId: -1 as any }))
+    const err = captureError(() => ds.tensorLoader({ batchSize: 1, padId: -1 as any, session }))
     expect(err).toBeInstanceOf(Error)
     expect(err.message).toContain('PaddedTextDataLoader.padId must be a non-negative integer')
+    session.dispose()
   })
 
   test('readDelimited validates row width', () => {
@@ -116,6 +125,7 @@ describe('dataset contracts', () => {
   })
 
   test('record tensor loader validates selected fields and numeric targets', () => {
+    const session = new Session({ device: 'cpu' })
     let err = captureError(() => dataset.text.readDelimited('test/e2e/dataset/fixtures/labeled-lines.tsv', {
       delimiter: '\t',
       columns: ['text', 'label'],
@@ -127,11 +137,12 @@ describe('dataset contracts', () => {
       const loader = dataset.text.readDelimited('test/e2e/dataset/fixtures/labeled-lines.tsv', {
       delimiter: '\t',
       columns: ['text', 'label'],
-      }).input('text').tensorLoader({ batchSize: 1, padId: 0 })
+      }).input('text').tensorLoader({ batchSize: 1, padId: 0, session })
       Array.from(loader)
     })
     expect(err).toBeInstanceOf(Error)
     expect(err.message).toContain('tensorLoader() can only tensorize numeric selected fields')
+    session.dispose()
   })
 
   test('label encoder validates unknown labels and ids', () => {

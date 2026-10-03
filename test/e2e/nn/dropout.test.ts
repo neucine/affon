@@ -1,6 +1,6 @@
 import { describe, test, expect, values } from 'std:test'
-import nn from 'affon:nn'
-import { compile, seed, tensor } from 'affon:compute'
+import nn from 'affon:nn/legacy'
+import { compile, seed, tensor } from 'affon:compute/legacy'
 import { captureError } from '../../support/errors.ts'
 
 describe('nn dropout', () => {

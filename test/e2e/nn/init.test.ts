@@ -1,6 +1,6 @@
 import { describe, test, expect, values } from 'std:test'
-import { copy, empty, parameter, seed, tensor } from 'affon:compute'
-import nn from 'affon:nn'
+import { copy, empty, parameter, seed, tensor } from 'affon:compute/legacy'
+import nn from 'affon:nn/legacy'
 import { captureError } from '../../support/errors.ts'
 
 function flatten(value: any): number[] {

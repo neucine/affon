@@ -7,9 +7,9 @@ bun x tsc -p test/types/tsconfig.json --noEmit
 ```
 
 `test/e2e/compute/` is the migrated Affon compute parity corpus. It uses Hao's
-`std:test` and `std:util` modules directly. The corpus excludes Affon's
-separate `affon:nn` suite; compute tests remain here and are the source of
-truth for parity work.
+`std:test` and `std:util` modules directly. Legacy neural-network parity remains
+in its separate `affon:nn/legacy` suite; canonical Program API coverage lives
+alongside compute tests here.
 
 Run selected migrated tests with:
 

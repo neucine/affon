@@ -1,5 +1,5 @@
 import fs from 'std:fs'
-import dataset from 'affon:dataset'
+import { text } from 'affon:dataset/text.ts'
 import { describe, expect, test } from 'std:test'
 import { createLookupTokenizer } from '../../../packages/@affon/tokenizers/src/index.ts'
 
@@ -11,8 +11,8 @@ import {
 
 describe('decoder-lm corpus', () => {
   test('uses dataset.text for line and paragraph splitting', () => {
-    expect(dataset.text.fromString('a\n\nb\n', { mode: 'line' }).toArray()).toEqual(['a', 'b'])
-    expect(dataset.text.fromString('a\n\nb\n\nc', { mode: 'paragraph' }).toArray()).toEqual(['a', 'b', 'c'])
+    expect(text.fromString('a\n\nb\n', { mode: 'line' }).toArray()).toEqual(['a', 'b'])
+    expect(text.fromString('a\n\nb\n\nc', { mode: 'paragraph' }).toArray()).toEqual(['a', 'b', 'c'])
   })
 
   test('uses dataset.text directly for tokenized rows and windows', () => {
@@ -27,7 +27,7 @@ describe('decoder-lm corpus', () => {
       specialTokens: { bos: '<bos>', eos: '<eos>', unk: '<unk>' },
     })
 
-    const rows = dataset.text.rows(['hello world', 'hello there']).encode(tokenizer, {
+    const rows = text.rows(['hello world', 'hello there']).encode(tokenizer, {
       addBos: true,
       addEos: true,
     }).toArray()
@@ -36,7 +36,7 @@ describe('decoder-lm corpus', () => {
       [0, 3, 5, 1],
     ])
 
-    const windows = dataset.text.encoded(rows).window({
+    const windows = text.encoded(rows).window({
       seqLen: 3,
       stride: 1,
       joinWithTokenId: tokenizer.specialTokenIds.eos,

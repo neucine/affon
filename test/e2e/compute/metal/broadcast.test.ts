@@ -1,5 +1,5 @@
 import { describe, test, expect, values } from 'std:test'
-import { add, sum } from 'affon:compute'
+import { add, sum } from 'affon:compute/legacy'
 import { internal_tensor } from '../../../support/compute.ts'
 
 describe('compute metal broadcast', () => {

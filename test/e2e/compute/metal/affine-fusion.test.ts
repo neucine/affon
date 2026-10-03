@@ -10,8 +10,8 @@ import {
   copy,
   grad,
   sum,
-} from 'affon:compute'
-import type { Tensor } from 'affon:compute'
+} from 'affon:compute/legacy'
+import type { Tensor } from 'affon:compute/legacy'
 const fused = compile((x: Tensor, scale: Tensor, bias: Tensor) =>
   add(mul(x, scale), bias),
 )

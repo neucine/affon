@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'std:test'
-import { cat, stack, tensor } from 'affon:compute'
+import { cat, stack, tensor } from 'affon:compute/legacy'
 import { captureError } from '../../support/errors.ts'
 
 describe('compute shape contracts', () => {

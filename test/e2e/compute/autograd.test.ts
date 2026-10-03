@@ -1,5 +1,5 @@
 import { describe, test, expect, values } from 'std:test'
-import { add, grad, mul, neg, no_grad, sum, tensor } from 'affon:compute'
+import { add, grad, mul, neg, no_grad, sum, tensor } from 'affon:compute/legacy'
 import { internal_tensor } from '../../support/compute.ts'
 import { captureError } from '../../support/errors.ts'
 

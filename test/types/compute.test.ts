@@ -9,7 +9,7 @@ import compute, {
   sgd,
   tensor,
   topk,
-} from "affon:compute"
+} from "affon:compute/legacy"
 
 type IsExact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
 function assertType<T extends true>() {}
@@ -34,15 +34,15 @@ assertType<IsExact<typeof input.dtype, "f32" | "f64" | "i64">>()
 assertType<IsExact<typeof values.device, "cpu">>()
 assertType<IsExact<typeof result, typeof input>>()
 assertType<IsExact<typeof selected.values, typeof input>>()
-assertType<IsExact<typeof selected.indices, import("affon:compute").Tensor<typeof input.shape, "i64">>>()
-assertType<IsExact<typeof parameterValue.grad, import("affon:compute").Tensor | null>>()
+assertType<IsExact<typeof selected.indices, import("affon:compute/legacy").Tensor<typeof input.shape, "i64">>>()
+assertType<IsExact<typeof parameterValue.grad, import("affon:compute/legacy").Tensor | null>>()
 assertType<IsExact<typeof optimizer.lr, number>>()
 assertType<IsExact<typeof adamOptimizer.lr, number>>()
 assertType<IsExact<typeof duration.unit, "step">>()
 assertType<IsExact<typeof scheduledOptimizer.context.step, number>>()
 assertType<IsExact<ReturnType<typeof compiled.run>, typeof input>>()
 assertType<IsExact<typeof layer.training, boolean>>()
-assertType<IsExact<typeof layer.parameters, import("affon:compute").ParameterCollection>>()
+assertType<IsExact<typeof layer.parameters, import("affon:compute/legacy").ParameterCollection>>()
 
 void compiled
 void layer

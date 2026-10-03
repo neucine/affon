@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'std:test'
-import { adam, clear_grad, grad, tensor } from 'affon:compute'
-import type { Tensor } from 'affon:compute'
-import nn from 'affon:nn'
+import { adam, clear_grad, grad, tensor } from 'affon:compute/legacy'
+import type { Tensor } from 'affon:compute/legacy'
+import nn from 'affon:nn/legacy'
 
 describe('nn recurrent layers', () => {
   test('SimpleRNN preserves sequence output, hidden state, and parameter naming', () => {

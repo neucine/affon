@@ -1,12 +1,15 @@
 import { describe, test, expect, values } from 'std:test'
 import dataset, { read, DataLoader } from 'affon:dataset'
+import { Session } from 'affon:compute'
+
+const session = new Session({ device: 'cpu' })
 
 describe('dataset tabular', () => {
   test('reads csv columns and basic selections', () => {
     const ds = read('test/e2e/dataset/fixtures/iris.csv')
     expect(ds.columns).toEqual(['sepal_length', 'sepal_width', 'petal_length', 'petal_width', 'species'])
 
-    const result = ds.select('petal_length', 'petal_width').toTensor()
+    const result = ds.select('petal_length', 'petal_width').toTensor({ session })
     expect(result.data.shape).toEqual([6, 2])
     expect(result.data.dtype).toBe('f32')
     expect(result.schema).toEqual({ petal_length: [0], petal_width: [1] })
@@ -21,10 +24,10 @@ describe('dataset tabular', () => {
   test('encodes labels and one-hot columns', () => {
     const ds = read('test/e2e/dataset/fixtures/iris.csv')
 
-    const labeled = ds.encode('species', 'label').select('species').toTensor()
+    const labeled = ds.encode('species', 'label').select('species').toTensor({ session })
     expect(labeled.data.shape).toEqual([6, 1])
 
-    const onehot = ds.encode('species').toTensor()
+    const onehot = ds.encode('species').toTensor({ session })
     expect(onehot.data.shape).toEqual([6, 7])
     expect(onehot.schema).toEqual({
       sepal_length: [0],
@@ -42,7 +45,7 @@ describe('dataset tabular', () => {
       .encode('species', 'label')
       .features('petal_length', 'petal_width')
       .target('species')
-      .toTensors()
+      .toTensors({ session })
 
     expect(ds.X.shape).toEqual([6, 2])
     expect(ds.y.shape).toEqual([6])
@@ -55,7 +58,7 @@ describe('dataset tabular', () => {
       .features('petal_length', 'petal_width')
       .target('sepal_length')
 
-    const exported = ds.toTensors({ dtype: 'f64' })
+    const exported = ds.toTensors({ session, dtype: 'f64' })
     expect(exported.X.dtype).toBe('f64')
     expect(exported.y.dtype).toBe('f64')
   })
@@ -63,7 +66,7 @@ describe('dataset tabular', () => {
   test('drop and rename keep expected schemas', () => {
     const ds = read('test/e2e/dataset/fixtures/iris.csv')
 
-    const dropped = ds.drop('species').toTensor()
+    const dropped = ds.drop('species').toTensor({ session })
     expect(dropped.data.shape).toEqual([6, 4])
     expect(dropped.schema).toEqual({
       sepal_length: [0],
@@ -72,7 +75,7 @@ describe('dataset tabular', () => {
       petal_width: [3],
     })
 
-    const renamed = ds.rename('sepal_length', 'sl').rename('sepal_width', 'sw').select('sl', 'sw').toTensor()
+    const renamed = ds.rename('sepal_length', 'sl').rename('sepal_width', 'sw').select('sl', 'sw').toTensor({ session })
     expect(renamed.schema).toEqual({ sl: [0], sw: [1] })
   })
 
@@ -80,16 +83,16 @@ describe('dataset tabular', () => {
     const ds = read('test/e2e/dataset/fixtures/iris.csv')
 
     const [train, testSplit] = ds.split(0.8)
-    expect(train.select('sepal_length', 'sepal_width').toTensor().data.shape).toEqual([5, 2])
-    expect(testSplit.select('sepal_length', 'sepal_width').toTensor().data.shape).toEqual([1, 2])
+    expect(train.select('sepal_length', 'sepal_width').toTensor({ session }).data.shape).toEqual([5, 2])
+    expect(testSplit.select('sepal_length', 'sepal_width').toTensor({ session }).data.shape).toEqual([1, 2])
 
     const [tr, val, te] = ds.split(0.5, 0.3)
-    expect(tr.select('sepal_length').toTensor().data.shape).toEqual([3, 1])
-    expect(val.select('sepal_length').toTensor().data.shape).toEqual([2, 1])
-    expect(te.select('sepal_length').toTensor().data.shape).toEqual([1, 1])
+    expect(tr.select('sepal_length').toTensor({ session }).data.shape).toEqual([3, 1])
+    expect(val.select('sepal_length').toTensor({ session }).data.shape).toEqual([2, 1])
+    expect(te.select('sepal_length').toTensor({ session }).data.shape).toEqual([1, 1])
 
     const [part1, part2] = ds.split(0.5)
-    const rejoined = part1.concat(part2).select('sepal_length', 'sepal_width').toTensor()
+    const rejoined = part1.concat(part2).select('sepal_length', 'sepal_width').toTensor({ session })
     expect(rejoined.data.shape).toEqual([6, 2])
   })
 
@@ -97,18 +100,18 @@ describe('dataset tabular', () => {
     const ms = read('test/e2e/dataset/fixtures/missing.csv')
     expect(ms.columns).toEqual(['id', 'value', 'score', 'label'])
 
-    const filled = ms.fillna('value', 0).fillna('score', -1).select('value', 'score').toTensor()
+    const filled = ms.fillna('value', 0).fillna('score', -1).select('value', 'score').toTensor({ session })
     expect(filled.data.shape).toEqual([5, 2])
     expect(values(filled.data)).toBeAllClose([[10, 5.5], [0, 3.2], [30, -1], [40, 8.1], [0, -1]])
 
-    const cleaned = ms.dropna('value', 'score').select('id', 'value', 'score').toTensor()
+    const cleaned = ms.dropna('value', 'score').select('id', 'value', 'score').toTensor({ session })
     expect(cleaned.data.shape).toEqual([2, 3])
   })
 
   test('sample and dataloader expose expected batch shapes', () => {
     const ds = read('test/e2e/dataset/fixtures/iris.csv')
 
-    const sampled = ds.sample(3).select('sepal_length').toTensor()
+    const sampled = ds.sample(3).select('sepal_length').toTensor({ session })
     expect(sampled.data.shape).toEqual([3, 1])
 
     const trainDs = ds
@@ -116,7 +119,7 @@ describe('dataset tabular', () => {
       .features('sepal_length', 'sepal_width')
       .target('species')
 
-    const loader = new DataLoader(trainDs, { batchSize: 2 })
+    const loader = new DataLoader(trainDs, { session, batchSize: 2 })
     const batches: number[][] = []
     for (const [bX, bY] of loader) {
       batches.push([...bX.shape, bY.shape[0]])
@@ -126,7 +129,7 @@ describe('dataset tabular', () => {
     expect(batches[0]).toEqual([2, 2, 2])
     expect(batches[batches.length - 1]).toEqual([2, 2, 2])
 
-    const loader2 = trainDs.loader({ batchSize: 3 })
+    const loader2 = trainDs.loader({ session, batchSize: 3 })
     expect(loader2.length).toBe(2)
   })
 
@@ -136,7 +139,7 @@ describe('dataset tabular', () => {
       .input('sepal_length', 'sepal_width')
       .target('species')
 
-    const loader = ds.tensorLoader({ batchSize: 2 })
+    const loader = ds.tensorLoader({ session, batchSize: 2 })
     const batches = [...loader]
 
     expect(loader.length).toBe(3)
@@ -154,35 +157,36 @@ describe('dataset tabular', () => {
     const ds = read('test/e2e/dataset/fixtures/iris.csv')
     const [train, testSplit] = ds.split(0.8)
 
-    expect(train.loader({ batchSize: 2 }).length).toBe(3)
-    expect(testSplit.loader({ batchSize: 1 }).length).toBe(1)
+    expect(train.loader({ session, batchSize: 2 }).length).toBe(3)
+    expect(testSplit.loader({ session, batchSize: 1 }).length).toBe(1)
   })
 
   test('sample validates non-negative integer input', () => {
     const ds = read('test/e2e/dataset/fixtures/iris.csv')
-    expect(ds.sample(2).toTensor().data.shape[0]).toBe(2)
+    expect(ds.sample(2).toTensor({ session }).data.shape[0]).toBe(2)
   })
 
   test('dataloader validates positive integer batch size', () => {
     const ds = read('test/e2e/dataset/fixtures/iris.csv').select('sepal_length')
-    expect(new DataLoader(ds, { batchSize: 2 }).length).toBe(3)
+    expect(new DataLoader(ds, { session, batchSize: 2 }).length).toBe(3)
   })
 
   test('split validates ratio count', () => {
     const ds = read('test/e2e/dataset/fixtures/iris.csv')
     const parts = ds.split(0.5, 0.25, 0.25)
     expect(parts.length).toBe(4)
-    expect(parts[0].loader({ batchSize: 1 }).length).toBe(3)
+    expect(parts[0].loader({ session, batchSize: 1 }).length).toBe(3)
   })
 
   test('numeric csv fixture remains readable through columns', () => {
     const ds = read('test/e2e/dataset/fixtures/iris.csv')
-    expect(ds.select('species').loader({ batchSize: 2 }).length).toBe(3)
+    expect(ds.select('species').loader({ session, batchSize: 2 }).length).toBe(3)
   })
 
   test('normalize keeps expected shape', () => {
     const ds = read('test/e2e/dataset/fixtures/iris.csv')
-    const normed = ds.select('sepal_length', 'sepal_width').normalize('sepal_length', 'sepal_width').toTensor()
+    const normed = ds.select('sepal_length', 'sepal_width').normalize('sepal_length', 'sepal_width').toTensor({ session })
     expect(normed.data.shape).toEqual([6, 2])
+    session.dispose()
   })
 })

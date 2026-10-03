@@ -1,4 +1,4 @@
-import { copy, parameter, tensor } from 'affon:compute'
+import { copy, parameter, tensor } from 'affon:compute/legacy'
 
 export function internal_tensor(
   data: number | number[] | number[][] | number[][][],

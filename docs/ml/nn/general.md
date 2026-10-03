@@ -1,134 +1,50 @@
-# NN General
+# Program Components
 
-Beginner-friendly mental model for `affon:nn`.
-
-## Core idea
-
-A neural-network module is:
-- a function: `x -> y`
-- plus trainable compute tensors called parameters
-
-In Affon:
+Neural-network declarations are methods of the active `ProgramBuilder`:
 
 ```ts
-const y = model(x)
-```
-
-Training usually looks like:
-
-```txt
-epoch
-  batch
-    forward
-    loss
-    backward
-    optimizer.step()
-```
-
-One module call processes the whole input for that batch.
-
-For modules with different inference semantics, `mode("eval")` may activate a
-separate evaluation path. `compile(...)` follows that same semantic boundary
-instead of asking modules for compiler-specific hooks.
-
-Custom modules are authored with `compute.module(...)`, while built-in `nn`
-layers keep the model-facing conveniences such as `parameters`, `save`, and
-`load`. For module-level checkpoint files, the public namespace is
-`affon:checkpoint`.
-
-`module.metadata(path)` assigns a logical tree path to the module and propagates
-derived paths to submodules from the module state tree:
-
-```ts
-const model = compute.module({
-  encoder: nn.Linear(4, 8),
-}, (state, x) => state.encoder(x)).metadata('model')
-
-model.module_path         // "model"
-model.encoder.module_path // "model.encoder"
-```
-
-Derived path segments use the actual state keys. Prefer `snake_case` state keys
-when authoring modules so graph export, diagnostics, and inspection tooling see
-the same names as the module state tree. Explicit child metadata is preserved
-exactly as authored.
-
-## Parameters
-
-A parameter is a trainable compute tensor.
-
-Examples:
-- `Linear.weight`
-- `Linear.bias`
-- `RNN.weight_ih`
-- `RNN.weight_hh`
-
-You access them through:
-
-```ts
-model.parameters
-model.parameters.named()
-```
-
-## Shapes
-
-The most important rule:
-
-- the last dimension is often the local feature width
-- earlier dimensions describe structure such as batch or sequence
-
-Examples:
-
-```txt
-[batch, features]
-[seq_len, input_size]
-[seq_len, batch, input_size]
-```
-
-## Sequence Helpers
-
-`affon:nn` also carries a small set of sequence-building helpers that are
-useful across transformer-style and other sequence models:
-
-- `nn.causal_mask(length, opts?)`
-  Creates a lower-triangular visibility mask for autoregressive attention.
-- `nn.apply_causal_mask(scores, value?)`
-  Applies a causal mask to attention scores before softmax.
-- `nn.position_ids(length)`
-  Creates `[0, 1, 2, ...]` position ids as a tensor.
-- `nn.sinusoidal_encoding(length, dim, opts?)`
-  Creates fixed sinusoidal positional encodings.
-
-These are model-building creators, not workflow utilities. They belong with the
-shared `nn` layer surface so packages like `transformers` can consume them
-directly instead of re-exporting their own copies.
-
-## Diagnostics
-
-`nn.diagnostics` owns module-level assertion policy. Runtime compute still owns
-raw numeric inspection such as `finite_summary(...)`; diagnostics decides when a
-module assertion site should be checked and whether it warns or errors.
-
-```ts
-nn.diagnostics.configure({
-  mode: 'error',
-  include: ['finite:decoder.blocks.*'],
+const y = p.nn.linear(x, {
+  name: 'projection',
+  out_features: 128,
 })
 ```
 
-Assertion filters use `<kind>:<path>` keys. Empty `include` means all sites for
-the selected mode; `exclude` wins over `include`.
+This placement is deliberate. A layer declaration creates named parameters in
+the Program being authored; it is not an eager, stateful callable object.
 
-## Terminology
+## Reusable pieces
 
-- `module`
-  The precise structural term in `affon:nn`.
+Use ordinary functions for reusable architecture fragments:
 
-- `model`
-  A user-facing term for a composed module used for training or inference.
+```ts
+import type { FormalTensor, ProgramBuilder } from 'affon:compute'
+import { gelu } from 'affon:ops'
 
-- `layer`
-  A specific module such as `Linear`, `RNN`, `LSTM`, or `Dropout`.
+function feedForward(p: ProgramBuilder, x: FormalTensor, width: number) {
+  const hidden = p.nn.linear(x, { name: 'up', out_features: width })
+  return p.nn.linear(gelu(hidden), {
+    name: 'down',
+    out_features: x.spec.shape.at(-1)!,
+  })
+}
+```
 
-For the broader vocabulary:
-- [glossary.md](../glossary.md)
+Use a child Program when the piece should have its own inspectable identity and
+be composed into multiple parents. A Program can be called positionally while
+another Program is being authored, or bound explicitly with
+`p.use(child, { as, ...arguments })`. The `as` alias namespaces the child's
+parameters, state, and constants.
+
+## State roles
+
+- `p.argument(...)` declares values supplied to every run.
+- `p.parameter(...)` declares trainable state.
+- `p.state(...)` declares persistent non-parameter state.
+- `p.constant(...)` declares immutable Program data.
+
+`Session.initialize(...)` materializes parameters and state into an
+`ExecutionState`. `Executable.run(...)` accepts only named argument tensors;
+it obtains parameters and state from that object.
+
+The former module tree, callable layers, `.parameters`, and train/eval mode API
+is retained in `affon:nn/legacy` only for migration.

@@ -3,17 +3,18 @@
 import fs from 'std:fs'
 import { getEnv } from 'std:process'
 import telemetry from 'std:telemetry'
-import { tensor, reshape, type Tensor } from 'affon:compute'
+import { Session, type Tensor } from 'affon:compute'
 import { load_graph, load_graph_for_scope_validation } from '../../../packages/@affon/onnx/src/runtime.ts'
 
 const directory = getEnv('AFFON_ONNX_DIR')!
 const ordinary = load_graph_for_scope_validation(directory, 'metal', false)
 const scoped = load_graph_for_scope_validation(directory, 'metal')
 const default_model = load_graph(directory, 'metal')
+const session = new Session({ device: 'metal' })
+const zeros = (shape: number[]): unknown => shape.length === 1 ? Array(shape[0]).fill(0) : Array.from({ length: shape[0] }, () => zeros(shape.slice(1)))
 const inputs: Record<string, Tensor> = {}
 for (const [name, shape] of Object.entries(ordinary.graph.inputs)) {
-  inputs[name] = reshape(tensor(Array(shape.reduce((a, b) => a * b, 1)).fill(0),
-    { dtype: 'f32', device: 'metal' }), shape)
+  inputs[name] = session.tensor(zeros(shape) as any, { dtype: 'f32' })
 }
 const metrics = () => Object.fromEntries(telemetry.metrics()
   .filter(m => m.scope === 'compute.execution' && m.name.startsWith('metal_command_') ||
@@ -32,7 +33,7 @@ for (const [name, model] of [['ordinary', ordinary], ['scoped', scoped], ['defau
   runs.push({ name, elapsed_ms,
     counters: Object.fromEntries(Object.entries(after).map(([key, value]) =>
       [key, key.endsWith('bytes') ? value : value - (before[key] ?? 0)])),
-    scope: name === 'scoped' ? scoped.scope_stats() : null })
+    scope: name === 'scoped' ? scoped.scope_stats!() : null })
 }
 let max_absolute_error = 0
 for (const candidate of outputs.slice(1)) {
@@ -51,3 +52,6 @@ for (const candidate of outputs.slice(1)) {
 const report = { directory, synthetic_inputs: true, max_absolute_error, runs }
 fs.writeFileSync(getEnv('PROFILE_OUTPUT')!, JSON.stringify(report, null, 2))
 console.log(JSON.stringify(report))
+for (const output of outputs) for (const value of Object.values(output)) value.dispose()
+for (const value of Object.values(inputs)) value.dispose()
+ordinary.dispose(); scoped.dispose(); default_model.dispose(); session.dispose()

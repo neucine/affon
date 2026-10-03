@@ -1,6 +1,6 @@
 import { create_bert, type BertWeights } from '../../../models/src/bert/index.ts'
 import fs from 'std:fs'
-import type { Device, Tensor } from 'affon:compute'
+import type { Device } from 'affon:compute'
 import { prepare_encoder_checkpoint } from './encoder-checkpoint.ts'
 
 /** Load an f32 absolute-position BERT base encoder with its pooler.

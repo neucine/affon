@@ -1,5 +1,5 @@
 import { describe, test, expect, values } from 'std:test'
-import { add, exp, grad, matmul, sum, tensor } from 'affon:compute'
+import { add, exp, grad, matmul, sum, tensor } from 'affon:compute/legacy'
 import { internal_tensor } from '../../support/compute.ts'
 
 describe('compute chain', () => {

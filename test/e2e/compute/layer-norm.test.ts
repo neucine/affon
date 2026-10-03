@@ -1,6 +1,6 @@
 import { test, expect } from 'std:test'
-import { layer_norm, tensor, parameter, copy, grad, sum, mul, compile, transpose } from 'affon:compute'
-import type { Tensor, Shape } from 'affon:compute'
+import { layer_norm, tensor, parameter, copy, grad, sum, mul, compile, transpose } from 'affon:compute/legacy'
+import type { Tensor, Shape } from 'affon:compute/legacy'
 
 function close(actual: Tensor<Shape>, expected: number[], tolerance = 2e-4) {
   const values = (actual.to_array() as number[]).flat(Infinity) as number[]

@@ -1,5 +1,5 @@
 import { describe, test, expect, values } from 'std:test'
-import { index_select, sum, tensor } from 'affon:compute'
+import { index_select, sum, tensor } from 'affon:compute/legacy'
 import { internal_tensor } from '../../../support/compute.ts'
 
 describe('compute metal index_select', () => {

@@ -1,7 +1,7 @@
 import { describe, test, expect, values } from 'std:test'
 import checkpoint from 'affon:checkpoint'
-import { tensor } from 'affon:compute'
-import nn from 'affon:nn'
+import { tensor } from 'affon:compute/legacy'
+import nn from 'affon:nn/legacy'
 import { captureError } from '../../support/errors.ts'
 
 describe('nn batchnorm', () => {

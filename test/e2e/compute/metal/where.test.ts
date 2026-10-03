@@ -1,5 +1,5 @@
 import { describe, test, expect, values } from 'std:test'
-import { masked_fill, tensor, where } from 'affon:compute'
+import { masked_fill, tensor, where } from 'affon:compute/legacy'
 
 describe('compute metal where', () => {
   test('runs same-shape where on metal', () => {

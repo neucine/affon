@@ -1,5 +1,5 @@
 import { test, expect, values } from 'std:test'
-import { tensor, matmul, transpose } from 'affon:compute'
+import { tensor, matmul, transpose } from 'affon:compute/legacy'
 
 test('Metal single-row products match CPU across batches, tails and strided inputs', () => {
   for (const [k, n] of [

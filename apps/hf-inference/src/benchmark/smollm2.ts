@@ -16,7 +16,7 @@ function memory(phase: string) {
   samples.push({phase, values: Object.fromEntries(telemetry.metrics().filter(m => ['runtime.memory','compute.storage','compute.memory'].includes(m.scope) && (m.name.includes('bytes') || m.name.includes('footprint'))).map(m => [`${m.scope}.${m.name}`,m.value]))})
 }
 function next(logits: Tensor, length: number) {
-  const row = (logits.slice([0,length-1,':']).to_array() as number[]).flat(Infinity) as number[]
+  const row = (logits.to_array() as number[][][])[0][length - 1]
   let id = 0
   for (let i=1;i<row.length;i++) if (row[i]>row[id]) id=i
   return id

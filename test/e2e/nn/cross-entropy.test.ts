@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'std:test'
-import { grad, tensor } from 'affon:compute'
-import nn from 'affon:nn'
+import { grad, tensor } from 'affon:compute/legacy'
+import nn from 'affon:nn/legacy'
 import { internal_tensor } from '../../support/compute.ts'
 
 describe('nn cross entropy', () => {

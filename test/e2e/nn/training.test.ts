@@ -1,6 +1,6 @@
 import { describe, test, expect, values } from 'std:test'
-import { clear_grad, grad, seed, sgd, tensor } from 'affon:compute'
-import nn from 'affon:nn'
+import { clear_grad, grad, seed, sgd, tensor } from 'affon:compute/legacy'
+import nn from 'affon:nn/legacy'
 
 describe('nn training', () => {
   test('a single Linear layer can learn y = 2x + 1', () => {

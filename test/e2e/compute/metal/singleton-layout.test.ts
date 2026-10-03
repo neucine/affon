@@ -9,7 +9,7 @@ import {
   sum,
   grad,
   parameter,
-} from 'affon:compute'
+} from 'affon:compute/legacy'
 
 function allocations() {
   return (

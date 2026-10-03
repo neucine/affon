@@ -18,11 +18,15 @@ It provides compute tensors, autograd, neural-network layers, datasets,
 checkpointing, first-party ML packages, notebooks, and runnable reference
 workloads in one runtime-oriented package.
 
-Affon is experimental and application-oriented. Its working direction is embedded
-inference and lightweight learning in TypeScript applications. CPU and Metal are
-the primary validation targets; CUDA has less complete testing. Full PyTorch API
-compatibility and broad Hugging Face model coverage are not goals. See the
-[roadmap](docs/roadmap.md) for the direction and evidence required to validate it.
+Affon is experimental and deliberately transparent. Its working direction is to
+make computational models explainable as semantic programs: not only numeric
+operators, but the roles of values and dimensions, mutable state,
+differentiation, transformations, and the path to backend execution. TypeScript
+is the current host interface rather than the project's central distinction.
+CPU and Metal are the primary validation targets; CUDA has less complete
+testing. Full PyTorch API compatibility and broad model-count coverage are not
+goals. See the [roadmap](docs/roadmap.md) for the research direction and its
+evidence gates.
 
 ## Quick Start
 
@@ -42,30 +46,34 @@ affon hello.ts
 ```
 
 ```typescript
-import { tensor, clear_grad, grad, sgd, relu } from "affon:compute";
-import nn from "affon:nn";
+import { Session, Tensor, program } from "affon:compute";
 
-const model = nn.Sequential(nn.Linear(1, 4), relu, nn.Linear(4, 1));
-const params = model.parameters;
-const step = sgd({ lr: 0.01 });
-const criterion = nn.MSELoss();
+const model = program("regression", p => {
+  const x = p.argument("x", Tensor.f32([3, 1]));
+  return p.nn.linear(x, { name: "output", out_features: 1 });
+});
 
-const x = tensor([[1], [2], [3]]);
-const target = tensor([[2], [4], [6]]);
+const session = new Session({ device: "cpu" });
+const state = session.initialize(model, { seed: 7 });
+const executable = session.compile(model);
+const x = session.tensor([[1], [2], [3]]);
+const prediction = executable.run({ x }, state);
 
-clear_grad(params);
-const pred = model(x);
-const loss = criterion(pred, target);
-grad(loss, params);
-step(params);
+console.log(prediction.to_array());
 
-console.log(loss.item());
+prediction.dispose();
+x.dispose();
+state.dispose();
+session.dispose();
 ```
 
 ## Public Modules
 
-- `affon:compute` is the tensor, autograd, optimizer, schedule, module, and graph-compilation substrate.
-- `affon:nn` is the model-building layer on top of `affon:compute`.
+- `affon:compute` is the declarative Program, Session, differentiation, and Program-transform surface.
+- `affon:ops` is the shared operation vocabulary for formal and evaluated tensors.
+- `affon:optim` contains immutable optimizer descriptors.
+- `affon:compute/legacy` temporarily contains the older eager tensor and captured-graph API.
+- `affon:nn/legacy` temporarily contains the older eager model-building layer; canonical NN authoring lives on `p.nn`.
 - `affon:dataset` is the ingest, preprocessing, batching, text-record, and tokenizer surface.
 - `affon:checkpoint` is the training-state persistence and restore surface.
 
@@ -73,6 +81,9 @@ Runtime/system modules such as filesystem, process, and telemetry are provided
 by the underlying runtime under `std:*` specifiers.
 
 ## Examples
+
+The notebooks below currently exercise the compatibility APIs while they are
+being migrated to Programs. Use the Quick Start above for canonical new code.
 
 - [Getting Started](examples/getting-started.ts.ipynb)
 - [NN Basics: Feed-forward + Recurrent](examples/nn-basics.ts.ipynb)
@@ -86,10 +97,10 @@ by the underlying runtime under `std:*` specifiers.
 
 ## Features
 
-- **Compute-first numerics** with typed tensors, parameters, modules, gradients, and graph compilation
+- **Declarative compute Programs** with typed tensor roles, explicit state, differentiation, optimization, and compilation
 - **CPU, Metal, and CUDA device placement** with kernel-capability-aware lowering
-- **Neural-network layers** including linear, recurrent, normalization, embedding, dropout, and batchnorm modules
-- **Optimizers and schedules** including SGD, Adam, AdamW, gradient clipping, and scheduled training loops
+- **Program-bound neural-network declarations** for linear, embedding, layer normalization, and cross entropy
+- **Immutable optimizer descriptors** for SGD, Adam, and AdamW Program transforms
 - **Dataset pipelines** for tabular and text workflows, including token windows and tokenizer adapters
 - **Checkpoint persistence** for model and optimizer state
 - **Runtime diagnostics** with `std:telemetry.metrics()`, traces, and memory signals
@@ -129,7 +140,7 @@ cases.
 - Runtime: [Install](docs/runtime/install.md), [Configuration](docs/runtime/configuration.md), [Module Loader](docs/runtime/module-loader.md), [Memory Debugging](docs/runtime/memory-debugging.md)
 - Apps: [apps/](apps/), [Decoder LM](apps/decoder-lm/README.md)
 - Packages: [packages/](packages/), [Models](packages/@affon/models/README.md), [Hugging Face](packages/@affon/huggingface/README.md), [Tokenizers](packages/@affon/tokenizers/README.md)
-- Editor: [Affon for VS Code](https://github.com/neucine/affon-vscode)
+- Editor: [VS Code TypeScript Notebook](https://github.com/neucine/vscode-typescript-notebook)
 
 ## License
 

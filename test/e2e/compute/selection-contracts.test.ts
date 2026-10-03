@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'std:test'
-import { gather, index_select, one_hot, tensor, topk } from 'affon:compute'
+import { gather, index_select, one_hot, tensor, topk } from 'affon:compute/legacy'
 import { captureError } from '../../support/errors.ts'
 
 describe('compute selection contracts', () => {

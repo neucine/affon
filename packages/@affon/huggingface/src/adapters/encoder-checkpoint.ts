@@ -1,10 +1,10 @@
 import { open_checkpoint } from './checkpoint.ts'
-import { contiguous, transpose } from 'affon:compute'
-import type { Device, Tensor } from 'affon:compute'
+import type { Device } from 'affon:compute'
+import type { ModelTensor } from '../../../models/src/shared/parameters.ts'
 
 export function prepare_encoder_checkpoint(directory: string, device: Device) {
   const source = open_checkpoint(directory)
-  const weights: Record<string, Tensor> = Object.create(null)
+  const weights: Record<string, ModelTensor> = Object.create(null)
   const expected = new Set<string>()
   function require_weight(name: string, shape: number[], linear = false) {
     const info = source.catalog[name]
@@ -13,8 +13,13 @@ export function prepare_encoder_checkpoint(directory: string, device: Device) {
     }
     const value = source.read(name)
     expected.add(name)
-    const placed = value.device === device ? value : value.to(device)
-    weights[name] = linear ? contiguous(transpose(placed, 0, 1)) : placed
+    if (!linear) {
+      weights[name] = value
+      return
+    }
+    const rows = value.to_array() as number[][]
+    const transposed = Array.from({ length: shape[1] }, (_, row) => Array.from({ length: shape[0] }, (_, column) => rows[column][row]))
+    weights[name] = { shape: [shape[1], shape[0]], dtype: 'f32', device: value.device, to_array: () => transposed }
   }
   function finish() {
     for (const name of Object.keys(source.catalog)) {

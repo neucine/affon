@@ -1,5 +1,5 @@
 import { describe, test, expect, values } from 'std:test'
-import { argmax, argmin, max, min, tensor } from 'affon:compute'
+import { argmax, argmin, max, min, tensor } from 'affon:compute/legacy'
 
 describe('compute metal min/max indices', () => {
   test('runs min/max and argmin/argmax on metal', () => {

@@ -1,4 +1,4 @@
-import { tensor } from 'affon:compute'
+import { tensor } from 'affon:compute/legacy'
 import { figure, plot, show } from 'std:plot'
 import { inspect } from 'std:util'
 import { get } from 'std:http'

@@ -1,5 +1,5 @@
 import { describe, test, expect, values } from 'std:test'
-import { all, cast, cat, contiguous, grad, permute, randn, reshape, seed, slice, squeeze, stack, sum, tensor, transpose, unsqueeze } from 'affon:compute'
+import { all, cast, cat, contiguous, grad, permute, randn, reshape, seed, slice, squeeze, stack, sum, tensor, transpose, unsqueeze } from 'affon:compute/legacy'
 import { internal_tensor } from '../../support/compute.ts'
 
 describe('compute shape ops', () => {

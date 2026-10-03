@@ -60,10 +60,10 @@ export function load_whisper(directory: string, options: WhisperOptions) {
     string,
     Tensor
   >
-  const embeddings = loaded.embeddings.to(device)
+  const embeddings = loaded.embeddings
   const positions = (
     checkpoint.load(`${root}/positions.safetensors`) as Record<string, Tensor>
-  ).positions.to(device)
+  ).positions
   if (
     JSON.stringify(embeddings.shape) !==
       JSON.stringify([config.vocab_size, 384]) ||
@@ -83,5 +83,6 @@ export function load_whisper(directory: string, options: WhisperOptions) {
     cross: (encoded) => cross.forward({ encoded }),
     step: (inputs) => decoder.forward(inputs),
   }, { embeddings, positions }, (ids) => tokenizer.decode(ids, { skipSpecialTokens: true }), device)
-  return { ...model, config, backend: 'onnx' as const }
+  embeddings.dispose(); positions.dispose()
+  return { ...model, config, backend: 'onnx' as const, dispose() { model.dispose(); encoder.dispose(); cross.dispose(); decoder.dispose() } }
 }

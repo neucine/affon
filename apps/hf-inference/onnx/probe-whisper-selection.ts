@@ -1,7 +1,7 @@
 import fs from 'std:fs'
 import checkpoint from 'affon:checkpoint'
 import { getEnv } from 'std:process'
-import type { Tensor } from 'affon:compute'
+import { Session, type Tensor } from 'affon:compute'
 import { load_whisper } from '../../../packages/@affon/huggingface/src/adapters/whisper.ts'
 const root = getEnv('AFFON_WHISPER_DIR') ?? '/private/tmp/affon-onnx-whisper'
 const policy = JSON.parse(fs.readFileSync(`${root}/whisper.json`))
@@ -32,7 +32,9 @@ function select(logits: number[], step: number, scoreFirst: boolean) {
   return best
 }
 const cases: unknown[] = []
-const result = model.transcribe(refs.features.to('metal'), (step, logits) => {
+const session = new Session({ device: 'metal' })
+const features = session.tensor(refs.features.to_array() as any, { dtype: refs.features.dtype })
+const result = model.transcribe(features, (step, logits) => {
   const expected = select(logits, step, false)
   if (select(logits, step, true) !== expected) throw Error('Selection mismatch')
   const times = [0, 0]
@@ -66,3 +68,4 @@ fs.writeFileSync(
   getEnv('PROFILE_OUTPUT')!,
   JSON.stringify({ cases, result }, null, 2),
 )
+features.dispose(); session.dispose()

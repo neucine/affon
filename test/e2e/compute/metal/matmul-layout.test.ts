@@ -1,5 +1,5 @@
 import { test, expect, values } from 'std:test'
-import { tensor, matmul, reshape, transpose, type Tensor } from 'affon:compute'
+import { tensor, matmul, reshape, transpose, type Tensor } from 'affon:compute/legacy'
 
 function compare(a: Tensor, b: Tensor) {
   const expected = (values(matmul(a, b)) as number[]).flat(Infinity) as number[]

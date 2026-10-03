@@ -1,6 +1,6 @@
 import { describe, expect, test, values } from 'std:test'
-import { grad, sum } from 'affon:compute'
-import nn from 'affon:nn'
+import { grad, sum } from 'affon:compute/legacy'
+import nn from 'affon:nn/legacy'
 import { internal_tensor } from '../../support/compute.ts'
 
 describe('compute with nn', () => {

@@ -8,7 +8,7 @@ import {
   reshape,
   tensor,
   transpose,
-} from 'affon:compute'
+} from 'affon:compute/legacy'
 import telemetry from 'std:telemetry'
 
 const batch = 4

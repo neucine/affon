@@ -1,5 +1,5 @@
 import fs from 'std:fs'
-import { tensor, type Device } from 'affon:compute'
+import { Session, type Device } from 'affon:compute'
 import { resample_audio } from './shared/audio.ts'
 
 // Radix-2 FFT in double precision; output rounds to complex64 like HF's NumPy STFT.
@@ -118,7 +118,10 @@ export function load_ast_processor(directory: string, device: Device = 'cpu') {
           return Math.fround(Math.fround(log - mean) / divisor)
         })
       }
-      return tensor([output], { dtype: 'f32', device })
+      const session = new Session({ device })
+      const result = session.tensor([output])
+      session.dispose()
+      return result
     },
   }
 }

@@ -1,5 +1,5 @@
 import { describe, test, expect, values } from 'std:test'
-import { argmax, argmin, grad, max, mean, min, mul, softmax, std, sum, tensor, variance } from 'affon:compute'
+import { argmax, argmin, grad, max, mean, min, mul, softmax, std, sum, tensor, variance } from 'affon:compute/legacy'
 import { internal_tensor } from '../../support/compute.ts'
 
 describe('compute reduction ops', () => {

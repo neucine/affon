@@ -1,5 +1,5 @@
 import { describe, test, expect, values } from 'std:test'
-import { softmax, tensor } from 'affon:compute'
+import { softmax, tensor } from 'affon:compute/legacy'
 
 describe('nn softmax', () => {
   test('matches the tensor softmax surface on a simple row input', () => {

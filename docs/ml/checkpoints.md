@@ -12,7 +12,7 @@ Use it when you want to:
 
 ```ts
 import checkpoint from 'affon:checkpoint'
-import nn from 'affon:nn'
+import nn from 'affon:nn/legacy'
 
 const model = nn.Sequential(
   nn.Linear(3, 4),
@@ -84,7 +84,7 @@ Compute-backed modules still expose:
 
 Those are convenience methods for the module instance itself. The public
 module-level persistence surface is `affon:checkpoint`, not `affon:compute` or
-`affon:nn`.
+`affon:nn/legacy`.
 
 ## Scope
 

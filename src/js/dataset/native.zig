@@ -2,9 +2,7 @@ const std = @import("std");
 const errors = @import("errors.zig");
 const qjs = @import("hao").qjs;
 const js_classes = @import("js_classes.zig");
-const cfg = @import("../../config.zig");
 const compute = @import("compute");
-const tensor_binding = @import("../compute/native.zig");
 const DataFrame = @import("DataFrame.zig").DataFrame;
 const pipeline = @import("pipeline.zig");
 const csv = @import("csv.zig");
@@ -553,49 +551,31 @@ fn js_toTensors(ctx: ?*qjs.c.JSContext, this: qjs.c.JSValueConst, argc: c_int, a
 }
 
 fn createTensorFromFlat(ctx: ?*qjs.c.JSContext, data: []f64, num_rows: usize, width: usize, dtype: DType) !qjs.c.JSValue {
-    if (false) return error.OutOfMemory;
+    _ = dtype;
     defer data_alloc.free(data);
-    const device: compute.Device = switch (cfg.getDefaultDevice()) {
-        .cpu => .cpu,
-        .metal => .metal,
-        .cuda => .cuda,
-    };
-    const value = compute.Tensor.createContiguous(data_alloc, &.{ num_rows, width }, dtype, device, false) catch return error.OutOfMemory;
-    errdefer value.deinit();
-    try writeFlatData(value, data, dtype);
-    return tensor_binding.createTensorObject(ctx, value);
+    const rows = qjs.c.JS_NewArray(ctx);
+    if (qjs.isException(rows)) return error.OutOfMemory;
+    for (0..num_rows) |row_index| {
+        const row = qjs.c.JS_NewArray(ctx);
+        if (qjs.isException(row)) return error.OutOfMemory;
+        for (0..width) |column_index| {
+            const value = qjs.c.JS_NewFloat64(ctx, data[row_index * width + column_index]);
+            if (qjs.c.JS_DefinePropertyValueUint32(ctx, row, @intCast(column_index), value, qjs.c.JS_PROP_C_W_E) < 0) return error.OutOfMemory;
+        }
+        if (qjs.c.JS_DefinePropertyValueUint32(ctx, rows, @intCast(row_index), row, qjs.c.JS_PROP_C_W_E) < 0) return error.OutOfMemory;
+    }
+    return rows;
 }
 
 fn createTensorFromFlat1D(ctx: ?*qjs.c.JSContext, data: []f64, num_rows: usize, dtype: DType) !qjs.c.JSValue {
-    if (false) return error.OutOfMemory;
+    _ = dtype;
     defer data_alloc.free(data);
-    const device: compute.Device = switch (cfg.getDefaultDevice()) {
-        .cpu => .cpu,
-        .metal => .metal,
-        .cuda => .cuda,
-    };
-    const value = compute.Tensor.createContiguous(data_alloc, &.{num_rows}, dtype, device, false) catch return error.OutOfMemory;
-    errdefer value.deinit();
-    try writeFlatData(value, data, dtype);
-    return tensor_binding.createTensorObject(ctx, value);
-}
-
-fn writeFlatData(value: *compute.Tensor, data: []const f64, dtype: DType) !void {
-    switch (dtype) {
-        .f64 => try value.storage.?.writeFromHost(std.mem.sliceAsBytes(data)),
-        .f32 => {
-            const host = try data_alloc.alignedAlloc(f32, .@"8", data.len);
-            defer data_alloc.free(host);
-            for (data, 0..) |v, i| host[i] = @floatCast(v);
-            try value.storage.?.writeFromHost(std.mem.sliceAsBytes(host));
-        },
-        .i64 => {
-            const host = try data_alloc.alignedAlloc(i64, .@"8", data.len);
-            defer data_alloc.free(host);
-            for (data, 0..) |v, i| host[i] = @intFromFloat(v);
-            try value.storage.?.writeFromHost(std.mem.sliceAsBytes(host));
-        },
+    const values = qjs.c.JS_NewArray(ctx);
+    if (qjs.isException(values)) return error.OutOfMemory;
+    for (data[0..num_rows], 0..) |item, index| {
+        if (qjs.c.JS_DefinePropertyValueUint32(ctx, values, @intCast(index), qjs.c.JS_NewFloat64(ctx, item), qjs.c.JS_PROP_C_W_E) < 0) return error.OutOfMemory;
     }
+    return values;
 }
 
 fn schemaToJS(ctx: ?*qjs.c.JSContext, schema: *pipeline.SchemaResult) qjs.c.JSValue {

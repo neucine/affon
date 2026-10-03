@@ -1,7 +1,7 @@
 import { readFileSync } from 'std:fs'
 import type {
   TextTokenizer as DatasetTextTokenizer,
-} from 'affon:dataset'
+} from 'affon:dataset/tokenizer.ts'
 import { hfTokenizerFromFile as createInternalHFTokenizerFromFile, hfTokenizerFromJSON as createInternalHFTokenizerFromJSON } from './hf.ts'
 import { lookupTokenizer as createInternalLookupTokenizer } from './lookup.ts'
 import { sentencePieceTokenizer as createInternalSentencePieceTokenizer, sentencePieceTokenizerFromFile as createInternalSentencePieceTokenizerFromFile } from './sentencepiece.ts'

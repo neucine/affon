@@ -1,5 +1,5 @@
 import { test, expect } from 'std:test'
-import { tensor } from 'affon:compute'
+import { Session } from 'affon:compute'
 import { create_text_generation, generate_text } from '../../src/inference/text.ts'
 import { create_handler } from '../../src/serve/http/routes.ts'
 import type { InferenceModels } from '../../src/inference/models.ts'
@@ -7,6 +7,7 @@ import type { PlaygroundConfig } from '../../src/serve/config.ts'
 import { load_llama } from '../../../../packages/@affon/huggingface/src/adapters/llama.ts'
 
 function fixture() {
+  const session = new Session({ device: 'cpu' })
   let resets = 0, fail = false
   const inputs: number[][] = []
   const model = {
@@ -20,7 +21,7 @@ function fixture() {
           inputs.push([...ids])
           if (fail) throw Error('test decode failure')
           const best = [3, 4, 2][step++]
-          return {logits: tensor([ids.map(() => Array.from({length:5}, (_, i) => i === best ? 1 : 0))])}
+          return {logits: session.tensor([ids.map(() => Array.from({length:5}, (_, i) => i === best ? 1 : 0))])}
         },
       }
     },

@@ -1,13 +1,13 @@
-import { tensor } from 'affon:compute'
-
-interface Tensor {
-  readonly shape: number[]
-}
+import type { Session, Tensor } from 'affon:compute'
 
 interface PaddedTextDataLoaderOpts {
   batchSize?: number
   padId: number
   maxLength?: number
+}
+
+interface TensorizedTextDataLoaderOpts extends PaddedTextDataLoaderOpts {
+  session: Session
 }
 
 interface TensorizedSupervisedTextBatch {
@@ -162,9 +162,11 @@ class PaddedTextDataLoader {
 
 class TensorizedTextDataLoader {
   private loader: PaddedTextDataLoader
+  private session: Session
 
-  constructor(dataset: EncodedTextDatasetLike, opts: PaddedTextDataLoaderOpts) {
+  constructor(dataset: EncodedTextDatasetLike, opts: TensorizedTextDataLoaderOpts) {
     this.loader = new PaddedTextDataLoader(dataset, opts)
+    this.session = opts.session
   }
 
   get length(): number {
@@ -173,6 +175,7 @@ class TensorizedTextDataLoader {
 
   [Symbol.iterator](): Iterator<{ inputIds: Tensor; attentionMask: Tensor }> {
     const inner = this.loader[Symbol.iterator]()
+    const session = this.session
     return {
       next(): IteratorResult<{ inputIds: Tensor; attentionMask: Tensor }> {
         const step = inner.next()
@@ -180,8 +183,8 @@ class TensorizedTextDataLoader {
         return {
           done: false,
           value: {
-            inputIds: tensor(step.value.inputIds, { dtype: 'i64' }),
-            attentionMask: tensor(step.value.attentionMask, { dtype: 'i64' }),
+            inputIds: session.tensor(step.value.inputIds, { dtype: 'i64' }),
+            attentionMask: session.tensor(step.value.attentionMask, { dtype: 'i64' }),
           },
         }
       }
@@ -290,9 +293,11 @@ class PaddedLabeledTextDataLoader {
 
 class TensorizedLabeledTextDataLoader {
   private loader: PaddedLabeledTextDataLoader
+  private session: Session
 
-  constructor(dataset: EncodedLabeledTextDatasetLike, opts: PaddedTextDataLoaderOpts) {
+  constructor(dataset: EncodedLabeledTextDatasetLike, opts: TensorizedTextDataLoaderOpts) {
     this.loader = new PaddedLabeledTextDataLoader(dataset, opts)
+    this.session = opts.session
   }
 
   get length(): number {
@@ -301,6 +306,7 @@ class TensorizedLabeledTextDataLoader {
 
   [Symbol.iterator](): Iterator<{ inputIds: Tensor; attentionMask: Tensor; labels: string[] }> {
     const inner = this.loader[Symbol.iterator]()
+    const session = this.session
     return {
       next(): IteratorResult<{ inputIds: Tensor; attentionMask: Tensor; labels: string[] }> {
         const step = inner.next()
@@ -308,8 +314,8 @@ class TensorizedLabeledTextDataLoader {
         return {
           done: false,
           value: {
-            inputIds: tensor(step.value.inputIds, { dtype: 'i64' }),
-            attentionMask: tensor(step.value.attentionMask, { dtype: 'i64' }),
+            inputIds: session.tensor(step.value.inputIds, { dtype: 'i64' }),
+            attentionMask: session.tensor(step.value.attentionMask, { dtype: 'i64' }),
             labels: step.value.labels.slice(),
           },
         }
@@ -331,5 +337,6 @@ export {
 export type {
   PairPaddedBatch,
   PaddedTextDataLoaderOpts,
+  TensorizedTextDataLoaderOpts,
   TensorizedSupervisedTextBatch,
 }

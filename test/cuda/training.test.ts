@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'std:test'
-import { range, copy, tensor, parameter, module, add, sub, square, mean, sum, matmul, relu, gelu, gt_scalar, where, masked_fill, cast, dot, cat, stack, slice, transpose, contiguous, setDevice, clip_grad_norm, grad, clear_grad, sgd, adam, adamw, compile, cross_entropy_indexed, gather, one_hot } from 'affon:compute'
+import { range, copy, tensor, parameter, module, add, sub, square, mean, sum, matmul, relu, gelu, gt_scalar, where, masked_fill, cast, dot, cat, stack, slice, transpose, contiguous, setDevice, clip_grad_norm, grad, clear_grad, sgd, adam, adamw, compile, cross_entropy_indexed, gather, one_hot } from 'affon:compute/legacy'
 
 function close(actual: any, expected: any, tolerance = 1e-4) {
   if (Array.isArray(expected)) {

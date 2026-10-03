@@ -1,5 +1,5 @@
 import { test, expect, values } from 'std:test'
-import { tensor, reshape, cat, transpose } from 'affon:compute'
+import { tensor, reshape, cat, transpose } from 'affon:compute/legacy'
 
 test('Metal batched concatenation preserves unequal chunks across outer rows and dtypes', () => {
   for (const dtype of ['f32', 'i64'] as const) {

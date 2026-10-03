@@ -19,7 +19,7 @@ import {
   unsqueeze,
   tensor,
   where,
-} from 'affon:compute'
+} from 'affon:compute/legacy'
 import { internal_tensor } from '../../support/compute.ts'
 
 describe('compute selection and shape ops', () => {

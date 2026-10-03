@@ -11,7 +11,7 @@ import {
   softmax,
   sum,
   tensor,
-} from 'affon:compute'
+} from 'affon:compute/legacy'
 
 function maxAbs(value: unknown): number {
   if (Array.isArray(value)) {

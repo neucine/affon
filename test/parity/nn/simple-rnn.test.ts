@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'std:test'
-import nn from 'affon:nn'
+import nn from 'affon:nn/legacy'
 import { python } from '../../support/python.ts'
 import { hostValues, trackedF32 } from './helpers.ts'
 

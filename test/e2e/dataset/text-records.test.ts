@@ -1,15 +1,17 @@
 import { describe, test, expect, values } from 'std:test'
-import dataset from 'affon:dataset'
+import { text } from 'affon:dataset/text.ts'
+import { Session } from 'affon:compute'
 import { createLookupTokenizer } from '../../../packages/@affon/tokenizers/src/index.ts'
 
 describe('dataset text records', () => {
   test('text records support single-label classification through field transforms', () => {
+    const session = new Session({ device: 'cpu' })
     const tok = createLookupTokenizer(
       { '<pad>': 0, '<unk>': 1, good: 2, bad: 3, neutral: 4 },
       { specialTokens: { pad: '<pad>', unk: '<unk>' } }
     )
-    const labels = dataset.text.labelEncoder({ pos: 0, neg: 1, neu: 2 })
-    const ds = dataset.text.readDelimited('test/e2e/dataset/fixtures/labeled-lines.tsv', {
+    const labels = text.labelEncoder({ pos: 0, neg: 1, neu: 2 })
+    const ds = text.readDelimited('test/e2e/dataset/fixtures/labeled-lines.tsv', {
       delimiter: '\t',
       columns: ['text', 'label'],
     })
@@ -24,21 +26,23 @@ describe('dataset text records', () => {
       { text: 'neutral', label: 'neu', inputIds: [4], labels: 2 },
     ])
 
-    const tensorBatches = [...ds.tensorLoader({ batchSize: 2, padId: 0 })]
+    const tensorBatches = [...ds.tensorLoader({ batchSize: 2, padId: 0, session })]
     expect(values(tensorBatches[0].inputIds)).toEqual([[2], [3]])
     expect(values(tensorBatches[0].attentionMask)).toEqual([[1], [1]])
     expect(values(tensorBatches[0].labels)).toEqual([0, 1])
     expect(tensorBatches[0].labels.dtype).toBe('i64')
     expect(labels.decode(2)).toBe('neu')
+    session.dispose()
   })
 
   test('text records support multi-label transforms and multi-hot targets', () => {
+    const session = new Session({ device: 'cpu' })
     const tok = createLookupTokenizer(
       { '<pad>': 0, '<unk>': 1, good: 2, bad: 3, neutral: 4 },
       { specialTokens: { pad: '<pad>', unk: '<unk>' } }
     )
-    const labels = dataset.text.labelEncoder({ pos: 0, neg: 1, neu: 2, featured: 3 })
-    const ds = dataset.text.readDelimited('test/e2e/dataset/fixtures/multilabel-lines.tsv', {
+    const labels = text.labelEncoder({ pos: 0, neg: 1, neu: 2, featured: 3 })
+    const ds = text.readDelimited('test/e2e/dataset/fixtures/multilabel-lines.tsv', {
       delimiter: '\t',
       columns: ['text', 'labels'],
     })
@@ -54,7 +58,7 @@ describe('dataset text records', () => {
       { text: 'neutral', labels: [0, 0, 1, 1], inputIds: [4] },
     ])
 
-    const tensorBatches = [...ds.tensorLoader({ batchSize: 2, padId: 0 })]
+    const tensorBatches = [...ds.tensorLoader({ batchSize: 2, padId: 0, session })]
     expect(values(tensorBatches[0].inputIds)).toEqual([[2], [3]])
     expect(values(tensorBatches[0].attentionMask)).toEqual([[1], [1]])
     expect(values(tensorBatches[0].labels)).toEqual([
@@ -63,14 +67,16 @@ describe('dataset text records', () => {
     ])
     expect(labels.encodeMany(['featured', 'pos'])).toEqual([3, 0])
     expect(labels.decodeMany([2, 3])).toEqual(['neu', 'featured'])
+    session.dispose()
   })
 
   test('text records support numeric target casting for regression', () => {
+    const session = new Session({ device: 'cpu' })
     const tok = createLookupTokenizer(
       { '<pad>': 0, '<unk>': 1, good: 2, bad: 3, neutral: 4 },
       { specialTokens: { pad: '<pad>', unk: '<unk>' } }
     )
-    const ds = dataset.text.readDelimited('test/e2e/dataset/fixtures/scored-lines.tsv', {
+    const ds = text.readDelimited('test/e2e/dataset/fixtures/scored-lines.tsv', {
       delimiter: '\t',
       columns: ['text', 'score'],
     })
@@ -85,19 +91,21 @@ describe('dataset text records', () => {
       { text: 'neutral', score: '0.125', inputIds: [4], labels: 0.125 },
     ])
 
-    const tensorBatches = [...ds.tensorLoader({ batchSize: 2, padId: 0 })]
+    const tensorBatches = [...ds.tensorLoader({ batchSize: 2, padId: 0, session })]
     expect(values(tensorBatches[0].inputIds)).toEqual([[2], [3]])
     expect(values(tensorBatches[0].attentionMask)).toEqual([[1], [1]])
     expect(values(tensorBatches[0].labels)).toEqual([0.75, -0.5])
     expect(tensorBatches[0].labels.dtype).toBe('f32')
+    session.dispose()
   })
 
   test('text records support pair encoding with segment ids', () => {
+    const session = new Session({ device: 'cpu' })
     const tok = createLookupTokenizer(
       { '<bos>': 0, '<eos>': 1, '<sep>': 2, '<unk>': 3, hello: 4, world: 5, good: 6, bye: 7 },
       { specialTokens: { bos: '<bos>', eos: '<eos>', unk: '<unk>' } }
     )
-    const ds = dataset.text.readDelimited('test/e2e/dataset/fixtures/text-pairs.tsv', {
+    const ds = text.readDelimited('test/e2e/dataset/fixtures/text-pairs.tsv', {
       delimiter: '\t',
       columns: ['left', 'right'],
     })
@@ -116,7 +124,7 @@ describe('dataset text records', () => {
       { left: 'good', right: 'bye', inputIds: [0, 6, 2, 7, 1], tokenTypeIds: [0, 0, 0, 1, 1] },
     ])
 
-    const batches = [...ds.tensorLoader({ batchSize: 2, padId: 0 })]
+    const batches = [...ds.tensorLoader({ batchSize: 2, padId: 0, session })]
     expect(values(batches[0].inputIds)).toEqual([
       [0, 4, 2, 5, 1],
       [0, 6, 2, 7, 1],
@@ -129,6 +137,7 @@ describe('dataset text records', () => {
       [1, 1, 1, 1, 1],
       [1, 1, 1, 1, 1],
     ])
+    session.dispose()
   })
 
   test('text pair encoding supports explicit truncation policies', () => {
@@ -136,7 +145,7 @@ describe('dataset text records', () => {
       { '<bos>': 0, '<eos>': 1, left: 2, a: 3, b: 4, right: 5, c: 6, d: 7 },
       { specialTokens: { bos: '<bos>', eos: '<eos>' } }
     )
-    const pairs = dataset.text.readDelimited('test/e2e/dataset/fixtures/text-pairs.tsv', {
+    const pairs = text.readDelimited('test/e2e/dataset/fixtures/text-pairs.tsv', {
       delimiter: '\t',
       columns: ['left', 'right'],
     }).map(() => ({ left: 'left a b', right: 'right c d' }))
@@ -164,7 +173,7 @@ describe('dataset text records', () => {
       { '<bos>': 0, '<eos>': 1, '<sep>': 2, left: 3, right: 4 },
       { specialTokens: { bos: '<bos>', eos: '<eos>' } }
     )
-    const pairs = dataset.text.readDelimited('test/e2e/dataset/fixtures/text-pairs.tsv', {
+    const pairs = text.readDelimited('test/e2e/dataset/fixtures/text-pairs.tsv', {
       delimiter: '\t',
       columns: ['left', 'right'],
     }).map(() => ({ left: 'left', right: 'right' }))
@@ -188,7 +197,7 @@ describe('dataset text records', () => {
       { '<bos>': 0, '<eos>': 1, '<sep>': 2, left: 3, right: 4 },
       { specialTokens: { bos: '<bos>', eos: '<eos>', sep: '<sep>' } }
     )
-    const pairs = dataset.text.readDelimited('test/e2e/dataset/fixtures/text-pairs.tsv', {
+    const pairs = text.readDelimited('test/e2e/dataset/fixtures/text-pairs.tsv', {
       delimiter: '\t',
       columns: ['left', 'right'],
     }).map(() => ({ left: 'left', right: 'right' }))

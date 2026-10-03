@@ -4,15 +4,14 @@ import native from 'affon:compute/native'
 type DType = 'f32' | 'f64' | 'i64'
 type Device = 'cpu' | 'metal' | 'cuda' | `cuda:${number}`
 type ComputeValue = {
-  shape: number[]
+  shape: readonly number[]
   rank?: number
   ndim: number
   dtype: DType
   device: Device
   item(): number
-  to(device: Device): ComputeValue
   to_array(): unknown
-  slice(selectors: readonly (number | string)[]): ComputeValue
+  dispose(): void
 }
 
 type ComputeState = Record<string, any> | any[] | ComputeValue | number | string | boolean | null
@@ -34,10 +33,9 @@ function moduleRuntimeStateOf(value: ModuleRuntime): any {
 }
 
 function copyTensorValue(target: ComputeValue, source: ComputeValue): void {
-  const adapted = source.dtype === target.dtype
-    ? (source.device === target.device ? source : source.to(target.device))
-    : native.cast(source, target.dtype as DType).to(target.device)
-  ;(native as any).$muladd_(target, 0.0, adapted)
+  void target
+  void source
+  throw new AffonError('invalid_state', 'checkpoint.restore is not supported for immutable Program tensors; initialize a new ExecutionState from checkpoint values')
 }
 
 export function flattenPersistableState(state: any, out: Record<string, ComputeValue>, prefix = ''): void {

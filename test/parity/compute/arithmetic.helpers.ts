@@ -1,5 +1,5 @@
 import { describe, test, expect, values } from 'std:test'
-import { abs, add, clamp, div, exp, log, mul, neg, sign, sqrt, sub, sum } from 'affon:compute'
+import { abs, add, clamp, div, exp, log, mul, neg, sign, sqrt, sub, sum } from 'affon:compute/legacy'
 import { python } from '../../support/python.ts'
 import { computeParityDTypes, torchDType, internal_tensor } from '../../support/compute.ts'
 import { describeParityDevices, materializeOnDevice } from '../../support/parity.ts'

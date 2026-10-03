@@ -1,5 +1,5 @@
 import { describe, test, expect, values } from 'std:test'
-import { clamp, div, exp, log, sigmoid, sqrt, tanh, tensor } from 'affon:compute'
+import { clamp, div, exp, log, sigmoid, sqrt, tanh, tensor } from 'affon:compute/legacy'
 
 describe('compute numeric contracts', () => {
   test('keeps exp finite for large negative finite inputs and overflows honestly for large positive inputs', () => {

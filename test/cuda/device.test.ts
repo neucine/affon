@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'std:test'
-import { contiguous, matmul, move, relu, setDevice, softmax, tensor, transpose } from 'affon:compute'
+import { contiguous, matmul, move, relu, setDevice, softmax, tensor, transpose } from 'affon:compute/legacy'
 
 // This suite requires CUDA. Fail explicitly if unavailable so GPU CI cannot
 // silently report a successful run without exercising the backend.

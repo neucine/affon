@@ -1,0 +1,64 @@
+# Example for an existing KServe installation and pre-populated PVC.
+# Replace the image with your published build. No image is published by this app.
+apiVersion: serving.kserve.io/v1alpha1
+kind: ServingRuntime
+metadata:
+  name: affon-mobilenet
+spec:
+  multiModel: false
+  supportedModelFormats:
+    - name: affon-onnx-static
+      version: "1"
+      autoSelect: false
+  protocolVersions:
+    - v2
+  containers:
+    - name: kserve-container
+      image: registry.example/affon-vision:experiment
+      env:
+        - name: MODEL_DIR
+          value: /mnt/models
+        - name: MODEL_NAME
+          value: "{{.Name}}"
+        - name: AFFON_DEVICE
+          value: cpu
+      ports:
+        - containerPort: 8080
+          protocol: TCP
+      startupProbe:
+        httpGet:
+          path: /v2/health/ready
+          port: 8080
+        periodSeconds: 2
+        failureThreshold: 150
+      readinessProbe:
+        httpGet:
+          path: /v2/health/ready
+          port: 8080
+        periodSeconds: 10
+        timeoutSeconds: 5
+      resources:
+        requests:
+          cpu: "1"
+          memory: 512Mi
+        limits:
+          cpu: "4"
+          memory: 2Gi
+---
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: vision
+  annotations:
+    serving.kserve.io/deploymentMode: Standard
+spec:
+  predictor:
+    minReplicas: 1
+    model:
+      modelFormat:
+        name: affon-onnx-static
+        version: "1"
+      runtime: affon-mobilenet
+      protocolVersion: v2
+      # PVC directory must contain graph.json, weights.safetensors, and source/.
+      storageUri: pvc://vision-models/mobilenet

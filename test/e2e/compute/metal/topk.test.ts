@@ -1,5 +1,5 @@
 import { describe, test, expect, values } from 'std:test'
-import { sum, tensor, topk } from 'affon:compute'
+import { sum, tensor, topk } from 'affon:compute/legacy'
 import { internal_tensor } from '../../../support/compute.ts'
 
 describe('compute metal topk', () => {

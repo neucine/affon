@@ -1,12 +1,14 @@
 import { test, expect, beforeAll, afterAll } from "std:test";
 import fs from "std:fs";
 import { getEnv, run } from "std:process";
-import { tensor } from "affon:compute";
+import { Session } from "affon:compute";
 import type { Device } from "affon:compute";
 import { prepare_pad } from "../src/spatial.ts";
 import { load_graph, semantic_loss_report } from "../src/index.ts";
 const directory = "packages/@affon/onnx/test/fixtures";
 const device = (getEnv("AFFON_DEVICE") ?? "cpu") as Device;
+const session = new Session({ device });
+const tensor = (values: any, options: { dtype?: 'f32' | 'f64' | 'i64'; device?: Device } = {}) => session.tensor(values, { dtype: options.dtype }) as any;
 let temporary = "";
 beforeAll(async () => {
   temporary = (
@@ -15,6 +17,7 @@ beforeAll(async () => {
 });
 afterAll(async () => {
   if (temporary) await run({ cmd: "rm", args: ["-rf", temporary] });
+  session.dispose();
 });
 test("import reports preserved inferred decomposed unsupported and source-export-lost meaning", () => {
   const report = semantic_loss_report(directory);

@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'std:test'
-import { mean, min, tensor } from 'affon:compute'
+import { mean, min, tensor } from 'affon:compute/legacy'
 import { captureError } from '../../support/errors.ts'
 
 describe('compute reduction contracts', () => {

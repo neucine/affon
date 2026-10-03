@@ -1,6 +1,6 @@
 import { describe, test, expect, values } from 'std:test'
-import { gelu, grad, tensor } from 'affon:compute'
-import nn from 'affon:nn'
+import { gelu, grad, tensor } from 'affon:compute/legacy'
+import nn from 'affon:nn/legacy'
 import { internal_tensor } from '../../support/compute.ts'
 
 function roundNested(value: any): any {

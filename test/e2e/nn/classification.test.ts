@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'std:test'
-import { adam, clear_grad, grad, relu, tensor } from 'affon:compute'
-import nn from 'affon:nn'
+import { adam, clear_grad, grad, relu, tensor } from 'affon:compute/legacy'
+import nn from 'affon:nn/legacy'
 
 describe('nn classification', () => {
   test('a small classifier with batchnorm and dropout learns a 3-class split', () => {

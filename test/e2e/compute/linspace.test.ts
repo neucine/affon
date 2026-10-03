@@ -1,5 +1,5 @@
 import { describe, test, expect, values } from 'std:test'
-import { linspace } from 'affon:compute'
+import { linspace } from 'affon:compute/legacy'
 
 describe('compute linspace', () => {
   test('creates common linspace variants', () => {

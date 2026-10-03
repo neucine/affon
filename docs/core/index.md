@@ -1,32 +1,53 @@
-# Core Numerics Docs
+# Core Numerics
 
-Core numerics cover the public `affon:compute` surface: tensors, parameters,
-autograd, optimizers, schedules, module state, graph compilation, and backend
-execution.
+Affon's public compute model separates declarations from evaluated values:
 
-Read these pages in this order if you are new to the compute layer:
+```text
+Program -> Session.compile -> Executable.run -> evaluated Tensor
+```
 
-- [Compute Concepts](./compute.md) - compute tensors, parameters, programs, modules, compilation, and observability
-- [Compute Kernel Matrix](./kernel-matrix.md) - current backend/device support by operation family
-- [Compute Semantic Coverage](./compute-semantic-coverage.md) - correctness claims, evidence, and closure gaps
-- [Error Handling](./errors.md)
+- `affon:compute` declares Programs, tensor specifications, Sessions,
+  differentiation, and optimization transforms.
+- `affon:ops` is the operation vocabulary shared by formal tensors inside a
+  Program and evaluated tensors owned by a Session.
+- `affon:optim` creates immutable optimizer descriptions consumed by
+  `optimize(...)`.
 
-## Public Boundary
+Start with [Compute Programs](./compute.md), then consult the
+[Compute Kernel Matrix](./kernel-matrix.md) for backend coverage and
+[Error Handling](./errors.md) for failure and cleanup patterns.
 
-Use `affon:compute` as the public numeric API. There is no separate public
-`affon:tensor` or `affon:ndarray` module. Device-specific behavior, graph
-lowering, and native execution details are documented only where they affect
-observable behavior or support status.
+## Smallest useful example
 
-## Common Tasks
+```ts
+import { Session, Tensor, program } from 'affon:compute'
+import { mul } from 'affon:ops'
 
-- Create data with `tensor(...)`, `zeros(...)`, `ones(...)`, `rand(...)`, and `randn(...)`.
-- Create trainable state with `parameter(...)`.
-- Differentiate scalar losses with `grad(loss, params)`.
-- Update parameters with optimizers such as `sgd(...)`, `adam(...)`, or `adamw(...)`.
-- Inspect support status before relying on backend-specific execution.
+const square = program('square', p => {
+  const x = p.argument('x', Tensor.f32([3]))
+  return mul(x, x)
+})
 
-Implementation contracts:
+const session = new Session({ device: 'cpu' })
+const executable = session.compile(square)
+const x = session.tensor([1, 2, 3])
+const y = executable.run({ x })
 
-- [Bounded Metal execution scopes](metal-execution-scopes.md): graph-level command
-  accumulation with synchronous return, ownership and validation requirements.
+console.log(y.to_array()) // [1, 4, 9]
+
+y.dispose()
+x.dispose()
+executable.dispose()
+session.dispose()
+```
+
+For a one-off calculation, call the same `affon:ops` functions with evaluated
+tensors. Immediate evaluation is computation-only: it does not create a
+gradient tape. Use a Program when the computation needs differentiation,
+optimization, inspection, composition, or repeated execution.
+
+## Compatibility
+
+The previous eager/autograd surface remains temporarily available from
+`affon:compute/legacy`, and the previous module layer from `affon:nn/legacy`.
+Those modules are migration aids, not alternative spellings for new code.

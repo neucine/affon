@@ -1,7 +1,5 @@
 import fs from 'std:fs'
 import telemetry from 'std:telemetry'
-import { axes, compile, exportBundleFile, tensor } from 'affon:compute'
-import type { Tensor } from 'affon:compute'
 
 import { DecoderModel, type DecoderModelModule, type DecoderModelOptions } from './model.ts'
 import { generate } from './causal-lm.ts'
@@ -475,9 +473,7 @@ export function trainDecoderLMFromConfig(
   config: DecoderLMWorkflowConfig,
   hooks?: DecoderLMWorkflowHooks,
 ): DecoderLMWorkflowResult {
-  const previousDevice = 'cpu'
-  setDevice(config.device ?? 'cpu')
-  try {
+  {
     hooks?.onStatus?.('building tokenizer...')
     const tokenizer = createTokenizerFromConfig(config.tokenizer)
     hooks?.onStatus?.('building corpus...')
@@ -502,12 +498,11 @@ export function trainDecoderLMFromConfig(
       maxSeqLen: config.model.maxSeqLen,
       tieEmbeddings: config.model.tieEmbeddings,
       dropout: config.model.dropout,
+      device: config.device ?? 'cpu',
     })
     const compileModelForward = !!config.training.compileModelForward
-    const compiledModel = compileModelForward ? compile(model) : null
-    const forward = compiledModel
-      ? ((tokenIds: Tensor<[number, number], 'f32'>) => compiledModel(tokenIds) as Tensor<number[], 'f32'>)
-      : ((tokenIds: Tensor<[number, number], 'f32'>) => model(tokenIds) as Tensor<number[], 'f32'>)
+    const compiledModel = compileModelForward ? model : null
+    const forward = model.forward
     const lrSchedule = config.training.lrSchedule
       ? lrScheduleFromConfig(config.training.lrSchedule)
       : undefined
@@ -525,12 +520,19 @@ export function trainDecoderLMFromConfig(
       )
     }
     const shouldRestoreOptimizerState = config.checkpoint?.restoreOptimizerState !== false && !optimizerKindMismatch
-    const resumed = resumedRaw && !shouldRestoreOptimizerState
-      ? {
-          ...resumedRaw,
-          optimizerState: null,
+    let resumed = resumedRaw
+    if (resumedRaw) {
+      for (const value of Object.values(resumedRaw.state)) value.dispose()
+      resumed = { ...resumedRaw, state: {} }
+      if (!shouldRestoreOptimizerState) {
+        const optimizerState = model.executionState?.optimizer_state ?? {}
+        for (const [name, value] of Object.entries(optimizerState)) {
+          if (value && typeof value === 'object') value.dispose()
+          delete optimizerState[name]
         }
-      : resumedRaw
+        resumed = { ...resumed, optimizerState: null }
+      }
+    }
 
     const samples: DecoderLMWorkflowSample[] = []
     const bundleExportPaths: string[] = []
@@ -571,9 +573,7 @@ export function trainDecoderLMFromConfig(
       // A compiled evaluation specialization can retain stale execution state
       // across thousands of in-place optimizer updates. Keep validation eager;
       // this also leaves the compiled specialization dedicated to training.
-      evaluationForward: compiledModel
-        ? ((tokenIds: Tensor<[number, number], 'f32'>) => model(tokenIds) as Tensor<number[], 'f32'>)
-        : undefined,
+      evaluationForward: model.forward,
       shuffleSeed: config.training.shuffleSeed,
       maxGradNorm: config.training.maxGradNorm,
       maxTrainBatchesPerEpoch: config.training.maxTrainBatchesPerEpoch,
@@ -615,54 +615,6 @@ export function trainDecoderLMFromConfig(
         }
         hooks?.onBatch?.(metrics)
       },
-      onBatchArtifacts: (artifacts) => {
-        const exportConfig = config.report?.export
-        if (!exportConfig) return
-        const everyNSteps = exportConfig.everyNSteps ?? 1
-        const exportStep = artifacts.step + 1
-        if (everyNSteps <= 0 || exportStep % everyNSteps !== 0) return
-
-        const runId = exportConfig.runId ?? 'decoder-lm'
-        const graphIdPrefix = exportConfig.graphIdPrefix ?? 'decoder-lm'
-        const format = exportConfig.format ?? 'json'
-        const mode = exportConfig.mode ?? 'annotated'
-        const prefix = exportConfig.prefix ?? runId
-        const common = {
-          dir: exportConfig.dir,
-          format,
-          mode,
-          boundary: 'step' as const,
-          runId,
-          epoch: artifacts.epoch,
-          step: exportStep,
-          batch: artifacts.batch,
-          prefix,
-        }
-
-        if (exportConfig.includeForward !== false && compiledModel) {
-          const forwardExportOpts = {
-            ...common,
-            phase: 'forward' as const,
-            graphId: `${graphIdPrefix}-forward`,
-          }
-          let forwardExportPath: string | null = null
-          try {
-            forwardExportPath = exportBundleFile(compiledModel, artifacts.inputs, forwardExportOpts)
-          } catch {
-            const exportCompiledModel = compile(model)
-            forwardExportPath = exportBundleFile(exportCompiledModel, artifacts.inputs, forwardExportOpts)
-          }
-          bundleExportPaths.push(forwardExportPath)
-        }
-
-        if (exportConfig.includeBackward !== false) {
-          bundleExportPaths.push(artifacts.exportBundleFile(artifacts.loss, {
-            ...common,
-            phase: 'backward',
-            graphId: `${graphIdPrefix}-backward`,
-          }))
-        }
-      },
       onEpoch: (metrics) => {
         if (monitorEveryBatches > 0 || monitorPath) {
           if (monitorSnapshots.length === monitorMaxSamples) {
@@ -676,13 +628,12 @@ export function trainDecoderLMFromConfig(
         if (!sampleConfig || !samplePromptIds) return
         const everyNEpochs = sampleConfig.everyNEpochs ?? 1
         if (everyNEpochs <= 0 || metrics.epoch % everyNEpochs !== 0) return
-        let sampleInput: Tensor<number[], 'f32'> | null = tensor([samplePromptIds], { dtype: 'f32', axes: [axes.batch, axes.token] }).to(model.embedding.token_embedding.weight.device) as Tensor<number[], 'f32'>
-        let generated: Tensor<number[], 'f32'> | null = null
-        const sampleTrace = telemetry.startTrace('compute/sample/generate')
+        const sampleInput = model.session.tensor([samplePromptIds], { dtype: 'i64', axes: ['batch', 'token'] })
+        let generated = null as ReturnType<typeof generate> | null
         try {
           generated = generate(
             model,
-            sampleInput as Tensor<number[], 'f32'>,
+            sampleInput,
             {
               max_new_tokens: sampleConfig.max_new_tokens,
               temperature: sampleConfig.temperature,
@@ -691,25 +642,24 @@ export function trainDecoderLMFromConfig(
             },
             forward,
           )
+          const generatedIds = (tensorValues(generated) as number[][])[0]
+          const sample = {
+            epoch: metrics.epoch,
+            promptIds: samplePromptIds.slice(),
+            generatedIds,
+            promptText: tokenizer.decode(samplePromptIds, {
+              skipSpecialTokens: sampleConfig.skipSpecialTokens ?? true,
+            }),
+            generatedText: tokenizer.decode(generatedIds, {
+              skipSpecialTokens: sampleConfig.skipSpecialTokens ?? true,
+            }),
+          }
+          samples.push(sample)
+          hooks?.onSample?.(sample)
         } finally {
-          sampleTrace.end()
+          generated?.dispose()
+          sampleInput.dispose()
         }
-        const generatedIds = (tensorValues(generated) as number[][])[0]
-        const sample = {
-          epoch: metrics.epoch,
-          promptIds: samplePromptIds.slice(),
-          generatedIds,
-          promptText: tokenizer.decode(samplePromptIds, {
-            skipSpecialTokens: sampleConfig.skipSpecialTokens ?? true,
-          }),
-          generatedText: tokenizer.decode(generatedIds, {
-            skipSpecialTokens: sampleConfig.skipSpecialTokens ?? true,
-          }),
-        }
-        samples.push(sample)
-        generated = null
-        sampleInput = null
-        hooks?.onSample?.(sample)
       },
     })
 
@@ -723,13 +673,12 @@ export function trainDecoderLMFromConfig(
       }
       : null
 
-    const compiledModelSummary = compiledModel?.summary?.() ?? null
     const summary: DecoderLMWorkflowSummary = {
       tokenizerFamily: tokenizer.family,
-      modelForwardMode: (compiledModelSummary?.mode ?? (compiledModel ? 'eager-forward' : 'eager')) as 'eager' | 'eager-forward' | 'graph',
-      modelForwardGraphRuntime: compiledModelSummary?.graphRuntime ?? null,
-      modelForwardGraphCaptureError: compiledModelSummary?.graphCaptureError ?? null,
-      modelForwardGraphLoweringAnalysis: compiledModelSummary?.graphLoweringAnalysis ?? null,
+      modelForwardMode: 'graph',
+      modelForwardGraphRuntime: 'program',
+      modelForwardGraphCaptureError: null,
+      modelForwardGraphLoweringAnalysis: { lowerable: true },
       trainRows: corpus.trainRows.length,
       validationRows: corpus.validationRows.length,
       trainWindows: corpus.trainWindows.length,
@@ -755,7 +704,5 @@ export function trainDecoderLMFromConfig(
     }
 
     return { tokenizer, corpus, model, compiledModel: compiledModel as DecoderModelModule | null, training, samples, monitor, summary }
-  } finally {
-    setDevice(previousDevice)
   }
 }

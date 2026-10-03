@@ -1,5 +1,5 @@
 import { describe, expect, test, values } from 'std:test'
-import { clear_grad, clip_grad_norm, grad, mul, parameter, sum, tensor } from 'affon:compute'
+import { clear_grad, clip_grad_norm, grad, mul, parameter, sum, tensor } from 'affon:compute/legacy'
 
 describe('compute metal clip_grad_norm', () => {
   test('reduces and clips f32 gradients without moving them to cpu', () => {

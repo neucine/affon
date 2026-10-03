@@ -1,6 +1,6 @@
 import { describe, test } from 'std:test'
-import nn from 'affon:nn'
-import { mul, tensor } from 'affon:compute'
+import nn from 'affon:nn/legacy'
+import { mul, tensor } from 'affon:compute/legacy'
 import { python } from '../../support/python.ts'
 import { describeParityDevices } from '../../support/parity.ts'
 import { expectBackwardParity } from '../../support/parity-autograd.ts'

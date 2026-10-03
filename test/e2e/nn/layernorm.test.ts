@@ -1,7 +1,7 @@
 import { describe, test, expect, values } from 'std:test'
 import checkpoint from 'affon:checkpoint'
-import { grad, mean, tensor, variance } from 'affon:compute'
-import nn from 'affon:nn'
+import { grad, mean, tensor, variance } from 'affon:compute/legacy'
+import nn from 'affon:nn/legacy'
 import { metalAvailable } from '../../support/metal.ts'
 import { internal_tensor } from '../../support/compute.ts'
 

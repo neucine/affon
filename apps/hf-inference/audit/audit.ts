@@ -33,10 +33,14 @@ function check(name: string, fn: () => { passed: boolean; [key: string]: unknown
   catch (error) { results.push({ name, passed: false, error: String(error) }) }
 }
 function compareTensor(name: string, actual: Tensor, start?: number, end?: number) {
-  const expected = start === undefined ? reference[name] : reference[name]?.slice([':', `${start}:${end}`, ':'])
-  if (!expected || JSON.stringify(actual.shape) !== JSON.stringify(expected.shape)) throw new Error(`Shape mismatch for ${name}`)
+  const source = reference[name]
+  if (!source) throw new Error(`Missing reference for ${name}`)
+  const sourceValues = source.to_array() as number[][][]
+  const expectedValues = start === undefined ? sourceValues : sourceValues.map(row => row.slice(start, end))
+  const expectedShape = start === undefined ? source.shape : [source.shape[0], end! - start!, source.shape[2]]
+  if (JSON.stringify(actual.shape) !== JSON.stringify(expectedShape)) throw new Error(`Shape mismatch for ${name}`)
   const flatten = (value: Tensor) => (value.to_array() as number[]).flat(Infinity) as number[]
-  return compare_values(flatten(actual), flatten(expected))
+  return compare_values(flatten(actual), expectedValues.flat(Infinity) as number[])
 }
 for (let i = 0; i < manifest.cases.length; i++) {
   const sample = manifest.cases[i]

@@ -1,5 +1,5 @@
 import fs from 'std:fs'
-import type { Tensor } from 'affon:compute'
+import type { Tensor } from 'affon:compute/legacy'
 import { test, expect, values } from 'std:test'
 import {
   erf,
@@ -11,7 +11,7 @@ import {
   grad,
   sum,
   mul,
-} from 'affon:compute'
+} from 'affon:compute/legacy'
 const reference = JSON.parse(
   fs.readFileSync('test/e2e/compute/erf-reference.json'),
 )

@@ -1,12 +1,13 @@
 import fs from "std:fs";
-import { tensor, type Device } from "affon:compute";
+import { Session, type Device } from "affon:compute";
 import { resize_rgb } from "./shared/resize-rgb.ts";
 
 /** MobileNetV2's RGB8 bilinear shortest-edge resize, center crop and f32 normalization. */
 export function process_mobilenet_image(
   directory: string,
-  rgb: number[][][],
+  rgb: number[][][] | number[],
   device: Device,
+  flat_shape?: [number, number],
 ) {
   const raw = JSON.parse(
     fs.readFileSync(`${directory}/preprocessor_config.json`),
@@ -24,22 +25,16 @@ export function process_mobilenet_image(
     image_std: [0.5, 0.5, 0.5],
     ...raw,
   };
-  const height = rgb.length,
-    width = rgb[0]?.length ?? 0;
-  if (
-    !height ||
-    !width ||
-    rgb.some(
-      (row) =>
-        row.length !== width ||
-        row.some(
-          (p) =>
-            p.length !== 3 ||
-            p.some((v) => !Number.isInteger(v) || v < 0 || v > 255),
-        ),
-    )
-  )
+  const height = flat_shape?.[0] ?? rgb.length,
+    width = flat_shape?.[1] ?? (rgb as number[][][])[0]?.length ?? 0;
+  if (!height || !width || (flat_shape !== undefined && rgb.length !== height * width * 3))
     throw Error("Expected a rectangular RGB uint8 image");
+  let source: number[][][]
+  if (flat_shape) {
+    const flat = rgb as number[]
+    source = Array.from({ length: height }, (_, y) => Array.from({ length: width }, (_, x) => flat.slice((y * width + x) * 3, (y * width + x + 1) * 3)))
+  } else source = rgb as number[][][]
+  if (source.some(row => row.length !== width || row.some(pixel => pixel.length !== 3 || pixel.some(value => !Number.isInteger(value) || value < 0 || value > 255)))) throw Error("Expected a rectangular RGB uint8 image");
   const short = c.size.shortest_edge,
     h = c.crop_size.height,
     w = c.crop_size.width;
@@ -64,25 +59,26 @@ export function process_mobilenet_image(
   // This subset deliberately rejects crops requiring padding.
   if (h > rh || w > rw)
     throw Error("MobileNetV2 crop must fit the resized image");
-  rgb = resize_rgb(rgb, rh, rw);
+  source = resize_rgb(source, rh, rw);
   const top = Math.floor((rh - h) / 2),
     left = Math.floor((rw - w) / 2);
-  return tensor(
-    [
-      Array.from({ length: 3 }, (_, channel) =>
-        Array.from({ length: h }, (_, y) =>
-          Array.from({ length: w }, (_, x) => {
-            const scaled = Math.fround(
-              rgb[y + top][x + left][channel] * c.rescale_factor,
-            );
-            return Math.fround(
-              Math.fround(scaled - c.image_mean[channel]) /
-                c.image_std[channel],
-            );
-          }),
-        ),
-      ),
-    ],
-    { dtype: "f32", device },
-  );
+  const planes: number[][][] = new Array(3);
+  for (let channel = 0; channel < 3; channel++) {
+    const plane = (planes[channel] = new Array(h));
+    const mean = c.image_mean[channel],
+      std = c.image_std[channel];
+    for (let y = 0; y < h; y++) {
+      const row = (plane[y] = new Array(w));
+      for (let x = 0; x < w; x++) {
+        const scaled = Math.fround(
+          source[y + top][x + left][channel] * c.rescale_factor,
+        );
+        row[x] = Math.fround(Math.fround(scaled - mean) / std);
+      }
+    }
+  }
+  const session = new Session({ device });
+  const result = session.tensor([planes]);
+  session.dispose();
+  return result;
 }

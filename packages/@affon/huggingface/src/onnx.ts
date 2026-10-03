@@ -19,6 +19,7 @@ export function load_onnx_classifier(
   if (!options.graph_dir)
     throw Error('ONNX backend requires a prepared graph_dir')
   const graph = load_graph(options.graph_dir, options.device ?? 'cpu')
+  const device = options.device ?? 'cpu'
   const inputs = Object.keys(graph.graph.inputs)
   if (inputs.length !== 1)
     throw Error('HF classification requires one graph input')
@@ -67,6 +68,7 @@ export function load_onnx_classifier(
     forward(pixels: Tensor): { output: Tensor } {
       return { output: graph.forward({ [input]: pixels })[output] }
     },
+    dispose() { graph.dispose() },
   }
 }
 export type OnnxClassifier = ReturnType<typeof load_onnx_classifier>

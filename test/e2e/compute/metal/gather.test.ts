@@ -1,5 +1,5 @@
 import { describe, test, expect, values } from 'std:test'
-import { gather, sum, tensor } from 'affon:compute'
+import { gather, sum, tensor } from 'affon:compute/legacy'
 import { captureError } from '../../../support/errors.ts'
 import { internal_tensor } from '../../../support/compute.ts'
 

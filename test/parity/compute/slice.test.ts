@@ -1,5 +1,5 @@
 import { describe, test, expect, values } from 'std:test'
-import { tensor } from 'affon:compute'
+import { tensor } from 'affon:compute/legacy'
 import { python } from '../../support/python.ts'
 import { describeParityDevices, materializeOnDevice } from '../../support/parity.ts'
 

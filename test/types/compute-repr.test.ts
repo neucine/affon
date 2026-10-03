@@ -1,4 +1,4 @@
-import compute from 'affon:compute'
+import compute from 'affon:compute/legacy'
 
 const x = compute.tensor([[1, 2], [3, 4]])
 

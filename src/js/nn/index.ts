@@ -42,7 +42,7 @@ import {
   tensor,
   variance,
   zeros,
-} from 'affon:compute'
+} from 'affon:compute/legacy'
 import graphSupport from 'affon:compute/graph.ts'
 import { allBinary, allInRange, rowsAreOneHot } from 'affon:compute/native'
 

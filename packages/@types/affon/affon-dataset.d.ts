@@ -1,24 +1,26 @@
 declare module "affon:dataset" {
-  import type { DType, Tensor } from "affon:compute"
+  import type { Session, Tensor } from "affon:compute"
 
   interface Schema {
     [column: string]: number[]
   }
 
-  export interface TensorResult<D extends DType = "f32"> {
-    data: Tensor<number[], D>
+  export interface TensorResult {
+    data: Tensor
     schema: Schema
   }
 
-  export interface TensorsResult<D extends DType = "f32"> {
-    X: Tensor<number[], D>
-    y: Tensor<number[], D>
+  export interface TensorsResult {
+    X: Tensor
+    y: Tensor
     schema: Schema
   }
 
   export interface ToTensorOpts {
+    /** Session that owns the exported tensor. */
+    session: Session
     /** Numeric dtype for exported tensors. Default: `"f32"`. */
-    dtype?: DType
+    dtype?: 'f32' | 'f64'
   }
 
   export interface Dataset {
@@ -103,29 +105,31 @@ declare module "affon:dataset" {
 
     /**
      * Collect all selected rows and columns into a single tensor.
-     * Exports `f32` by default to match `affon:compute` and `affon:nn`.
+     * Exports `f32` by default for canonical `Session` execution and `p.nn` layers.
      * @example const { data, schema } = ds.select('x1', 'x2').toTensor()
      */
-    toTensor(opts?: ToTensorOpts): TensorResult
+    toTensor(opts: ToTensorOpts): TensorResult
 
     /**
      * Split into feature and target tensors.
      * Requires `.features()` and `.target()` to be set first.
-     * Exports `f32` by default to match `affon:compute` and `affon:nn`.
+     * Exports `f32` by default for canonical `Session` execution and `p.nn` layers.
      */
-    toTensors(opts?: ToTensorOpts): TensorsResult
+    toTensors(opts: ToTensorOpts): TensorsResult
 
     /**
      * Create a `DataLoader` from this dataset.
      * @example const loader = ds.loader({ batchSize: 32 })
      */
-    loader(opts?: DataLoaderOpts): DataLoader
+    loader(opts: DataLoaderOpts): DataLoader
 
     /** Alias of `.loader(...)` for cross-domain pipeline consistency. */
-    tensorLoader(opts?: DataLoaderOpts): DataLoader
+    tensorLoader(opts: DataLoaderOpts): DataLoader
   }
 
   export interface DataLoaderOpts {
+    /** Session that owns source and batch tensors. */
+    session: Session
     /** Positive integer batch size. Default: `32`. */
     batchSize?: number
   }
@@ -166,6 +170,11 @@ declare module "affon:dataset" {
     maxLength?: number
   }
 
+  export interface TensorizedTextDataLoaderOpts extends PaddedTextDataLoaderOpts {
+    /** Session that owns every tensor yielded by this loader. */
+    session: Session
+  }
+
   export interface TextWindowOpts {
     seqLen: number
     stride?: number
@@ -177,7 +186,7 @@ declare module "affon:dataset" {
     constructor(dataset: Dataset, opts?: DataLoaderOpts)
     /** Number of batches */
     readonly length: number;
-    [Symbol.iterator](): Iterator<Tensor<number[], any>[]>
+    [Symbol.iterator](): Iterator<Tensor[]>
   }
 
   export interface TextDataset {
@@ -210,7 +219,7 @@ declare module "affon:dataset" {
     window(opts: TextWindowOpts): EncodedTextDataset
     loader(opts?: DataLoaderOpts): EncodedTextDataLoader
     paddedLoader(opts: PaddedTextDataLoaderOpts): PaddedTextDataLoader
-    tensorLoader(opts: PaddedTextDataLoaderOpts): TensorizedTextDataLoader
+    tensorLoader(opts: TensorizedTextDataLoaderOpts): TensorizedTextDataLoader
   }
 
   export class EncodedTextDataLoader {
@@ -226,11 +235,11 @@ declare module "affon:dataset" {
   }
 
   export class TensorizedTextDataLoader {
-    constructor(dataset: EncodedTextDataset, opts: PaddedTextDataLoaderOpts)
+    constructor(dataset: EncodedTextDataset, opts: TensorizedTextDataLoaderOpts)
     readonly length: number
     [Symbol.iterator](): Iterator<{
-      inputIds: Tensor<number[], "i64">
-      attentionMask: Tensor<number[], "i64">
+      inputIds: Tensor
+      attentionMask: Tensor
     }>
   }
 
@@ -295,7 +304,7 @@ declare module "affon:dataset" {
   }
 
   export interface TextTensorBatch {
-    [field: string]: Tensor<number[], DType> | unknown
+    [field: string]: Tensor | unknown
   }
 
   export interface TextRecordDataset {
@@ -319,7 +328,7 @@ declare module "affon:dataset" {
       length: number
       [Symbol.iterator](): Iterator<TextPreparedBatch>
     }
-    tensorLoader(opts: PaddedTextDataLoaderOpts): {
+    tensorLoader(opts: TensorizedTextDataLoaderOpts): {
       length: number
       [Symbol.iterator](): Iterator<TextTensorBatch>
     }
@@ -361,4 +370,26 @@ declare module "affon:dataset" {
   }
 
   export default datasetModule
+}
+
+declare module "affon:dataset/tokenizer.ts" {
+  export type {
+    TextDecodeOpts,
+    TextEncodeOpts,
+    TextTokenizer,
+  } from "affon:dataset"
+}
+
+declare module "affon:dataset/text.ts" {
+  import type {
+    EncodedTextDataLoader,
+    PaddedTextDataLoader,
+    TensorizedTextDataLoader,
+    TextDataLoader,
+    TextModule,
+  } from "affon:dataset"
+
+  export const text: TextModule
+  export function readText(...args: Parameters<TextModule['read']>): ReturnType<TextModule['read']>
+  export { TextDataLoader, EncodedTextDataLoader, PaddedTextDataLoader, TensorizedTextDataLoader }
 }

@@ -1,6 +1,6 @@
-import nn from 'affon:nn'
-import { compile, copy, tensor, empty, parameter, gelu, relu, softmax, module as computeModule } from 'affon:compute'
-import type { ComputeState, DType as ComputeDType, Shape as ComputeShape, Tensor as ComputeTensor } from 'affon:compute'
+import nn from 'affon:nn/legacy'
+import { compile, copy, tensor, empty, parameter, gelu, relu, softmax, module as computeModule } from 'affon:compute/legacy'
+import type { ComputeState, DType as ComputeDType, Shape as ComputeShape, Tensor as ComputeTensor } from 'affon:compute/legacy'
 
 type IsExact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
 type IsAssignable<A, B> = A extends B ? true : false

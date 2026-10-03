@@ -7,7 +7,7 @@ This document records what AFFON currently supports in module loading and extern
 AFFON reserves the `affon:*` namespace for runtime-provided modules.
 
 - `affon:*` specifiers refer to built-in modules shipped by the runtime.
-- Public built-ins include modules such as `affon:compute`, `affon:nn`, `affon:dataset`, and `affon:checkpoint`.
+- Public built-ins include modules such as `affon:compute`, `affon:ops`, `affon:optim`, `affon:dataset`, and `affon:checkpoint`.
 - External packages should not use the `affon:*` namespace.
 
 ## External Package Support

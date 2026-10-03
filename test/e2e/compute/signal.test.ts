@@ -6,7 +6,7 @@ import {
   transpose,
   parameter,
   compile,
-} from 'affon:compute'
+} from 'affon:compute/legacy'
 
 function reference(
   signal: number[],

@@ -1,5 +1,5 @@
 import { describe, test } from 'std:test'
-import { max, min, mul, std, variance } from 'affon:compute'
+import { max, min, mul, std, variance } from 'affon:compute/legacy'
 import { python } from '../../support/python.ts'
 import { describeParityDevices } from '../../support/parity.ts'
 import { expectBackwardParity } from '../../support/parity-autograd.ts'

@@ -1,5 +1,5 @@
 import { test, expect, values } from 'std:test'
-import { tensor, layer_norm, reshape, transpose } from 'affon:compute'
+import { tensor, layer_norm, reshape, transpose } from 'affon:compute/legacy'
 function close(actual: number[], expected: number[]) {
   expect(actual.length).toBe(expected.length)
   expect(

@@ -1,5 +1,5 @@
 import { describe, test, expect, values } from 'std:test'
-import { grad, relu, sigmoid, sum, tanh } from 'affon:compute'
+import { grad, relu, sigmoid, sum, tanh } from 'affon:compute/legacy'
 import { internal_tensor } from '../../support/compute.ts'
 
 describe('compute activations', () => {

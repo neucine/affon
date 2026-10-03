@@ -29,10 +29,12 @@ function iteration(prompt: number[], budget: number) {
   // so memory samples retain the session cache but no logits/hidden-state outputs.
   function step(ids: number[]) {
     const result = session.forward(ids)
-    const row = (result.logits.slice([0, ids.length - 1, ':']).to_array() as number[]).flat(Infinity) as number[]
+    const row = (result.logits.to_array() as number[][][])[0][ids.length - 1]
     if (row.some(x => !Number.isFinite(x))) throw Error('Nonfinite logits')
     let best = 0
     for (let i = 1; i < row.length; i++) if (row[i] > row[best]) best = i
+    result.logits.dispose()
+    for (const hidden of result.hidden_states) hidden.dispose()
     return best
   }
   const started = Date.now()

@@ -1,6 +1,6 @@
 import { describe, test, expect, values } from 'std:test'
-import { grad, tensor } from 'affon:compute'
-import nn from 'affon:nn'
+import { grad, tensor } from 'affon:compute/legacy'
+import nn from 'affon:nn/legacy'
 
 function roundNested(value: any): any {
   if (Array.isArray(value)) return value.map(roundNested)

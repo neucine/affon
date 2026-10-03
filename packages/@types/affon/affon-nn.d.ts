@@ -1,4 +1,4 @@
-declare module "affon:nn" {
+declare module "affon:nn/legacy" {
   import type {
     Device,
     DType,
@@ -7,7 +7,7 @@ declare module "affon:nn" {
     Parameter,
     Shape,
     Tensor,
-  } from "affon:compute"
+  } from "affon:compute/legacy"
 
   type NnTensor<S extends Shape = Shape, D extends DType = DType> = Tensor<S, D>
   type NnParameter<S extends Shape = Shape, D extends DType = DType> = Parameter & NnTensor<S, D>
@@ -429,7 +429,7 @@ declare module "affon:nn" {
      * @param {...(Module | ((x: NnTensor<any, D>) => NnTensor<any, D>))} layers - Layers or stateless activations to run in order.
      * @returns {SequentialModule<InputShape, OutputShape, D>} A callable sequential module.
      * @example
-     * import { relu } from 'affon:compute'
+     * import { relu } from 'affon:compute/legacy'
      *
      * const model = nn.Sequential(nn.Linear(2, 4), relu, nn.Linear(4, 1))
      */

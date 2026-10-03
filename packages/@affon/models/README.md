@@ -1,17 +1,15 @@
 # @affon/models
 
-Model definitions and their execution behavior, built on `affon:compute` and
-`affon:nn`. This package replaces `@affon/lm` and `@affon/transformers`.
+Program-first model definitions and their execution behavior, built on
+`affon:compute`.
 
 - `src/gpt2/`: tied-head GPT-2 forward, request-local cache sessions, and greedy generation.
 - `src/llama/`: tied-head, bias-free Llama decoder with RMSNorm, unscaled RoPE, GQA, and request-local cached greedy generation (SmolLM2 variant).
 - `src/bert/`: absolute-position BERT encoder, hidden states, and pooling.
 - `src/vit/`: fixed-size RGB ViT classifier and hidden states.
 - `src/whisper/`: prepared encoder/decoder execution, request-local caches, and greedy transcription.
-- `src/shared/`: attention, decoder blocks, embeddings, feed-forward layers,
-  and sequence helpers reused by model code.
-- `src/index.ts`: deliberate public exports. Reusable block API names
-  remain available; consumers should use this entry point rather than deep imports.
+- `src/shared/`: model-boundary validation shared by the family constructors.
+- `src/index.ts`: deliberate family-level public exports.
 
 Keep family-specific code with its family. Move components into `shared` when
 actual consumers need them. The directory name does not make every helper public.
@@ -34,8 +32,9 @@ this directory. Corpus and training workflow tests live under `apps/decoder-lm/t
 structured tensor parameters. They do not read files, interpret HF keys, or load
 checkpoints. Parameters must be f32 on the selected device. Linear matrices use
 [input, output]; ViT patch weights use [output, RGB, patch, patch]. Constructors
-validate dimensions, tensor shapes, dtype, and device. The model retains tensors
-for its lifetime; GPT-2 sessions own their request-local caches.
+validate dimensions, tensor shapes, dtype, and device, then copy values into
+session-owned execution state. Returned models expose `dispose()`; decoder
+sessions own request-local token history.
 
 HF adapters validate supported variants, read checkpoints, map tensor names and
 layouts, and call these constructors. Their returned `config` remains the HF

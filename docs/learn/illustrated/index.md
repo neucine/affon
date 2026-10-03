@@ -1,5 +1,12 @@
 # Illustrated Learning Coverage
 
+> **Legacy example set:** These notebooks currently demonstrate the
+> `affon:compute/legacy` and `affon:nn/legacy` compatibility APIs. They remain
+> useful for numeric concepts and backend behavior, but their constructors,
+> mutable gradients, callable layers, and optimizer steps are not canonical
+> Program API examples. Start with [Compute Programs](../../core/compute.md) for
+> new code.
+
 This section tracks the beginner-facing illustration layer for Affon.
 
 The goal is to cover the public compute, metrics, optimizer, and basic neural-network surfaces with a consistent teaching pattern:

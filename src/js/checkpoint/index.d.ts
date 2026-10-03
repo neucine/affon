@@ -1,8 +1,8 @@
 interface CheckpointModule {
-  save(state: import('affon:compute').ComputeState | import('affon:compute').Module<any, any>, path: string): void
+  save(state: Record<string, unknown>, path: string): void
   inspect(path: string): Record<string, {dtype: string; shape: number[]}>
   load(path: string, options?: {names?: readonly string[]}): Record<string, import('affon:compute').Tensor>
-  restore<T extends import('affon:compute').ComputeState | import('affon:compute').Module<any, any>>(
+  restore<T extends Record<string, unknown>>(
     target: T,
     source: string | Record<string, import('affon:compute').Tensor>,
   ): T

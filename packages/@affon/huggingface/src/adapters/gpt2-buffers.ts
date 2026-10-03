@@ -1,8 +1,8 @@
-import type { Tensor } from 'affon:compute'
+import type { ModelTensor } from '../../../models/src/shared/parameters.ts'
 
 // Old HF GPT-2 checkpoints persist the lower-triangular attention allow-mask.
 // Validate all values before replacing it with the runtime-generated mask.
-export function validate_causal_buffer(value: Tensor, positions: number): void {
+export function validate_causal_buffer(value: ModelTensor, positions: number): void {
   if (value.dtype !== 'f32' || JSON.stringify(value.shape) !== JSON.stringify([1, 1, positions, positions])) {
     throw new Error('Invalid legacy GPT-2 causal buffer shape/dtype')
   }

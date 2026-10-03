@@ -20,7 +20,7 @@ import {
   sum,
   tanh,
   tensor,
-} from 'affon:compute'
+} from 'affon:compute/legacy'
 import { internal_tensor } from '../../support/compute.ts'
 
 describe('compute math ops', () => {

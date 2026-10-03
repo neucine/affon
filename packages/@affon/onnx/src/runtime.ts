@@ -1,53 +1,16 @@
 // Experimental executor for convert.py's bounded static-f32 ONNX manifest.
-// No HF configuration, architecture dispatch, or model-specific weight names.
+// It uses canonical session tensors at the boundary and evaluates the imported
+// static graph deterministically on host values.
 import { capabilities } from './capabilities.ts'
 import fs from 'std:fs'
 import checkpoint from 'affon:checkpoint'
-import * as compute from 'affon:compute'
-import native from 'affon:compute/native'
-import {
-  abs,
-  add,
-  cat,
-  clamp,
-  compile,
-  mean,
-  contiguous,
-  div,
-  exp,
-  layer_norm,
-  matmul,
-  mul,
-  neg,
-  no_grad,
-  permute,
-  reshape,
-  sign,
-  softmax,
-  sub,
-  tensor,
-  transpose,
-} from 'affon:compute'
+import { Session } from 'affon:compute'
 import type { Device, Tensor } from 'affon:compute'
+import { convHost, hostTensor, nested, padHost, reshapeHost } from './spatial.ts'
+import type { HostTensor } from './spatial.ts'
 
-import { prepare_conv, prepare_pad } from './spatial.ts'
-
-type Node = {
-  op: string
-  name: string
-  inputs: string[]
-  output: string
-  shape: number[]
-  attrs: Record<string, any>
-}
-type Manifest = {
-  format: string
-  opset: number
-  inputs: Record<string, number[]>
-  outputs: string[]
-  constants: Record<string, number[]>
-  nodes: Node[]
-}
+type Node = { op: string; name: string; inputs: string[]; output: string; shape: number[]; attrs: Record<string, any> }
+type Manifest = { format: string; opset: number; inputs: Record<string, number[]>; outputs: string[]; constants: Record<string, number[]>; nodes: Node[] }
 export type SemanticLossEntry = { node: string; op: string; reason: string }
 export type SemanticLossReport = {
   format: 'affon-program-import-semantics/v1'
@@ -57,383 +20,277 @@ export type SemanticLossReport = {
   unsupported: SemanticLossEntry[]
   source_export_lost: SemanticLossEntry[]
 }
+
 const supported = new Set<string>(capabilities.operators)
-const same = (a: number[], b: number[]) =>
-  JSON.stringify(a) === JSON.stringify(b)
+const same = (a: readonly number[], b: readonly number[]) => a.length === b.length && a.every((value, index) => value === b[index])
+const size = (shape: readonly number[]) => shape.reduce((product, value) => product * value, 1)
+const strides = (shape: readonly number[]) => shape.map((_, index) => size(shape.slice(index + 1)))
 
-export function load_graph(directory: string, device: Device = 'cpu') {
-  const { graph, forward } = create_graph(directory, device, true)
-  return { graph, forward, semanticLoss: classify_import_semantics(graph) }
-}
-
-export function semantic_loss_report(directory: string): SemanticLossReport {
+function manifest(directory: string): Manifest {
   const graph = JSON.parse(fs.readFileSync(`${directory}/graph.json`)) as Manifest
-  if (graph.format !== 'affon-onnx-static/v1' || graph.opset !== 17 || !Array.isArray(graph.nodes))
-    throw Error('Invalid graph manifest')
-  return classify_import_semantics(graph)
+  if (graph.format !== 'affon-onnx-static/v1' || graph.opset !== 17 || !Array.isArray(graph.nodes)) throw Error('Invalid graph manifest')
+  return graph
 }
+
+export function semantic_loss_report(directory: string): SemanticLossReport { return classify_import_semantics(manifest(directory)) }
 
 function classify_import_semantics(graph: Manifest): SemanticLossReport {
-  const report: SemanticLossReport = {
-    format: 'affon-program-import-semantics/v1',
-    preserved: [], inferred: [], decomposed: [], unsupported: [], source_export_lost: [],
-  }
+  const report: SemanticLossReport = { format: 'affon-program-import-semantics/v1', preserved: [], inferred: [], decomposed: [], unsupported: [], source_export_lost: [] }
   const preserved = new Set(['Add', 'Mul', 'Div', 'MatMul', 'Concat', 'Reshape', 'Transpose', 'Softmax', 'Erf', 'Clip'])
   const inferred = new Set(['Identity', 'Cast', 'Flatten'])
   const decomposed = new Set(['Gemm', 'LayerNormalization', 'Gather', 'Slice', 'Conv', 'Pad', 'GlobalAveragePool'])
   for (const node of graph.nodes) {
     const entry = { node: node.name, op: node.op, reason: '' }
-    if (preserved.has(node.op)) {
-      entry.reason = 'operation and attributes retain their imported mathematical meaning'
-      report.preserved.push(entry)
-    } else if (inferred.has(node.op)) {
-      entry.reason = 'result dtype or dimensions are re-established by Program abstract evaluation'
-      report.inferred.push(entry)
-    } else if (decomposed.has(node.op)) {
-      entry.reason = 'importer lowers the source operation to ordinary Program operations'
-      report.decomposed.push(entry)
-    } else {
-      entry.reason = 'no candidate Program lowering is declared'
-      report.unsupported.push(entry)
-    }
+    if (preserved.has(node.op)) { entry.reason = 'operation and attributes retain their imported mathematical meaning'; report.preserved.push(entry) }
+    else if (inferred.has(node.op)) { entry.reason = 'result dtype or dimensions are re-established by static evaluation'; report.inferred.push(entry) }
+    else if (decomposed.has(node.op)) { entry.reason = 'importer lowers the source operation to canonical tensor semantics'; report.decomposed.push(entry) }
+    else { entry.reason = 'no candidate lowering is declared'; report.unsupported.push(entry) }
   }
   report.source_export_lost.push({ node: '<source-export>', op: 'ConstantSubgraph', reason: 'offline conversion folds source constant subgraphs, so their original node topology is unavailable to the runtime importer' })
   return report
 }
 
-// Internal validation entry; deliberately not exported by the package index.
-// The switch preserves an ordinary-execution oracle without a public policy knob.
-export function load_graph_for_scope_validation(
-  directory: string,
-  device: Device = 'cpu',
-  scoped = true,
-) {
-  return create_graph(directory, device, scoped)
+function coordinates(linear: number, shape: readonly number[]): number[] {
+  const result: number[] = []
+  for (const stride of strides(shape)) { result.push(Math.floor(linear / stride)); linear %= stride }
+  return result
 }
 
-function create_graph(directory: string, device: Device, scoped: boolean) {
-  let scope_stats: Omit<
-    ReturnType<typeof native.$with_graph_execution>,
-    'value'
-  > | null = null
-  const graph = JSON.parse(
-    fs.readFileSync(`${directory}/graph.json`),
-  ) as Manifest
-  if (
-    graph.format !== 'affon-onnx-static/v1' ||
-    graph.opset !== 17 ||
-    !graph.nodes?.length
-  )
-    throw Error('Invalid graph manifest')
-  const known = new Set([
-    ...Object.keys(graph.inputs),
-    ...Object.keys(graph.constants),
-  ])
-  const uses = new Map<string, number>()
+function offset(indices: readonly number[], shape: readonly number[]): number {
+  const steps = strides(shape)
+  return indices.reduce((value, coordinate, axis) => value + coordinate * steps[axis], 0)
+}
+
+function broadcastShape(a: readonly number[], b: readonly number[]): number[] {
+  const rank = Math.max(a.length, b.length), result = Array(rank).fill(1)
+  for (let index = 0; index < rank; index++) {
+    const av = a[a.length - rank + index] ?? 1, bv = b[b.length - rank + index] ?? 1
+    if (av !== bv && av !== 1 && bv !== 1) throw Error('Invalid broadcast dimensions')
+    result[index] = Math.max(av, bv)
+  }
+  return result
+}
+
+function project(indices: readonly number[], sourceShape: readonly number[]): number {
+  const start = indices.length - sourceShape.length
+  return offset(sourceShape.map((dimension, axis) => dimension === 1 ? 0 : indices[start + axis]), sourceShape)
+}
+
+function binary(a: HostTensor, b: HostTensor, operation: (left: number, right: number) => number): HostTensor {
+  const shape = broadcastShape(a.shape, b.shape)
+  const values = Array.from({ length: size(shape) }, (_, linear) => {
+    const index = coordinates(linear, shape)
+    return operation(a.values[project(index, a.shape)], b.values[project(index, b.shape)])
+  })
+  return { shape, values }
+}
+
+function transpose(input: HostTensor, permutation: number[]): HostTensor {
+  const shape = permutation.map(axis => input.shape[axis])
+  return { shape, values: Array.from({ length: input.values.length }, (_, linear) => {
+    const target = coordinates(linear, shape), source = Array(input.shape.length)
+    permutation.forEach((axis, index) => { source[axis] = target[index] })
+    return input.values[offset(source, input.shape)]
+  }) }
+}
+
+function matmul(a: HostTensor, b: HostTensor): HostTensor {
+  if (a.shape.length < 2 || b.shape.length < 2) throw Error('MatMul requires rank at least two')
+  const m = a.shape.at(-2)!, k = a.shape.at(-1)!, bk = b.shape.at(-2)!, n = b.shape.at(-1)!
+  if (k !== bk) throw Error('MatMul contraction mismatch')
+  const batchShape = broadcastShape(a.shape.slice(0, -2), b.shape.slice(0, -2))
+  const shape = [...batchShape, m, n]
+  const values = Array(size(shape)).fill(0)
+  for (let linear = 0; linear < values.length; linear++) {
+    const target = coordinates(linear, shape), batch = target.slice(0, -2), row = target.at(-2)!, column = target.at(-1)!
+    let value = 0
+    for (let inner = 0; inner < k; inner++) {
+      const ai = [...batch.slice(batch.length - (a.shape.length - 2)), row, inner]
+      const bi = [...batch.slice(batch.length - (b.shape.length - 2)), inner, column]
+      value += a.values[project(ai, a.shape)] * b.values[project(bi, b.shape)]
+    }
+    values[linear] = value
+  }
+  return { shape, values }
+}
+
+function reduce(input: HostTensor, axis: number, keep: boolean, average: boolean): HostTensor {
+  if (axis < 0) axis += input.shape.length
+  const shape = keep ? input.shape.map((value, index) => index === axis ? 1 : value) : input.shape.filter((_, index) => index !== axis)
+  const values = Array(size(shape)).fill(0)
+  for (let linear = 0; linear < input.values.length; linear++) {
+    const index = coordinates(linear, input.shape), target = keep ? index.map((value, i) => i === axis ? 0 : value) : index.filter((_, i) => i !== axis)
+    values[offset(target, shape)] += input.values[linear]
+  }
+  if (average) for (let index = 0; index < values.length; index++) values[index] /= input.shape[axis]
+  return { shape, values }
+}
+
+function softmax(input: HostTensor, axis: number): HostTensor {
+  if (axis < 0) axis += input.shape.length
+  const outer = size(input.shape.slice(0, axis)), width = input.shape[axis], inner = size(input.shape.slice(axis + 1)), values = Array(input.values.length)
+  for (let o = 0; o < outer; o++) for (let i = 0; i < inner; i++) {
+    let maximum = -Infinity
+    for (let x = 0; x < width; x++) maximum = Math.max(maximum, input.values[(o * width + x) * inner + i])
+    let total = 0
+    for (let x = 0; x < width; x++) total += Math.exp(input.values[(o * width + x) * inner + i] - maximum)
+    for (let x = 0; x < width; x++) values[(o * width + x) * inner + i] = Math.exp(input.values[(o * width + x) * inner + i] - maximum) / total
+  }
+  return { shape: [...input.shape], values }
+}
+
+function erf(value: number) {
+  const sign = value < 0 ? -1 : 1, x = Math.abs(value), t = 1 / (1 + 0.3275911 * x)
+  const polynomial = (((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t)
+  return sign * (1 - polynomial * Math.exp(-x * x))
+}
+
+function layerNorm(input: HostTensor, axis: number, epsilon: number, scale: HostTensor, bias: HostTensor): HostTensor {
+  if (axis < 0) axis += input.shape.length
+  const width = size(input.shape.slice(axis)), groups = input.values.length / width, values = Array(input.values.length)
+  for (let group = 0; group < groups; group++) {
+    const start = group * width
+    let mean = 0
+    for (let index = 0; index < width; index++) mean += input.values[start + index]
+    mean /= width
+    let variance = 0
+    for (let index = 0; index < width; index++) variance += (input.values[start + index] - mean) ** 2
+    variance /= width
+    for (let index = 0; index < width; index++) values[start + index] = (input.values[start + index] - mean) / Math.sqrt(variance + epsilon) * scale.values[index % scale.values.length] + bias.values[index % bias.values.length]
+  }
+  return { shape: [...input.shape], values }
+}
+
+function concat(inputs: HostTensor[], axis: number): HostTensor {
+  if (axis < 0) axis += inputs[0].shape.length
+  const shape = [...inputs[0].shape]; shape[axis] = inputs.reduce((total, input) => total + input.shape[axis], 0)
+  const values = Array(size(shape)), targetStrides = strides(shape)
+  let axisOffset = 0
+  for (const input of inputs) {
+    for (let linear = 0; linear < input.values.length; linear++) {
+      const index = coordinates(linear, input.shape); index[axis] += axisOffset
+      values[index.reduce((total, value, i) => total + value * targetStrides[i], 0)] = input.values[linear]
+    }
+    axisOffset += input.shape[axis]
+  }
+  return { shape, values }
+}
+
+function sliced(input: HostTensor, selectors: Array<string | number>): HostTensor {
+  const choices = selectors.map((selector, axis) => {
+    if (typeof selector === 'number') return [selector < 0 ? input.shape[axis] + selector : selector]
+    if (selector === ':') return Array.from({ length: input.shape[axis] }, (_, index) => index)
+    const [rawStart, rawStop, rawStep] = selector.split(':')
+    const step = rawStep ? Number(rawStep) : 1
+    let start = rawStart ? Number(rawStart) : 0, stop = rawStop ? Number(rawStop) : input.shape[axis]
+    if (start < 0) start += input.shape[axis]; if (stop < 0) stop += input.shape[axis]
+    const values: number[] = []; for (let value = start; value < stop; value += step) values.push(value)
+    return values
+  })
+  const shape = choices.map((values, axis) => typeof selectors[axis] === 'number' ? 0 : values.length).filter(Boolean)
+  const values: number[] = []
+  const visit = (axis: number, indices: number[]) => {
+    if (axis === choices.length) { values.push(input.values[offset(indices, input.shape)]); return }
+    for (const value of choices[axis]) visit(axis + 1, [...indices, value])
+  }
+  visit(0, [])
+  return { shape, values }
+}
+
+function validateGraph(graph: Manifest) {
+  if (!graph.nodes.length) throw Error('Invalid graph manifest')
+  const known = new Set([...Object.keys(graph.inputs), ...Object.keys(graph.constants)])
   for (const node of graph.nodes) {
-    if (!supported.has(node.op))
-      throw Error(`Unsupported operation: ${node.op}`)
-    if (known.has(node.output) || node.inputs.some((x) => !known.has(x)))
-      throw Error(`Invalid graph ordering: ${node.name}`)
-    node.inputs.forEach((x) => uses.set(x, (uses.get(x) ?? 0) + 1))
+    if (!supported.has(node.op)) throw Error(`Unsupported operation: ${node.op}`)
+    if (known.has(node.output) || node.inputs.some(input => !known.has(input))) throw Error(`Invalid graph ordering: ${node.name}`)
     known.add(node.output)
   }
-  if (graph.outputs.some((x) => !known.has(x)))
-    throw Error('Missing graph output')
-  graph.outputs.forEach((x) => uses.set(x, (uses.get(x) ?? 0) + 1))
-  const loaded = checkpoint.load(`${directory}/weights.safetensors`) as Record<
-    string,
-    Tensor
-  >
-  const constants = new Map<string, Tensor>()
-  for (const [name, shape] of Object.entries(graph.constants)) {
-    const value = loaded[name]
-    if (!value || value.dtype !== 'f32' || !same(value.shape, shape))
-      throw Error(`Invalid constant: ${name}`)
-    constants.set(name, value.device === device ? value : value.to(device))
-    delete loaded[name]
-  }
-  if (Object.keys(loaded).length) throw Error('Unexpected graph weights')
-  const spatial = new Map<string, (x: Tensor) => Tensor>()
-  const shapes = new Map(
-    Object.entries({ ...graph.inputs, ...graph.constants }),
-  )
-  // Fuse single-consumer constant spatial padding into CPU depthwise kernels.
-  // The serialized graph stays intact; only the prepared execution schedule changes.
-  const padByConv = new Map<string, { input: string; pads: number[] }>(),
-    skippedPads = new Set<string>()
-  if (device === 'cpu')
-    graph.nodes.forEach((pad, index) => {
-      const next = graph.nodes[index + 1]
-      if (
-        pad.op !== 'Pad' ||
-        !next ||
-        next.op !== 'Conv' ||
-        next.inputs[0] !== pad.output ||
-        uses.get(pad.output) !== 1 ||
-        pad.shape.length !== 4
-      )
-        return
-      const weight = constants.get(next.inputs[1])!
-      if (
-        weight.shape.length !== 4 ||
-        weight.shape[1] !== 1 ||
-        next.attrs.group !== weight.shape[0]
-      )
-        return
-      const pads = pad.attrs.pads.map(
-        (n: number, i: number) => n + (next.attrs.pads?.[i] ?? 0),
-      )
-      padByConv.set(next.output, { input: pad.inputs[0], pads })
-      skippedPads.add(pad.output)
-    })
-  const clipByConv = new Map<string, number[]>(),
-    fusedClips = new Set<string>()
-  if (device === 'cpu')
-    graph.nodes.forEach((node, index) => {
-      const next = graph.nodes[index + 1],
-        a = node.attrs
-      if (
-        node.op !== 'Conv' ||
-        !next ||
-        next.op !== 'Clip' ||
-        next.inputs[0] !== node.output ||
-        uses.get(node.output) !== 1 ||
-        !same(node.shape, next.shape)
-      )
-        return
-      const weight = constants.get(node.inputs[1])!
-      if (weight.shape.length !== 4) return
-      const pointwise =
-        (a.group ?? 1) === 1 &&
-        a.kernel.every((n: number) => n === 1) &&
-        (a.strides ?? a.kernel).every((n: number) => n === 1) &&
-        (a.pads ?? [0, 0, 0, 0]).every((n: number) => n === 0)
-      const depthwise = weight.shape[1] === 1 && a.group === weight.shape[0]
-      if (!pointwise && !depthwise && (a.group ?? 1) !== 1) return
-      clipByConv.set(node.output, [next.attrs.min, next.attrs.max])
-      fusedClips.add(next.output)
-    })
-  for (const node of graph.nodes) {
-    if (node.op === 'Conv' && shapes.get(node.inputs[0])!.length === 3) {
-      const shape = shapes.get(node.inputs[0])!,
-        w = constants.get(node.inputs[1])!,
-        a = node.attrs
-      const run = prepare_conv(
-        [shape[0], shape[1], 1, shape[2]],
-        reshape(w, [w.shape[0], w.shape[1], 1, w.shape[2]]),
-        constants.get(node.inputs[2]),
-        {
-          kernel: [1, a.kernel[0]],
-          strides: [1, a.strides[0]],
-          dilations: [1, a.dilations[0]],
-          pads: [0, a.pads[0], 0, a.pads[1]],
-          group: a.group,
-        },
-        device,
-      )
-      spatial.set(node.output, (x) =>
-        reshape(run(reshape(x, [shape[0], shape[1], 1, shape[2]])), node.shape),
-      )
-    } else if (node.op === 'Conv')
-      spatial.set(
-        node.output,
-        prepare_conv(
-          shapes.get(padByConv.get(node.output)?.input ?? node.inputs[0])!,
-          constants.get(node.inputs[1])!,
-          constants.get(node.inputs[2]),
-          (padByConv.has(node.output)
-            ? { ...node.attrs, pads: padByConv.get(node.output)!.pads }
-            : node.attrs) as any,
-          device,
-          clipByConv.get(node.output),
-        ),
-      )
-    if (node.op === 'Pad' && !skippedPads.has(node.output))
-      spatial.set(
-        node.output,
-        prepare_pad(shapes.get(node.inputs[0])!, node.attrs.pads, device),
-      )
-    shapes.set(node.output, node.shape)
-  }
-  // A&S fallback for CUDA and older runtimes without native erf.
-  function erfFallback(x: Tensor) {
-    const scalar = (n: number) => tensor(n, { dtype: 'f32', device })
-    const t = div(scalar(1), add(scalar(1), mul(scalar(0.3275911), abs(x))))
-    let p = add(mul(scalar(1.061405429), t), scalar(-1.453152027))
-    for (const c of [1.421413741, -0.284496736, 0.254829592])
-      p = add(mul(p, t), scalar(c))
-    return mul(sign(x), sub(scalar(1), mul(mul(p, t), exp(neg(mul(x, x))))))
-  }
-  const evaluateErf =
-    device !== 'cuda' && typeof compute.erf === 'function'
-      ? compute.erf
-      : erfFallback
-  // Use the measured Metal affine path automatically. The compute graph owns
-  // eligibility and falls back when layout or broadcast constraints do not match.
-  const affine = compile((value: Tensor, scale: Tensor, bias: Tensor) =>
-    add(mul(value, scale), bias),
-  )
-  const useAffine = device === 'metal'
-  function forward(
-    inputs: Record<string, Tensor>,
-    profile?: (event: {
-      name: string
-      op: string
-      shape: number[]
-      elapsed_ms: number
-    }) => void,
-  ) {
-    scope_stats = null
-    if (Object.keys(inputs).length !== Object.keys(graph.inputs).length)
-      throw Error('Incorrect graph inputs')
-    const execute = () => {
-      const values = new Map(constants),
-        remaining = new Map(uses)
-      for (const [name, shape] of Object.entries(graph.inputs)) {
-        const x = inputs[name]
-        if (!x || x.dtype !== 'f32' || !same(x.shape, shape))
-          throw Error(`Expected f32 input ${name} ${shape}`)
-        values.set(name, x.device === device ? x : x.to(device))
-      }
-      for (const node of graph.nodes) {
-        if (skippedPads.has(node.output)) continue
-        const started = profile ? Date.now() : 0
-        const nodeInputs = padByConv.has(node.output)
-          ? [padByConv.get(node.output)!.input, ...node.inputs.slice(1)]
-          : node.inputs
-        const args = nodeInputs.map((name) => values.get(name)!)
-        const [x, y, z] = args,
-          a = node.attrs
-        let result: Tensor
-        switch (node.op) {
-          case 'Identity':
-            result = x
-            break
-          case 'Cast':
-            if (a.to !== 1) throw Error('Only f32 Cast supported')
-            result = x
-            break
-          case 'Add':
-            result = add(x, y)
-            break
-          case 'Mul':
-            result = mul(x, y)
-            break
-          case 'Div':
-            result = div(x, y)
-            break
-          case 'MatMul':
-            result = matmul(x, y)
-            break
-          case 'Concat':
-            result = cat(args, a.axis)
-            break
-          case 'Flatten':
-          case 'Reshape':
-            result = reshape(contiguous(x), a.shape)
-            break
-          case 'Transpose':
-            result = permute(
-              x,
-              a.perm ??
-                Array.from({ length: x.ndim }, (_, i) => x.ndim - 1 - i),
-            )
-            break
-          case 'Softmax':
-            result = softmax(x, a.axis)
-            break
-          case 'Erf':
-            result = evaluateErf(x)
-            break
-          case 'LayerNormalization':
-            if (
-              a.axis !== x.ndim - 1 ||
-              (a.stash_type ?? 1) !== 1 ||
-              args.length !== 3
-            )
-              throw Error('Unsupported normalization contract')
-            const normalized = layer_norm(x, a.axis, a.epsilon ?? 1e-5)
-            result = useAffine
-              ? affine(normalized, y, z)
-              : add(mul(normalized, y), z)
-            break
-          case 'Gather': {
-            const ranges: (string | number)[] = Array.from(
-              { length: x.ndim },
-              () => ':',
-            )
-            ranges[a.axis] = a.index
-            result = reshape(contiguous(x.slice(ranges)), node.shape)
-            break
-          }
-          case 'Gemm': {
-            const product = matmul(
-              a.transA ? transpose(x, 0, 1) : x,
-              a.transB ? transpose(y, 0, 1) : y,
-            )
-            const scale = (v: Tensor, n: number) =>
-              n === 1 ? v : mul(v, tensor(n, { dtype: 'f32', device }))
-            result = scale(product, a.alpha ?? 1)
-            if (z) result = add(result, scale(z, a.beta ?? 1))
-            break
-          }
-          case 'Slice':
-            result = contiguous(x.slice(a.selectors))
-            break
-          case 'Conv':
-          case 'Pad':
-            result = spatial.get(node.output)!(x)
-            break
-          case 'Clip':
-            result = fusedClips.has(node.output) ? x : clamp(x, a.min, a.max)
-            break
-          case 'GlobalAveragePool':
-            result = reshape(
-              mean(
-                reshape(contiguous(x), [
-                  x.shape[0],
-                  x.shape[1],
-                  x.shape[2] * x.shape[3],
-                ]),
-                2,
-                true,
-              ),
-              node.shape,
-            )
-            break
-          default:
-            throw Error(`Unsupported operation: ${node.op}`)
-        }
-        profile?.({
-          name: node.name,
-          op: node.op,
-          shape: node.shape,
-          elapsed_ms: Date.now() - started,
-        })
-        if (!same(result.shape, node.shape))
-          throw Error(
-            `Output shape mismatch: ${node.name}: ${result.shape} != ${node.shape}`,
-          )
-        values.set(node.output, result)
-        for (const name of nodeInputs) {
-          const count = remaining.get(name)! - 1
-          remaining.set(name, count)
-          if (count === 0) values.delete(name)
-        }
-      }
-      return Object.fromEntries(
-        graph.outputs.map((name) => [name, values.get(name)!]),
-      )
+  if (graph.outputs.some(output => !known.has(output))) throw Error('Missing graph output')
+}
+
+function create_graph(directory: string, device: Device, diagnostic: boolean) {
+  const graph = manifest(directory)
+  validateGraph(graph)
+  const loaded = checkpoint.load(`${directory}/weights.safetensors`)
+  const constants = new Map<string, HostTensor>()
+  try {
+    for (const [name, shape] of Object.entries(graph.constants)) {
+      const value = loaded[name]
+      if (!value || value.dtype !== 'f32' || !same(value.shape, shape)) throw Error(`Invalid constant: ${name}`)
+      constants.set(name, hostTensor(value)); delete loaded[name]; value.dispose()
     }
-    return no_grad(() => {
-      // A profiling callback is arbitrary user code and retains synchronous
-      // elapsed-time semantics; it must never run inside the native scope.
-      if (!scoped || device !== 'metal' || profile) return execute()
-      const { value, ...stats } = native.$with_graph_execution(execute)
-      scope_stats = stats
-      return value
-    })
+    if (Object.keys(loaded).length) throw Error('Unexpected graph weights')
+  } finally { for (const value of Object.values(loaded)) value.dispose() }
+  const session = new Session({ device })
+
+  function evaluate(node: Node, args: HostTensor[]): HostTensor {
+    const [x, y, z] = args, a = node.attrs
+    switch (node.op) {
+      case 'Identity': case 'Cast': return { shape: [...x.shape], values: [...x.values] }
+      case 'Add': return binary(x, y, (left, right) => left + right)
+      case 'Mul': return binary(x, y, (left, right) => left * right)
+      case 'Div': return binary(x, y, (left, right) => left / right)
+      case 'MatMul': return matmul(x, y)
+      case 'Concat': return concat(args, a.axis)
+      case 'Flatten': case 'Reshape': return reshapeHost(x, a.shape)
+      case 'Transpose': return transpose(x, a.perm ?? [...x.shape.keys()].reverse())
+      case 'Softmax': return softmax(x, a.axis)
+      case 'Erf': return { shape: [...x.shape], values: x.values.map(erf) }
+      case 'LayerNormalization': return layerNorm(x, a.axis, a.epsilon ?? 1e-5, y, z)
+      case 'Gather': {
+        const ranges = x.shape.map((dimension, axis) => axis === a.axis ? a.index : ':')
+        return reshapeHost(sliced(x, ranges), node.shape)
+      }
+      case 'Gemm': {
+        const left = a.transA ? transpose(x, [1, 0]) : x, right = a.transB ? transpose(y, [1, 0]) : y
+        let result = matmul(left, right)
+        if ((a.alpha ?? 1) !== 1) result = { shape: result.shape, values: result.values.map(value => value * a.alpha) }
+        if (z) result = binary(result, { shape: z.shape, values: z.values.map(value => value * (a.beta ?? 1)) }, (leftValue, rightValue) => leftValue + rightValue)
+        return result
+      }
+      case 'Slice': return reshapeHost(sliced(x, a.selectors), node.shape)
+      case 'Pad': return padHost(x, a.pads)
+      case 'Conv': {
+        if (x.shape.length === 4) return convHost(x, y, z, a as any)
+        const expanded = reshapeHost(x, [x.shape[0], x.shape[1], 1, x.shape[2]])
+        const weights = reshapeHost(y, [y.shape[0], y.shape[1], 1, y.shape[2]])
+        return reshapeHost(convHost(expanded, weights, z, { kernel: [1, a.kernel[0]], strides: [1, a.strides[0]], dilations: [1, a.dilations[0]], pads: [0, a.pads[0], 0, a.pads[1]], group: a.group }), node.shape)
+      }
+      case 'Clip': return { shape: [...x.shape], values: x.values.map(value => Math.min(Math.max(value, a.min), a.max)) }
+      case 'GlobalAveragePool': return reshapeHost(reduce(reduce(x, 3, true, true), 2, true, true), node.shape)
+      default: throw Error(`Unsupported operation: ${node.op}`)
+    }
   }
-  return { graph, forward, scope_stats: () => scope_stats }
+
+  function forward(inputs: Record<string, Tensor>, profile?: (event: { name: string; op: string; shape: number[]; elapsed_ms: number }) => void) {
+    if (Object.keys(inputs).length !== Object.keys(graph.inputs).length) throw Error('Incorrect graph inputs')
+    const values = new Map(constants)
+    for (const [name, shape] of Object.entries(graph.inputs)) {
+      const value = inputs[name]
+      if (!value || value.dtype !== 'f32' || !same(value.shape, shape)) throw Error(`Expected f32 input ${name} ${shape}`)
+      values.set(name, hostTensor(value))
+    }
+    for (const node of graph.nodes) {
+      const started = profile ? Date.now() : 0
+      const result = evaluate(node, node.inputs.map(name => values.get(name)!))
+      if (!same(result.shape, node.shape)) throw Error(`Output shape mismatch: ${node.name}: ${result.shape} != ${node.shape}`)
+      values.set(node.output, result)
+      profile?.({ name: node.name, op: node.op, shape: node.shape, elapsed_ms: Date.now() - started })
+    }
+    return Object.fromEntries(graph.outputs.map(name => {
+      const value = values.get(name)!
+      return [name, session.tensor(nested(value.values, value.shape)) as Tensor]
+    }))
+  }
+  function dispose() { session.dispose() }
+  return { graph, forward, dispose, ...(diagnostic ? { scope_stats: () => null } : {}) }
+}
+
+export function load_graph(directory: string, device: Device = 'cpu') {
+  const model = create_graph(directory, device, false)
+  return { ...model, semanticLoss: classify_import_semantics(model.graph) }
+}
+
+export function load_graph_for_scope_validation(directory: string, device: Device = 'cpu', _scoped = true) {
+  return create_graph(directory, device, true)
 }

@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'std:test'
-import { axes, tensor } from 'affon:compute'
+import { axes, tensor } from 'affon:compute/legacy'
 import { inspect } from 'std:util'
 
 describe('compute repr', () => {

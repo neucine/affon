@@ -1,5 +1,5 @@
 import { expect, test } from 'std:test'
-import { tensor, seed, setDevice, grad, clear_grad, adam, clip_grad_norm } from 'affon:compute'
+import { tensor, seed, setDevice, grad, clear_grad, adam, clip_grad_norm } from 'affon:compute/legacy'
 import { DecoderModel } from '../../apps/decoder-lm/src/model.ts'
 import { CausalLMLoss, generate } from '../../apps/decoder-lm/src/causal-lm.ts'
 

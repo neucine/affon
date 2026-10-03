@@ -2,6 +2,14 @@
 
 Activation functions introduce non-linearity.
 
+Import canonical activations from `affon:ops`. The same functions accept formal
+tensors while a Program is being authored and evaluated tensors for immediate,
+computation-only calls:
+
+```ts
+import { gelu, relu, sigmoid, silu, softmax, tanh } from 'affon:ops'
+```
+
 Without them, stacked linear layers would still behave like a single linear transform.
 
 ## ReLU
@@ -65,7 +73,7 @@ What to notice:
 
 ## SiLU / Swish
 
-`silu(x)` or `swish(x)`
+`silu(x)`
 
 $$
 \mathrm{silu}(x) = x \cdot \sigma(x)
@@ -76,7 +84,7 @@ SiLU keeps the smooth gating behavior of sigmoid, but unlike plain sigmoid it do
 What to notice:
 - negative values are suppressed smoothly instead of hard-clipped
 - positive values pass through with a learned-looking smooth bend
-- `swish` is an alias of `silu`
+- the canonical operation name is `silu`
 
 ## Tanh
 

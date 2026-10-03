@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'std:test'
-import { compile, matmul, tensor } from 'affon:compute'
+import { compile, matmul, tensor } from 'affon:compute/legacy'
 import { captureError } from '../../support/errors.ts'
 
 describe('matmul execution hints', () => {

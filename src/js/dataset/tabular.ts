@@ -1,16 +1,23 @@
 import 'affon:errors'
 import { readNative } from 'affon:dataset/native'
+import type { Session, Tensor } from 'affon:compute'
+import { slice } from 'affon:ops'
 
-interface Tensor {
-  readonly shape: number[]
-  slice(ranges: string[]): Tensor
+interface TensorExportOpts {
+  session: Session
+  dtype?: 'f32' | 'f64'
 }
 
 interface Dataset {
   features(...columns: string[]): Dataset
   input(...columns: string[]): Dataset
-  toTensor(opts?: { dtype?: 'f32' | 'f64' }): { data: Tensor }
-  toTensors(opts?: { dtype?: 'f32' | 'f64' }): { X: Tensor; y: Tensor }
+  toTensor(opts: TensorExportOpts): { data: Tensor; schema: Record<string, number[]> }
+  toTensors(opts: TensorExportOpts): { X: Tensor; y: Tensor; schema: Record<string, number[]> }
+}
+
+interface DataLoaderOpts {
+  session: Session
+  batchSize?: number
 }
 
 class DataLoader {
@@ -18,13 +25,13 @@ class DataLoader {
   private y: Tensor | null
   private batchSize: number
 
-  constructor(dataset: Dataset, opts?: { batchSize?: number }) {
+  constructor(dataset: Dataset, opts: DataLoaderOpts) {
     try {
-      const { X, y } = dataset.toTensors()
+      const { X, y } = dataset.toTensors({ session: opts.session })
       this.X = X
       this.y = y
     } catch {
-      const { data } = dataset.toTensor()
+      const { data } = dataset.toTensor({ session: opts.session })
       this.X = data
       this.y = null
     }
@@ -54,31 +61,47 @@ class DataLoader {
         const end = Math.min(offset + bs, n)
         offset = end
 
-        const xRanges: string[] = [`${start}:${end}`]
-        for (let d = 1; d < ndim; d++) xRanges.push(':')
+        const xRanges = [{ start, stop: end }]
+        for (let d = 1; d < ndim; d++) xRanges.push({ start: 0, stop: X.shape[d] })
 
         if (y) {
-          const yRanges: string[] = [`${start}:${end}`]
-          for (let d = 1; d < y.shape.length; d++) yRanges.push(':')
-          return { done: false, value: [X.slice(xRanges), y.slice(yRanges)] }
+          const yRanges = [{ start, stop: end }]
+          for (let d = 1; d < y.shape.length; d++) yRanges.push({ start: 0, stop: y.shape[d] })
+          return { done: false, value: [slice(X, xRanges), slice(y, yRanges)] }
         }
-        return { done: false, value: [X.slice(xRanges)] }
+        return { done: false, value: [slice(X, xRanges)] }
       }
     }
   }
 }
 
 function addLoader(ds: any): any {
-  ds.loader = function(opts?: { batchSize?: number }): DataLoader {
+  const nativeToTensor = ds.toTensor.bind(ds)
+  const nativeToTensors = ds.toTensors.bind(ds)
+  ds.toTensor = function(opts: TensorExportOpts) {
+    if (!opts?.session) throw new TypeError('toTensor() requires a Session')
+    const result = nativeToTensor({ dtype: opts.dtype })
+    return { ...result, data: opts.session.tensor(result.data, { dtype: opts.dtype ?? 'f32' }) }
+  }
+  ds.toTensors = function(opts: TensorExportOpts) {
+    if (!opts?.session) throw new TypeError('toTensors() requires a Session')
+    const result = nativeToTensors({ dtype: opts.dtype })
+    return {
+      ...result,
+      X: opts.session.tensor(result.X, { dtype: opts.dtype ?? 'f32' }),
+      y: opts.session.tensor(result.y, { dtype: opts.dtype ?? 'f32' }),
+    }
+  }
+  ds.loader = function(opts: DataLoaderOpts): DataLoader {
     return new DataLoader(ds, opts)
   }
-  ds.tensorLoader = function(opts?: { batchSize?: number }): DataLoader {
+  ds.tensorLoader = function(opts: DataLoaderOpts): DataLoader {
     return new DataLoader(ds, opts)
   }
 
   if (typeof ds.features === 'function') {
     ds.input = function(...args: any[]) {
-      return addLoader(ds.features(...args))
+      return ds.features(...args)
     }
   }
 

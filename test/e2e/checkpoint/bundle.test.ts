@@ -1,7 +1,7 @@
 import fs from 'std:fs'
 import checkpoint from 'affon:checkpoint'
 import { describe, expect, test, values } from 'std:test'
-import { tensor } from 'affon:compute'
+import { tensor } from 'affon:compute/legacy'
 
 describe('checkpoint bundle', () => {
   test('saves and loads a checkpoint bundle with tensor groups and manifest metadata', () => {

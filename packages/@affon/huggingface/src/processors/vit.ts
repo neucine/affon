@@ -1,5 +1,5 @@
 import fs from 'std:fs'
-import { tensor } from 'affon:compute'
+import { Session } from 'affon:compute'
 import type { Device, Tensor } from 'affon:compute'
 import { resize_rgb } from './shared/resize-rgb.ts'
 
@@ -29,5 +29,8 @@ export function process_rgb_image(directory: string, rgb: number[][][], device: 
     const rescaled = Math.fround(rgb[y][x][c] * config.rescale_factor)
     return Math.fround(Math.fround(rescaled - config.image_mean[c]) / config.image_std[c])
   })))]
-  return tensor(pixels, { dtype: 'f32', device })
+  const session = new Session({ device })
+  const result = session.tensor(pixels) as Tensor
+  session.dispose()
+  return result
 }

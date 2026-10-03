@@ -54,9 +54,10 @@ export function create_text_generation(models: InferenceModels, prompt: string, 
       try {
         const input = output.length === ids.length ? ids : [output[output.length - 1]]
         const logits = session.forward(input).logits
-        const row = (logits.slice([0, input.length - 1, ':']).to_array() as number[]).flat(Infinity) as number[]
+        const row = (logits.to_array() as number[][][])[0][input.length - 1]
         let best = 0
         for (let i = 1; i < row.length; i++) if (row[i] > row[best]) best = i
+        logits.dispose()
         output.push(best)
         done = best === model.config.eos_token_id || output.length - ids.length === budget
         const snapshot = result(output)

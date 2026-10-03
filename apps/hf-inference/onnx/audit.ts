@@ -2,7 +2,7 @@ import fs from "std:fs";
 import { getEnv } from "std:process";
 import telemetry from "std:telemetry";
 import checkpoint from "affon:checkpoint";
-import type { Device, Tensor } from "affon:compute";
+import { Session, type Device, type Tensor } from "affon:compute";
 import { load_graph } from "../../../packages/@affon/onnx/src/index.ts";
 import { load_vit } from "../../../packages/@affon/huggingface/src/adapters/vit.ts";
 import { load_model } from "../../../packages/@affon/huggingface/src/index.ts";
@@ -55,11 +55,12 @@ const ref = checkpoint.load(`${directory}/reference.safetensors`) as Record<
   string,
   Tensor
 >;
+const session = new Session({ device });
 const flatten = (x: Tensor) =>
   (x.to_array() as number[]).flat(Infinity) as number[];
 const results = [];
 for (let i = 0; i < 2; i++) {
-  const input = ref[`case_${i}.pixels`].to(device);
+  const input = session.tensor(ref[`case_${i}.pixels`].to_array() as any, { dtype: ref[`case_${i}.pixels`].dtype });
   const times: number[] = [];
   let actual: number[] = [];
   for (let run = -warmups; run < iterations; run++) {
@@ -70,6 +71,7 @@ for (let i = 0; i < 2; i++) {
             .logits
         : (model as ReturnType<typeof load_vit> | OnnxImageClassifier).forward(input).output;
     actual = flatten(out);
+    out.dispose();
     if (run >= 0) times.push(Date.now() - start);
   }
   const onnx = compare_values(actual, flatten(ref[`case_${i}.onnx`]));
@@ -83,6 +85,7 @@ for (let i = 0; i < 2; i++) {
     forward_ms: times,
     memory: memory(),
   });
+  input.dispose();
 }
 const report = {
   route,
@@ -101,3 +104,5 @@ const report = {
 fs.writeFileSync(getEnv("AFFON_HF_REPORT")!, JSON.stringify(report, null, 2));
 console.log(JSON.stringify(report));
 if (!report.passed) throw Error("ONNX parity check failed; see saved report");
+session.dispose();
+(model as any).dispose?.();

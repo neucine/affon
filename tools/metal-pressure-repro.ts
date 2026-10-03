@@ -1,4 +1,4 @@
-import { clip_grad_norm, grad, mul, parameter, sum } from 'affon:compute'
+import { clip_grad_norm, grad, mul, parameter, sum } from 'affon:compute/legacy'
 
 const params = Array.from({ length: 96 }, () => parameter([256, 256], { dtype: 'f32' }).randn().to('metal'))
 

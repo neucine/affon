@@ -1,5 +1,5 @@
 import { describe, test, expect, values } from 'std:test'
-import nn from 'affon:nn'
+import nn from 'affon:nn/legacy'
 import {
   add,
   copy,
@@ -7,7 +7,7 @@ import {
   module as computeModule,
   parameter,
   tensor,
-} from 'affon:compute'
+} from 'affon:compute/legacy'
 
 describe('nn custom module interop', () => {
   test('compute modules use training/eval paths with nn layers', () => {

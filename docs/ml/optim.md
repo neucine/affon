@@ -1,296 +1,52 @@
-# Optim Concepts
+# Optimizing Programs
 
-Beginner-friendly mental model for optimizer steps in `affon:compute`.
-
-## Naming note
-
-Current optimizer-related public names are:
-
-- `grad(loss, params)`
-- `clear_grad(params)`
-- `clip_grad_norm(params, max_norm)`
-- `sgd(...)`
-- `adam(...)`
-- `adamw(...)`
-
-`clear_grad`, `clip_grad_norm`, and `no_grad` are part of the current snake_case public training surface. Use the exported names exactly as they appear.
-
-This guide answers:
-- what gradients are
-- what an optimizer actually changes
-- why `clear_grad()` exists
-- how learning-rate schedules fit the training loop
-- when gradient clipping matters
-
-## 1. Big picture
-
-Training has two halves:
-
-1. compute how wrong the model is
-2. update parameters so it becomes less wrong next time
-
-The optimizer is the second half.
-
-Typical flow:
-
-```txt
-forward
-loss
-grad(loss, params)
-step(params)
-clear_grad(params)
-```
-
-## 2. What `grad(...)` produces
-
-After:
+Optimization is a Program transform. `affon:optim` describes an update rule;
+`optimize(...)` applies it to a scalar loss Program.
 
 ```ts
-grad(loss, params)
+import { optimize } from 'affon:compute'
+import { adamw } from 'affon:optim'
+
+const train = optimize(loss, adamw({
+  learning_rate: 3e-4,
+  weight_decay: 0.01,
+}))
 ```
 
-each trainable parameter has a gradient.
+The public optimizer factories are:
 
-Example:
+- `sgd({ learning_rate, momentum })`
+- `adam({ learning_rate, beta1, beta2, epsilon })`
+- `adamw({ learning_rate, beta1, beta2, epsilon, weight_decay })`
 
-```txt
-grad(loss, params)
-weight.grad
-bias.grad
-```
+They return immutable descriptors. They do not hold parameters, expose a
+mutable learning rate, or provide a callable `step(params)` function.
 
-A gradient tells you:
-- if this parameter increases slightly, will the loss go up or down?
-- how strongly does that parameter affect the current loss?
-
-You can think of it as the local slope of the loss with respect to the parameter.
-
-## 3. What `optimizer.step()` does
-
-The optimizer reads the current gradients and updates parameters.
-
-Very roughly:
-
-$$
-\theta \leftarrow \theta - \eta \nabla_\theta L
-$$
-
-Where:
-- $\theta$ is a parameter
-- $\eta$ is the learning rate
-- $\nabla_\theta L$ is the gradient of the loss
-
-That is the core idea behind all optimizers.
-
-Current device rule:
-
-- `sgd(...)`, `adam(...)`, and `adamw(...)` update supported `f32` parameters on
-  `"cpu"`, `"metal"`, or `"cuda"`
-- when an accelerator parameter has a gradient on another device, the update
-  path materializes the gradient onto the parameter device before applying the
-  step
-- all optimizers skip parameters whose `grad` is `null`
-
-Different optimizers mainly differ in:
-- how they scale the update
-- whether they use momentum / running averages
-- whether they add weight decay
-
-## 4. Why `clear_grad()` exists
-
-Gradients are stored on parameters.
-
-So if you do:
+## Run a training step
 
 ```ts
-grad(loss, params)
-grad(loss2, params)
+const state = session.initialize(train, { seed: 7 })
+const step = session.compile(train)
+const currentLoss = step.run({ image, labels }, state)
+
+console.log(currentLoss.item())
+currentLoss.dispose()
 ```
 
-without clearing gradients, the gradients accumulate.
+The loss and its differentiation remain inside the transformed Program. A
+successful run updates the `ExecutionState` atomically: parameters and
+optimizer moments are replaced, `$step` advances, and the RNG counter is
+incremented. A failed run leaves the previous state installed.
 
-That is sometimes useful on purpose, but most training loops want fresh gradients per batch.
+`gradient(loss, names)` is available when gradients themselves are the desired
+Program output. Immediate evaluated-tensor operations are intentionally not
+differentiable.
 
-So the usual pattern is:
+## State and lifetime
 
-```ts
-clear_grad(params)
-const pred = model(x)
-const loss = criterion(pred, target)
-grad(loss, params)
-step(params)
-```
+Optimizer moments live in `state.optimizer_state`; model parameters live in
+`state.parameters`. Dispose each output tensor after use, and dispose the
+executable, execution state, and Session when training is finished.
 
-Mental model:
-- `grad(...)` writes gradients
-- `step(...)` consumes gradients
-- `clear_grad(...)` clears them before the next training iteration
-- accelerator coverage is operation- and dtype-dependent; supported backward
-  paths keep gradients on the parameter device, while an unsupported path may
-  materialize through CPU or report an explicit backend error
-
-## 5. Core terms
-
-- `gradient`
-  The derivative stored on each parameter after `grad(...)`.
-
-- `learning rate`
-  The step size used by the optimizer.
-
-- `optimizer step`
-  One parameter update using the current gradients.
-
-- `training iteration`
-  One full batch pass:
-  `forward -> loss -> grad(loss, params) -> step(params)`
-
-- `epoch`
-  One full pass over the training dataset.
-
-## 6. SGD
-
-`sgd(...)`
-
-Basic intuition:
-- follow the negative gradient direction
-- take a small step
-
-Without momentum, SGD is the simplest optimizer.
-
-With momentum, it also remembers some of the recent update direction, which can make learning smoother and faster.
-
-Use when:
-- you want the simplest optimizer
-- you want predictable behavior
-- you are learning the basics
-- you want a simple optimizer across CPU, Metal, and CUDA
-
-## 7. Adam
-
-`adam(...)`
-
-Adam tracks running averages of:
-- the gradient
-- the squared gradient
-
-This gives it an adaptive step size per parameter.
-
-Rough intuition:
-- parameters with large noisy gradients get scaled more carefully
-- parameters with small gradients can still move meaningfully
-
-Use when:
-- you want a strong default optimizer
-- you want less tuning than plain SGD
-
-## 8. Learning-rate schedules
-
-A schedule changes the learning rate over training.
-
-In `affon:compute`, a schedule is a function of training context:
-
-```txt
-{ epoch, step }
-```
-
-Mental model:
-- the optimizer says how to update
-- the schedule says how big the learning rate should be at this point in training
-
-## 9. Applying a schedule
-
-`affon:compute` exposes schedule helpers directly:
-
-```ts
-const schedule = schedules.sequence(
-  schedules.linear({
-    start: 0,
-    end: 1e-3,
-    duration: Duration.steps(100),
-  }),
-  schedules.cosine({
-    start: 1e-3,
-    end: 5e-4,
-    duration: Duration.steps(900),
-  }),
-  schedules.constant(5e-4),
-)
-```
-
-You can either assign `step.lr` manually, or wrap a step function:
-
-```ts
-const step = adam({ lr: 1e-3 })
-const scheduledStep = scheduled(step, schedule)
-```
-
-Then in the loop:
-
-```ts
-scheduledStep.epoch(epoch)
-scheduledStep(params)
-```
-
-This is useful when:
-- learning rate should warm up
-- decay should happen after a fixed number of steps
-- workflow config should translate into a plain compute schedule callback or scheduled step wrapper
-
-## 11. Gradient clipping
-
-`clip_grad_norm(params, max_norm)`
-
-This rescales gradients when their global norm is too large.
-
-Why this matters:
-- some models can produce exploding gradients
-- recurrent models are a classic case
-- very large gradients can make training unstable
-
-Mental model:
-- compute the overall gradient size
-- if it is too large, scale all gradients down proportionally
-- keep the direction, reduce the magnitude
-
-## 12. One complete training loop
-
-```ts
-for (let epoch = 0; epoch < epochs; epoch++) {
-  clear_grad(params)
-  const pred = model(x)
-  const loss = criterion(pred, target)
-  grad(loss, params)
-  step(params)
-}
-```
-
-With schedule and clipping:
-
-```ts
-for (let epoch = 0; epoch < epochs; epoch++) {
-  step.lr = schedule({ epoch, step: globalStep })
-  clear_grad(params)
-  const pred = model(x)
-  const loss = criterion(pred, target)
-  grad(loss, params)
-  clip_grad_norm(params, 1.0)
-  step(params)
-}
-```
-
-## 13. Quick memory aid
-
-- `grad(loss, params)`
-  compute gradients
-
-- `clear_grad(params)`
-  clear old gradients
-
-- `step(params)`
-  update parameters
-
-- `schedule`
-  decide the learning rate over time
-
-- `clip_grad_norm()`
-  keep gradients from becoming too large
+The old mutable `.grad`, `clear_grad`, and callable optimizer-step protocol is
+available only through `affon:compute/legacy` during migration.

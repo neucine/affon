@@ -1,4 +1,4 @@
-import { tensor } from 'affon:compute'
+import type { Session, Tensor } from 'affon:compute'
 import type { TextEncodeOpts, TextTokenizer } from 'affon:dataset/tokenizer.ts'
 import { readDelimitedRows, readLines, readParagraphs, textFromString } from 'affon:dataset/text_io.ts'
 import type { DelimitedTextReadOpts, TextReadOpts, TextSourceOpts } from 'affon:dataset/text_io.ts'
@@ -11,11 +11,7 @@ import {
   TensorizedTextDataLoader,
   TextDataLoader,
 } from 'affon:dataset/text_loader.ts'
-import type { PaddedTextDataLoaderOpts } from 'affon:dataset/text_loader.ts'
-
-interface Tensor {
-  readonly shape: number[]
-}
+import type { PaddedTextDataLoaderOpts, TensorizedTextDataLoaderOpts } from 'affon:dataset/text_loader.ts'
 
 type PairTemplatePart = 'bos' | 'left' | 'separator' | 'right' | 'eos'
 type PairTemplatePreset = 'joined' | 'bert'
@@ -249,8 +245,8 @@ function inferTensorDType(value: unknown): 'i64' | 'f32' {
   return numbers.every((item) => Number.isInteger(item)) ? 'i64' : 'f32'
 }
 
-function tensorizeSelectedValue(value: unknown): Tensor {
-  return tensor(cloneValue(value), { dtype: inferTensorDType(value) })
+function tensorizeSelectedValue(value: unknown, session: Session): Tensor {
+  return session.tensor(cloneValue(value), { dtype: inferTensorDType(value) })
 }
 
 function requireString(value: unknown, methodName: string, field: string): string {
@@ -349,7 +345,7 @@ class EncodedTextDataset {
     return new PaddedTextDataLoader(this, opts)
   }
 
-  tensorLoader(opts: PaddedTextDataLoaderOpts): TensorizedTextDataLoader {
+  tensorLoader(opts: TensorizedTextDataLoaderOpts): TensorizedTextDataLoader {
     return new TensorizedTextDataLoader(this, opts)
   }
 }
@@ -635,8 +631,9 @@ class TextRecordDataset {
     }
   }
 
-  tensorLoader(opts: PaddedTextDataLoaderOpts): { length: number; [Symbol.iterator](): Iterator<CloneableRecord> } {
+  tensorLoader(opts: TensorizedTextDataLoaderOpts): { length: number; [Symbol.iterator](): Iterator<CloneableRecord> } {
     const padded = this.paddedLoader(opts)
+    const session = opts.session
     return {
       length: padded.length,
       [Symbol.iterator](): Iterator<CloneableRecord> {
@@ -652,7 +649,7 @@ class TextRecordDataset {
                 || isNumericMatrix(value)
                 || isFiniteNumber(value)
               ) {
-                out[key] = tensorizeSelectedValue(value)
+                out[key] = tensorizeSelectedValue(value, session)
                 continue
               }
               throw new TypeError(`tensorLoader() can only tensorize numeric selected fields; "${key}" is not numeric`)

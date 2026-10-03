@@ -103,7 +103,8 @@ contents; legacy ViT scalar sizes and omitted preprocessing defaults are handled
   checks, shared loading API, and domain processor integration.
 - `@affon/models` owns model definitions and shared blocks;
   `@affon/tokenizers` owns tokenization algorithms and tokenizer JSON support.
-- Compute kernels belong in `affon:compute`/`affon:nn`; low-level tensor
+- Tensor operations and program-bound layers belong in `affon:ops` and `p.nn`;
+  execution belongs in `affon:compute`, while low-level tensor
   persistence belongs in `affon:checkpoint`.
 - Reference generation, comparisons, diagnostics, and reports stay in
   [the audit app](../../../apps/hf-inference/README.md).

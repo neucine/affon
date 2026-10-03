@@ -1,4 +1,4 @@
-import { tensor, sum, matmul, cross_entropy_indexed, setDevice } from 'affon:compute'
+import { tensor, sum, matmul, cross_entropy_indexed, setDevice } from 'affon:compute/legacy'
 
 // Transfers and first-use compilation are excluded. Reading each scalar waits
 // for completion, so these are synchronous end-to-end operation timings.

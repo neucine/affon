@@ -15,8 +15,10 @@ beginner terminology.
 
 ## Public Boundaries
 
-- `affon:nn` owns reusable layers, losses, and module-oriented model structure.
-- `affon:compute` owns tensors, autograd, optimizers, schedules, and metrics.
+- `p.nn` owns neural-network declarations and losses inside a Program.
+- `affon:compute` owns tensors, Programs, Sessions, differentiation, and Program transforms.
+- `affon:ops` owns tensor operations shared by formal and evaluated tensors.
+- `affon:optim` owns optimizer descriptors.
 - `affon:dataset` owns ingest, transforms, batching, and tensorization.
 - `affon:checkpoint` owns resume-oriented persistence.
 - First-party packages own reusable model-family or domain conventions.

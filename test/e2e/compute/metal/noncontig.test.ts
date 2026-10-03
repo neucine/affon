@@ -1,5 +1,5 @@
 import { describe, test, expect, values } from 'std:test'
-import { add, cat, contiguous, permute, relu, reshape, softmax, stack, sum, tensor, transpose } from 'affon:compute'
+import { add, cat, contiguous, permute, relu, reshape, softmax, stack, sum, tensor, transpose } from 'affon:compute/legacy'
 import { internal_tensor } from '../../../support/compute.ts'
 
 describe('compute metal noncontiguous', () => {

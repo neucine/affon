@@ -8,8 +8,8 @@ Runtime errors extend the standard JavaScript `Error` but add first-class proper
 
 ```typescript
 try {
-  const t = tensor([1, 2, 3])
-  t.reshape([2, 5]) // Throws shape_mismatch
+  const t = session.tensor([1, 2, 3])
+  reshape(t, [2, 5]) // Throws shape_mismatch
 } catch (err) {
   if (err instanceof AffonError) {
     console.log(err.code)         // "shape_mismatch"

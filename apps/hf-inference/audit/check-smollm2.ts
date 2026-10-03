@@ -17,7 +17,7 @@ const numerical_failures: {name: string; failures: number; elements: number; max
 function equal(a: unknown, b: unknown, name: string) {
   if (JSON.stringify(a) !== JSON.stringify(b)) throw Error(`Mismatch: ${name}`)
 }
-function close(actual: Tensor, expected: Tensor, name: string) {
+function close(actual: Tensor, expected: { shape: readonly number[]; to_array(): unknown }, name: string) {
   equal(actual.shape, expected.shape, `${name} shape`)
   const a = (actual.to_array() as number[]).flat(Infinity) as number[], b = (expected.to_array() as number[]).flat(Infinity) as number[]
   let maxError = 0, failures = 0
@@ -45,7 +45,8 @@ for (let i = 0; i < ref.cases.length; i++) {
   // Multi-token append tests both RoPE offsets and the offset causal mask.
   const session = model.create_session(), split = Math.floor(c.ids.length / 2)
   session.forward(c.ids.slice(0, split))
-  close(session.forward(c.ids.slice(split)).logits, tensors[`case.${i}.logits`].slice([':', `${split}:`, ':']), `case ${i} cached chunk`)
+  const full = tensors[`case.${i}.logits`].to_array() as number[][][]
+  close(session.forward(c.ids.slice(split)).logits, { shape: [full.length, full[0].length - split, full[0][0].length], to_array: () => full.map(row => row.slice(split)) }, `case ${i} cached chunk`)
   session.reset()
   const result = {prompt: c.prompt, completion: c.completion, logit_max_error: logitError, elapsed_ms: Date.now() - start}
   results.push(result); console.log(JSON.stringify(result))

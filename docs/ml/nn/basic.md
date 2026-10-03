@@ -1,120 +1,51 @@
-# NN Basic
+# Linear, Embedding, and Normalization
 
-Basic feed-forward concepts for `affon:nn`.
+The active Program builder exposes the parameterized neural-network operations.
 
-## Linear layer
+## Linear
 
-`nn.Linear(in_features, out_features, opts?)` maps:
+```ts
+const output = p.nn.linear(input, {
+  name: 'output',
+  out_features: 10,
+  bias: true,
+})
+```
 
-```txt
+`linear` transforms the final input axis and preserves all leading axes:
+
+```text
 [..., in_features] -> [..., out_features]
 ```
 
-Math:
+The input feature width is inferred from the formal tensor specification. The
+`name` is required and determines the parameter names in the Program.
 
-$$
-y = xW + b
-$$
-
-The layer always applies across the last dimension.
-Any leading dimensions are preserved.
-
-If:
-
-```txt
-x.shape = [2, 3]
-W.shape = [3, 4]
-b.shape = [1, 4]
-```
-
-then:
-
-```txt
-y.shape = [2, 4]
-```
-
-And for a batched sequence:
-
-```txt
-x.shape = [5, 8, 3]
-y.shape = [5, 8, 4]
-```
-
-Visual idea:
-
-```txt
-2 examples in the batch
-each example has 3 input features
-each example becomes 4 output features
-```
-
-## How the layer is connected
-
-A linear layer is fully connected.
-
-That means:
-- every output feature sees every input feature
-- the same weight matrix is used for every slice of the leading dimensions
-
-If:
-
-```txt
-in_features = 3
-out_features = 4
-```
-
-then the connectivity looks like:
-
-![Fully connected neural network](https://commons.wikimedia.org/wiki/Special:FilePath/Fully_connected_neural_network.svg)
-
-Source:
-- Wikimedia Commons, "Fully connected neural network": https://commons.wikimedia.org/wiki/File:Fully_connected_neural_network.svg
-
-So one output unit is computed from all input features, not just one.
-
-## Parameters
-
-For `Linear`:
-
-- `weight` has shape `[in_features, out_features]`
-- `bias` has shape `[1, out_features]`
-
-Both are trainable parameters.
-
-You can force the parameter dtype explicitly when needed:
+## Embedding
 
 ```ts
-const layer = nn.Linear(3, 4, { dtype: 'f32' })
+const tokens = p.argument('tokens', Tensor.i64([32, 128]))
+const hidden = p.nn.embedding(tokens, {
+  name: 'token_embedding',
+  num_embeddings: 32_000,
+  embedding_dim: 768,
+})
 ```
 
-The same `dtype` option is supported by:
-- `nn.Embedding(...)`
-- `nn.LayerNorm(...)`
+Embedding inputs are integer indices. The output appends the embedding width to
+the index shape.
 
-Learnable `nn` layers default to `f32` parameters.
-
-## Common pattern
-
-Feed-forward models often look like:
+## Layer normalization
 
 ```ts
-import { relu } from 'affon:compute'
-import nn from 'affon:nn'
-
-const model = nn.Sequential(
-  nn.Linear(2, 4),
-  relu,
-  nn.Linear(4, 1),
-)
+const normalized = p.nn.layer_norm(hidden, {
+  name: 'final_norm',
+  normalized_shape: 768,
+  epsilon: 1e-5,
+  affine: true,
+})
 ```
 
-This means:
-- apply one linear transform
-- apply an activation
-- apply another linear transform
-
-Visual idea:
-
-```txt
-input -> Linear -> Activation -> Linear -> output
-```
+When `affine` is enabled, the builder declares learned scale and bias
+parameters. For unparameterized immediate normalization, use
+`layer_norm(x, axis, epsilon)` from `affon:ops`.

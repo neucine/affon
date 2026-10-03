@@ -2,22 +2,6 @@ export { DecoderModel } from './model.ts'
 export type { DecoderModelModule, DecoderModelOptions } from './model.ts'
 export { CausalLMLoss, causal_lm_eval_loss_forward, generate } from './causal-lm.ts'
 export type { GenerateOptions } from './causal-lm.ts'
-export {
-  DecoderBlock,
-  DecoderInputEmbedding,
-  FeedForward,
-  SelfAttention,
-} from '../../../packages/@affon/models/src/index.ts'
-export type {
-  DecoderBlockModule,
-  DecoderBlockOptions,
-  DecoderInputEmbeddingModule,
-  DecoderInputEmbeddingOptions,
-  FeedForwardModule,
-  FeedForwardOptions,
-  SelfAttentionModule,
-  SelfAttentionOptions,
-} from '../../../packages/@affon/models/src/index.ts'
 export { getFiniteChecksEnabled, setFiniteChecksEnabled } from './numerics.ts'
 
 export {

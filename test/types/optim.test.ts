@@ -1,4 +1,4 @@
-import { Duration, adam, clip_grad_norm, parameter, scheduled, schedules, sgd } from 'affon:compute'
+import { Duration, adam, clip_grad_norm, parameter, scheduled, schedules, sgd } from 'affon:compute/legacy'
 
 type IsExact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
 function assertType<T extends true>() {}

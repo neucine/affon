@@ -1,6 +1,6 @@
 import fs from 'std:fs'
 import checkpoint from 'affon:checkpoint'
-import type { Tensor } from 'affon:compute'
+import type { ModelTensor } from '../../../models/src/shared/parameters.ts'
 import { parse_checkpoint_index } from '../hub/checkpoint-index.ts'
 
 /** Validate the complete checkpoint catalog without loading its tensor payloads.
@@ -25,9 +25,9 @@ export function open_checkpoint(directory: string) {
     if (!Object.hasOwn(catalog, name)) throw Error(`Missing indexed checkpoint tensor: ${name}`)
   return {
     catalog,
-    read(name: string): Tensor {
+    read(name: string): ModelTensor {
       if (!Object.hasOwn(catalog, name)) throw Error(`Missing checkpoint tensor: ${name}`)
-      return (checkpoint.load(`${directory}/${catalog[name].file}`, {names:[name]}) as Record<string, Tensor>)[name]
+      return (checkpoint.load(`${directory}/${catalog[name].file}`, {names:[name]}) as Record<string, ModelTensor>)[name]
     },
   }
 }

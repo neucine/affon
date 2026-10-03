@@ -1,8 +1,8 @@
 declare module "affon:checkpoint" {
-  import type { ComputeState, Module, Tensor } from "affon:compute"
+  import type { Tensor } from "affon:compute"
 
-  type CheckpointState = ComputeState | Module<any, any>
-  type LoadedCheckpoint = ComputeState
+  type CheckpointState = Record<string, unknown>
+  type LoadedCheckpoint = Record<string, Tensor>
   type CheckpointTensorGroups = Record<string, LoadedCheckpoint>
   type CheckpointBundleManifest = Record<string, unknown> & {
     statePath: string
@@ -37,11 +37,11 @@ declare module "affon:checkpoint" {
   export function inspect(path: string): Record<string, { dtype: "F32" | "F64" | "I64" | "BF16"; shape: number[] }>
 
   /**
-   * @summary Restore checkpoint values into an existing module or state tree.
+   * @summary Legacy in-place restore hook.
    * @category Persistence
    * @semantics
-   * Applies checkpoint tensor values in place, preserving the identity of the
-   * target module or target state tree.
+   * Program tensors are immutable. This throws; pass loaded values to
+   * `Session.initialize(..., { parameters })` instead.
    */
   export function restore<T extends CheckpointState>(target: T, source: string | LoadedCheckpoint): T
 

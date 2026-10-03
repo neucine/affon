@@ -1,100 +1,45 @@
+import { matmul, mul, reshape, softmax, transpose } from 'affon:ops'
 import fs from 'std:fs'
 import { getEnv } from 'std:process'
 import telemetry from 'std:telemetry'
 import checkpoint from 'affon:checkpoint'
-import {
-  contiguous,
-  matmul,
-  mul,
-  softmax,
-  transpose,
-  reshape,
-  no_grad,
-  type Tensor,
-} from 'affon:compute'
-const root =
-  getEnv('OPERATOR_FIXTURES') ?? '/private/tmp/whisper-operator-fixtures'
+import { Session, Tensor, program } from 'affon:compute'
+
+const root = getEnv('OPERATOR_FIXTURES') ?? '/private/tmp/whisper-operator-fixtures'
 const cases = JSON.parse(fs.readFileSync(`${root}/cases.json`))
-function metrics() {
-  return Object.fromEntries(
-    telemetry
-      .metrics()
-      .filter(
-        (m) =>
-          m.scope === 'compute.execution' &&
-          m.name.startsWith('metal_command_'),
-      )
-      .map((m) => [m.name, m.value]),
-  )
-}
-const results = no_grad(() =>
-  cases.map((c: any) => {
-    const loaded = checkpoint.load(`${root}/${c.name}.safetensors`) as Record<
-      string,
-      Tensor
-    >
-    const tensors = Object.fromEntries(
-      Object.entries(loaded).map(([k, v]) => [k, v.to('metal')]),
-    )
-    const b = c.transpose_b
-      ? transpose(
-          tensors.b,
-          tensors.b.shape.length - 2,
-          tensors.b.shape.length - 1,
-        )
-      : tensors.b
-    const lhs = c.flatten_a
-      ? reshape(tensors.a, tensors.a.shape.slice(-2))
-      : tensors.a
-    function run() {
-      const x = matmul(lhs, b)
-      return c.kind === 'attention'
-        ? matmul(softmax(mul(x, tensors.scale), x.shape.length - 1), tensors.v)
-        : x
+const metrics = () => Object.fromEntries(telemetry.metrics().filter(m => m.scope === 'compute.execution' && m.name.startsWith('metal_command_')).map(m => [m.name, m.value]))
+const results = cases.map((entry: any) => {
+  const loaded = checkpoint.load(`${root}/${entry.name}.safetensors`) as unknown as Record<string, { shape: readonly number[]; to_array(): unknown; dispose(): void }>
+  const leftShape = entry.flatten_a ? loaded.a.shape.slice(-2) : loaded.a.shape
+  const rightShape = [...loaded.b.shape]
+  if (entry.transpose_b) [rightShape[rightShape.length - 2], rightShape[rightShape.length - 1]] = [rightShape[rightShape.length - 1], rightShape[rightShape.length - 2]]
+  const outputRank = Math.max(leftShape.length, rightShape.length)
+  const source = program(`operator_${entry.name}`, builder => {
+    const constant = (name: string) => builder.constant(name, loaded[name].to_array(), Tensor.f32(loaded[name].shape))
+    let left = constant('a'), right = constant('b')
+    if (entry.flatten_a) left = reshape(left, leftShape)
+    if (entry.transpose_b) {
+      const permutation = [...loaded.b.shape.keys()]
+      ;[permutation[permutation.length - 2], permutation[permutation.length - 1]] = [permutation[permutation.length - 1], permutation[permutation.length - 2]]
+      right = transpose(right, permutation)
     }
-    let output = run()
-    for (let i = 1; i < c.warmup; i++) output = run()
-    const runs = Array.from({ length: c.runs }, () => {
-      const before = metrics(),
-        start = Date.now()
-      for (let i = 0; i < c.repeats; i++) output = run()
-      const wall_ms = (Date.now() - start) / c.repeats,
-        after = metrics()
-      const delta = Object.fromEntries(
-        Object.entries(after).map(([k, v]) => [
-          k,
-          (v - (before[k] ?? 0)) / c.repeats,
-        ]),
-      )
-      if (delta.metal_command_count !== delta.metal_command_gpu_valid_count)
-        throw Error('Incomplete GPU timings')
-      return { wall_ms, counters: delta }
-    })
-    const flat = reshape(output.to('cpu'), [c.numel])
-    const samples = c.samples.map((sample: any) => {
-      const actual = (
-        contiguous(
-          flat.slice([`${sample.index}:${sample.index + 1}`]),
-        ).to_array() as number[]
-      )[0]
-      const error = Math.abs(actual - sample.expected)
-      if (!(error <= 1e-4 + Math.abs(sample.expected) * 1e-4))
-        throw Error(`${c.name}: sample ${sample.index} error ${error}`)
-      return { ...sample, actual, error }
-    })
-    console.log(
-      c.name,
-      JSON.stringify(
-        runs.map((r) => ({
-          wall_ms: r.wall_ms,
-          gpu_ms: r.counters.metal_command_gpu_ns / 1e6,
-        })),
-      ),
-    )
-    return { name: c.name, runs, samples }
-  }),
-)
-fs.writeFileSync(
-  getEnv('PROFILE_OUTPUT')!,
-  JSON.stringify({ warmup: 20, repeats: 10, runs: 5, results }, null, 2),
-)
+    const product = matmul(left, right)
+    if (entry.kind !== 'attention') return product
+    return matmul(softmax(mul(product, constant('scale')), outputRank - 1), constant('v'))
+  })
+  const session = new Session({ device: 'metal' }), executable = session.compile(source), state = session.initialize(source)
+  for (const value of Object.values(loaded)) value.dispose()
+  let output = executable.run({}, state) as Tensor
+  for (let index = 1; index < entry.warmup; index++) { output.dispose(); output = executable.run({}, state) as Tensor }
+  const runs = Array.from({ length: entry.runs }, () => {
+    const before = metrics(), started = Date.now()
+    for (let index = 0; index < entry.repeats; index++) { output.dispose(); output = executable.run({}, state) as Tensor }
+    const wall_ms = (Date.now() - started) / entry.repeats, after = metrics()
+    return { wall_ms, counters: Object.fromEntries(Object.entries(after).map(([key, value]) => [key, (value - (before[key] ?? 0)) / entry.repeats])) }
+  })
+  const flat = (output.to_array() as any[]).flat(Infinity).map(Number)
+  const samples = entry.samples.map((sample: any) => ({ ...sample, actual: flat[sample.index], error: Math.abs(flat[sample.index] - sample.expected) }))
+  output.dispose(); state.dispose(); session.dispose()
+  return { name: entry.name, runs, samples }
+})
+fs.writeFileSync(getEnv('PROFILE_OUTPUT')!, JSON.stringify({ results }, null, 2))

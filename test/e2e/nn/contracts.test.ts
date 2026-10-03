@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'std:test'
-import nn from 'affon:nn'
-import { module as computeModule, tensor } from 'affon:compute'
+import nn from 'affon:nn/legacy'
+import { module as computeModule, tensor } from 'affon:compute/legacy'
 import { captureError } from '../../support/errors.ts'
 
 describe('nn authoring contracts', () => {

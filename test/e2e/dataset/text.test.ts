@@ -1,17 +1,18 @@
 import { describe, test, expect, values } from 'std:test'
-import dataset from 'affon:dataset'
+import { text } from 'affon:dataset/text.ts'
 import { writeFileSync } from 'std:fs'
+import { Session } from 'affon:compute'
 import { createLookupTokenizer } from '../../../packages/@affon/tokenizers/src/index.ts'
 
 describe('dataset text', () => {
   test('text namespace reads line-oriented corpora', () => {
-    const ds = dataset.text.read('test/e2e/dataset/fixtures/lines.txt')
+    const ds = text.read('test/e2e/dataset/fixtures/lines.txt')
     expect(ds.length).toBe(4)
     expect(ds.toArray()).toEqual(['alpha', 'beta', 'gamma', 'delta'])
   })
 
   test('text dataset supports trim, filtering, mapping, split, and batching', () => {
-    const ds = dataset.text.read('test/e2e/dataset/fixtures/lines-spaced.txt', { trim: true })
+    const ds = text.read('test/e2e/dataset/fixtures/lines-spaced.txt', { trim: true })
       .filter((line) => line !== 'skip')
       .map((line, index) => `${index}:${line}`)
 
@@ -36,7 +37,7 @@ describe('dataset text', () => {
       { '<bos>': 0, '<eos>': 1, '<unk>': 2, alpha: 3, beta: 4, gamma: 5, delta: 6 },
       { specialTokens: { bos: '<bos>', eos: '<eos>', unk: '<unk>' } }
     )
-    const ds = dataset.text.read('test/e2e/dataset/fixtures/lines.txt').encode(tok, { addBos: true, addEos: true })
+    const ds = text.read('test/e2e/dataset/fixtures/lines.txt').encode(tok, { addBos: true, addEos: true })
 
     expect(ds.toArray()).toEqual([
       [0, 3, 1],
@@ -62,7 +63,7 @@ describe('dataset text', () => {
       { '<pad>': 0, '<unk>': 1, alpha: 2, beta: 3, gamma: 4, delta: 5 },
       { specialTokens: { pad: '<pad>', unk: '<unk>' } }
     )
-    const ds = dataset.text.read('test/e2e/dataset/fixtures/phrases.txt').encode(tok)
+    const ds = text.read('test/e2e/dataset/fixtures/phrases.txt').encode(tok)
 
     const loader = ds.paddedLoader({ batchSize: 2, padId: 0 })
     const batches: Array<{ inputIds: number[][]; attentionMask: number[][] }> = []
@@ -82,13 +83,14 @@ describe('dataset text', () => {
   })
 
   test('encoded text dataset exports tensorized padded batches', () => {
+    const session = new Session({ device: 'cpu' })
     const tok = createLookupTokenizer(
       { '<pad>': 0, '<unk>': 1, alpha: 2, beta: 3, gamma: 4, delta: 5 },
       { specialTokens: { pad: '<pad>', unk: '<unk>' } }
     )
-    const ds = dataset.text.read('test/e2e/dataset/fixtures/phrases.txt').encode(tok)
+    const ds = text.read('test/e2e/dataset/fixtures/phrases.txt').encode(tok)
 
-    const loader = ds.tensorLoader({ batchSize: 2, padId: 0 })
+    const loader = ds.tensorLoader({ batchSize: 2, padId: 0, session })
     const batches: Array<{ inputIds: any; attentionMask: any }> = []
     for (const batch of loader) batches.push(batch)
 
@@ -99,6 +101,7 @@ describe('dataset text', () => {
     expect(batches[0].attentionMask.dtype).toBe('i64')
     expect(values(batches[0].inputIds)).toEqual([[2, 3], [4, 0]])
     expect(values(batches[0].attentionMask)).toEqual([[1, 1], [1, 0]])
+    session.dispose()
   })
 
   test('text datasets can read paragraph corpora', () => {
@@ -106,7 +109,7 @@ describe('dataset text', () => {
     const path = `${prefix}.txt`
     writeFileSync(path, ' first block \n\nsecond line\nstill second\n\n third ')
 
-    const ds = dataset.text.readParagraphs(path, {
+    const ds = text.readParagraphs(path, {
       trim: true,
       skipEmpty: true,
     })
@@ -119,18 +122,18 @@ describe('dataset text', () => {
   })
 
   test('text datasets can start from in-memory rows', () => {
-    const ds = dataset.text.rows(['alpha', '', 'beta']).filter((text) => text.length > 0)
+    const ds = text.rows(['alpha', '', 'beta']).filter((text) => text.length > 0)
     expect(ds.toArray()).toEqual(['alpha', 'beta'])
   })
 
   test('text datasets can start from raw strings with line or paragraph mode', () => {
-    expect(dataset.text.fromString(' a \n\nb\n', {
+    expect(text.fromString(' a \n\nb\n', {
       mode: 'line',
       trim: true,
       skipEmpty: true,
     }).toArray()).toEqual(['a', 'b'])
 
-    expect(dataset.text.fromString(' a \n\nb\n\nc ', {
+    expect(text.fromString(' a \n\nb\n\nc ', {
       mode: 'paragraph',
       trim: true,
       skipEmpty: true,
@@ -143,7 +146,7 @@ describe('dataset text', () => {
       { specialTokens: { bos: '<bos>', eos: '<eos>' } }
     )
 
-    const windows = dataset.text.read('test/e2e/dataset/fixtures/lines-hf.txt')
+    const windows = text.read('test/e2e/dataset/fixtures/lines-hf.txt')
       .encode(tok, { addBos: true, addEos: true })
       .window({ seqLen: 3, stride: 1 })
       .toArray()
@@ -155,7 +158,7 @@ describe('dataset text', () => {
       [1, 0, 4, 1],
     ])
 
-    const encoded = dataset.text.encoded([
+    const encoded = text.encoded([
       [0, 2, 3, 1],
       [0, 2, 4, 1],
     ])
@@ -166,7 +169,7 @@ describe('dataset text', () => {
   })
 
   test('encoded text datasets support shuffle before downstream preparation', () => {
-    const encoded = dataset.text.encoded([
+    const encoded = text.encoded([
       [1],
       [2],
       [3],
@@ -182,7 +185,7 @@ describe('dataset text', () => {
       { '<bos>': 0, '<eos>': 1, alpha: 2, beta: 3, gamma: 4, delta: 5 },
       { specialTokens: { bos: '<bos>', eos: '<eos>' } }
     )
-    const ds = dataset.text.read('test/e2e/dataset/fixtures/phrases.txt')
+    const ds = text.read('test/e2e/dataset/fixtures/phrases.txt')
       .encode(tok, { addBos: true, addEos: true, maxLength: 4 })
 
     expect(ds.toArray()[0]).toEqual([0, 2, 3, 1])
