@@ -97,10 +97,10 @@ and traces.
 
 ## CUDA selection
 
-Use `AFFON_DEVICE=cuda` or `setDevice('cuda')` to place new tensors on CUDA.
-Select a GPU with `AFFON_CUDA_DEVICE=N` before startup, or `setDevice('cuda:N')`
-before the first CUDA allocation. The selected ordinal is fixed for the process.
-Changing the ordinal after initialization is rejected.
+Use `AFFON_DEVICE=cuda` to place default-Session tensors on CUDA. Select a GPU
+with `AFFON_CUDA_DEVICE=N` before startup. The canonical Program API has no
+mutable global device setter; use an explicit `new Session({ device })` for an
+isolated device choice. The selected CUDA ordinal is fixed for the process.
 
 Linux CUDA execution needs a working NVIDIA driver (`nvidia-smi`), plus
 `libnvrtc.so.12` and `libcublas.so.12` on the dynamic loader path. CUDA is loaded

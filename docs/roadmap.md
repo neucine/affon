@@ -125,6 +125,22 @@ as larger programs. Eager-only rules and silent program-to-eager fallback should
 not exist in the new core; the old eager planner, runner, and tape are deleted at
 cutover rather than preserved behind compatibility adapters.
 
+### Deferred canonical API work
+
+`affon:ops.topk` is intentionally deferred until the JavaScript Program IR can
+represent multiple outputs from one operation. The compute core already returns
+top-k values and i64 indices and differentiates the values output by scattering
+through those indices; duplicating the operation or adding an eager-only path
+would discard that architecture.
+
+The intended API returns `{ values, indices }`. The minimal IR extension is an
+`operation_output` projection node referencing a multi-output operation and an
+output index. Native lowering should add `topk` once, retain every returned
+value ID, and resolve projections from that list. Composition, inspection, and
+serialization must preserve projection references. This mechanism should be
+general rather than specific to `topk`, so later multi-output operators can use
+the same representation.
+
 ## What a legible model requires
 
 The current tensor, graph, autograd, checkpoint, importer, and package systems

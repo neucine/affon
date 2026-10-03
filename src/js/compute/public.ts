@@ -3,6 +3,8 @@ export {
   Session,
   program,
   gradient,
+  losses,
+  metrics,
   optimize,
 } from "affon:_internal/compute/program"
 
@@ -13,6 +15,7 @@ export type {
   ProgramShape,
   TensorData,
   TensorInitializerValue,
+  TensorValueOptions,
   ProgramArguments,
   SliceRange,
   ProgramFormal,
@@ -24,4 +27,5 @@ export type {
   Program,
   ProgramNN,
   Initializer,
+  LossProgramTemplate,
 } from "affon:_internal/compute/program"

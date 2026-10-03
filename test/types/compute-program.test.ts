@@ -1,17 +1,20 @@
-import { add, cat, mul, reshape } from 'affon:ops'
+import { add, argmax, cat, cross_entropy, mean_squared_error, mul, reshape, stack } from 'affon:ops'
 import {
   Tensor,
   Session,
   gradient,
+  losses,
+  metrics,
   optimize,
   program,
   type Executable,
   type FormalTensor,
+  type LossProgramTemplate,
   type Program,
   type ProgramArguments,
   type TensorSpec,
 } from "affon:compute"
-import { adam, sgd, type Adam, type Optimizer, type SGD } from "affon:optim"
+import { accumulate, adam, scheduled, schedules, sgd, type AccumulatingOptimizer, type Adam, type Optimizer, type ScheduledOptimizer, type SGD } from "affon:optim"
 import * as compute from "affon:compute"
 import * as optimModule from "affon:optim"
 
@@ -19,7 +22,7 @@ import * as optimModule from "affon:optim"
 import * as internalCompute from "affon:_internal/compute/program"
 void internalCompute
 
-// @ts-expect-error Losses are authored through a Program builder's p.nn namespace.
+// @ts-expect-error Tensor operations belong to affon:ops.
 import { cross_entropy as computeCrossEntropy } from "affon:compute"
 // @ts-expect-error Optimizers belong to affon:optim.
 import { adam as computeAdam } from "affon:compute"
@@ -42,6 +45,12 @@ assertType<IsExact<"default" extends keyof typeof compute ? true : false, false>
 assertType<IsExact<"default" extends keyof typeof optimModule ? true : false, false>>()
 
 const image = Tensor.f32([32, 784], { axes: ["batch", "feature"] })
+const defaultValue = Tensor.from([1, 2, 3])
+const defaultZeros = Tensor.zeros([2, 3], { dtype: "f64" })
+const defaultOnes = Tensor.ones([2, 3])
+const defaultFull = Tensor.full([2, 3], 4)
+const defaultRange = Tensor.arange(0, 3)
+const defaultRandom = Tensor.randn([2, 3], { seed: 7 })
 // @ts-expect-error bool is not executable by the compute core.
 Tensor.bool([2])
 const classifier = program("classifier", p => {
@@ -50,15 +59,34 @@ const classifier = program("classifier", p => {
 })
 const loss = program("classifier_loss", p => {
   const logits = classifier(p.argument("image", image))
-  return p.nn.cross_entropy(logits, p.argument("labels", Tensor.i64([32])))
+  return cross_entropy(logits, p.argument("labels", Tensor.i64([32])))
 })
 const derivatives = gradient(loss, ["classifier_projection_weight", "classifier_projection_bias"])
 const optimizer = adam({ learning_rate: 0.001 })
 const momentumOptimizer = sgd({ momentum: 0.9 })
-const training_step = optimize(loss, optimizer)
+const accumulatingOptimizer = accumulate(optimizer, { steps: 4 })
+const scheduledOptimizer = scheduled(optimizer, schedules.cosine({ start: 0.001, end: 0.0001, steps: 100 }))
+const scheduledAccumulatingOptimizer = accumulate(scheduledOptimizer, { steps: 4 })
+const separateLoss = program("cross_entropy_loss", p => cross_entropy(
+  p.argument("logits", Tensor.f32([32, 10])),
+  p.argument("labels", Tensor.i64([32])),
+))
+const training_step = optimize(classifier, separateLoss, optimizer)
+const reusableTrainingStep = optimize(classifier, separateLoss, optimizer)
+const builtInLoss: LossProgramTemplate = losses.cross_entropy()
+const builtInTrainingStep = optimize(classifier, builtInLoss, optimizer)
+optimize(classifier, builtInLoss, accumulatingOptimizer)
+optimize(classifier, builtInLoss, scheduledAccumulatingOptimizer)
+optimize(classifier, losses.mean_squared_error(), optimizer)
+optimize(classifier, losses.binary_cross_entropy(), optimizer)
+optimize(classifier, losses.binary_cross_entropy_with_logits(), optimizer)
+// @ts-expect-error optimize always requires model, loss, and optimizer.
+optimize(loss, optimizer)
 const session = new Session({ device: "cpu" })
 const runtimeTensor: Tensor = session.tensor([1, 2, 3])
 const executable = session.compile(training_step)
+const reusableExecutable = session.compile(reusableTrainingStep)
+const builtInExecutable = session.compile(builtInTrainingStep)
 const executionState = session.initialize(training_step)
 const inferenceExecutable = session.compile(classifier)
 const inferenceOutput = inferenceExecutable.run({ image: runtimeTensor })
@@ -68,8 +96,21 @@ const paired = program("paired", p => {
 })
 const pairedOutput = session.compile(paired).run({ value: runtimeTensor })
 const eagerSum = add(runtimeTensor, runtimeTensor)
+const eagerMetric: number = metrics.mean_absolute_error(runtimeTensor, runtimeTensor)
+const eagerLoss = mean_squared_error(runtimeTensor, runtimeTensor)
+const eagerIndices = argmax(runtimeTensor)
+const eagerStack = stack([runtimeTensor, runtimeTensor])
+void eagerMetric
 
 assertType<IsExact<typeof image, TensorSpec>>()
+assertType<IsExact<typeof defaultValue, Tensor>>()
+assertType<IsExact<typeof defaultZeros, Tensor>>()
+assertType<IsExact<typeof defaultOnes, Tensor>>()
+assertType<IsExact<typeof defaultFull, Tensor>>()
+assertType<IsExact<typeof defaultRange, Tensor>>()
+assertType<IsExact<typeof defaultRandom, Tensor>>()
+// @ts-expect-error The default Session cannot be replaced or configured in code.
+Session.default = new Session()
 assertType<IsExact<typeof runtimeTensor, Tensor>>()
 assertType<typeof classifier extends Program ? true : false>()
 assertType<typeof loss extends Program ? true : false>()
@@ -77,10 +118,17 @@ assertType<IsExact<typeof derivatives, Program>>()
 assertType<typeof optimizer extends Optimizer ? true : false>()
 assertType<IsExact<typeof optimizer, Adam>>()
 assertType<IsExact<typeof momentumOptimizer, SGD>>()
+assertType<IsExact<typeof accumulatingOptimizer, AccumulatingOptimizer>>()
+assertType<IsExact<typeof scheduledOptimizer, ScheduledOptimizer>>()
 assertType<IsExact<typeof executable, Executable<FormalTensor>>>()
+assertType<IsExact<typeof reusableExecutable, Executable<FormalTensor>>>()
+assertType<IsExact<typeof builtInExecutable, Executable<FormalTensor>>>()
 assertType<IsExact<typeof inferenceOutput, Tensor>>()
 assertType<IsExact<typeof pairedOutput, readonly Tensor[]>>()
 assertType<IsExact<typeof eagerSum, Tensor>>()
+assertType<IsExact<typeof eagerLoss, Tensor>>()
+assertType<IsExact<typeof eagerIndices, Tensor>>()
+assertType<IsExact<typeof eagerStack, Tensor>>()
 assertType<IsExact<(typeof executable.argument_names)[number], string>>()
 assertType<IsExact<(typeof executable.argument_specs)[number], import("affon:compute").ProgramFormal>>()
 assertType<IsExact<typeof executable.disposed, boolean>>()
@@ -123,4 +171,4 @@ program("ops", p => {
 program("no_hyperparameters", p => p.hyperparameter("width", 4))
 
 // @ts-expect-error New optimizer options use snake_case.
-optimize(loss, adam({ learningRate: 0.001 }))
+optimize(classifier, separateLoss, adam({ learningRate: 0.001 }))

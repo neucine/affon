@@ -22,8 +22,10 @@ declare module "affon:compute/native" {
     div(lhs: NativeTensor, rhs: NativeTensor): NativeTensor;
     matmul(lhs: NativeTensor, rhs: NativeTensor): NativeTensor;
     dot(lhs: NativeTensor, rhs: NativeTensor): NativeTensor;
+    defaultDevice(): "cpu" | "metal" | "cuda";
     createSession(device: "cpu" | "metal" | "cuda" | `cuda:${number}`): NativeSession;
-    sessionTensor(session: NativeSession, values: unknown, dtype: "f32" | "f64" | "i64"): NativeTensor;
+    sessionTensor(session: NativeSession, values: unknown, dtype: "f32" | "f64" | "i64", shape?: readonly number[]): NativeTensor;
+    sessionFull(session: NativeSession, shape: readonly number[], value: number, dtype: "f32" | "f64" | "i64"): NativeTensor;
     compileProgram(session: NativeSession, program_json: string): NativeExecutable;
     runExecutable(executable: NativeExecutable, inputs: readonly NativeTensor[]): NativeTensor[];
     stftPower(signal: NativeTensor, window: NativeTensor, hop: number, paddedLength: number, frames: number): NativeTensor;

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'std:test'
 import { Session, Tensor, program, type FormalTensor, type ProgramBuilder } from 'affon:compute'
+import { cross_entropy } from 'affon:ops'
 
 describe('nn Program API', () => {
   test('authors reusable linear, embedding, normalization, and ordinary function composition', () => {
@@ -23,20 +24,21 @@ describe('nn Program API', () => {
     expect(lookupInspection.nodes[lookupInspection.outputs[0]].spec.shape).toEqual([2, 3])
   })
 
-  test('authors cross entropy as a builder-bound loss and validates label specs', () => {
+  test('authors cross entropy as an ordinary operation and validates label specs', () => {
     const loss = program('classification_loss', p => {
+      expect((p.nn as any).cross_entropy).toBeUndefined()
       const logits = p.argument('logits', Tensor.f32([2, 3]))
       const labels = p.argument('labels', Tensor.i64([2]))
-      return p.nn.cross_entropy(logits, labels)
+      return cross_entropy(logits, labels)
     })
     const inspection = loss.inspect()
     expect(inspection.nodes[inspection.outputs[0]].spec.shape).toEqual([1])
 
-    expect(() => program('bad_loss_dtype', p => p.nn.cross_entropy(
+    expect(() => program('bad_loss_dtype', p => cross_entropy(
       p.argument('logits', Tensor.f32([2, 3])),
       p.argument('labels', Tensor.f32([2])),
     ))).toThrow('i64')
-    expect(() => program('bad_loss_shape', p => p.nn.cross_entropy(
+    expect(() => program('bad_loss_shape', p => cross_entropy(
       p.argument('logits', Tensor.f32([2, 3])),
       p.argument('labels', Tensor.i64([3])),
     ))).toThrow('without its class dimension')

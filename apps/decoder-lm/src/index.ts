@@ -1,6 +1,6 @@
 export { DecoderModel } from './model.ts'
-export type { DecoderModelModule, DecoderModelOptions } from './model.ts'
-export { CausalLMLoss, causal_lm_eval_loss_forward, generate } from './causal-lm.ts'
+export type { DecoderModel as DecoderModelDefinition, DecoderModelOptions } from './model.ts'
+export { generate } from './causal-lm.ts'
 export type { GenerateOptions } from './causal-lm.ts'
 export { getFiniteChecksEnabled, setFiniteChecksEnabled } from './numerics.ts'
 
@@ -14,6 +14,7 @@ export {
 export type {
   DecoderLMBatchMetrics,
   DecoderLMBatchPhaseMetrics,
+  DecoderLMRuntime,
   DecoderLMCheckpoint,
   DecoderLMCheckpointMetadata,
   DecoderLMEpochMetrics,

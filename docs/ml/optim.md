@@ -1,13 +1,13 @@
 # Optimizing Programs
 
-Optimization is a Program transform. `affon:optim` describes an update rule;
-`optimize(...)` applies it to a scalar loss Program.
+Optimization combines a reusable model Program, a scalar loss Program or
+built-in loss template, and an update rule from `affon:optim`.
 
 ```ts
-import { optimize } from 'affon:compute'
+import { losses, optimize } from 'affon:compute'
 import { adamw } from 'affon:optim'
 
-const train = optimize(loss, adamw({
+const train = optimize(model, losses.cross_entropy(), adamw({
   learning_rate: 3e-4,
   weight_decay: 0.01,
 }))
@@ -18,9 +18,56 @@ The public optimizer factories are:
 - `sgd({ learning_rate, momentum })`
 - `adam({ learning_rate, beta1, beta2, epsilon })`
 - `adamw({ learning_rate, beta1, beta2, epsilon, weight_decay })`
+- `scheduled(optimizer, schedule)`
+- `accumulate(optimizer, { steps })`
 
 They return immutable descriptors. They do not hold parameters, expose a
 mutable learning rate, or provide a callable `step(params)` function.
+
+## Gradient accumulation
+
+Wrap an optimizer when a larger effective batch should span several runs:
+
+```ts
+import { accumulate, adamw } from 'affon:optim'
+
+const optimizer = accumulate(adamw({ learning_rate: 3e-4 }), { steps: 4 })
+const train = optimize(model, losses.cross_entropy(), optimizer)
+```
+
+Each run computes and adds one microbatch gradient. Parameters and optimizer
+moments remain unchanged until the fourth run, when the averaged gradient is
+applied as one optimizer step. Accumulation buffers live in the supplied
+`ExecutionState`, so separate states accumulate independently.
+
+## Learning-rate schedules
+
+Schedules are immutable, step-based descriptors. Wrap the base optimizer, then
+wrap that result with accumulation when both are needed:
+
+```ts
+import { accumulate, adamw, scheduled, schedules } from 'affon:optim'
+
+const optimizer = accumulate(
+  scheduled(
+    adamw({ learning_rate: 3e-4, weight_decay: 0.01 }),
+    schedules.warmupCosine({
+      start: 1e-5,
+      peak: 3e-4,
+      end: 3e-5,
+      warmup_steps: 500,
+      total_steps: 10_000,
+    }),
+  ),
+  { steps: 4 },
+)
+```
+
+Available factories are `constant`, `linear`, `cosine`, `step`,
+`warmupCosine`, and `sequence`. Schedule progress uses completed optimizer
+updates (`$step`), so accumulation microsteps do not advance it. Epoch-based
+schedules remain training-workflow policy because epochs are not intrinsic to
+a compiled training step.
 
 ## Run a training step
 

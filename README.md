@@ -60,12 +60,21 @@ const x = session.tensor([[1], [2], [3]]);
 const prediction = executable.run({ x }, state);
 
 console.log(prediction.to_array());
-
-prediction.dispose();
-x.dispose();
-state.dispose();
-session.dispose();
 ```
+
+For immediate computation, evaluated tensors can use the lazy default Session:
+
+```typescript
+import { Tensor } from "affon:compute";
+import { add } from "affon:ops";
+
+const result = add(Tensor.from([1, 2, 3]), Tensor.ones([3]));
+console.log(result.to_array());
+```
+
+The default device is selected at runtime startup from `AFFON_DEVICE` (or
+Affon's normal automatic detection when it is unset). It cannot be replaced or
+changed through the canonical API.
 
 ## Public Modules
 
@@ -79,21 +88,6 @@ session.dispose();
 
 Runtime/system modules such as filesystem, process, and telemetry are provided
 by the underlying runtime under `std:*` specifiers.
-
-## Examples
-
-The notebooks below currently exercise the compatibility APIs while they are
-being migrated to Programs. Use the Quick Start above for canonical new code.
-
-- [Getting Started](examples/getting-started.ts.ipynb)
-- [NN Basics: Feed-forward + Recurrent](examples/nn-basics.ts.ipynb)
-- [RNNs](examples/rnn.ts.ipynb)
-- [Embeddings](examples/embedding.ts.ipynb)
-- [Illustrated Tensors](examples/illustrated/tensor-illustrated.ts.ipynb)
-- [Tensor Ops Illustrated](examples/illustrated/tensor-ops-illustrated.ts.ipynb)
-- [Illustrated NN](examples/illustrated/nn-illustrated.ts.ipynb)
-- [Illustrated Losses And Metrics](examples/illustrated/losses-metrics-illustrated.ts.ipynb)
-- [Illustrated Training And Optimizers](examples/illustrated/training-illustrated.ts.ipynb)
 
 ## Features
 
@@ -114,7 +108,7 @@ general Node compatibility.
 
 - module loading supports a focused ESM-oriented subset rather than general Node compatibility
 - graph compilation prefers native graph-backed execution when capture and lowering succeed
-- incompatible captures or unsupported lowering may fall back to eager execution or surface explicit errors
+- unsupported canonical Program lowering surfaces an explicit error; it never silently changes execution models
 - Metal acceleration is partial and operation-dependent
 - CUDA supports `f32` tensor math, autograd/optimizer updates, graph execution, indexing and losses, with cuBLAS matmul; see the kernel matrix for dtype and shape limits
 - package APIs evolve through the first-party package and app workflow

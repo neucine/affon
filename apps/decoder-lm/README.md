@@ -1,67 +1,34 @@
 # Decoder LM App
 
-This directory is the canonical decoder-only language-model app for Affon.
+This is the canonical Program-native decoder-only language-model application.
 
-Use it when you want to study or test:
+`src/model.ts` authors shape-specialized forward and scalar loss Programs. The
+loss composes the same decoder Program used for inference, and `train(...)` is
+the ordinary `optimize(model, loss, optimizer)` transform. The model definition owns
+no Session, tensors, parameters, or mutable mode.
 
-- tokenization and packed text windows
-- decoder-only model assembly
-- causal LM loss and generation
-- training, evaluation, checkpointing, and resume
-- compiled forward runs
-- runtime monitoring and example artifacts
+The workflow demonstrates the intended execution boundary:
 
-Key files:
-
-- `index.ts`: example-oriented entrypoint
-- `training.ts`: training loop and checkpoint logic
-- `workflow.ts`: config-driven runner used by the example scripts
-
-The configurable training model lives in `src/model.ts`; its loss and generation
-helpers live in `src/causal-lm.ts`. Reusable blocks come from `@affon/models`.
-Corpus preparation, token windows, and token-cache persistence live in `src/data/`.
-
-Offline graph exports are meant to stay renderer-agnostic. The shared offline
-tooling now lives under `../../tools/graph-viewer/`.
-
-Use raw report JSON from `compute.exportReportFile(..., { format: 'json' })`,
-then project it into either:
-
-- exact op graph: `projectBundleGraph(bundle, { level: 'op' })`
-- collapsed module graph: `projectBundleGraph(bundle, { level: 'module' })`
-
-If you want a quick local page instead of integrating another graph library
-immediately, run the offline viewer tool separately and build a self-contained
-HTML view:
-
-- `buildBundleGraphViewerHtml(bundle, { level: 'op' | 'module' })`
-
-The workflow step-export path now stops at raw `.json` bundle artifacts.
-
-Module finite diagnostics are off by default. Set `AFFON_NN_DIAGNOSTICS=error`
-or run a `*-debug` config through `run.sh` to enable fail-fast finite checks
-through `nn.diagnostics`.
-
-WikiText training correctness uses a long-running canary rather than a normal
-unit test. Run:
-
-- `AFFON_TRAIN_CONFIG=apps/decoder-lm/configs/train-decoder-lm-wikitext-canary.config.json ./zig-out/bin/affon apps/decoder-lm/train.ts`
-- `AFFON_WIKITEXT_CANARY_SUMMARY=apps/decoder-lm/artifacts/wikitext/wikitext-canary-summary.json ./zig-out/bin/affon apps/decoder-lm/check-wikitext-canary.ts`
-
-The checker validates the completed summary history, final validation loss,
-minimum loss drop, and epoch-to-epoch validation trend.
-
-The same config can run on Linux CUDA without editing the JSON:
-
-```sh
-AFFON_TRAIN_DEVICE=cuda \
-AFFON_TRAIN_CONFIG=apps/decoder-lm/configs/train-decoder-lm-wikitext.config.json \
-./zig-out/bin/affon apps/decoder-lm/train.ts
+```ts
+const model = DecoderModel(vocabulary, width, options)
+const loss = model.loss(batchSize, sequenceLength)
+const session = new Session({ device: 'cpu' })
+const state = session.initialize(loss, { seed: 7 })
+const executable = session.compile(model.forward(batchSize, sequenceLength))
+const logits = executable.run({ token_ids }, state)
 ```
 
-`AFFON_TRAIN_EPOCHS`, `AFFON_TRAIN_CHECKPOINT_PREFIX`, and
-`AFFON_TRAIN_SUMMARY_PATH` provide additional run-specific overrides. CUDA
-training uses the compiled forward path while validation remains eager so it
-always reads the parameters updated by the compiled training graph.
+Training, evaluation, checkpointing, and generation receive the model, Session,
+and ExecutionState explicitly. Inspect authored structure with
+`model.forward(batch, length).inspect()`; there is no eager/captured-graph mode
+or Module-shaped compatibility object.
 
-The smaller reusable transformer primitives remain under `../../packages/@affon/models/src/shared/`.
+Corpus preparation and token-window persistence live in `src/data`. Complete
+workflow configuration is handled by `src/workflow.ts`.
+
+Run the application tests from the repository root:
+
+```sh
+./zig-out/bin/affon test apps/decoder-lm/test
+bun x tsc -p apps/decoder-lm/tsconfig.json --noEmit
+```

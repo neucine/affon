@@ -1,8 +1,23 @@
 import { describe, expect, test } from 'std:test'
-import { Session, Tensor, program } from 'affon:compute'
-import { add, cat, masked_fill, matmul, mean, mul, neg, reshape, softmax, transpose } from 'affon:ops'
+import { Session, Tensor, metrics, program } from 'affon:compute'
+import { add, argmax, binary_cross_entropy_with_logits, cat, clamp, cross_entropy, gather, gt_scalar, masked_fill, matmul, max, mean, mean_absolute_error, mean_squared_error, min, mul, neg, one_hot, reshape, sign, softmax, stack, std, transpose, variance, where } from 'affon:ops'
 
 describe('affon:ops', () => {
+  test('uses one lazy default Session for evaluated Tensor constructors', () => {
+    const x = Tensor.from([[1, 2], [3, 4]])
+    const zeros = Tensor.zeros([2, 2])
+    const ones = Tensor.ones([2, 2], { dtype: 'f64' })
+    const empty = Tensor.full([2, 0, 3], 7, { axes: ['batch', 'empty', 'feature'] })
+
+    expect(add(x, zeros).to_array()).toEqual([[1, 2], [3, 4]])
+    expect(ones.to_array()).toEqual([[1, 1], [1, 1]])
+    expect(ones.dtype).toBe('f64')
+    expect(empty.shape).toEqual([2, 0, 3])
+    expect(empty.axes).toEqual(['batch', 'empty', 'feature'])
+    expect((Session as any).default).toBeUndefined()
+    expect((Tensor as any).setDefaultSession).toBeUndefined()
+  })
+
   test('uses one operation vocabulary for formal and evaluated tensors', () => {
     const source = program('ops_formal', p => {
       const x = p.argument('x', Tensor.f32([2, 2]))
@@ -37,6 +52,62 @@ describe('affon:ops', () => {
     const joined = cat([x, x], 0)
     expect(transpose(joined, [1, 0]).to_array()).toEqual([[1, 1], [2, 2]])
     session.dispose()
+  })
+
+  test('runs cross entropy as the same formal and evaluated operation', () => {
+    const loss = program('ops_cross_entropy', p => cross_entropy(
+      p.argument('logits', Tensor.f32([2, 2])),
+      p.argument('labels', Tensor.i64([2])),
+    ))
+    expect(loss.inspect().nodes.at(-1)?.op).toBe('cross_entropy')
+
+    const session = new Session()
+    const logits = session.tensor([[2, 0], [0, 2]])
+    const labels = session.tensor([0, 1], { dtype: 'i64' })
+    const result = cross_entropy(logits, labels)
+    expect(Number.isFinite(result.item())).toBe(true)
+    result.dispose(); logits.dispose(); labels.dispose(); session.dispose()
+  })
+
+  test('covers reductions, selection, loss primitives, constructors, and metrics', () => {
+    const source = program('expanded_ops', p => {
+      const values = p.argument('values', Tensor.f32([2, 3]))
+      const indices = p.argument('indices', Tensor.i64([2, 2]))
+      const condition = p.argument('condition', Tensor.i64([2, 3]))
+      return [
+        min(values), max(values, 1), variance(values), std(values), argmax(values, 1),
+        gather(values, 1, indices), one_hot(indices, 3), stack([values, values]),
+        where(condition, values, sign(values)), clamp(values, -1, 1),
+        mean_squared_error(values, values), mean_absolute_error(values, values),
+        binary_cross_entropy_with_logits(values, values), gt_scalar(values, 0),
+      ]
+    })
+    expect(source.inspect().nodes[source.inspect().outputs[4]].spec.dtype).toBe('i64')
+
+    const session = new Session()
+    const values = session.tensor([[1, 3, 2], [-2, 0, 4]])
+    const indices = session.tensor([[2, 0], [0, 2]], { dtype: 'i64' })
+    const condition = session.tensor([[1, 0, 1], [0, 1, 0]], { dtype: 'i64' })
+    const outputs = session.compile(source).run({ values, indices, condition }) as readonly any[]
+    expect(outputs[0].item()).toBe(-2)
+    expect(outputs[4].to_array()).toEqual([1, 2])
+    expect(outputs[5].to_array()).toEqual([[2, 1], [-2, 4]])
+    expect(outputs[6].shape).toEqual([2, 2, 3])
+    expect(outputs[7].shape).toEqual([2, 2, 3])
+    expect(outputs[10].item()).toBe(0)
+    expect(outputs[11].item()).toBe(0)
+    expect(outputs[13].to_array()).toEqual([[1, 1, 1], [0, 0, 1]])
+
+    const logits = session.tensor([[4, 1], [1, 4]])
+    const labels = session.tensor([0, 1], { dtype: 'i64' })
+    expect(metrics.accuracy(logits, labels)).toBe(1)
+    expect(metrics.mean_squared_error(labels, labels)).toBe(0)
+    expect(Tensor.arange(1, 5, 2).to_array()).toEqual([1, 3])
+    expect(Tensor.linspace(0, 1, 3).to_array()).toEqual([0, 0.5, 1])
+    expect(Tensor.rand([2], { seed: 7 }).to_array()).toEqual(Tensor.rand([2], { seed: 7 }).to_array())
+
+    for (const output of outputs) output.dispose()
+    values.dispose(); indices.dispose(); condition.dispose(); logits.dispose(); labels.dispose(); session.dispose()
   })
 
   test('rejects mixed representations, Sessions, and removed builder operations', () => {

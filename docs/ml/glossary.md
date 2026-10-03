@@ -27,11 +27,11 @@
 - **model state** — Persistent non-parameter data declared with `p.state(...)`.
 - **gradient Program** — A Program produced by `gradient(loss, names)`.
 - **optimization Program** — A state-transition Program produced by
-  `optimize(loss, optimizer)`.
+  `optimize(model, loss, optimizer)`.
 - **optimizer descriptor** — An immutable value from `affon:optim`, such as
   `adamw({ learning_rate: 3e-4 })`.
-- **logits** — Raw class scores before softmax. `p.nn.cross_entropy` consumes
-  logits directly.
+- **logits** — Raw class scores before softmax. `cross_entropy` from `affon:ops`
+  consumes logits directly.
 - **dtype** — The tensor numeric type: currently `f32`, `f64`, or `i64` in the
   canonical Program surface.
 - **shape** — The ordered sizes of a tensor's axes.

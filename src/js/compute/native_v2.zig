@@ -303,6 +303,9 @@ fn addJsonOperation(builder: *compute.ProgramBuilder, node: JsonNode, mapped: []
         else if (std.mem.eql(u8, op, "sub")) .sub
         else if (std.mem.eql(u8, op, "mul")) .mul
         else if (std.mem.eql(u8, op, "div")) .div
+        else if (std.mem.eql(u8, op, "eq")) .eq
+        else if (std.mem.eql(u8, op, "lt")) .lt
+        else if (std.mem.eql(u8, op, "gt")) .gt
         else if (std.mem.eql(u8, op, "matmul")) .matmul
         else if (std.mem.eql(u8, op, "dot")) .dot
         else if (std.mem.eql(u8, op, "abs")) .abs
@@ -310,15 +313,24 @@ fn addJsonOperation(builder: *compute.ProgramBuilder, node: JsonNode, mapped: []
         else if (std.mem.eql(u8, op, "exp")) .exp
         else if (std.mem.eql(u8, op, "log")) .log
         else if (std.mem.eql(u8, op, "sqrt")) .sqrt
+        else if (std.mem.eql(u8, op, "sign")) .sign
         else if (std.mem.eql(u8, op, "relu")) .relu
         else if (std.mem.eql(u8, op, "sigmoid")) .sigmoid
         else if (std.mem.eql(u8, op, "silu")) .silu
         else if (std.mem.eql(u8, op, "tanh")) .tanh
         else if (std.mem.eql(u8, op, "erf")) .erf
         else if (std.mem.eql(u8, op, "gelu")) .gelu
+        else if (std.mem.eql(u8, op, "clamp")) .clamp
+        else if (std.mem.eql(u8, op, "where")) .where
         else if (std.mem.eql(u8, op, "softmax")) .softmax
         else if (std.mem.eql(u8, op, "sum")) if (optionUsize(node.options, "axis") == null) .sum_all else .sum_axis
         else if (std.mem.eql(u8, op, "mean")) if (optionUsize(node.options, "axis") == null) .mean_all else .mean_axis
+        else if (std.mem.eql(u8, op, "min")) if (optionUsize(node.options, "axis") == null) .min_all else .min_axis
+        else if (std.mem.eql(u8, op, "max")) if (optionUsize(node.options, "axis") == null) .max_all else .max_axis
+        else if (std.mem.eql(u8, op, "variance")) if (optionUsize(node.options, "axis") == null) .variance_all else .variance_axis
+        else if (std.mem.eql(u8, op, "std")) if (optionUsize(node.options, "axis") == null) .std_all else .std_axis
+        else if (std.mem.eql(u8, op, "argmin")) if (optionUsize(node.options, "axis") == null) .argmin_all else .argmin_axis
+        else if (std.mem.eql(u8, op, "argmax")) if (optionUsize(node.options, "axis") == null) .argmax_all else .argmax_axis
         else if (std.mem.eql(u8, op, "reshape")) .reshape
         else if (std.mem.eql(u8, op, "contiguous")) .contiguous
         else if (std.mem.eql(u8, op, "slice")) .slice
@@ -328,9 +340,12 @@ fn addJsonOperation(builder: *compute.ProgramBuilder, node: JsonNode, mapped: []
         else if (std.mem.eql(u8, op, "cast")) .cast
         else if (std.mem.eql(u8, op, "masked_fill")) .masked_fill
         else if (std.mem.eql(u8, op, "cat")) .cat
+        else if (std.mem.eql(u8, op, "stack")) .stack
         else if (std.mem.eql(u8, op, "layer_norm")) .layer_norm
         else if (std.mem.eql(u8, op, "embedding")) .embedding
         else if (std.mem.eql(u8, op, "index_select")) .index_select
+        else if (std.mem.eql(u8, op, "gather")) .gather
+        else if (std.mem.eql(u8, op, "one_hot")) .one_hot
         else if (std.mem.eql(u8, op, "cross_entropy")) .cross_entropy_indexed
         else return error.UnsupportedOperation;
 
@@ -340,8 +355,8 @@ fn addJsonOperation(builder: *compute.ProgramBuilder, node: JsonNode, mapped: []
     defer if (slice_storage) |values| allocator.free(values);
     const options: compute.OpOptions = switch (tag) {
         .softmax => .{ .softmax = .{ .axis = optionUsize(node.options, "axis") orelse return error.MissingOption } },
-        .sum_all, .mean_all => .{ .reduce_all = .{ .keepdim = optionBool(node.options, "keep_dims", false) } },
-        .sum_axis, .mean_axis => .{ .reduce_axis = .{ .axis = optionUsize(node.options, "axis") orelse return error.MissingOption, .keepdim = optionBool(node.options, "keep_dims", false) } },
+        .sum_all, .mean_all, .min_all, .max_all, .variance_all, .std_all, .argmin_all, .argmax_all => .{ .reduce_all = .{ .keepdim = optionBool(node.options, "keep_dims", false) } },
+        .sum_axis, .mean_axis, .min_axis, .max_axis, .variance_axis, .std_axis, .argmin_axis, .argmax_axis => .{ .reduce_axis = .{ .axis = optionUsize(node.options, "axis") orelse return error.MissingOption, .keepdim = optionBool(node.options, "keep_dims", false) } },
         .reshape => .{ .reshape = .{ .shape = node.spec.shape } },
         .slice => blk: {
             const raw = optionValue(node.options, "ranges") orelse return error.MissingOption;
@@ -374,10 +389,14 @@ fn addJsonOperation(builder: *compute.ProgramBuilder, node: JsonNode, mapped: []
         },
         .cast => .{ .cast = .{ .to = parseDType(node.spec.dtype) orelse return error.UnsupportedDType } },
         .masked_fill => .{ .masked_fill = .{ .value = optionF64(node.options, "value") orelse return error.MissingOption } },
+        .clamp => .{ .clamp = .{ .min = optionF64(node.options, "min") orelse return error.MissingOption, .max = optionF64(node.options, "max") orelse return error.MissingOption } },
         .cat => .{ .concat = .{ .axis = optionUsize(node.options, "axis") orelse return error.MissingOption } },
+        .stack => .{ .stack = .{ .axis = optionUsize(node.options, "axis") orelse return error.MissingOption } },
         .layer_norm => .{ .layer_norm = .{ .axis = optionUsize(node.options, "axis") orelse return error.MissingOption, .eps = optionF64(node.options, "epsilon") orelse return error.MissingOption } },
         .embedding => .{ .embedding = .{} },
         .index_select => .{ .index_select = .{ .axis = optionUsize(node.options, "axis") orelse return error.MissingOption } },
+        .gather => .{ .gather = .{ .axis = optionUsize(node.options, "axis") orelse return error.MissingOption } },
+        .one_hot => .{ .one_hot = .{ .num_classes = optionUsize(node.options, "num_classes") orelse return error.MissingOption } },
         .cross_entropy_indexed => blk: {
             const logits_id = node.operands.?[0];
             if (logits_id >= nodes.len) return error.InvalidValueReference;
@@ -484,6 +503,11 @@ fn jsCreateSession(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [
     return result;
 }
 
+fn jsDefaultDevice(ctx: abi.JSContext, _: abi.JSValueConst, _: c_int, _: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    const name: [:0]const u8 = switch (config.getDefaultDevice()) { .cpu => "cpu", .metal => "metal", .cuda => "cuda" };
+    return abi.jsString(ctx, name);
+}
+
 fn jsDisposeSession(ctx: abi.JSContext, this_value: abi.JSValueConst, _: c_int, _: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
     const object = sessionObject(ctx, this_value) orelse return typeError(ctx, "invalid Session");
     object.disposed = true;
@@ -500,13 +524,71 @@ fn jsSessionTensor(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [
     const dtype = parseDType(dtype_text) orelse return typeError(ctx, "unsupported dtype");
     var flat = Flat{}; defer flat.deinit();
     flatten(ctx, argv[1], 0, &flat) catch return typeError(ctx, "tensor expects a rectangular numeric value");
-    var spec = compute.TensorSpec.init(allocator, dtype, flat.shape.items, null) catch return errorValue(ctx, "tensor spec failed"); defer spec.deinit();
+    var requested_shape: std.ArrayList(usize) = .empty;
+    defer requested_shape.deinit(allocator);
+    if (argc >= 4) {
+        if (!abi.jsIsArray(ctx, argv[3])) return typeError(ctx, "shape must be an array");
+        const length_value = abi.jsGetProperty(ctx, argv[3], "length"); defer abi.jsFreeValue(ctx, length_value);
+        var length: i32 = 0;
+        if (abi.jsToInt32(ctx, &length, length_value) < 0 or length < 0) return typeError(ctx, "invalid shape");
+        for (0..@as(usize, @intCast(length))) |index| {
+            const item = abi.jsGetArrayElement(ctx, argv[3], @intCast(index)); defer abi.jsFreeValue(ctx, item);
+            var dimension: i64 = 0;
+            if (abi.jsToInt64(ctx, &dimension, item) < 0 or dimension < 0) return typeError(ctx, "shape must contain non-negative integers");
+            requested_shape.append(allocator, @intCast(dimension)) catch return errorValue(ctx, "out of memory");
+        }
+    }
+    const shape = if (argc >= 4) requested_shape.items else flat.shape.items;
+    if (elementCount(shape) != flat.values.items.len) return typeError(ctx, "shape does not match tensor values");
+    var spec = compute.TensorSpec.init(allocator, dtype, shape, null) catch return errorValue(ctx, "tensor spec failed"); defer spec.deinit();
     const bytes = switch (dtype) {
         .f32 => blk: { const values = allocator.alloc(f32, flat.values.items.len) catch return errorValue(ctx, "out of memory"); defer allocator.free(values); for (flat.values.items, values) |source, *destination| destination.* = @floatCast(source); break :blk owner.value.?.createTensor(spec, std.mem.sliceAsBytes(values)) catch return errorValue(ctx, "tensor creation failed"); },
         .f64 => owner.value.?.createTensor(spec, std.mem.sliceAsBytes(flat.values.items)) catch return errorValue(ctx, "tensor creation failed"),
         .i64 => blk: { const values = allocator.alloc(i64, flat.values.items.len) catch return errorValue(ctx, "out of memory"); defer allocator.free(values); for (flat.values.items, values) |source, *destination| destination.* = @intFromFloat(source); break :blk owner.value.?.createTensor(spec, std.mem.sliceAsBytes(values)) catch return errorValue(ctx, "tensor creation failed"); },
     };
     return createTensorObjectOwned(ctx, bytes, owner.backend, owner);
+}
+
+fn jsSessionFull(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    if (argc < 4) return typeError(ctx, "sessionFull expects Session, shape, value, and dtype");
+    const owner = sessionObject(ctx, argv[0]) orelse return typeError(ctx, "invalid Session");
+    if (owner.disposed) return typeError(ctx, "Session has been disposed");
+    if (!abi.jsIsArray(ctx, argv[1])) return typeError(ctx, "shape must be an array");
+    var shape: std.ArrayList(usize) = .empty;
+    defer shape.deinit(allocator);
+    const length_value = abi.jsGetProperty(ctx, argv[1], "length"); defer abi.jsFreeValue(ctx, length_value);
+    var length: i32 = 0;
+    if (abi.jsToInt32(ctx, &length, length_value) < 0 or length < 0) return typeError(ctx, "invalid shape");
+    for (0..@as(usize, @intCast(length))) |index| {
+        const item = abi.jsGetArrayElement(ctx, argv[1], @intCast(index)); defer abi.jsFreeValue(ctx, item);
+        var dimension: i64 = 0;
+        if (abi.jsToInt64(ctx, &dimension, item) < 0 or dimension < 0) return typeError(ctx, "shape must contain non-negative integers");
+        shape.append(allocator, @intCast(dimension)) catch return errorValue(ctx, "out of memory");
+    }
+    var fill: f64 = 0;
+    if (abi.jsToFloat64(ctx, &fill, argv[2]) < 0 or !std.math.isFinite(fill)) return typeError(ctx, "fill value must be finite");
+    const dtype_text = abi.jsStringAlloc(ctx, argv[3], allocator) catch return typeError(ctx, "dtype must be a string");
+    defer allocator.free(dtype_text);
+    const dtype = parseDType(dtype_text) orelse return typeError(ctx, "unsupported dtype");
+    var spec = compute.TensorSpec.init(allocator, dtype, shape.items, null) catch return errorValue(ctx, "tensor spec failed");
+    defer spec.deinit();
+    const count = elementCount(shape.items);
+    const byte_count = std.math.mul(usize, count, dtype.size()) catch return errorValue(ctx, "tensor is too large");
+    const bytes = allocator.alloc(u8, byte_count) catch return errorValue(ctx, "out of memory");
+    defer allocator.free(bytes);
+    switch (dtype) {
+        .f32 => {
+            for (std.mem.bytesAsSlice(f32, @as([]align(4) u8, @alignCast(bytes)))) |*item| item.* = @floatCast(fill);
+        },
+        .f64 => {
+            for (std.mem.bytesAsSlice(f64, @as([]align(8) u8, @alignCast(bytes)))) |*item| item.* = fill;
+        },
+        .i64 => {
+            for (std.mem.bytesAsSlice(i64, @as([]align(8) u8, @alignCast(bytes)))) |*item| item.* = @intFromFloat(fill);
+        },
+    }
+    const value = owner.value.?.createTensor(spec, bytes) catch return errorValue(ctx, "tensor creation failed");
+    return createTensorObjectOwned(ctx, value, owner.backend, owner);
 }
 
 fn compileNativeProgram(ctx: abi.JSContext, owner: *SessionObject, program_value: *const compute.Program, needs_seed: bool) abi.JSValue {
@@ -982,8 +1064,10 @@ const functions = [_]abi.JSFunction{
     .{ .name = "div", .callback = binary(.div).call, .length = 2 },
     .{ .name = "matmul", .callback = binary(.matmul).call, .length = 2 },
     .{ .name = "dot", .callback = binary(.dot).call, .length = 2 },
+    .{ .name = "defaultDevice", .callback = jsDefaultDevice, .length = 0 },
     .{ .name = "createSession", .callback = jsCreateSession, .length = 1 },
-    .{ .name = "sessionTensor", .callback = jsSessionTensor, .length = 3 },
+    .{ .name = "sessionTensor", .callback = jsSessionTensor, .length = 4 },
+    .{ .name = "sessionFull", .callback = jsSessionFull, .length = 4 },
     .{ .name = "compileProgram", .callback = jsCompileProgram, .length = 2 },
     .{ .name = "runExecutable", .callback = jsRunExecutable, .length = 2 },
     .{ .name = "stftPower", .callback = jsStftPower, .length = 5 },

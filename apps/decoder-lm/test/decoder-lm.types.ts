@@ -1,4 +1,5 @@
 import { DecoderModel } from '../src/model.ts'
+import { Session } from 'affon:compute'
 import { pack_token_windows } from '../src/data/index.ts'
 import { createLookupTokenizer } from '@affon/tokenizers'
 
@@ -35,11 +36,14 @@ const model = DecoderModel(tokenizer.vocabSize, 16, {
   positional: 'learned',
   maxSeqLen: 64,
 })
+const session = new Session()
+const state = session.initialize(model.forward(2, 2))
+const runtime = { model, session, state }
 
-const evalLoss = evaluateDecoderLM(model, tokenWindows, { batchSize: 2 })
+const evalLoss = evaluateDecoderLM(runtime, tokenWindows, { batchSize: 2 })
 assertType<IsExact<typeof evalLoss, number>>()
 
-const training = trainDecoderLM(model, tokenWindows, {
+const training = trainDecoderLM(runtime, tokenWindows, {
   seqLen: 2,
   batchSize: 2,
   epochs: 1,

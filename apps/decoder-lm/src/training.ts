@@ -1,35 +1,31 @@
 import checkpoint from 'affon:checkpoint'
-import { type Tensor } from 'affon:compute'
+import type { ExecutionState, Session, Tensor } from 'affon:compute'
 import { adam, adamw, type Optimizer } from 'affon:optim'
-import type { DecoderModelModule } from './model.ts'
-import { causal_lm_eval_loss_forward } from './causal-lm.ts'
+import type { DecoderModel } from './model.ts'
 import type { PackedCorpusOptions, TokenBatchOptions, TokenWindow } from './data/index.ts'
 
 export type { PackedCorpusOptions, TokenBatchOptions, TokenWindow } from './data/index.ts'
-export type DecoderLMForward = (tokenIds: Tensor) => Tensor
 export type DecoderLMCheckpointMetadata = Readonly<Record<string, unknown>>
 export type DecoderLMOptimizerState = { kind: string; scalars: Record<string, number>; tensors: Record<string, Tensor> }
-
+export interface DecoderLMRuntime { model: DecoderModel; session: Session; state: ExecutionState }
 export interface DecoderLMCheckpoint {
   epoch: number; step: number; trainLoss: number; valLoss: number | null
   state: Record<string, Tensor>; optimizerState?: DecoderLMOptimizerState | null
-  resumeEpoch?: number; resumeBatchIndex?: number; batchOrder?: number[] | null; shuffleState?: number | null; epochLossAccum?: number
+  resumeEpoch?: number; resumeBatchIndex?: number; epochLossAccum?: number
 }
-export interface SavedDecoderLMCheckpoint extends DecoderLMCheckpoint { metadata: DecoderLMCheckpointMetadata | null; optimizerState: DecoderLMOptimizerState | null; resumeEpoch: number; resumeBatchIndex: number; batchOrder: number[] | null; shuffleState: number | null; epochLossAccum: number }
+export interface SavedDecoderLMCheckpoint extends DecoderLMCheckpoint { metadata: DecoderLMCheckpointMetadata | null; optimizerState: DecoderLMOptimizerState | null; resumeEpoch: number; resumeBatchIndex: number; epochLossAccum: number }
 export interface DecoderLMEpochMetrics { epoch: number; step: number; trainLoss: number; valLoss: number | null; trainPerplexity: number; valPerplexity: number | null }
-export interface DecoderLMBatchMetrics { epoch: number; batch: number; batches: number; step: number; batchLoss: number; lr: number; gradNorm: number | null; optimizerStepped: boolean }
-export interface DecoderLMBatchPhaseMetrics { epoch: number; batch: number; batches: number; step: number; phase: 'forward' | 'backward' | 'step' }
-export interface DecoderLMBatchArtifacts { epoch: number; batch: number; batches: number; step: number; inputs: Tensor; tokenIds: Tensor; logits: Tensor; loss: Tensor }
+export interface DecoderLMBatchMetrics { epoch: number; batch: number; batches: number; step: number; batchLoss: number; lr: number; optimizerStepped: boolean }
+export interface DecoderLMBatchPhaseMetrics { epoch: number; batch: number; batches: number; step: number; phase: 'forward' | 'step' }
 
 export interface DecoderLMTrainOptions extends PackedCorpusOptions, TokenBatchOptions {
   epochs: number; lr?: number; optimizer?: { kind?: 'adam' | 'adamw'; weightDecay?: number }
-  gradientAccumulationSteps?: number; lrSchedule?: (ctx: { epoch: number; step: number }) => number; maxGradNorm?: number
-  forward?: DecoderLMForward; evaluationForward?: DecoderLMForward; maxTrainBatchesPerEpoch?: number; maxEvalBatches?: number
+  lrSchedule?: (ctx: { epoch: number; step: number }) => number; maxTrainBatchesPerEpoch?: number; maxEvalBatches?: number
   initialEpoch?: number; initialStep?: number; resumeCheckpoint?: SavedDecoderLMCheckpoint
   evaluateInitialTrainLoss?: boolean; evaluateInitialValidationLoss?: boolean; validationBatchSize?: number; validationWindows?: readonly TokenWindow[]
   checkpointEveryEpochs?: number; checkpointEverySteps?: number; checkpointPathPrefix?: string; checkpointMetadata?: DecoderLMCheckpointMetadata
   keepCheckpointsInMemory?: boolean; onStatus?: (status: string) => void; onBatchPhase?: (metrics: DecoderLMBatchPhaseMetrics) => void
-  onBatch?: (metrics: DecoderLMBatchMetrics) => void; onBatchArtifacts?: (artifacts: DecoderLMBatchArtifacts) => void; onEpoch?: (metrics: DecoderLMEpochMetrics) => void
+  onBatch?: (metrics: DecoderLMBatchMetrics) => void; onEpoch?: (metrics: DecoderLMEpochMetrics) => void
 }
 export interface DecoderLMTrainResult {
   steps: number; initialTrainLoss: number | null; finalTrainLoss: number; initialValLoss: number | null; finalValLoss: number | null
@@ -50,21 +46,18 @@ function batches(windows: readonly TokenWindow[], batchSize: number, shuffle: bo
   for (let index = 0; index < order.length; index += batchSize) result.push(order.slice(index, index + batchSize).map(position => windows[position].slice()))
   return result
 }
-function optimizerState(model: DecoderModelModule, kind: string): DecoderLMOptimizerState {
-  const source = model.executionState?.optimizer_state ?? {}
+function optimizerState(runtime: DecoderLMRuntime, kind: string): DecoderLMOptimizerState {
   const tensors: Record<string, Tensor> = {}, scalars: Record<string, number> = {}
-  for (const [name, value] of Object.entries(source)) {
+  for (const [name, value] of Object.entries(runtime.state.optimizer_state)) {
     if (value && typeof value === 'object' && 'to_array' in value) tensors[name] = value as Tensor
     else if (typeof value === 'number') scalars[name] = value
   }
   return { kind, scalars, tensors }
 }
-function clone(values: Readonly<Record<string, Tensor>>, model: DecoderModelModule) {
-  return Object.fromEntries(Object.entries(values).map(([name, value]) => [name, model.session.tensor(value.to_array() as any, { dtype: value.dtype }) as Tensor]))
+function clone(values: Readonly<Record<string, Tensor>>, session: Session) {
+  return Object.fromEntries(Object.entries(values).map(([name, value]) => [name, session.tensor(value.to_array() as any, { dtype: value.dtype }) as Tensor]))
 }
-function disposeState(values: Readonly<Record<string, Tensor>>) {
-  for (const value of Object.values(values)) value.dispose()
-}
+function disposeState(values: Readonly<Record<string, Tensor>>) { for (const value of Object.values(values)) value.dispose() }
 
 export function perplexityFromLoss(loss: number): number {
   const value = Math.exp(loss)
@@ -74,55 +67,58 @@ export function perplexityFromLoss(loss: number): number {
 
 export function saveDecoderLMCheckpoint(pathPrefix: string, value: DecoderLMCheckpoint, opts?: { metadata?: DecoderLMCheckpointMetadata | null }) {
   if (!pathPrefix) throw new AffonError('invalid_arg', 'checkpoint path must be non-empty')
-  checkpoint.saveBundle(pathPrefix, {
-    state: value.state,
-    tensorGroups: value.optimizerState ? { optimizer: value.optimizerState.tensors } : undefined,
-    manifest: {
-      format: 'affon-decoder-program-checkpoint/v1', epoch: value.epoch, step: value.step, trainLoss: value.trainLoss, valLoss: value.valLoss,
-      optimizerKind: value.optimizerState?.kind ?? null, optimizerScalars: value.optimizerState?.scalars ?? null, metadata: opts?.metadata ?? null,
-      resumeEpoch: value.resumeEpoch ?? value.epoch + 1, resumeBatchIndex: value.resumeBatchIndex ?? 0, batchOrder: value.batchOrder ?? null,
-      shuffleState: value.shuffleState ?? null, epochLossAccum: value.epochLossAccum ?? 0,
-    },
-  })
+  checkpoint.saveBundle(pathPrefix, { state: value.state, tensorGroups: value.optimizerState ? { optimizer: value.optimizerState.tensors } : undefined, manifest: {
+    format: 'affon-decoder-program-checkpoint/v2', epoch: value.epoch, step: value.step, trainLoss: value.trainLoss, valLoss: value.valLoss,
+    optimizerKind: value.optimizerState?.kind ?? null, optimizerScalars: value.optimizerState?.scalars ?? null, metadata: opts?.metadata ?? null,
+    resumeEpoch: value.resumeEpoch ?? value.epoch + 1, resumeBatchIndex: value.resumeBatchIndex ?? 0, epochLossAccum: value.epochLossAccum ?? 0,
+  } })
 }
 
-export function loadDecoderLMCheckpoint(pathPrefix: string, model: DecoderModelModule): SavedDecoderLMCheckpoint {
+export function loadDecoderLMCheckpoint(pathPrefix: string, runtime: DecoderLMRuntime): SavedDecoderLMCheckpoint {
   const bundle = checkpoint.loadBundle(pathPrefix), manifest = bundle.manifest as any
-  if (manifest.format !== 'affon-decoder-program-checkpoint/v1') throw new AffonError('invalid_arg', 'Unsupported decoder checkpoint format')
-  model.restore(bundle.state)
-  const loadedOptimizer = bundle.tensorGroups.optimizer ?? {}
-  const optimizerTensors = Object.fromEntries(Object.entries(loadedOptimizer).map(([name, value]) => [name, model.session.tensor(value.to_array() as any, { dtype: value.dtype }) as Tensor]))
-  const optimizer: DecoderLMOptimizerState | null = manifest.optimizerKind ? { kind: manifest.optimizerKind, scalars: manifest.optimizerScalars ?? {}, tensors: optimizerTensors } : null
-  if (optimizer && model.executionState) {
-    for (const [name, value] of Object.entries(optimizer.tensors)) model.executionState.optimizer_state[name] = value
-    Object.assign(model.executionState.optimizer_state, optimizer.scalars)
+  if (!['affon-decoder-program-checkpoint/v1', 'affon-decoder-program-checkpoint/v2'].includes(manifest.format)) throw new AffonError('invalid_arg', 'Unsupported decoder checkpoint format')
+  for (const [name, current] of Object.entries(runtime.state.parameters)) {
+    const loaded = bundle.state[name]
+    if (!loaded || loaded.dtype !== current.dtype || JSON.stringify(loaded.shape) !== JSON.stringify(current.shape)) throw new AffonError('shape_mismatch', `Invalid decoder checkpoint parameter: ${name}`)
+    const replacement = runtime.session.tensor(loaded.to_array() as any, { dtype: loaded.dtype })
+    current.dispose(); runtime.state.parameters[name] = replacement
   }
+  const loadedOptimizer = bundle.tensorGroups.optimizer ?? {}
+  const optimizerTensors = Object.fromEntries(Object.entries(loadedOptimizer).map(([name, value]) => [name, runtime.session.tensor(value.to_array() as any, { dtype: value.dtype }) as Tensor]))
+  const optimizer: DecoderLMOptimizerState | null = manifest.optimizerKind ? { kind: manifest.optimizerKind, scalars: manifest.optimizerScalars ?? {}, tensors: optimizerTensors } : null
+  if (optimizer) { Object.assign(runtime.state.optimizer_state, optimizer.tensors); Object.assign(runtime.state.optimizer_state, optimizer.scalars) }
   for (const value of Object.values(bundle.state)) value.dispose()
   for (const group of Object.values(bundle.tensorGroups)) for (const value of Object.values(group)) value.dispose()
-  return { epoch: manifest.epoch, step: manifest.step, trainLoss: manifest.trainLoss, valLoss: manifest.valLoss, state: clone(model.state(), model), metadata: manifest.metadata ?? null, optimizerState: optimizer, resumeEpoch: manifest.resumeEpoch, resumeBatchIndex: manifest.resumeBatchIndex, batchOrder: manifest.batchOrder, shuffleState: manifest.shuffleState, epochLossAccum: manifest.epochLossAccum }
+  return { epoch: manifest.epoch, step: manifest.step, trainLoss: manifest.trainLoss, valLoss: manifest.valLoss, state: clone(runtime.state.parameters, runtime.session), metadata: manifest.metadata ?? null, optimizerState: optimizer, resumeEpoch: manifest.resumeEpoch, resumeBatchIndex: manifest.resumeBatchIndex, epochLossAccum: manifest.epochLossAccum }
 }
 
-export function evaluateDecoderLM(model: DecoderModelModule, windows: readonly TokenWindow[], opts: { batchSize: number; seqLen?: number; statusLabel?: string; onStatus?: (status: string) => void; maxBatches?: number; forward?: DecoderLMForward }): number {
+function runLoss(runtime: DecoderLMRuntime, rows: readonly (readonly number[])[], optimizer?: Optimizer): number {
+  const batch = rows.length, length = rows[0].length - 1
+  const inputs = runtime.session.tensor(rows.map(row => row.slice(0, -1)), { dtype: 'i64' })
+  const labels = runtime.session.tensor(rows.map(row => row.slice(1)), { dtype: 'i64' })
+  if (optimizer) {
+    const source = runtime.model.train(batch, length, optimizer)
+    const result = runtime.session.compile(source).run({ token_ids: inputs, labels }, runtime.state) as Tensor
+    try { return result.item() } finally { result.dispose(); inputs.dispose(); labels.dispose() }
+  }
+  const logits = runtime.session.compile(runtime.model.forward(batch, length)).run({ token_ids: inputs }, runtime.state) as Tensor
+  const result = runtime.session.compile(runtime.model.loss(batch, length)).run({ logits, labels }) as Tensor
+  try { return result.item() } finally { result.dispose(); logits.dispose(); inputs.dispose(); labels.dispose() }
+}
+
+export function evaluateDecoderLM(runtime: DecoderLMRuntime, windows: readonly TokenWindow[], opts: { batchSize: number; seqLen?: number; statusLabel?: string; onStatus?: (status: string) => void; maxBatches?: number }): number {
   checkWindows(windows, opts.seqLen)
   const groups = batches(windows, opts.batchSize, false, 1).slice(0, opts.maxBatches)
   let total = 0
-  for (let index = 0; index < groups.length; index++) {
-    opts.onStatus?.(`${opts.statusLabel ?? 'evaluating'} ${index + 1}/${groups.length}...`)
-    const tokens = model.session.tensor(groups[index], { dtype: 'i64' })
-    const inputs = model.session.tensor(groups[index].map(row => row.slice(0, -1)), { dtype: 'i64' })
-    const logits = (opts.forward ?? model.forward)(inputs)
-    const loss = causal_lm_eval_loss_forward(logits, tokens)
-    total += loss.item()
-    loss.dispose(); logits.dispose(); inputs.dispose(); tokens.dispose()
-  }
+  for (let index = 0; index < groups.length; index++) { opts.onStatus?.(`${opts.statusLabel ?? 'evaluating'} ${index + 1}/${groups.length}...`); total += runLoss(runtime, groups[index]) }
   return total / groups.length
 }
 
-export function trainDecoderLM(model: DecoderModelModule, windows: readonly TokenWindow[], opts: DecoderLMTrainOptions): DecoderLMTrainResult {
+export function trainDecoderLM(runtime: DecoderLMRuntime, windows: readonly TokenWindow[], opts: DecoderLMTrainOptions): DecoderLMTrainResult {
   if (!Number.isInteger(opts.epochs) || opts.epochs <= 0) throw new AffonError('invalid_arg', 'epochs must be a positive integer')
   checkWindows(windows, opts.seqLen)
-  const initialTrainLoss = opts.evaluateInitialTrainLoss === false ? null : evaluateDecoderLM(model, windows, { batchSize: opts.batchSize, seqLen: opts.seqLen, maxBatches: opts.maxEvalBatches })
-  const initialValLoss = opts.evaluateInitialValidationLoss === false || !opts.validationWindows?.length ? null : evaluateDecoderLM(model, opts.validationWindows, { batchSize: opts.validationBatchSize ?? opts.batchSize, seqLen: opts.seqLen, maxBatches: opts.maxEvalBatches })
+  const initialTrainLoss = opts.evaluateInitialTrainLoss === false ? null : evaluateDecoderLM(runtime, windows, { batchSize: opts.batchSize, seqLen: opts.seqLen, maxBatches: opts.maxEvalBatches })
+  const initialValLoss = opts.evaluateInitialValidationLoss === false || !opts.validationWindows?.length ? null : evaluateDecoderLM(runtime, opts.validationWindows, { batchSize: opts.validationBatchSize ?? opts.batchSize, seqLen: opts.seqLen, maxBatches: opts.maxEvalBatches })
   const history: DecoderLMEpochMetrics[] = [], snapshots: DecoderLMCheckpoint[] = [], checkpointPaths: string[] = []
   let step = opts.resumeCheckpoint?.step ?? opts.initialStep ?? 0
   const firstEpoch = opts.resumeCheckpoint?.resumeEpoch ?? (opts.initialEpoch ?? 0) + 1
@@ -131,31 +127,30 @@ export function trainDecoderLM(model: DecoderModelModule, windows: readonly Toke
   for (let offset = 0; offset < opts.epochs; offset++) {
     const epoch = firstEpoch + offset
     const groups = batches(windows, opts.batchSize, opts.shuffle ?? true, (opts.shuffleSeed ?? 0) + epoch).slice(0, opts.maxTrainBatchesPerEpoch)
-    let total = 0
-    for (let index = 0; index < groups.length; index++) {
+    const start = offset === 0 ? opts.resumeCheckpoint?.resumeBatchIndex ?? 0 : 0
+    let total = offset === 0 ? opts.resumeCheckpoint?.epochLossAccum ?? 0 : 0
+    for (let index = start; index < groups.length; index++) {
       const lr = opts.lrSchedule?.({ epoch, step }) ?? opts.lr ?? 0.001
-      const selected: Optimizer = kind === 'adamw' ? adamw({ learning_rate: lr, weight_decay: weightDecay }) : adam({ learning_rate: lr })
+      const selected = kind === 'adamw' ? adamw({ learning_rate: lr, weight_decay: weightDecay }) : adam({ learning_rate: lr })
       opts.onBatchPhase?.({ epoch, batch: index + 1, batches: groups.length, step, phase: 'forward' })
-      const loss = model.trainBatch(groups[index], selected); total += loss; step++
+      const loss = runLoss(runtime, groups[index], selected); total += loss; step++
       opts.onBatchPhase?.({ epoch, batch: index + 1, batches: groups.length, step, phase: 'step' })
-      opts.onBatch?.({ epoch, batch: index + 1, batches: groups.length, step, batchLoss: loss, lr, gradNorm: null, optimizerStepped: true })
+      opts.onBatch?.({ epoch, batch: index + 1, batches: groups.length, step, batchLoss: loss, lr, optimizerStepped: true })
       if (opts.checkpointEverySteps && step % opts.checkpointEverySteps === 0 && opts.checkpointPathPrefix) {
-        const snapshot: DecoderLMCheckpoint = { epoch, step, trainLoss: total / (index + 1), valLoss: null, state: clone(model.state(), model), optimizerState: optimizerState(model, kind), resumeEpoch: epoch, resumeBatchIndex: index + 1, epochLossAccum: total }
-        const path = `${opts.checkpointPathPrefix}-step-${step}`
-        let saved = false
+        const snapshot: DecoderLMCheckpoint = { epoch, step, trainLoss: total / (index + 1), valLoss: null, state: clone(runtime.state.parameters, runtime.session), optimizerState: optimizerState(runtime, kind), resumeEpoch: epoch, resumeBatchIndex: index + 1, epochLossAccum: total }
+        const path = `${opts.checkpointPathPrefix}-step-${step}`; let saved = false
         try { saveDecoderLMCheckpoint(path, snapshot, { metadata: opts.checkpointMetadata }); checkpointPaths.push(path); saved = true }
         finally { if (!saved || opts.keepCheckpointsInMemory === false) disposeState(snapshot.state) }
         if (opts.keepCheckpointsInMemory !== false) snapshots.push(snapshot)
       }
     }
     finalTrainLoss = total / groups.length
-    finalValLoss = opts.validationWindows?.length ? evaluateDecoderLM(model, opts.validationWindows, { batchSize: opts.validationBatchSize ?? opts.batchSize, seqLen: opts.seqLen, maxBatches: opts.maxEvalBatches }) : null
+    finalValLoss = opts.validationWindows?.length ? evaluateDecoderLM(runtime, opts.validationWindows, { batchSize: opts.validationBatchSize ?? opts.batchSize, seqLen: opts.seqLen, maxBatches: opts.maxEvalBatches }) : null
     const metrics = { epoch, step, trainLoss: finalTrainLoss, valLoss: finalValLoss, trainPerplexity: perplexityFromLoss(finalTrainLoss), valPerplexity: finalValLoss === null ? null : perplexityFromLoss(finalValLoss) }
     history.push(metrics); opts.onEpoch?.(metrics)
     if (opts.checkpointEveryEpochs && epoch % opts.checkpointEveryEpochs === 0 && opts.checkpointPathPrefix) {
-      const snapshot: DecoderLMCheckpoint = { epoch, step, trainLoss: finalTrainLoss, valLoss: finalValLoss, state: clone(model.state(), model), optimizerState: optimizerState(model, kind), resumeEpoch: epoch + 1, resumeBatchIndex: 0, epochLossAccum: 0 }
-      const path = `${opts.checkpointPathPrefix}-epoch-${epoch}`
-      let saved = false
+      const snapshot: DecoderLMCheckpoint = { epoch, step, trainLoss: finalTrainLoss, valLoss: finalValLoss, state: clone(runtime.state.parameters, runtime.session), optimizerState: optimizerState(runtime, kind), resumeEpoch: epoch + 1, resumeBatchIndex: 0, epochLossAccum: 0 }
+      const path = `${opts.checkpointPathPrefix}-epoch-${epoch}`; let saved = false
       try { saveDecoderLMCheckpoint(path, snapshot, { metadata: opts.checkpointMetadata }); checkpointPaths.push(path); saved = true }
       finally { if (!saved || opts.keepCheckpointsInMemory === false) disposeState(snapshot.state) }
       if (opts.keepCheckpointsInMemory !== false) snapshots.push(snapshot)

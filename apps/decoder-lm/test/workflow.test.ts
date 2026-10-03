@@ -17,7 +17,7 @@ function fixture(name: string): { config: DecoderLMWorkflowConfig; prefix: strin
       specialTokens: { bos: '<bos>', eos: '<eos>', unk: '<unk>' },
     },
     corpus: { path: corpusPath, addBos: true, addEos: true, seqLen: 3, stride: 1, validationSplit: 0.34 },
-    model: { dModel: 8, numLayers: 1, numHeads: 2, hiddenDim: 16, causal: true, positional: 'learned', maxSeqLen: 8, seed: 7 },
+    model: { dModel: 8, numLayers: 1, numHeads: 2, hiddenDim: 16, causal: true, positional: 'learned', maxSeqLen: 8 },
     training: { epochs: 1, batchSize: 2, lr: 0.01, maxTrainBatchesPerEpoch: 1, maxEvalBatches: 1 },
   }
   fs.writeFileSync(configPath, JSON.stringify(config))
@@ -29,21 +29,20 @@ describe('@affon/decoder-lm Program workflow', () => {
     const value = fixture('train')
     const loaded = loadDecoderLMWorkflowConfig(value.configPath)
     const result = trainDecoderLMFromConfig(loaded)
-    expect(result.summary.modelForwardMode).toBe('graph')
-    expect(result.summary.modelForwardGraphRuntime).toBe('program')
+    expect(result.summary.program.name).toBe('decoder_model')
+    expect(result.summary.program.parameters > 0).toBe(true)
     expect(result.summary.history.length).toBe(1)
     expect(Number.isFinite(result.summary.finalTrainLoss)).toBe(true)
-    expect(result.model.device).toBe('cpu')
-    result.model.dispose()
+    expect(result.session.device).toBe('cpu')
+    result.state.dispose(); result.session.dispose()
   })
 
-  test('uses the model itself for the requested compiled forward path', () => {
+  test('uses Session compilation for the requested Program', () => {
     const value = fixture('compiled')
-    value.config.training.compileModelForward = true
     const result = trainDecoderLMFromConfig(value.config)
-    expect(result.compiledModel).toBe(result.model)
-    expect(result.summary.modelForwardGraphLoweringAnalysis).toEqual({ lowerable: true })
-    result.model.dispose()
+    expect(result.session.compile(result.model.forward(1, 3)).program.inspect().kind).toBe('authored')
+    expect(result.summary.program.provenance).toBe(result.model.forward(2, 3).provenance)
+    result.state.dispose(); result.session.dispose()
   })
 
   test('writes an epoch checkpoint and resumes it', () => {
@@ -51,13 +50,13 @@ describe('@affon/decoder-lm Program workflow', () => {
     value.config.checkpoint = { prefix: value.prefix, everyNEpochs: 1 }
     const first = trainDecoderLMFromConfig(value.config)
     expect(first.training.checkpointPaths).toEqual([`${value.prefix}-epoch-1`])
-    first.model.dispose()
+    first.state.dispose(); first.session.dispose()
 
     const resumedConfig = { ...value.config, checkpoint: { prefix: value.prefix, resumeFrom: `${value.prefix}-epoch-1` } }
     const resumed = trainDecoderLMFromConfig(resumedConfig)
     expect(resumed.training.history[0].epoch).toBe(2)
     expect(resumed.training.steps > first.training.steps).toBe(true)
-    resumed.model.dispose()
+    resumed.state.dispose(); resumed.session.dispose()
   })
 
   test('generates samples and captures bounded runtime snapshots', () => {
@@ -70,6 +69,6 @@ describe('@affon/decoder-lm Program workflow', () => {
     expect(result.samples.length).toBe(1)
     expect(result.samples[0].generatedIds.length).toBe(result.samples[0].promptIds.length + 1)
     expect(result.monitor?.snapshots.length).toBe(2)
-    result.model.dispose()
+    result.state.dispose(); result.session.dispose()
   })
 })

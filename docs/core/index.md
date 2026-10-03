@@ -35,16 +35,17 @@ const y = executable.run({ x })
 
 console.log(y.to_array()) // [1, 4, 9]
 
-y.dispose()
-x.dispose()
-executable.dispose()
-session.dispose()
 ```
 
 For a one-off calculation, call the same `affon:ops` functions with evaluated
 tensors. Immediate evaluation is computation-only: it does not create a
 gradient tape. Use a Program when the computation needs differentiation,
 optimization, inspection, composition, or repeated execution.
+
+For short scripts, `Tensor.from(...)`, `Tensor.zeros(...)`,
+`Tensor.ones(...)`, and `Tensor.full(...)` create evaluated tensors in a hidden
+lazy default Session. Explicit disposal is optional; use it only when a workload
+needs deterministic release.
 
 ## Compatibility
 

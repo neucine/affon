@@ -18,7 +18,7 @@ reusable computation explicit as a `Program`, then runs that Program in a
 | model parameters and state | `session.initialize(program)` |
 | compiled call | `session.compile(program).run(arguments, state)` |
 | backward pass | `gradient(program, names)` |
-| optimizer | `optimize(lossProgram, adamw(options))` |
+| optimizer | `optimize(modelProgram, lossProgram, adamw(options))` |
 
 `Tensor` intentionally names two related public concepts. In type position it
 is an evaluated tensor interface; in value position it is the namespace-like
@@ -93,16 +93,10 @@ tensor methods such as `x.matmul(y)` and no global operation exports from
 ## Training
 
 ```ts
-import { Session, Tensor, optimize, program } from 'affon:compute'
+import { Session, losses, optimize } from 'affon:compute'
 import { adam } from 'affon:optim'
 
-const loss = program('classifier_loss', p => {
-  const x = p.argument('x', Tensor.f32([32, 4]))
-  const labels = p.argument('labels', Tensor.i64([32]))
-  return p.nn.cross_entropy(model(x), labels)
-})
-
-const train = optimize(loss, adam({ learning_rate: 1e-3 }))
+const train = optimize(model, losses.cross_entropy(), adam({ learning_rate: 1e-3 }))
 const session = new Session({ device: 'cpu' })
 const state = session.initialize(train, { seed: 7 })
 const step = session.compile(train)
@@ -123,7 +117,7 @@ transitions inspectable before execution.
   `learning_rate`.
 - `Executable.run(...)` accepts a named argument record and validates names,
   shapes, dtypes, disposal state, and Session ownership before native execution.
-- Classification labels for `p.nn.cross_entropy` are `i64` and match the logits
+- Classification labels for `cross_entropy` from `affon:ops` are `i64` and match the logits
   shape with the final class axis removed.
 
 ## Legacy code

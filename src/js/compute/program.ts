@@ -1,5 +1,5 @@
 import native from "affon:compute/native"
-import type { Optimizer } from "affon:optim"
+import type { LRSchedule, Optimizer } from "affon:optim"
 
 export type ProgramDType = "f32" | "f64" | "i64"
 export type Device = "cpu" | "metal" | "cuda" | `cuda:${number}`
@@ -15,6 +15,11 @@ export type SliceRange = Readonly<{ start: number; stop: number; step?: number }
 export type TensorSpec = Readonly<{
   dtype: ProgramDType
   shape: ProgramShape
+  axes?: readonly string[]
+}>
+
+export type TensorValueOptions = Readonly<{
+  dtype?: ProgramDType
   axes?: readonly string[]
 }>
 
@@ -82,6 +87,7 @@ const FORMAL = Symbol.for("affon.compute.formal_tensor")
 const BUILDER = Symbol.for("affon.compute.program_builder")
 const EMIT = Symbol("affon.compute.emit_operation")
 const FORMAL_OPERATION = Symbol("affon.compute.formal_operation")
+const FORMAL_SCALAR = Symbol("affon.compute.formal_scalar")
 const optimizationSources = new WeakMap<Program, { loss: Program; optimizer: Optimizer }>()
 
 function freezeSpec(dtype: ProgramDType, shape: readonly number[], axes?: readonly string[]): TensorSpec {
@@ -99,6 +105,27 @@ function freezeSpec(dtype: ProgramDType, shape: readonly number[], axes?: readon
   return Object.freeze({ dtype, shape: Object.freeze([...shape]), ...(axes ? { axes: Object.freeze([...axes]) } : {}) })
 }
 
+let defaultSessionValue: Session | undefined
+const SESSION_TENSOR = Symbol("affon.compute.session_tensor")
+const SESSION_FULL = Symbol("affon.compute.session_full")
+
+function defaultSession(): Session {
+  if (!defaultSessionValue) defaultSessionValue = new Session({ device: native.defaultDevice() })
+  return defaultSessionValue
+}
+
+function checkedTensorShape(shape: readonly number[]): readonly number[] {
+  if (!Array.isArray(shape) || shape.some(size => !Number.isSafeInteger(size) || size < 0)) {
+    throw new TypeError("Tensor shape must contain non-negative integers")
+  }
+  let elements = 1
+  for (const size of shape) {
+    elements *= size
+    if (!Number.isSafeInteger(elements)) throw new TypeError("Tensor element count exceeds the safe integer range")
+  }
+  return shape
+}
+
 export const Tensor = Object.freeze({
   spec(dtype: ProgramDType, shape: readonly number[], options: { axes?: readonly string[] } = {}): TensorSpec {
     return freezeSpec(dtype, shape, options.axes)
@@ -106,6 +133,44 @@ export const Tensor = Object.freeze({
   f32(shape: readonly number[], options: { axes?: readonly string[] } = {}): TensorSpec { return freezeSpec("f32", shape, options.axes) },
   f64(shape: readonly number[], options: { axes?: readonly string[] } = {}): TensorSpec { return freezeSpec("f64", shape, options.axes) },
   i64(shape: readonly number[], options: { axes?: readonly string[] } = {}): TensorSpec { return freezeSpec("i64", shape, options.axes) },
+  from(values: TensorData, options: TensorValueOptions = {}): Tensor {
+    return defaultSession().tensor(values, options)
+  },
+  full(shape: readonly number[], value: number, options: TensorValueOptions = {}): Tensor {
+    if (!Number.isFinite(value)) throw new TypeError("Tensor.full value must be finite")
+    if (options.dtype === "i64" && !Number.isSafeInteger(value)) throw new TypeError("Tensor.full i64 value must be a safe integer")
+    return defaultSession()[SESSION_FULL](checkedTensorShape(shape), value, options)
+  },
+  zeros(shape: readonly number[], options: TensorValueOptions = {}): Tensor {
+    return defaultSession()[SESSION_FULL](checkedTensorShape(shape), 0, options)
+  },
+  ones(shape: readonly number[], options: TensorValueOptions = {}): Tensor {
+    return defaultSession()[SESSION_FULL](checkedTensorShape(shape), 1, options)
+  },
+  arange(start: number, end?: number, step = 1, options: TensorValueOptions = {}): Tensor {
+    const first = end === undefined ? 0 : start
+    const stop = end === undefined ? start : end
+    if (![first, stop, step].every(Number.isFinite) || step === 0) throw new TypeError("Tensor.arange requires finite bounds and a non-zero step")
+    const length = Math.max(0, Math.ceil((stop - first) / step))
+    return defaultSession().tensor(Array.from({ length }, (_, index) => first + index * step), options)
+  },
+  linspace(start: number, end: number, steps = 100, options: TensorValueOptions = {}): Tensor {
+    if (!Number.isFinite(start) || !Number.isFinite(end) || !Number.isSafeInteger(steps) || steps <= 0) throw new TypeError("Tensor.linspace requires finite bounds and positive steps")
+    const values = steps === 1 ? [start] : Array.from({ length: steps }, (_, index) => start + (end - start) * index / (steps - 1))
+    return defaultSession().tensor(values, options)
+  },
+  rand(shape: readonly number[], options: TensorValueOptions & { seed?: number } = {}): Tensor {
+    const { seed = 0, ...tensorOptions } = options
+    const spec = freezeSpec(tensorOptions.dtype ?? "f32", checkedTensorShape(shape), tensorOptions.axes)
+    if (spec.dtype === "i64") throw new TypeError("Tensor.rand requires a floating-point dtype")
+    return defaultSession().tensor(initializedValue(spec, { kind: "uniform", min: 0, max: 1 }, seededRandom(seed)), tensorOptions)
+  },
+  randn(shape: readonly number[], options: TensorValueOptions & { seed?: number } = {}): Tensor {
+    const { seed = 0, ...tensorOptions } = options
+    const spec = freezeSpec(tensorOptions.dtype ?? "f32", checkedTensorShape(shape), tensorOptions.axes)
+    if (spec.dtype === "i64") throw new TypeError("Tensor.randn requires a floating-point dtype")
+    return defaultSession().tensor(initializedValue(spec, { kind: "normal" }, seededRandom(seed)), tensorOptions)
+  },
 })
 
 function sameSpec(left: TensorSpec, right: TensorSpec): boolean {
@@ -216,30 +281,38 @@ export class FormalTensor<S extends TensorSpec = TensorSpec> {
 
   [FORMAL_OPERATION](op: string, operands: readonly FormalTensor[], options: readonly unknown[]): FormalTensor {
     switch (op) {
-      case "add": case "sub": case "mul": case "div": case "matmul": case "dot": case "embedding": return this.dispatchBinary(op, operands[1])
+      case "add": case "sub": case "mul": case "div": case "eq": case "lt": case "gt": case "matmul": case "dot": case "embedding": case "gather": return this.dispatchBinary(op, operands[1], options)
+      case "where": return this.#where(operands[1], operands[2])
+      case "stack": return this.#stack(operands, options[0] as number)
+      case "one_hot": return this.#oneHot(options[0] as number)
+      case "cross_entropy": return this.#cross_entropy(operands[1])
       case "masked_fill": return this.#masked_fill(operands[1], options[0] as number)
       case "index_select": return this.#index_select(options[0] as number, operands[1])
       case "softmax": return this.#softmax(options[0] as number)
       case "cast": return this.#cast(options[0] as ProgramDType)
       case "sum": return this.#sum(options[0] as number | undefined, options[1] as boolean | undefined)
       case "mean": return this.#mean(options[0] as number | undefined, options[1] as boolean | undefined)
+      case "min": case "max": case "variance": case "std": case "argmin": case "argmax": return this.owner.reduction(op, this, options[0] as number | undefined, options[1] as boolean | undefined)
       case "reshape": return this.#reshape(options[0] as readonly number[], options[1] as readonly string[] | undefined)
       case "transpose": return this.#transpose(options[0] as readonly number[] | undefined)
       case "slice": return this.#slice(options[0] as readonly SliceRange[])
       case "squeeze": return this.#squeeze(options[0] as number | undefined)
       case "unsqueeze": return this.#unsqueeze(options[0] as number, options[1] as string | undefined)
       case "layer_norm": return this.#layer_norm(options[0] as number, options[1] as number | undefined)
-      case "neg": return this.#neg(); case "abs": return this.#abs(); case "exp": return this.#exp(); case "log": return this.#log()
+      case "neg": return this.#neg(); case "abs": return this.#abs(); case "exp": return this.#exp(); case "log": return this.#log(); case "sign": return this.#sign()
+      case "clamp": return this.#clamp(options[0] as number, options[1] as number)
       case "sqrt": return this.#sqrt(); case "relu": return this.#relu(); case "sigmoid": return this.#sigmoid(); case "silu": return this.#silu()
       case "tanh": return this.#tanh(); case "erf": return this.#erf(); case "gelu": return this.#gelu(); case "contiguous": return this.#contiguous()
       default: throw new TypeError(`unsupported formal operation: ${op}`)
     }
   }
 
-  private dispatchBinary(op: string, other: FormalTensor): FormalTensor {
+  private dispatchBinary(op: string, other: FormalTensor, options: readonly unknown[] = []): FormalTensor {
     switch (op) {
       case "add": return this.#add(other); case "sub": return this.#sub(other); case "mul": return this.#mul(other); case "div": return this.#div(other)
+      case "eq": case "lt": case "gt": return this.#compare(op, other)
       case "matmul": return this.#matmul(other); case "dot": return this.#dot(other); case "embedding": return this.#embedding(other)
+      case "gather": return this.#gather(options[0] as number, other)
       default: throw new TypeError(`unsupported binary formal operation: ${op}`)
     }
   }
@@ -248,6 +321,10 @@ export class FormalTensor<S extends TensorSpec = TensorSpec> {
   #sub(other: FormalTensor): FormalTensor { return this.binary("sub", other, arithmeticSpec(this.spec, other.spec)) }
   #mul(other: FormalTensor): FormalTensor { return this.binary("mul", other, arithmeticSpec(this.spec, other.spec)) }
   #div(other: FormalTensor): FormalTensor { return this.binary("div", other, arithmeticSpec(this.spec, other.spec)) }
+  #compare(op: "eq" | "lt" | "gt", other: FormalTensor): FormalTensor {
+    const result = arithmeticSpec(this.spec, other.spec)
+    return this.binary(op, other, freezeSpec("i64", result.shape, result.axes))
+  }
   #matmul(other: FormalTensor): FormalTensor { return this.binary("matmul", other, matmulSpec(this.spec, other.spec)) }
   #dot(other: FormalTensor): FormalTensor {
     if (!sameSpec(this.spec, other.spec)) throw new TypeError("dot requires identical tensor specs")
@@ -258,6 +335,11 @@ export class FormalTensor<S extends TensorSpec = TensorSpec> {
   #exp(): FormalTensor { return this.owner[EMIT]("exp", [this], this.spec) }
   #log(): FormalTensor { return this.owner[EMIT]("log", [this], this.spec) }
   #sqrt(): FormalTensor { return this.owner[EMIT]("sqrt", [this], this.spec) }
+  #sign(): FormalTensor { return this.owner[EMIT]("sign", [this], this.spec) }
+  #clamp(minimum: number, maximum: number): FormalTensor {
+    if (!Number.isFinite(minimum) || !Number.isFinite(maximum) || minimum > maximum) throw new TypeError("clamp requires finite min <= max")
+    return this.owner[EMIT]("clamp", [this], this.spec, { min: minimum, max: maximum })
+  }
   #relu(): FormalTensor { return this.owner[EMIT]("relu", [this], this.spec) }
   #sigmoid(): FormalTensor { return this.owner[EMIT]("sigmoid", [this], this.spec) }
   #silu(): FormalTensor { return this.owner[EMIT]("silu", [this], this.spec) }
@@ -325,6 +407,45 @@ export class FormalTensor<S extends TensorSpec = TensorSpec> {
     if (indices.spec.dtype !== "i64" || this.spec.shape.length !== 2) throw new TypeError("embedding requires an i64 index tensor and a rank-two table")
     return this.owner[EMIT]("embedding", [this, indices], freezeSpec(this.spec.dtype, [...indices.spec.shape, ...this.spec.shape.slice(1)]))
   }
+  #gather(axis: number, indices: FormalTensor): FormalTensor {
+    const normalized = axis < 0 ? this.spec.shape.length + axis : axis
+    if (indices.spec.dtype !== "i64" || indices.spec.shape.length !== this.spec.shape.length || !Number.isInteger(normalized) || normalized < 0 || normalized >= this.spec.shape.length) throw new TypeError("invalid gather operands")
+    for (let index = 0; index < this.spec.shape.length; index++) if (index !== normalized && this.spec.shape[index] !== indices.spec.shape[index]) throw new TypeError("gather index shape must match input outside the selected axis")
+    return this.owner[EMIT]("gather", [this, indices], freezeSpec(this.spec.dtype, indices.spec.shape), { axis: normalized })
+  }
+  #oneHot(classes: number): FormalTensor {
+    if (this.spec.dtype !== "i64" || !Number.isSafeInteger(classes) || classes <= 0) throw new TypeError("one_hot requires i64 indices and a positive class count")
+    return this.owner[EMIT]("one_hot", [this], freezeSpec("f32", [...this.spec.shape, classes]), { num_classes: classes })
+  }
+  #where(onTrue: FormalTensor, onFalse: FormalTensor): FormalTensor {
+    if (this.spec.dtype !== "i64") throw new TypeError("where condition must have i64 dtype")
+    const result = arithmeticSpec(onTrue.spec, onFalse.spec)
+    const shape = broadcastShape(this.spec.shape, result.shape)
+    if (shape.length !== result.shape.length || shape.some((size, index) => size !== result.shape[index])) throw new TypeError("where condition must broadcast to its values")
+    return this.owner[EMIT]("where", [this, onTrue, onFalse], result)
+  }
+  #stack(values: readonly FormalTensor[], axis: number): FormalTensor {
+    if (values.some(value => !sameSpec(value.spec, this.spec))) throw new TypeError("stack requires identical tensor specs")
+    const normalized = axis < 0 ? this.spec.shape.length + axis + 1 : axis
+    if (!Number.isInteger(normalized) || normalized < 0 || normalized > this.spec.shape.length) throw new TypeError("stack axis is out of range")
+    const shape = [...this.spec.shape]
+    shape.splice(normalized, 0, values.length)
+    return this.owner[EMIT]("stack", values, freezeSpec(this.spec.dtype, shape), { axis: normalized })
+  }
+  #cross_entropy(labels: FormalTensor): FormalTensor {
+    if (this.spec.dtype !== "f32" && this.spec.dtype !== "f64") throw new TypeError("cross_entropy logits must have a floating-point dtype")
+    if (labels.spec.dtype !== "i64") throw new TypeError("cross_entropy labels must have i64 dtype")
+    if (this.spec.shape.length === 0) throw new TypeError("cross_entropy logits must include a class dimension")
+    const labelShape = this.spec.shape.slice(0, -1)
+    if (labels.spec.shape.length !== labelShape.length || labels.spec.shape.some((size, index) => size !== labelShape[index])) {
+      throw new TypeError("cross_entropy labels must match the logits shape without its class dimension")
+    }
+    const result = scalarSpec(this.spec.dtype)
+    if (this.spec.shape.length <= 2) return this.owner[EMIT]("cross_entropy", [this, labels], result, { reduction: "mean", class_axis: -1 })
+    const classes = this.spec.shape.at(-1)!
+    const rows = labelShape.reduce((product, value) => product * value, 1)
+    return this.owner[EMIT]("cross_entropy", [this.#reshape([rows, classes]), labels.#reshape([rows])], result, { reduction: "mean", class_axis: 1 })
+  }
   #index_select(axis: number, indices: FormalTensor): FormalTensor {
     const normalized = axis < 0 ? this.spec.shape.length + axis : axis
     if (indices.spec.dtype !== "i64" || indices.spec.shape.length !== 1 || !Number.isInteger(normalized) || normalized < 0 || normalized >= this.spec.shape.length) throw new TypeError("invalid index_select operands")
@@ -338,6 +459,11 @@ export class FormalTensor<S extends TensorSpec = TensorSpec> {
 export function $formalOperation(op: string, operands: readonly FormalTensor[], options: readonly unknown[] = []): FormalTensor {
   if (!operands.length || operands.some(value => !(value instanceof FormalTensor))) throw new TypeError(`${op} requires formal tensor operands`)
   return operands[0][FORMAL_OPERATION](op, operands, options)
+}
+
+/** Internal scalar hook used only by affon:ops composite operations. */
+export function $formalScalarLike(reference: FormalTensor, value: number): FormalTensor {
+  return (reference as any).owner[FORMAL_SCALAR](reference, value)
 }
 
 function assertName(name: string, label: string): void {
@@ -375,7 +501,6 @@ export interface ProgramNN {
   linear(value: FormalTensor, options: { name: string; out_features: number; bias?: boolean }): FormalTensor
   embedding(indices: FormalTensor, options: { name: string; num_embeddings: number; embedding_dim: number; dtype?: ProgramDType }): FormalTensor
   layer_norm(value: FormalTensor, options: { name: string; normalized_shape?: number; epsilon?: number; affine?: boolean }): FormalTensor
-  cross_entropy(logits: FormalTensor, labels: FormalTensor): FormalTensor
 }
 
 class BoundProgramNN implements ProgramNN {
@@ -415,20 +540,6 @@ class BoundProgramNN implements ProgramNN {
     return result
   }
 
-  cross_entropy(logits: FormalTensor, labels: FormalTensor): FormalTensor {
-    if (logits.spec.dtype !== "f32" && logits.spec.dtype !== "f64") throw new TypeError("cross_entropy logits must have a floating-point dtype")
-    if (labels.spec.dtype !== "i64") throw new TypeError("cross_entropy labels must have i64 dtype")
-    if (logits.spec.shape.length === 0) throw new TypeError("cross_entropy logits must include a class dimension")
-    const labelShape = logits.spec.shape.slice(0, -1)
-    if (labels.spec.shape.length !== labelShape.length || labels.spec.shape.some((size, index) => size !== labelShape[index])) {
-      throw new TypeError("cross_entropy labels must match the logits shape without its class dimension")
-    }
-    const result = scalarSpec(logits.spec.dtype)
-    if (logits.spec.shape.length <= 2) return this.builder[EMIT]("cross_entropy", [logits, labels], result, { reduction: "mean", class_axis: -1 })
-    const classes = logits.spec.shape.at(-1)!
-    const rows = labelShape.reduce((product, value) => product * value, 1)
-    return this.builder[EMIT]("cross_entropy", [$formalOperation("reshape", [logits], [[rows, classes]]), $formalOperation("reshape", [labels], [[rows]])], result, { reduction: "mean", class_axis: 1 })
-  }
 }
 
 export class ProgramBuilder {
@@ -485,12 +596,18 @@ export class ProgramBuilder {
     return new FormalTensor(this, node.id, spec, "intermediate")
   }
 
+  [FORMAL_SCALAR](reference: FormalTensor, value: number): FormalTensor {
+    if (!Number.isFinite(value)) throw new TypeError("scalar operand must be finite")
+    return this.constant(`scalar_${this.nodeList.length}`, value, Tensor.spec(reference.spec.dtype, [1]))
+  }
+
   reduction(op: string, value: FormalTensor, axis?: number, keep_dims = false): FormalTensor {
-    if (axis === undefined) return this[EMIT](op, [value], scalarSpec(value.spec.dtype), { keep_dims })
+    const dtype: ProgramDType = op === "argmin" || op === "argmax" ? "i64" : value.spec.dtype
+    if (axis === undefined) return this[EMIT](op, [value], scalarSpec(dtype), { keep_dims })
     const normalized = axis < 0 ? value.spec.shape.length + axis : axis
     if (!Number.isInteger(normalized) || normalized < 0 || normalized >= value.spec.shape.length) throw new TypeError(`${op} axis is out of range`)
     const shape = keep_dims ? value.spec.shape.map((size, index) => index === normalized ? 1 : size) : value.spec.shape.filter((_, index) => index !== normalized)
-    return this[EMIT](op, [value], freezeSpec(value.spec.dtype, shape), { axis: normalized, keep_dims })
+    return this[EMIT](op, [value], freezeSpec(dtype, shape), { axis: normalized, keep_dims })
   }
 
   use(child: Program, options: { as: string; [name: string]: unknown }): FormalTensor | readonly FormalTensor[] {
@@ -547,6 +664,29 @@ export interface Program<Args extends readonly unknown[] = readonly FormalTensor
   readonly provenance: string
   inspect(): ProgramInspection
 }
+export type LossProgramTemplate = Readonly<{
+  kind: "cross_entropy" | "mean_squared_error" | "binary_cross_entropy" | "binary_cross_entropy_with_logits"
+  target: string
+}>
+function lossTemplate(kind: LossProgramTemplate["kind"], options: { target?: string }, defaultTarget: string): LossProgramTemplate {
+  const target = options.target ?? defaultTarget
+  assertName(target, "loss target")
+  return Object.freeze({ kind, target })
+}
+export const losses = Object.freeze({
+  cross_entropy(options: { target?: string } = {}): LossProgramTemplate {
+    return lossTemplate("cross_entropy", options, "labels")
+  },
+  mean_squared_error(options: { target?: string } = {}): LossProgramTemplate {
+    return lossTemplate("mean_squared_error", options, "target")
+  },
+  binary_cross_entropy(options: { target?: string } = {}): LossProgramTemplate {
+    return lossTemplate("binary_cross_entropy", options, "target")
+  },
+  binary_cross_entropy_with_logits(options: { target?: string } = {}): LossProgramTemplate {
+    return lossTemplate("binary_cross_entropy_with_logits", options, "target")
+  },
+})
 export type EvaluatedProgramOutput<Out> = Out extends FormalTensor
   ? Tensor
   : Out extends readonly FormalTensor[]
@@ -642,8 +782,115 @@ export function gradient(loss: Program<readonly FormalTensor[], FormalTensor>, i
   return createProgram(`${loss.name}_gradient`, "gradient", Object.freeze(nodes), outputs)
 }
 
+function scheduleSnapshot(value: LRSchedule): LRSchedule {
+  if (!value || typeof value !== "object") throw new TypeError("scheduled expects a learning-rate schedule")
+  const nonNegative = (candidate: unknown, name: string): number => {
+    if (typeof candidate !== "number" || !Number.isFinite(candidate) || candidate < 0) throw new TypeError(`${name} must be finite and non-negative`)
+    return candidate
+  }
+  const positiveInteger = (candidate: unknown, name: string): number => {
+    if (typeof candidate !== "number" || !Number.isSafeInteger(candidate) || candidate <= 0) throw new TypeError(`${name} must be a positive integer`)
+    return candidate
+  }
+  if (value.kind === "constant") return Object.freeze({ kind: "constant", learning_rate: nonNegative(value.learning_rate, "learning_rate") })
+  if (value.kind === "linear" || value.kind === "cosine") return Object.freeze({
+    kind: value.kind,
+    start: nonNegative(value.start, "start"),
+    end: nonNegative(value.end, "end"),
+    steps: positiveInteger(value.steps, "steps"),
+  })
+  if (value.kind === "step") return Object.freeze({
+    kind: "step",
+    base: nonNegative(value.base, "base"),
+    gamma: nonNegative(value.gamma, "gamma"),
+    every: positiveInteger(value.every, "every"),
+    ...(value.steps === undefined ? {} : { steps: positiveInteger(value.steps, "steps") }),
+  })
+  if (value.kind === "warmup_cosine") {
+    const warmup_steps = positiveInteger(value.warmup_steps, "warmup_steps")
+    const total_steps = positiveInteger(value.total_steps, "total_steps")
+    if (warmup_steps >= total_steps) throw new TypeError("warmup_steps must be less than total_steps")
+    return Object.freeze({
+      kind: "warmup_cosine",
+      start: nonNegative(value.start, "start"),
+      peak: nonNegative(value.peak, "peak"),
+      end: nonNegative(value.end, "end"),
+      warmup_steps,
+      total_steps,
+    })
+  }
+  if (value.kind === "sequence") {
+    if (!Array.isArray(value.schedules) || value.schedules.length === 0) throw new TypeError("sequence requires at least one schedule")
+    const schedules = value.schedules.map(scheduleSnapshot)
+    for (let index = 0; index < schedules.length - 1; index++) {
+      const schedule = schedules[index]
+      if (schedule.kind === "constant" || (schedule.kind === "step" && schedule.steps === undefined) || schedule.kind === "sequence") {
+        throw new TypeError("only the final sequence schedule may be unbounded or nested")
+      }
+    }
+    return Object.freeze({ kind: "sequence", schedules: Object.freeze(schedules) })
+  }
+  throw new TypeError("unknown learning-rate schedule kind")
+}
+
+function scheduleDuration(value: LRSchedule): number | undefined {
+  if (value.kind === "linear" || value.kind === "cosine") return value.steps
+  if (value.kind === "warmup_cosine") return value.total_steps
+  if (value.kind === "step") return value.steps
+  if (value.kind === "sequence") {
+    let total = 0
+    for (const part of value.schedules) {
+      const duration = scheduleDuration(part)
+      if (duration === undefined) return undefined
+      total += duration
+    }
+    return total
+  }
+  return undefined
+}
+
+function learningRateAt(value: LRSchedule, step: number): number {
+  if (value.kind === "constant") return value.learning_rate
+  if (value.kind === "linear") {
+    const ratio = Math.min(step / value.steps, 1)
+    return value.start + (value.end - value.start) * ratio
+  }
+  if (value.kind === "cosine") {
+    const ratio = Math.min(step / value.steps, 1)
+    return value.end + (value.start - value.end) * (1 + Math.cos(Math.PI * ratio)) / 2
+  }
+  if (value.kind === "step") {
+    const bounded = value.steps === undefined ? step : Math.min(step, value.steps)
+    return value.base * Math.pow(value.gamma, Math.floor(bounded / value.every))
+  }
+  if (value.kind === "warmup_cosine") {
+    if (step <= value.warmup_steps) return value.start + (value.peak - value.start) * step / value.warmup_steps
+    const ratio = Math.min((step - value.warmup_steps) / (value.total_steps - value.warmup_steps), 1)
+    return value.end + (value.peak - value.end) * (1 + Math.cos(Math.PI * ratio)) / 2
+  }
+  let offset = step
+  for (const part of value.schedules) {
+    const duration = scheduleDuration(part)
+    if (duration === undefined || offset <= duration) return learningRateAt(part, offset)
+    offset -= duration
+  }
+  const final = value.schedules.at(-1)!
+  return learningRateAt(final, scheduleDuration(final) ?? offset)
+}
+
 function optimizerSnapshot(value: Optimizer): Optimizer {
   if (!value || typeof value !== "object") throw new TypeError("optimize expects an Optimizer from affon:optim")
+  if (value.kind === "accumulate") {
+    if (!Number.isSafeInteger(value.steps) || value.steps < 2) throw new TypeError("accumulate steps must be an integer of at least 2")
+    const optimizer = optimizerSnapshot(value.optimizer)
+    if (optimizer.kind === "accumulate") throw new TypeError("accumulate cannot wrap another accumulating optimizer")
+    return Object.freeze({ kind: "accumulate", optimizer, steps: value.steps })
+  }
+  if (value.kind === "scheduled") {
+    const optimizer = optimizerSnapshot(value.optimizer)
+    if (optimizer.kind === "accumulate" || optimizer.kind === "scheduled") throw new TypeError("scheduled must wrap a base optimizer")
+    return Object.freeze({ kind: "scheduled", optimizer, schedule: scheduleSnapshot(value.schedule) })
+  }
   if (value.kind !== "sgd" && value.kind !== "adam" && value.kind !== "adamw") throw new TypeError("unknown Optimizer kind")
   const finiteNonNegative = (candidate: unknown, name: string): number => {
     if (typeof candidate !== "number" || !Number.isFinite(candidate) || candidate < 0) throw new TypeError(`${name} must be finite and non-negative`)
@@ -667,16 +914,133 @@ function optimizerSnapshot(value: Optimizer): Optimizer {
   return Object.freeze({ kind: "adamw", ...common, weight_decay: finiteNonNegative((value as any).weight_decay, "weight_decay") })
 }
 
-export function optimize(loss: Program<readonly FormalTensor[], FormalTensor>, optimizer: Optimizer): Program<readonly FormalTensor[], FormalTensor> {
-  if (!isProgram(loss)) throw new TypeError("optimize expects a Program")
-  const source = loss.inspect()
+function combineModelAndLoss(
+  model: Program<readonly FormalTensor[], FormalTensor | readonly FormalTensor[]>,
+  loss: Program<readonly FormalTensor[], FormalTensor>,
+): Program<readonly FormalTensor[], FormalTensor> {
+  if (!isProgram(model) || !isProgram(loss)) {
+    throw new TypeError("optimize(model, loss, optimizer) expects model and loss Programs")
+  }
+  const modelInspection = model.inspect()
+  const lossInspection = loss.inspect()
+  if (modelInspection.kind !== "authored" || lossInspection.kind !== "authored") {
+    throw new TypeError("optimize(model, loss, optimizer) requires authored Programs")
+  }
+  if (modelInspection.outputs.length > lossInspection.arguments.length) {
+    throw new TypeError("loss must declare one leading argument for each model output")
+  }
+
+  const nodes: ProgramNode[] = [...modelInspection.nodes]
+  const mapped = new Map<number, number>()
+  const modelArgumentNames = new Set(modelInspection.arguments.map(formal => formal.name))
+  const lossArgumentNodes = lossInspection.arguments.map(formal =>
+    lossInspection.nodes.find(node => node.role === "argument" && node.provenance === formal.provenance)!,
+  )
+
+  for (let index = 0; index < modelInspection.outputs.length; index++) {
+    const output = modelInspection.nodes[modelInspection.outputs[index]]
+    const input = lossArgumentNodes[index]
+    if (!sameSpec(output.spec, input.spec)) {
+      throw new TypeError(`model output ${index} does not match loss argument ${input.name}`)
+    }
+    mapped.set(input.id, output.id)
+  }
+
+  for (const input of lossArgumentNodes.slice(modelInspection.outputs.length)) {
+    if (modelArgumentNames.has(input.name!)) {
+      throw new TypeError(`model and loss expose duplicate argument: ${input.name}`)
+    }
+  }
+
+  for (const node of lossInspection.nodes) {
+    if (mapped.has(node.id)) continue
+    const operands = node.operands?.map(id => {
+      const mappedId = mapped.get(id)
+      if (mappedId === undefined) throw new TypeError("loss graph contains an unresolved operand")
+      return mappedId
+    })
+    const clone = Object.freeze({
+      ...node,
+      id: nodes.length,
+      ...(operands ? { operands: Object.freeze(operands) } : {}),
+    })
+    nodes.push(clone)
+    mapped.set(node.id, clone.id)
+  }
+
+  return createProgram(
+    `${model.name}_${loss.name}`,
+    "authored",
+    Object.freeze(nodes),
+    lossInspection.outputs.map(id => mapped.get(id)!),
+  ) as Program<readonly FormalTensor[], FormalTensor>
+}
+
+function lossProgramFromTemplate(
+  model: Program<readonly FormalTensor[], FormalTensor | readonly FormalTensor[]>,
+  template: LossProgramTemplate,
+): Program<readonly FormalTensor[], FormalTensor> {
+  const inspection = model.inspect()
+  if (inspection.outputs.length !== 1) throw new TypeError(`${template.kind} requires a model with one output`)
+  const outputSpec = inspection.nodes[inspection.outputs[0]].spec
+  if (outputSpec.dtype !== "f32" && outputSpec.dtype !== "f64") throw new TypeError(`${template.kind} requires a floating-point model output`)
+  return program(`${model.name}_${template.kind}`, p => {
+    const predictionName = template.kind === "cross_entropy" || template.kind === "binary_cross_entropy_with_logits" ? "logits" : "prediction"
+    const prediction = p.argument(predictionName, outputSpec)
+    if (template.kind === "cross_entropy") {
+      if (outputSpec.shape.length === 0) throw new TypeError("cross_entropy requires model logits with a class dimension")
+      const labelAxes = outputSpec.axes?.slice(0, -1)
+      const labels = p.argument(template.target, Tensor.i64(outputSpec.shape.slice(0, -1), labelAxes ? { axes: labelAxes } : undefined))
+      return $formalOperation("cross_entropy", [prediction, labels])
+    }
+    const target = p.argument(template.target, outputSpec)
+    const mean = (value: FormalTensor) => $formalOperation("mean", [value], [undefined, false])
+    if (template.kind === "mean_squared_error") {
+      const difference = $formalOperation("sub", [prediction, target])
+      return mean($formalOperation("mul", [difference, difference]))
+    }
+    const one = p.constant("loss_one", 1, Tensor.spec(outputSpec.dtype, [1]))
+    if (template.kind === "binary_cross_entropy") {
+      const epsilon = p.constant("loss_epsilon", outputSpec.dtype === "f32" ? 1e-7 : 1e-15, Tensor.spec(outputSpec.dtype, [1]))
+      const positive = $formalOperation("mul", [target, $formalOperation("log", [$formalOperation("add", [prediction, epsilon])])])
+      const inverseTarget = $formalOperation("sub", [one, target])
+      const inversePrediction = $formalOperation("add", [$formalOperation("sub", [one, prediction]), epsilon])
+      return $formalOperation("neg", [mean($formalOperation("add", [positive, $formalOperation("mul", [inverseTarget, $formalOperation("log", [inversePrediction])])]))])
+    }
+    if (template.kind === "binary_cross_entropy_with_logits") {
+      const positive = $formalOperation("relu", [prediction])
+      const linear = $formalOperation("mul", [prediction, target])
+      const tail = $formalOperation("log", [$formalOperation("add", [one, $formalOperation("exp", [$formalOperation("neg", [$formalOperation("abs", [prediction])])])])])
+      return mean($formalOperation("add", [$formalOperation("sub", [positive, linear]), tail]))
+    }
+    throw new TypeError("unknown loss Program template")
+  })
+}
+
+export function optimize(
+  model: Program<readonly FormalTensor[], FormalTensor | readonly FormalTensor[]>,
+  loss: Program<readonly FormalTensor[], FormalTensor> | LossProgramTemplate,
+  optimizer: Optimizer,
+): Program<readonly FormalTensor[], FormalTensor>
+export function optimize(
+  model: Program<readonly FormalTensor[], FormalTensor | readonly FormalTensor[]>,
+  loss: Program<readonly FormalTensor[], FormalTensor> | LossProgramTemplate,
+  optimizer: Optimizer,
+): Program<readonly FormalTensor[], FormalTensor> {
+  if (!isProgram(model)) throw new TypeError("optimize expects a model Program")
+  if (!isProgram(loss) && (!loss || typeof loss !== "object")) {
+    throw new TypeError("optimize expects a loss Program or built-in loss template")
+  }
+  const lossProgram = isProgram(loss) ? loss : lossProgramFromTemplate(model, loss)
+  const combined = combineModelAndLoss(model, lossProgram)
+  const source = combined.inspect()
   const output = source.nodes[source.outputs[0]]
   if (source.outputs.length !== 1 || output.spec.shape.reduce((size, value) => size * value, 1) !== 1) throw new TypeError("optimize requires a scalar Program")
   if (source.parameters.length === 0) throw new TypeError("optimize requires at least one parameter")
   const snapshot = optimizerSnapshot(optimizer)
   const transition = Object.freeze({ kind: "optimize" as const, optimizer: snapshot, parameters: Object.freeze(source.parameters.map(parameter => parameter.provenance)) })
-  const result = createProgram(`${loss.name}_${snapshot.kind}`, "optimize", source.nodes, source.outputs, Object.freeze([...source.transitions, transition]))
-  optimizationSources.set(result, { loss, optimizer: snapshot })
+  const result = createProgram(`${model.name}_${lossProgram.name}_${snapshot.kind}`, "optimize", source.nodes, source.outputs, Object.freeze([...source.transitions, transition]))
+  optimizationSources.set(result, { loss: combined, optimizer: snapshot })
   return result
 }
 
@@ -726,6 +1090,87 @@ export function $sessionOf(value: Tensor): Session | undefined {
   if (disposedTensors.has(value as object)) return undefined
   return owner
 }
+
+function metricValues(value: Tensor): number[] {
+  const result: number[] = []
+  const visit = (item: TensorData): void => {
+    if (typeof item === "number") result.push(item)
+    else for (const child of item) visit(child)
+  }
+  visit(value.to_array())
+  return result
+}
+
+function metricPair(prediction: Tensor, target: Tensor): [number[], number[]] {
+  const left = metricValues(prediction)
+  const right = metricValues(target)
+  if (left.length !== right.length) throw new TypeError("metric tensors must contain the same number of elements")
+  return [left, right]
+}
+
+function binaryCounts(prediction: Tensor, target: Tensor, threshold: number): { tp: number; fp: number; fn: number; correct: number; total: number } {
+  if (!Number.isFinite(threshold)) throw new TypeError("metric threshold must be finite")
+  const [left, right] = metricPair(prediction, target)
+  let tp = 0, fp = 0, fn = 0, correct = 0
+  for (let index = 0; index < left.length; index++) {
+    const predicted = left[index] > threshold
+    const actual = right[index] !== 0
+    if (predicted === actual) correct++
+    if (predicted && actual) tp++
+    else if (predicted) fp++
+    else if (actual) fn++
+  }
+  return { tp, fp, fn, correct, total: left.length }
+}
+
+/** Reporting metrics for evaluated tensors. Metrics never mutate ExecutionState. */
+export const metrics = Object.freeze({
+  accuracy(prediction: Tensor, target: Tensor, options: { threshold?: number } = {}): number {
+    if (prediction.shape.length === target.shape.length + 1 && prediction.shape.slice(0, -1).every((size, index) => size === target.shape[index])) {
+      const classes = prediction.shape.at(-1)!
+      const scores = metricValues(prediction)
+      const labels = metricValues(target)
+      let correct = 0
+      for (let row = 0; row < labels.length; row++) {
+        let selected = 0
+        for (let index = 1; index < classes; index++) if (scores[row * classes + index] > scores[row * classes + selected]) selected = index
+        if (selected === labels[row]) correct++
+      }
+      return labels.length === 0 ? 0 : correct / labels.length
+    }
+    const counts = binaryCounts(prediction, target, options.threshold ?? 0.5)
+    return counts.total === 0 ? 0 : counts.correct / counts.total
+  },
+  precision(prediction: Tensor, target: Tensor, options: { threshold?: number } = {}): number {
+    const { tp, fp } = binaryCounts(prediction, target, options.threshold ?? 0.5)
+    return tp + fp === 0 ? 0 : tp / (tp + fp)
+  },
+  recall(prediction: Tensor, target: Tensor, options: { threshold?: number } = {}): number {
+    const { tp, fn } = binaryCounts(prediction, target, options.threshold ?? 0.5)
+    return tp + fn === 0 ? 0 : tp / (tp + fn)
+  },
+  f1(prediction: Tensor, target: Tensor, options: { threshold?: number } = {}): number {
+    const precision = metrics.precision(prediction, target, options)
+    const recall = metrics.recall(prediction, target, options)
+    return precision + recall === 0 ? 0 : 2 * precision * recall / (precision + recall)
+  },
+  mean_squared_error(prediction: Tensor, target: Tensor): number {
+    const [left, right] = metricPair(prediction, target)
+    return left.length === 0 ? 0 : left.reduce((sum, value, index) => sum + (value - right[index]) ** 2, 0) / left.length
+  },
+  mean_absolute_error(prediction: Tensor, target: Tensor): number {
+    const [left, right] = metricPair(prediction, target)
+    return left.length === 0 ? 0 : left.reduce((sum, value, index) => sum + Math.abs(value - right[index]), 0) / left.length
+  },
+  r2_score(prediction: Tensor, target: Tensor): number {
+    const [left, right] = metricPair(prediction, target)
+    if (right.length === 0) return 0
+    const average = right.reduce((sum, value) => sum + value, 0) / right.length
+    const total = right.reduce((sum, value) => sum + (value - average) ** 2, 0)
+    if (total === 0) return 0
+    return 1 - left.reduce((sum, value, index) => sum + (value - right[index]) ** 2, 0) / total
+  },
+})
 
 /** Internal symbolic hook used by affon:ops for variadic operations. */
 export function $formalCat(values: readonly FormalTensor[], axis = 0): FormalTensor {
@@ -885,17 +1330,34 @@ export class Session {
   }
   get disposed(): boolean { return this.#disposed }
   tensor(values: TensorData, options: { dtype?: ProgramDType; axes?: readonly string[] } = {}): Tensor {
+    return this[SESSION_TENSOR](values, options)
+  }
+  [SESSION_TENSOR](values: TensorData, options: TensorValueOptions = {}, requestedShape?: readonly number[]): Tensor {
     if (this.#disposed) throw new Error("Session has been disposed")
     const dtype = options.dtype ?? "f32"
     if (dtype !== "f32" && dtype !== "f64" && dtype !== "i64") throw new TypeError(`unsupported Tensor dtype: ${dtype}`)
     const snapshot = snapshotTensorData(values, { label: "Tensor", integer: dtype === "i64" })
-    if (options.axes && (options.axes.length !== snapshot.shape.length || options.axes.some(axis => typeof axis !== "string" || axis.length === 0))) {
+    const shape = requestedShape ?? snapshot.shape
+    if (options.axes && (options.axes.length !== shape.length || options.axes.some(axis => typeof axis !== "string" || axis.length === 0))) {
       throw new TypeError("Tensor axes must contain one non-empty name per dimension")
     }
-    const value = native.sessionTensor(this.#native, snapshot.data, dtype)
+    if (requestedShape && elementCount(requestedShape) !== elementCount(snapshot.shape)) throw new TypeError("Tensor shape does not match its values")
+    const value = native.sessionTensor(this.#native, snapshot.data, dtype, shape)
     if (options.axes) {
       Object.defineProperty(value, "axes", { value: Object.freeze([...options.axes]), enumerable: true })
     }
+    this.adopt(value)
+    return value as Tensor
+  }
+  [SESSION_FULL](shape: readonly number[], fill: number, options: TensorValueOptions = {}): Tensor {
+    if (this.#disposed) throw new Error("Session has been disposed")
+    const dtype = options.dtype ?? "f32"
+    if (dtype !== "f32" && dtype !== "f64" && dtype !== "i64") throw new TypeError(`unsupported Tensor dtype: ${dtype}`)
+    if (options.axes && (options.axes.length !== shape.length || options.axes.some(axis => typeof axis !== "string" || axis.length === 0))) {
+      throw new TypeError("Tensor axes must contain one non-empty name per dimension")
+    }
+    const value = native.sessionFull(this.#native, shape, fill, dtype)
+    if (options.axes) Object.defineProperty(value, "axes", { value: Object.freeze([...options.axes]), enumerable: true })
     this.adopt(value)
     return value as Tensor
   }
@@ -981,6 +1443,73 @@ export class Session {
   applyOptimizer(source: Program, state: ExecutionState, gradients: readonly unknown[], optimizer: Optimizer): void {
     const parameters = source.inspect().parameters
     if (parameters.length !== gradients.length) throw new Error("gradient result does not match Program parameters")
+    if (optimizer.kind === "accumulate") {
+      const previousMicrostep = state.optimizer_state["$microstep"] ?? 0
+      if (typeof previousMicrostep !== "number" || !Number.isSafeInteger(previousMicrostep) || previousMicrostep < 0 || previousMicrostep >= optimizer.steps) {
+        throw new TypeError("ExecutionState optimizer microstep must be an integer within the accumulation window")
+      }
+      const boundary = previousMicrostep + 1 === optimizer.steps
+      const accumulated: Array<{ key: string; old?: any; next: any }> = []
+      const averaged: any[] = []
+      let retained = false
+      try {
+        for (let index = 0; index < parameters.length; index++) {
+          const formal = parameters[index]
+          const gradient = gradients[index] as any
+          if (!gradient) throw new TypeError(`missing optimizer value for ${formal.provenance}`)
+          const key = `${formal.provenance}/accumulate/gradient`
+          const old = state.optimizer_state[key] as any
+          if (previousMicrostep > 0 && !old) throw new TypeError(`missing accumulated gradient for ${formal.provenance}`)
+          let next: any
+          if (old) {
+            const sum = program(`accumulate_gradient_${index}`, p => $formalOperation("add", [
+              p.argument("accumulated", formal.spec),
+              p.argument("gradient", formal.spec),
+            ]))
+            next = this.compile(sum).run({ accumulated: old, gradient })
+          } else {
+            next = this.tensor(gradient.to_array(), { dtype: formal.spec.dtype, axes: formal.spec.axes })
+          }
+          accumulated.push({ key, old, next })
+        }
+
+        if (!boundary) {
+          for (const change of accumulated) {
+            state.optimizer_state[change.key] = change.next
+            change.old?.dispose?.()
+          }
+          state.optimizer_state["$microstep"] = previousMicrostep + 1
+          retained = true
+          return
+        }
+
+        for (let index = 0; index < parameters.length; index++) {
+          const formal = parameters[index]
+          const average = program(`average_accumulated_gradient_${index}`, p => $formalOperation("div", [
+            p.argument("gradient", formal.spec),
+            p.constant("steps", optimizer.steps, scalarSpec(formal.spec.dtype)),
+          ]))
+          averaged.push(this.compile(average).run({ gradient: accumulated[index].next }))
+        }
+        this.applyOptimizer(source, state, averaged, optimizer.optimizer)
+        for (const change of accumulated) {
+          delete state.optimizer_state[change.key]
+          change.old?.dispose?.()
+        }
+        state.optimizer_state["$microstep"] = 0
+      } finally {
+        if (!retained) for (const change of accumulated) change.next?.dispose?.()
+        for (const value of averaged) value?.dispose?.()
+      }
+      return
+    }
+    if (optimizer.kind === "scheduled") {
+      const previousStep = state.optimizer_state["$step"] ?? 0
+      if (typeof previousStep !== "number" || !Number.isSafeInteger(previousStep) || previousStep < 0) throw new TypeError("ExecutionState optimizer step must be a non-negative integer")
+      const learning_rate = learningRateAt(optimizer.schedule, previousStep)
+      this.applyOptimizer(source, state, gradients, Object.freeze({ ...optimizer.optimizer, learning_rate }))
+      return
+    }
     const previousStep = state.optimizer_state["$step"] ?? 0
     if (typeof previousStep !== "number" || !Number.isSafeInteger(previousStep) || previousStep < 0) throw new TypeError("ExecutionState optimizer step must be a non-negative integer")
     const step = previousStep + 1

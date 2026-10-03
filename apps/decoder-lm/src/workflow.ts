@@ -1,7 +1,8 @@
 import fs from 'std:fs'
 import telemetry from 'std:telemetry'
+import { Session, type ExecutionState } from 'affon:compute'
 
-import { DecoderModel, type DecoderModelModule, type DecoderModelOptions } from './model.ts'
+import { DecoderModel, type DecoderModel as DecoderModelDefinition, type DecoderModelOptions } from './model.ts'
 import { generate } from './causal-lm.ts'
 import { createPackedTextCorpusFromConfig, saveTokenRows, type PackedFileCorpusConfig, type PackedTextCorpus } from './data/index.ts'
 import {
@@ -59,8 +60,6 @@ export interface DecoderLMWorkflowModelConfig extends DecoderModelOptions {
 export interface DecoderLMWorkflowTrainingConfig {
   epochs: number
   batchSize: number
-  gradientAccumulationSteps?: number
-  compileModelForward?: boolean
   shuffleSeed?: number
   validationBatchSize?: number
   lr?: number
@@ -69,7 +68,6 @@ export interface DecoderLMWorkflowTrainingConfig {
     weightDecay?: number
   }
   lrSchedule?: DecoderLMWorkflowLRScheduleConfig
-  maxGradNorm?: number
   maxTrainBatchesPerEpoch?: number
   maxEvalBatches?: number
   evaluateInitialTrainLoss?: boolean
@@ -164,24 +162,11 @@ export interface DecoderLMWorkflowMonitorConfig {
   path?: string
 }
 
-export interface DecoderLMWorkflowExportConfig {
-  dir: string
-  everyNSteps?: number
-  format?: 'text' | 'json'
-  mode?: 'summary' | 'annotated'
-  includeForward?: boolean
-  includeBackward?: boolean
-  prefix?: string
-  runId?: string
-  graphIdPrefix?: string
-}
-
 export interface DecoderLMWorkflowReportConfig {
   summaryPath?: string
   progress?: DecoderLMWorkflowProgressConfig
   sample?: DecoderLMWorkflowSampleConfig
   monitor?: DecoderLMWorkflowMonitorConfig
-  export?: DecoderLMWorkflowExportConfig
 }
 
 export interface DecoderLMWorkflowConfig {
@@ -224,10 +209,7 @@ export interface DecoderLMWorkflowMonitorSummary {
 
 export interface DecoderLMWorkflowSummary {
   tokenizerFamily: Tokenizer['family']
-  modelForwardMode: 'eager' | 'eager-forward' | 'graph'
-  modelForwardGraphRuntime: string | null
-  modelForwardGraphCaptureError: string | null
-  modelForwardGraphLoweringAnalysis: any | null
+  program: { name: string; provenance: string; parameters: number }
   trainRows: number
   validationRows: number
   trainWindows: number
@@ -241,7 +223,6 @@ export interface DecoderLMWorkflowSummary {
   initialValPerplexity: number | null
   finalValPerplexity: number | null
   checkpointPaths: string[]
-  bundleExportPaths: string[]
   history: DecoderLMEpochMetrics[]
   samples: DecoderLMWorkflowSample[]
   monitor: DecoderLMWorkflowMonitorSummary | null
@@ -250,8 +231,9 @@ export interface DecoderLMWorkflowSummary {
 export interface DecoderLMWorkflowResult {
   tokenizer: Tokenizer
   corpus: PackedTextCorpus
-  model: DecoderModelModule
-  compiledModel: DecoderModelModule | null
+  model: DecoderModelDefinition
+  session: Session
+  state: ExecutionState
   training: DecoderLMTrainResult
   samples: DecoderLMWorkflowSample[]
   monitor: DecoderLMWorkflowMonitorSummary | null
@@ -498,17 +480,16 @@ export function trainDecoderLMFromConfig(
       maxSeqLen: config.model.maxSeqLen,
       tieEmbeddings: config.model.tieEmbeddings,
       dropout: config.model.dropout,
-      device: config.device ?? 'cpu',
     })
-    const compileModelForward = !!config.training.compileModelForward
-    const compiledModel = compileModelForward ? model : null
-    const forward = model.forward
+    const session = new Session({ device: config.device ?? 'cpu' })
+    const state = session.initialize(model.forward(config.training.batchSize, config.corpus.seqLen), { seed: config.training.shuffleSeed ?? 0 })
+    const runtime = { model, session, state }
     const lrSchedule = config.training.lrSchedule
       ? lrScheduleFromConfig(config.training.lrSchedule)
       : undefined
     const resumeCheckpointPath = resolveResumeCheckpointPath(config)
     const resumedRaw = resumeCheckpointPath
-      ? loadDecoderLMCheckpoint(resumeCheckpointPath, model)
+      ? loadDecoderLMCheckpoint(resumeCheckpointPath, runtime)
       : null
     const requestedOptimizerKind = optimizerStateKindForConfig(config.training)
     const optimizerKindMismatch = resumedRaw?.optimizerState?.kind
@@ -525,7 +506,7 @@ export function trainDecoderLMFromConfig(
       for (const value of Object.values(resumedRaw.state)) value.dispose()
       resumed = { ...resumedRaw, state: {} }
       if (!shouldRestoreOptimizerState) {
-        const optimizerState = model.executionState?.optimizer_state ?? {}
+        const optimizerState = state.optimizer_state
         for (const [name, value] of Object.entries(optimizerState)) {
           if (value && typeof value === 'object') value.dispose()
           delete optimizerState[name]
@@ -535,7 +516,6 @@ export function trainDecoderLMFromConfig(
     }
 
     const samples: DecoderLMWorkflowSample[] = []
-    const bundleExportPaths: string[] = []
     const sampleConfig = config.report?.sample
     const samplePromptIds = sampleConfig
       ? tokenizer.encode(sampleConfig.prompt, { addBos: sampleConfig.addBos ?? true })
@@ -561,21 +541,14 @@ export function trainDecoderLMFromConfig(
       fs.writeFileSync(monitorPath, JSON.stringify(monitor, null, 2))
     }
 
-    const training = trainDecoderLM(model, corpus.trainWindows, {
+    const training = trainDecoderLM(runtime, corpus.trainWindows, {
       seqLen: config.corpus.seqLen,
       batchSize: config.training.batchSize,
-      gradientAccumulationSteps: config.training.gradientAccumulationSteps,
       epochs: config.training.epochs,
       lr: config.training.lr,
       optimizer: config.training.optimizer,
       lrSchedule,
-      forward,
-      // A compiled evaluation specialization can retain stale execution state
-      // across thousands of in-place optimizer updates. Keep validation eager;
-      // this also leaves the compiled specialization dedicated to training.
-      evaluationForward: model.forward,
       shuffleSeed: config.training.shuffleSeed,
-      maxGradNorm: config.training.maxGradNorm,
       maxTrainBatchesPerEpoch: config.training.maxTrainBatchesPerEpoch,
       maxEvalBatches: config.training.maxEvalBatches,
       validationBatchSize: config.training.validationBatchSize,
@@ -628,11 +601,13 @@ export function trainDecoderLMFromConfig(
         if (!sampleConfig || !samplePromptIds) return
         const everyNEpochs = sampleConfig.everyNEpochs ?? 1
         if (everyNEpochs <= 0 || metrics.epoch % everyNEpochs !== 0) return
-        const sampleInput = model.session.tensor([samplePromptIds], { dtype: 'i64', axes: ['batch', 'token'] })
+        const sampleInput = session.tensor([samplePromptIds], { dtype: 'i64', axes: ['batch', 'token'] })
         let generated = null as ReturnType<typeof generate> | null
         try {
           generated = generate(
             model,
+            session,
+            state,
             sampleInput,
             {
               max_new_tokens: sampleConfig.max_new_tokens,
@@ -640,7 +615,6 @@ export function trainDecoderLMFromConfig(
               top_k: sampleConfig.top_k,
               forbidden_token_ids: sampleForbiddenIds,
             },
-            forward,
           )
           const generatedIds = (tensorValues(generated) as number[][])[0]
           const sample = {
@@ -675,10 +649,7 @@ export function trainDecoderLMFromConfig(
 
     const summary: DecoderLMWorkflowSummary = {
       tokenizerFamily: tokenizer.family,
-      modelForwardMode: 'graph',
-      modelForwardGraphRuntime: 'program',
-      modelForwardGraphCaptureError: null,
-      modelForwardGraphLoweringAnalysis: { lowerable: true },
+      program: (() => { const value = model.forward(config.training.batchSize, config.corpus.seqLen); return { name: value.name, provenance: value.provenance, parameters: value.inspect().parameters.length } })(),
       trainRows: corpus.trainRows.length,
       validationRows: corpus.validationRows.length,
       trainWindows: corpus.trainWindows.length,
@@ -692,7 +663,6 @@ export function trainDecoderLMFromConfig(
       initialValPerplexity: training.initialValPerplexity,
       finalValPerplexity: training.finalValPerplexity,
       checkpointPaths: training.checkpointPaths.slice(),
-      bundleExportPaths: bundleExportPaths.slice(),
       history: training.history.slice(),
       samples,
       monitor,
@@ -703,6 +673,6 @@ export function trainDecoderLMFromConfig(
       fs.writeFileSync(summaryPath, JSON.stringify(summary, null, 2))
     }
 
-    return { tokenizer, corpus, model, compiledModel: compiledModel as DecoderModelModule | null, training, samples, monitor, summary }
+    return { tokenizer, corpus, model, session, state, training, samples, monitor, summary }
   }
 }

@@ -102,8 +102,11 @@ Evaluated tensors expose `shape`, `ndim`, `dtype`, `device`, optional `axes`,
 For one-off computation, no explicit Program is required:
 
 ```ts
+import { Tensor } from "affon:compute"
 import { matmul, softmax } from "affon:ops"
 
+const image = Tensor.from(batch)
+const weight = Tensor.from(weights)
 const logits = matmul(image, weight)
 const probabilities = softmax(logits, 1)
 ```
@@ -112,17 +115,26 @@ Both results belong to the inputs' Session. Use an explicit Program when the
 computation must be differentiated, optimized, inspected, or reused as a named
 model.
 
+`Tensor.from`, `Tensor.zeros`, `Tensor.ones`, `Tensor.full`, `Tensor.arange`,
+`Tensor.linspace`, `Tensor.rand`, and `Tensor.randn` use one hidden,
+lazily created default Session. Its device is fixed by the runtime startup
+configuration: `AFFON_DEVICE` when set, otherwise Affon's normal device
+detection. The canonical API provides no global setter, replacement Session,
+or per-constructor device override. Create an explicit `Session` when a workload
+needs isolation or a specific device.
+
 ## Losses and Differentiation
 
 Program transforms remain declarative:
 
 ```ts
 import { gradient, program, Tensor } from "affon:compute"
+import { cross_entropy } from "affon:ops"
 
 const loss = program("classifier_loss", p => {
   const image = p.argument("image", Tensor.f32([32, 784]))
   const labels = p.argument("labels", Tensor.i64([32]))
-  return p.nn.cross_entropy(classifier(image), labels)
+  return cross_entropy(classifier(image), labels)
 })
 const gradients = gradient(loss, ["classifier_head_weight", "classifier_head_bias"])
 
@@ -130,28 +142,51 @@ const lossExecutable = session.compile(loss)
 const gradientExecutable = session.compile(gradients)
 ```
 
-`p.nn.cross_entropy(logits, labels)` produces a single-element mean loss. Its
+`cross_entropy(logits, labels)` produces a single-element mean loss. Its
 labels must be i64 and match the logits shape without its final class axis. `gradient`
 requires a single-element output and differentiates through the compute core,
 not through an eager fallback.
 
+`affon:ops` also provides `mean_squared_error`, `mean_absolute_error`,
+`binary_cross_entropy`, and `binary_cross_entropy_with_logits` for custom loss
+Programs. The `losses` namespace remains the concise choice when the standard
+target shape can be inferred from a model.
+
 ## Optimization
 
-`optimize` declares a state transition over a loss Program:
+`optimize` declares a state transition over a loss Program. Keep the model and
+loss separate when the same model must also be compiled for evaluation or
+inference:
 
 ```ts
-import { optimize } from "affon:compute"
+import { losses, optimize } from "affon:compute"
 import { adamw } from "affon:optim"
 
-const train = optimize(loss, adamw({
+const classificationLoss = losses.cross_entropy()
+
+const train = optimize(classifier, classificationLoss, adamw({
   learning_rate: 3e-4,
   weight_decay: 0.01,
 }))
 
 const trainState = session.initialize(train, { seed: 7 })
 const trainStep = session.compile(train)
+const infer = session.compile(classifier)
 const currentLoss = trainStep.run({ image, labels }, trainState)
+const logits = infer.run({ image }, trainState)
 ```
+
+Built-in loss templates infer their prediction and target specs from the model.
+`losses.cross_entropy()` exposes an i64 `labels` training input by default. A
+custom loss can instead be authored as a normal scalar Program using operations
+such as `cross_entropy` from `affon:ops`. The combined training Program preserves
+the model's parameter provenance, so its `ExecutionState` can be passed directly
+to the separately compiled model.
+
+The namespace also provides `losses.mean_squared_error()`,
+`losses.binary_cross_entropy()`, and
+`losses.binary_cross_entropy_with_logits()`. These infer a same-shaped
+floating-point `target` input from the model output.
 
 Available immutable descriptors are `sgd`, `adam`, and `adamw`. A successful
 step atomically replaces parameters and optimizer moments, advances `$step`,
@@ -159,11 +194,13 @@ and increments the RNG counter. A failed step leaves the prior state installed.
 
 ## Resource Lifetime
 
-`Tensor`, `Executable`, `ExecutionState`, and `Session` support deterministic
-`dispose()` and `Symbol.dispose`. Dispose outputs and input tensors when they
-are no longer needed, then dispose execution state and the Session. Native
-session storage remains alive while a child tensor or executable still owns
-it, which prevents dangling native handles during cleanup.
+Evaluated tensors, executables, execution state, and Sessions are reclaimed
+automatically when they become unreachable. `dispose()` and `Symbol.dispose`
+remain available for deterministic release in memory-sensitive loops; they are
+not required in ordinary code. Native Session storage remains alive while a
+child tensor or executable still owns it, preventing dangling native handles.
+After a Session is disposed, existing tensors remain safely readable, while
+executables and state cannot start new work.
 
 ## Legacy Migration
 

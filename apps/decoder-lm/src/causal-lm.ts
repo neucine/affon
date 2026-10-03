@@ -1,53 +1,11 @@
-import { Session, type Tensor } from 'affon:compute'
-import type { DecoderModelModule } from './model.ts'
-
-export type DecoderLMForward = (tokenIds: Tensor) => Tensor
+import type { ExecutionState, Session, Tensor } from 'affon:compute'
+import type { DecoderModel } from './model.ts'
 
 export interface GenerateOptions {
   max_new_tokens?: number
   forbidden_token_ids?: number[]
   temperature?: number
   top_k?: number
-}
-
-function flat(value: Tensor): number[] { return (value.to_array() as any[]).flat(Infinity).map(Number) }
-
-function causalLoss(logits: Tensor, tokenIds: Tensor): number {
-  if (logits.ndim !== 3) throw new AffonError('invalid_shape', 'CausalLMLoss expects logits shaped [batch, seq, vocab]')
-  if (tokenIds.ndim !== 2) throw new AffonError('invalid_shape', 'CausalLMLoss expects token ids shaped [batch, seq + 1]')
-  const [batch, sequence, vocabulary] = logits.shape
-  if (tokenIds.shape[0] !== batch || tokenIds.shape[1] !== sequence + 1) throw new AffonError('shape_mismatch', 'CausalLMLoss token dimensions do not match logits')
-  const scores = flat(logits), ids = flat(tokenIds)
-  let loss = 0
-  for (let row = 0; row < batch * sequence; row++) {
-    const target = ids[Math.floor(row / sequence) * (sequence + 1) + row % sequence + 1]
-    if (!Number.isInteger(target) || target < 0 || target >= vocabulary) throw new AffonError('invalid_arg', 'CausalLMLoss target is outside the vocabulary')
-    const start = row * vocabulary
-    let maximum = -Infinity
-    for (let index = 0; index < vocabulary; index++) maximum = Math.max(maximum, scores[start + index])
-    let denominator = 0
-    for (let index = 0; index < vocabulary; index++) denominator += Math.exp(scores[start + index] - maximum)
-    loss += Math.log(denominator) + maximum - scores[start + target]
-  }
-  return loss / (batch * sequence)
-}
-
-export function causal_lm_eval_loss_forward(logits: Tensor, tokenIds: Tensor): Tensor {
-  const session = new Session({ device: logits.device })
-  const result = session.tensor([causalLoss(logits, tokenIds)])
-  const dispose = result.dispose.bind(result)
-  let disposed = false
-  result.dispose = () => {
-    if (disposed) return
-    disposed = true
-    dispose()
-    session.dispose()
-  }
-  return result
-}
-
-export function CausalLMLoss(): (logits: Tensor, tokenIds: Tensor) => Tensor {
-  return causal_lm_eval_loss_forward
 }
 
 function options(value: GenerateOptions) {
@@ -72,19 +30,20 @@ function choose(logits: number[], resolved: ReturnType<typeof options>): number 
   return candidates.at(-1)!.id
 }
 
-export function generate(model: DecoderModelModule, tokenIds: Tensor, opts: GenerateOptions, forward?: DecoderLMForward): Tensor {
+/** Host-side token selection around explicit Program execution. */
+export function generate(model: DecoderModel, session: Session, state: ExecutionState, tokenIds: Tensor, opts: GenerateOptions): Tensor {
+  if (!session.owns(tokenIds)) throw new AffonError('invalid_arg', 'generate tokenIds must belong to the supplied Session')
   if (tokenIds.ndim !== 2) throw new AffonError('invalid_shape', 'generate expects token ids shaped [batch, seq]')
   const resolved = options(opts)
   const rows = tokenIds.to_array() as number[][]
   if (resolved.forbidden.size >= model.vocabSize || [...resolved.forbidden].some(id => !Number.isInteger(id) || id < 0 || id >= model.vocabSize)) throw new AffonError('invalid_arg', 'generate forbidden_token_ids must be valid and leave at least one token')
-  const decode = forward ?? model.forward
   for (let step = 0; step < resolved.max; step++) {
-    const input = model.session.tensor(rows, { dtype: 'i64' })
-    const logits = decode(input)
+    const input = session.tensor(rows, { dtype: 'i64', axes: ['batch', 'token'] })
+    const logits = session.compile(model.forward(rows.length, rows[0].length)).run({ token_ids: input }, state) as Tensor
     try {
       const values = logits.to_array() as number[][][]
       for (let batch = 0; batch < rows.length; batch++) rows[batch].push(choose(values[batch].at(-1)!, resolved))
     } finally { logits.dispose(); input.dispose() }
   }
-  return model.session.tensor(rows, { dtype: 'i64', axes: ['batch', 'token'] })
+  return session.tensor(rows, { dtype: 'i64', axes: ['batch', 'token'] })
 }
