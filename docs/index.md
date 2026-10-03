@@ -17,9 +17,10 @@ and apps that build on those surfaces.
 
 Affon keeps the public runtime surface intentionally small:
 
-- `affon:compute` provides tensors, Programs, Sessions, differentiation,
-  built-in loss templates, and Program transforms.
-- `affon:nn` provides callable factories for parameterized neural-network declarations.
+- `affon:compute` provides tensors, Programs, Sessions, differentiation, and
+  Program transforms.
+- `affon:nn` provides callable factories for parameterized neural-network
+  declarations and losses.
 - `affon:ops` provides operations shared by formal and evaluated tensors.
 - `affon:optim` provides optimizer descriptors.
 - `affon:dataset` provides ingest, preprocessing, batching, text records, and tensor export.

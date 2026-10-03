@@ -1,13 +1,14 @@
 # Optimizing Programs
 
 Optimization combines a reusable model Program, a scalar loss Program or
-built-in loss template, and an update rule from `affon:optim`.
+specialized loss callable, and an update rule from `affon:optim`.
 
 ```ts
-import { losses, optimize } from 'affon:compute'
+import { optimize } from 'affon:compute'
+import { cross_entropy } from 'affon:nn'
 import { adamw } from 'affon:optim'
 
-const train = optimize(model, losses.cross_entropy(), adamw({
+const train = optimize(model, cross_entropy(), adamw({
   learning_rate: 3e-4,
   weight_decay: 0.01,
 }))
@@ -32,7 +33,7 @@ Wrap an optimizer when a larger effective batch should span several runs:
 import { accumulate, adamw } from 'affon:optim'
 
 const optimizer = accumulate(adamw({ learning_rate: 3e-4 }), { steps: 4 })
-const train = optimize(model, losses.cross_entropy(), optimizer)
+const train = optimize(model, cross_entropy(), optimizer)
 ```
 
 Each run computes and adds one microbatch gradient. Parameters and optimizer

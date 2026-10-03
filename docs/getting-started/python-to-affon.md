@@ -91,10 +91,11 @@ tensor methods such as `x.matmul(y)` and no global operation exports from
 ## Training
 
 ```ts
-import { Session, losses, optimize } from 'affon:compute'
+import { Session, optimize } from 'affon:compute'
+import { cross_entropy } from 'affon:nn'
 import { adam } from 'affon:optim'
 
-const train = optimize(model, losses.cross_entropy(), adam({ learning_rate: 1e-3 }))
+const train = optimize(model, cross_entropy(), adam({ learning_rate: 1e-3 }))
 const session = new Session({ device: 'cpu' })
 const state = session.initialize(train, { seed: 7 })
 const step = session.compile(train)

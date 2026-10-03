@@ -155,21 +155,22 @@ not through an eager fallback.
 
 `affon:ops` also provides `mean_squared_error`, `mean_absolute_error`,
 `binary_cross_entropy`, and `binary_cross_entropy_with_logits` for custom loss
-Programs. The `losses` namespace remains the concise choice when the standard
-target shape can be inferred from a model.
+Programs. Specialized loss callables from `affon:nn` remain the concise choice
+when the standard target shape can be inferred from a model.
 
 ## Optimization
 
 `optimize(model, loss, optimizer)` combines a reusable model, a scalar loss
-Program or built-in loss template, and an immutable optimizer descriptor into
+Program or specialized loss callable, and an immutable optimizer descriptor into
 a state-transition Program. Keep the model and loss separate when the same
 model must also be compiled for evaluation or inference:
 
 ```ts
-import { losses, optimize } from "affon:compute"
+import { optimize } from "affon:compute"
+import { cross_entropy } from "affon:nn"
 import { adamw } from "affon:optim"
 
-const classificationLoss = losses.cross_entropy()
+const classificationLoss = cross_entropy()
 
 const train = optimize(classifier, classificationLoss, adamw({
   learning_rate: 3e-4,
@@ -183,16 +184,16 @@ const currentLoss = trainStep.run({ image, labels }, trainState)
 const logits = infer.run({ image }, trainState)
 ```
 
-Built-in loss templates infer their prediction and target specs from the model.
-`losses.cross_entropy()` exposes an i64 `labels` training input by default. A
+Loss callables infer their input and target specs from the model.
+`cross_entropy()` exposes an i64 `labels` training input by default. A
 custom loss can instead be authored as a normal scalar Program using operations
 such as `cross_entropy` from `affon:ops`. The combined training Program preserves
 the model's parameter provenance, so its `ExecutionState` can be passed directly
 to the separately compiled model.
 
-The namespace also provides `losses.mean_squared_error()`,
-`losses.binary_cross_entropy()`, and
-`losses.binary_cross_entropy_with_logits()`. These infer a same-shaped
+`affon:nn` also provides `mean_squared_error()`,
+`binary_cross_entropy()`, and
+`binary_cross_entropy_with_logits()`. These infer a same-shaped
 floating-point `target` input from the model output.
 
 Available immutable descriptors are `sgd`, `adam`, and `adamw`. A successful

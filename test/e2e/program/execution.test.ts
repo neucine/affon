@@ -1,7 +1,7 @@
 import { add, cat, contiguous, embedding, index_select, layer_norm, masked_fill, mean, mul, slice, squeeze, unsqueeze } from "affon:ops"
 import { describe, expect, test } from "std:test"
-import { Session, Tensor, gradient, losses, optimize, program } from "affon:compute"
-import { linear } from "affon:nn"
+import { Session, Tensor, gradient, optimize, program } from "affon:compute"
+import { cross_entropy, linear } from "affon:nn"
 import { adam } from "affon:optim"
 
 describe("Program execution state and lowering", () => {
@@ -23,7 +23,7 @@ describe("Program execution state and lowering", () => {
 
     const head = linear({ out_features: 2 })
     const model = program("trainable_model", p => head({ x: p.argument("x", Tensor.f32([2, 2])) }, "head"))
-    const step = optimize(model, losses.cross_entropy(), adam({ learning_rate: 0.01 }))
+    const step = optimize(model, cross_entropy(), adam({ learning_rate: 0.01 }))
     const state = firstSession.initialize(step, { seed: 7 })
     const x = firstSession.tensor([[1, 0], [0, 1]])
     const labels = firstSession.tensor([0, 1], { dtype: "i64" })

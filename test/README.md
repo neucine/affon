@@ -16,7 +16,7 @@ The Program boundary is organized by responsibility:
 - `contracts.test.ts` locks down the runtime export and value contracts.
 - `authoring.test.ts` covers composition, inspection, and transforms.
 - `lifecycle.test.ts` covers Session, Tensor, and Executable ownership.
-- `optimization.test.ts` covers loss templates, optimizer descriptors,
+- `optimization.test.ts` covers loss callables, optimizer descriptors,
   accumulation, and schedules.
 - `execution.test.ts` covers initialized state, validation, and lowering.
 - `tensor-construction.test.ts` covers evaluated Tensor factories and their

@@ -1,23 +1,24 @@
 # Loss Programs
 
-A loss is a Program with a single-element output. It can be differentiated with
-`gradient(...)` or turned into a state-changing training Program with
-`optimize(...)`.
+A loss callable accepts named `input` and `target` bindings and returns a
+single-element formal tensor. A loss may also be authored as an explicit
+Program when it needs independent identity or inspection.
 
 ## Cross entropy
 
 ```ts
-import { Tensor, losses, optimize, program } from 'affon:compute'
-import { cross_entropy } from 'affon:ops'
+import { Tensor, optimize, program } from 'affon:compute'
+import { cross_entropy } from 'affon:nn'
 
+const classificationLoss = cross_entropy()
 const loss = program('classification_loss', p => {
   const logits = p.argument('logits', Tensor.f32([32, 10]))
   const labels = p.argument('labels', Tensor.i64([32]))
-  return cross_entropy(logits, labels)
+  return classificationLoss({ input: logits, target: labels }, 'objective')
 })
 ```
 
-`cross_entropy` expects class logits on the final axis. Labels must use
+`cross_entropy()` expects class logits on the final axis. Labels must use
 `i64` and have the logits shape with that final axis removed. The result is a
 single-element mean loss.
 
@@ -28,29 +29,29 @@ evaluation and inference:
 const loss = program('classifier_loss', p => {
   const logits = p.argument('logits', Tensor.f32([32, 10]))
   const labels = p.argument('labels', Tensor.i64([32]))
-  return cross_entropy(logits, labels)
+  return classificationLoss({ input: logits, target: labels }, 'objective')
 })
 
 const train = optimize(classifier, loss, optimizer)
 ```
 
-For the common case, `losses.cross_entropy()` is a built-in template that
-infers both specs from the model when passed to `optimize`:
+For the common case, pass the loss callable directly to `optimize`, which
+infers both specs from the model:
 
 ```ts
-const train = optimize(classifier, losses.cross_entropy(), optimizer)
+const train = optimize(classifier, cross_entropy(), optimizer)
 ```
 
-The built-in namespace currently provides:
+`affon:nn` currently provides these loss factories:
 
-- `losses.cross_entropy()` for class-index labels inferred as `i64`.
-- `losses.mean_squared_error()` for a same-shaped floating-point target.
-- `losses.binary_cross_entropy()` for same-shaped probability predictions and targets.
-- `losses.binary_cross_entropy_with_logits()` for same-shaped logits and binary targets.
+- `cross_entropy()` for class-index labels inferred as `i64`.
+- `mean_squared_error()` for a same-shaped floating-point target.
+- `binary_cross_entropy()` for same-shaped probability predictions and targets.
+- `binary_cross_entropy_with_logits()` for same-shaped logits and binary targets.
 
 Each accepts `{ target }` to replace the default training-input name (`labels`
-for cross entropy, otherwise `target`). All materialize ordinary scalar loss
-Programs; there is no separate optimizer execution path for built-in losses.
+for cross entropy, otherwise `target`). `optimize` materializes each callable
+as an ordinary scalar loss Program; there is no separate execution path.
 
-Use the built-in `losses` templates or author an explicit loss Program from
-`affon:ops`.
+Use the specialized callables from `affon:nn`, or author an explicit loss
+Program from operations in `affon:ops`.

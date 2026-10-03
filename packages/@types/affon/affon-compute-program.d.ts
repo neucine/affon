@@ -6,6 +6,7 @@
  */
 declare module "affon:compute" {
   import type { Optimizer } from "affon:optim";
+  import type { LossCallable } from "affon:nn";
   /** Numeric element types supported by the Program API. */
   export type ProgramDType = "f32" | "f64" | "i64";
   /** Compute device selected when a Session is created. */
@@ -144,10 +145,12 @@ declare module "affon:compute" {
     readonly role: "argument" | "parameter" | "state" | "constant" | "intermediate";
   }
 
-  /** Immutable, inspectable compute graph. */
-  export interface Program<Bindings extends Record<string, FormalTensor> = Record<string, FormalTensor>, Out = FormalTensor | readonly FormalTensor[]> {
-    /** Compose this Program with named bindings and an optional parent-local instance name. */
+  /** Common named-binding call form shared by Programs and reusable factories. */
+  export interface Callable<Bindings extends Record<string, FormalTensor>, Out> {
     (bindings: Bindings, instance?: string): Out;
+  }
+  /** Immutable, inspectable compute graph. */
+  export interface Program<Bindings extends Record<string, FormalTensor> = Record<string, FormalTensor>, Out = FormalTensor | readonly FormalTensor[]> extends Callable<Bindings, Out> {
     /** Stable author-supplied Program name. */
     readonly name: string;
     /** Provenance identifier distinguishing authored and transformed Programs. */
@@ -155,22 +158,6 @@ declare module "affon:compute" {
     /** Return an immutable structural description suitable for tooling. */
     inspect(): ProgramInspection;
   }
-  /** Deferred built-in loss that is materialized from a model's output specification. */
-  export type LossProgramTemplate = Readonly<{
-    kind: "cross_entropy" | "mean_squared_error" | "binary_cross_entropy" | "binary_cross_entropy_with_logits";
-    target: string;
-  }>;
-  /** Convenient built-in loss Program templates. Custom losses can be authored with program(). */
-  export const losses: Readonly<{
-    /** Infer indexed cross-entropy logits and label specifications from the model. */
-    cross_entropy(options?: { target?: string }): LossProgramTemplate;
-    /** Infer a same-shaped floating-point regression target from the model. */
-    mean_squared_error(options?: { target?: string }): LossProgramTemplate;
-    /** Infer a same-shaped floating-point binary target for probability predictions. */
-    binary_cross_entropy(options?: { target?: string }): LossProgramTemplate;
-    /** Infer a same-shaped floating-point binary target for unnormalized logits. */
-    binary_cross_entropy_with_logits(options?: { target?: string }): LossProgramTemplate;
-  }>;
   /** Reporting metrics for evaluated tensors. Metrics never mutate ExecutionState. */
   export const metrics: Readonly<{
     /** Multiclass logits accuracy or thresholded binary accuracy. */
@@ -216,12 +203,12 @@ declare module "affon:compute" {
   export function gradient(loss: Program<Record<string, FormalTensor>, FormalTensor>, independent_variables: string): Program<Record<string, FormalTensor>, FormalTensor>;
   export function gradient(loss: Program<Record<string, FormalTensor>, FormalTensor>, independent_variables: readonly string[]): Program;
   /**
-   * Combine a reusable model Program with a scalar loss Program or built-in loss template and transform the result into a training step.
+   * Combine a reusable model Program with a scalar loss Program or LossCallable and transform the result into a training step.
    * @input Model outputs bind positionally to the loss Program's leading arguments. Remaining loss arguments become training inputs.
    * @semantics Preserves the model's parameter and state provenance so an ExecutionState initialized for the training step can run the standalone model for evaluation or inference.
    * @output Returns a Program compiled and run like any other Program, using an ExecutionState for parameters and optimizer state.
    */
-  export function optimize(model: Program<Record<string, FormalTensor>, FormalTensor | readonly FormalTensor[]>, loss: Program<Record<string, FormalTensor>, FormalTensor> | LossProgramTemplate, optimizer: Optimizer): Program<Record<string, FormalTensor>, FormalTensor>;
+  export function optimize(model: Program<Record<string, FormalTensor>, FormalTensor | readonly FormalTensor[]>, loss: Program<Record<string, FormalTensor>, FormalTensor> | LossCallable, optimizer: Optimizer): Program<Record<string, FormalTensor>, FormalTensor>;
 
   /** Session-owned mutable execution data for parameters, model state, optimizer state, and RNG state. */
   export interface ExecutionState {

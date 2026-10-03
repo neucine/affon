@@ -3,7 +3,6 @@ export {
   Session,
   program,
   gradient,
-  losses,
   metrics,
   optimize,
 } from "affon:_internal/compute/program"
@@ -27,6 +26,6 @@ export type {
   Executable,
   ExecutionState,
   Program,
+  Callable,
   Initializer,
-  LossProgramTemplate,
 } from "affon:_internal/compute/program"

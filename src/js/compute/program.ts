@@ -630,35 +630,14 @@ export class ProgramBuilder {
   finish(): readonly ProgramNode[] { this.finished = true; return Object.freeze([...this.nodeList]) }
 }
 
-export interface Program<Bindings extends Record<string, FormalTensor> = Record<string, FormalTensor>, Out = FormalTensor | readonly FormalTensor[]> {
+export interface Callable<Bindings extends Record<string, FormalTensor>, Out> {
   (bindings: Bindings, instance?: string): Out
+}
+export interface Program<Bindings extends Record<string, FormalTensor> = Record<string, FormalTensor>, Out = FormalTensor | readonly FormalTensor[]> extends Callable<Bindings, Out> {
   readonly name: string
   readonly provenance: string
   inspect(): ProgramInspection
 }
-export type LossProgramTemplate = Readonly<{
-  kind: "cross_entropy" | "mean_squared_error" | "binary_cross_entropy" | "binary_cross_entropy_with_logits"
-  target: string
-}>
-function lossTemplate(kind: LossProgramTemplate["kind"], options: { target?: string }, defaultTarget: string): LossProgramTemplate {
-  const target = options.target ?? defaultTarget
-  assertName(target, "loss target")
-  return Object.freeze({ kind, target })
-}
-export const losses = Object.freeze({
-  cross_entropy(options: { target?: string } = {}): LossProgramTemplate {
-    return lossTemplate("cross_entropy", options, "labels")
-  },
-  mean_squared_error(options: { target?: string } = {}): LossProgramTemplate {
-    return lossTemplate("mean_squared_error", options, "target")
-  },
-  binary_cross_entropy(options: { target?: string } = {}): LossProgramTemplate {
-    return lossTemplate("binary_cross_entropy", options, "target")
-  },
-  binary_cross_entropy_with_logits(options: { target?: string } = {}): LossProgramTemplate {
-    return lossTemplate("binary_cross_entropy_with_logits", options, "target")
-  },
-})
 export type EvaluatedProgramOutput<Out> = Out extends FormalTensor
   ? Tensor
   : Out extends readonly FormalTensor[]
@@ -666,6 +645,10 @@ export type EvaluatedProgramOutput<Out> = Out extends FormalTensor
     : never
 
 type InternalProgram = Program & { readonly [PROGRAM]: true }
+type LossKind = "cross_entropy" | "mean_squared_error" | "binary_cross_entropy" | "binary_cross_entropy_with_logits"
+type LossCallable = Callable<{ input: FormalTensor; target: FormalTensor }, FormalTensor>
+type LossCallableMetadata = Readonly<{ kind: LossKind; target: string }>
+const LOSS_CALLABLE = Symbol.for("affon.nn.loss_callable")
 let activeBuilder: ProgramBuilder | null = null
 
 function isProgram(value: unknown): value is InternalProgram { return typeof value === "function" && (value as any)[PROGRAM] === true }
@@ -955,62 +938,45 @@ function combineModelAndLoss(
   ) as Program<Record<string, FormalTensor>, FormalTensor>
 }
 
-function lossProgramFromTemplate(
+function lossProgramFromCallable(
   model: Program<Record<string, FormalTensor>, FormalTensor | readonly FormalTensor[]>,
-  template: LossProgramTemplate,
+  loss: LossCallable,
 ): Program<Record<string, FormalTensor>, FormalTensor> {
   const inspection = model.inspect()
-  if (inspection.outputs.length !== 1) throw new TypeError(`${template.kind} requires a model with one output`)
+  const metadata = (loss as any)[LOSS_CALLABLE] as LossCallableMetadata | undefined
+  const kind = metadata?.kind ?? "custom"
+  const targetName = metadata?.target ?? "target"
+  if (inspection.outputs.length !== 1) throw new TypeError(`${kind} requires a model with one output`)
   const outputSpec = inspection.nodes[inspection.outputs[0]].spec
-  if (outputSpec.dtype !== "f32" && outputSpec.dtype !== "f64") throw new TypeError(`${template.kind} requires a floating-point model output`)
-  return program(`${model.name}_${template.kind}`, p => {
-    const predictionName = template.kind === "cross_entropy" || template.kind === "binary_cross_entropy_with_logits" ? "logits" : "prediction"
-    const prediction = p.argument(predictionName, outputSpec)
-    if (template.kind === "cross_entropy") {
+  if (outputSpec.dtype !== "f32" && outputSpec.dtype !== "f64") throw new TypeError(`${kind} requires a floating-point model output`)
+  return program(`${model.name}_${kind}_loss`, p => {
+    const input = p.argument("input", outputSpec)
+    let targetSpec = outputSpec
+    if (kind === "cross_entropy") {
       if (outputSpec.shape.length === 0) throw new TypeError("cross_entropy requires model logits with a class dimension")
       const labelAxes = outputSpec.axes?.slice(0, -1)
-      const labels = p.argument(template.target, Tensor.i64(outputSpec.shape.slice(0, -1), labelAxes ? { axes: labelAxes } : undefined))
-      return $formalOperation("cross_entropy", [prediction, labels])
+      targetSpec = Tensor.i64(outputSpec.shape.slice(0, -1), labelAxes ? { axes: labelAxes } : undefined)
     }
-    const target = p.argument(template.target, outputSpec)
-    const mean = (value: FormalTensor) => $formalOperation("mean", [value], [undefined, false])
-    if (template.kind === "mean_squared_error") {
-      const difference = $formalOperation("sub", [prediction, target])
-      return mean($formalOperation("mul", [difference, difference]))
-    }
-    const one = p.constant("loss_one", 1, Tensor.spec(outputSpec.dtype, [1]))
-    if (template.kind === "binary_cross_entropy") {
-      const epsilon = p.constant("loss_epsilon", outputSpec.dtype === "f32" ? 1e-7 : 1e-15, Tensor.spec(outputSpec.dtype, [1]))
-      const positive = $formalOperation("mul", [target, $formalOperation("log", [$formalOperation("add", [prediction, epsilon])])])
-      const inverseTarget = $formalOperation("sub", [one, target])
-      const inversePrediction = $formalOperation("add", [$formalOperation("sub", [one, prediction]), epsilon])
-      return $formalOperation("neg", [mean($formalOperation("add", [positive, $formalOperation("mul", [inverseTarget, $formalOperation("log", [inversePrediction])])]))])
-    }
-    if (template.kind === "binary_cross_entropy_with_logits") {
-      const positive = $formalOperation("relu", [prediction])
-      const linear = $formalOperation("mul", [prediction, target])
-      const tail = $formalOperation("log", [$formalOperation("add", [one, $formalOperation("exp", [$formalOperation("neg", [$formalOperation("abs", [prediction])])])])])
-      return mean($formalOperation("add", [$formalOperation("sub", [positive, linear]), tail]))
-    }
-    throw new TypeError("unknown loss Program template")
+    const target = p.argument(targetName, targetSpec)
+    return loss({ input, target }, "loss")
   })
 }
 
 export function optimize(
   model: Program<Record<string, FormalTensor>, FormalTensor | readonly FormalTensor[]>,
-  loss: Program<Record<string, FormalTensor>, FormalTensor> | LossProgramTemplate,
+  loss: Program<Record<string, FormalTensor>, FormalTensor> | LossCallable,
   optimizer: Optimizer,
 ): Program<Record<string, FormalTensor>, FormalTensor>
 export function optimize(
   model: Program<Record<string, FormalTensor>, FormalTensor | readonly FormalTensor[]>,
-  loss: Program<Record<string, FormalTensor>, FormalTensor> | LossProgramTemplate,
+  loss: Program<Record<string, FormalTensor>, FormalTensor> | LossCallable,
   optimizer: Optimizer,
 ): Program<Record<string, FormalTensor>, FormalTensor> {
   if (!isProgram(model)) throw new TypeError("optimize expects a model Program")
-  if (!isProgram(loss) && (!loss || typeof loss !== "object")) {
-    throw new TypeError("optimize expects a loss Program or built-in loss template")
+  if (!isProgram(loss) && typeof loss !== "function") {
+    throw new TypeError("optimize expects a loss Program or LossCallable")
   }
-  const lossProgram = isProgram(loss) ? loss : lossProgramFromTemplate(model, loss)
+  const lossProgram = isProgram(loss) ? loss : lossProgramFromCallable(model, loss)
   const combined = combineModelAndLoss(model, lossProgram)
   const source = combined.inspect()
   const output = source.nodes[source.outputs[0]]

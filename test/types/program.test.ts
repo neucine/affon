@@ -3,20 +3,26 @@ import {
   Tensor,
   Session,
   gradient,
-  losses,
   metrics,
   optimize,
   program,
   type Executable,
   type FormalTensor,
-  type LossProgramTemplate,
   type Program,
   type ProgramArguments,
   type TensorSpec,
 } from "affon:compute"
 import { accumulate, adam, scheduled, schedules, sgd, type AccumulatingOptimizer, type Adam, type Optimizer, type ScheduledOptimizer, type SGD } from "affon:optim"
 import * as compute from "affon:compute"
-import { linear, type Layer } from "affon:nn"
+import {
+  binary_cross_entropy,
+  binary_cross_entropy_with_logits,
+  cross_entropy as crossEntropyLoss,
+  linear,
+  mean_squared_error as meanSquaredErrorLoss,
+  type Layer,
+  type LossCallable,
+} from "affon:nn"
 
 // @ts-expect-error The removed compute compatibility module must stay unavailable.
 import "affon:compute/legacy"
@@ -79,13 +85,13 @@ const separateLoss = program("cross_entropy_loss", p => cross_entropy(
 ))
 const training_step = optimize(classifier, separateLoss, optimizer)
 const reusableTrainingStep = optimize(classifier, separateLoss, optimizer)
-const builtInLoss: LossProgramTemplate = losses.cross_entropy()
+const builtInLoss: LossCallable = crossEntropyLoss()
 const builtInTrainingStep = optimize(classifier, builtInLoss, optimizer)
 optimize(classifier, builtInLoss, accumulatingOptimizer)
 optimize(classifier, builtInLoss, scheduledAccumulatingOptimizer)
-optimize(classifier, losses.mean_squared_error(), optimizer)
-optimize(classifier, losses.binary_cross_entropy(), optimizer)
-optimize(classifier, losses.binary_cross_entropy_with_logits(), optimizer)
+optimize(classifier, meanSquaredErrorLoss(), optimizer)
+optimize(classifier, binary_cross_entropy(), optimizer)
+optimize(classifier, binary_cross_entropy_with_logits(), optimizer)
 // @ts-expect-error optimize always requires model, loss, and optimizer.
 optimize(loss, optimizer)
 const session = new Session({ device: "cpu" })

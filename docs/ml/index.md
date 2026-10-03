@@ -15,9 +15,10 @@ beginner terminology.
 
 ## Public Boundaries
 
-- `affon:nn` owns callable factories for parameterized neural-network declarations.
-- `affon:compute` owns tensors, Programs, Sessions, differentiation, built-in
-  loss templates under `losses`, and Program transforms such as `optimize`.
+- `affon:nn` owns callable factories for parameterized neural-network declarations
+  and specialized loss callables.
+- `affon:compute` owns tensors, Programs, Sessions, differentiation, and Program
+  transforms such as `optimize`.
 - `affon:ops` owns tensor operations shared by formal and evaluated tensors.
 - `affon:optim` owns optimizer descriptors.
 - `affon:dataset` owns ingest, transforms, batching, and tensorization.

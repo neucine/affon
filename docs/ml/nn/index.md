@@ -1,8 +1,9 @@
 # NN Concepts
 
 Neural-network authoring uses callable factories from `affon:nn`.
-These factories declare parameterized operations in the Program that owns their bound tensors;
-losses, execution, and differentiation remain Program-level concerns.
+These factories declare parameterized operations or scalar objectives in the
+Program that owns their bound tensors; execution and differentiation remain
+Program-level concerns.
 
 ## Topic Guides
 
@@ -10,7 +11,7 @@ losses, execution, and differentiation remain Program-level concerns.
 - [Basic Feed-Forward Models](./basic.md) - linear layers and simple classifiers/regressors.
 - [Recurrent Models](./recurrent.md) - current Program support and limitations.
 - [Activations](./activation.md) - activation functions and where they live.
-- [Loss Programs](./loss.md) - built-in templates, custom losses, and
+- [Loss Programs](./loss.md) - specialized callables, custom losses, and
   target/prediction expectations.
 
 ## Program authoring
@@ -29,14 +30,14 @@ const classifier = program('classifier', p => {
 })
 ```
 
-The canonical helpers currently cover linear projections, embeddings, and
-layer normalization. Elementwise, tensor, and custom loss operations remain in
+The canonical helpers currently cover linear projections, embeddings, layer
+normalization, and standard loss callables. Elementwise, tensor, and custom loss operations remain in
 `affon:ops`, where the same functions accept
 formal tensors during Program construction and evaluated tensors for immediate
 value computation.
 
-Standard training losses are available as templates from the `losses`
-namespace in `affon:compute` and are combined with a reusable model through
+Standard training losses are specialized callables from `affon:nn` and are
+combined with a reusable model through
 `optimize(model, loss, optimizer)`.
 
 Reusable components are ordinary functions. A factory separates fixed

@@ -1,7 +1,14 @@
-import { cross_entropy, mean, mul } from "affon:ops"
+import { cross_entropy, mean, mul, sub } from "affon:ops"
 import { describe, expect, test } from "std:test"
-import { Session, Tensor, losses, optimize, program } from "affon:compute"
-import { linear } from "affon:nn"
+import { Session, Tensor, optimize, program } from "affon:compute"
+import {
+  binary_cross_entropy,
+  binary_cross_entropy_with_logits,
+  cross_entropy as crossEntropyLoss,
+  linear,
+  mean_squared_error,
+  type LossCallable,
+} from "affon:nn"
 import { accumulate, adam, adamw, scheduled, schedules, sgd } from "affon:optim"
 
 describe("Program optimization", () => {
@@ -40,18 +47,18 @@ describe("Program optimization", () => {
     session.dispose()
   })
 
-  test("materializes built-in loss templates in the losses namespace", () => {
+  test("materializes specialized loss callables from affon:nn", () => {
     const head = linear({ out_features: 2 })
     const model = program("builtin_loss_model", p => head({ x: p.argument("x", Tensor.f32([2, 2])) }, "head"))
     const optimizer = sgd({ learning_rate: 0.01 })
-    const templates = [
-      losses.cross_entropy(),
-      losses.mean_squared_error(),
-      losses.binary_cross_entropy(),
-      losses.binary_cross_entropy_with_logits(),
+    const lossCallables = [
+      crossEntropyLoss(),
+      mean_squared_error(),
+      binary_cross_entropy(),
+      binary_cross_entropy_with_logits(),
     ]
-    expect(templates.every(Object.isFrozen)).toBe(true)
-    const steps = templates.map(template => optimize(model, template, optimizer))
+    expect(lossCallables.every(Object.isFrozen)).toBe(true)
+    const steps = lossCallables.map(loss => optimize(model, loss, optimizer))
     expect(steps[0].inspect().arguments.map(value => [value.name, value.spec.dtype, value.spec.shape])).toEqual([
       ["x", "f32", [2, 2]],
       ["labels", "i64", [2]],
@@ -62,6 +69,27 @@ describe("Program optimization", () => {
         ["target", "f32", [2, 2]],
       ])
     }
+    const renamed = optimize(model, crossEntropyLoss({ target: "class_id" }), optimizer)
+    expect(renamed.inspect().arguments.at(-1)?.name).toBe("class_id")
+    expect(() => crossEntropyLoss({ reduction: "sum" as any })).toThrow("mean reduction")
+
+    const customLoss: LossCallable = ({ input, target }) => {
+      const difference = sub(input, target)
+      return mean(mul(difference, difference))
+    }
+    const customStep = optimize(model, customLoss, optimizer)
+    expect(customStep.inspect().arguments.map(value => value.name)).toEqual(["x", "target"])
+  })
+
+  test("composes a loss callable directly with named bindings", () => {
+    const objective = crossEntropyLoss()
+    const source = program("callable_loss", p => objective({
+      input: p.argument("input", Tensor.f32([2, 3])),
+      target: p.argument("target", Tensor.i64([2])),
+    }, "objective"))
+
+    expect(source.inspect().nodes.at(-1)?.op).toBe("cross_entropy")
+    expect(source.inspect().outputs.length).toBe(1)
   })
 
   test("validates, freezes, and snapshots optimizer descriptors", () => {

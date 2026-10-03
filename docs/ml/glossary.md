@@ -30,8 +30,8 @@
   a parameterized `affon:nn` factory.
 - **model state** — Persistent non-parameter data declared with `p.state(...)`.
 - **gradient Program** — A Program produced by `gradient(loss, names)`.
-- **loss template** — An immutable descriptor from `affon:compute`'s `losses`
-  namespace that `optimize` materializes against a model's output spec.
+- **loss callable** — A specialized callable from `affon:nn` with named
+  `input` and `target` bindings that `optimize` materializes against a model.
 - **optimization Program** — A state-transition Program produced by
   `optimize(model, loss, optimizer)`.
 - **optimizer descriptor** — An immutable value from `affon:optim`, such as
