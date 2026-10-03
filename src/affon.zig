@@ -2,7 +2,7 @@ const std = @import("std");
 const hao = @import("hao");
 pub const config = @import("config.zig");
 pub const memory = @import("memory.zig");
-const compute_native = @import("js/compute/native_v2.zig");
+const compute_native = @import("js/compute/native.zig");
 const dataset_native = @import("js/dataset/native.zig");
 const qjs = hao.qjs;
 const packages = hao.package;
@@ -47,7 +47,7 @@ fn packageDefinition() hao.Package { return .{ .name = package_name, .sources = 
 pub fn registerPackage(registry: *hao.package.Registry) !void { try registry.register(packageDefinition()); }
 pub fn register(environment: *hao.RuntimeEnvironment) !void { try environment.registerPackage(packageDefinition()); }
 
-test "registers the candidate-backed Affon package" {
+test "registers the Affon package" {
     var environment = try hao.RuntimeEnvironment.init(std.testing.allocator, .{ .std = false });
     defer environment.deinit();
     try register(&environment);

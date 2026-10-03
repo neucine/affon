@@ -565,7 +565,10 @@ fn jsSessionFull(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c
 }
 
 fn compileNativeProgram(ctx: abi.JSContext, owner: *SessionObject, program_value: *const compute.Program, needs_seed: bool) abi.JSValue {
-    var compilation = owner.value.?.compile(program_value, .{}) catch return errorValue(ctx, "Program compilation failed");
+    // Fusion can remove instruction boundaries referenced by automatic residual
+    // recomputation. Retaining residuals keeps the public Program path valid
+    // while preserving the rest of the safe optimization profile.
+    var compilation = owner.value.?.compile(program_value, .{ .residual_policy = .retain }) catch return errorValue(ctx, "Program compilation failed");
     if (compilation == .diagnostics) {
         const entries = compilation.diagnostics.entries();
         var message: [256]u8 = undefined;
