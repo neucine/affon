@@ -183,33 +183,6 @@ fn flatten(ctx: abi.JSContext, value: abi.JSValueConst, depth: usize, result: *F
         for (0..@as(usize, @intCast(length))) |index| { const item = abi.jsGetArrayElement(ctx, value, @intCast(index)); defer abi.jsFreeValue(ctx, item); try flatten(ctx, item, depth + 1, result); }
     } else { if (depth != result.shape.items.len) return error.JaggedArray; var number: f64 = 0; if (abi.jsToFloat64(ctx, &number, value) < 0) return error.InvalidInput; try result.values.append(allocator, number); }
 }
-fn jsTensor(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
-    if (argc < 1) return typeError(ctx, "tensor expects values");
-    var flat = Flat{}; defer flat.deinit(); flatten(ctx, argv[0], 0, &flat) catch return typeError(ctx, "tensor expects a rectangular numeric value");
-    var spec = compute.TensorSpec.init(allocator, .f32, flat.shape.items, null) catch return errorValue(ctx, "tensor spec failed"); defer spec.deinit();
-    const backend = defaultBackend(); const session = sessionFor(backend) catch return errorValue(ctx, "backend unavailable");
-    const converted = allocator.alloc(f32, flat.values.items.len) catch return errorValue(ctx, "out of memory"); defer allocator.free(converted);
-    for (flat.values.items, converted) |source, *destination| destination.* = @floatCast(source);
-    const value = session.createTensor(spec, std.mem.sliceAsBytes(converted)) catch return errorValue(ctx, "tensor creation failed");
-    return createTensorObject(ctx, value, backend);
-}
-
-fn runBinary(ctx: abi.JSContext, tag: compute.OpTag, lhs: *TensorObject, rhs: *TensorObject) abi.JSValue {
-    if (lhs.backend != rhs.backend) return typeError(ctx, "operands must use one backend");
-    const lhs_value = lhs.value orelse return typeError(ctx, "Tensor has been disposed");
-    const rhs_value = rhs.value orelse return typeError(ctx, "Tensor has been disposed");
-    var builder = compute.ProgramBuilder.init(allocator); defer builder.deinit();
-    const a = builder.addInput(lhs_value.spec().*) catch return errorValue(ctx, "program input failed");
-    const b = builder.addInput(rhs_value.spec().*) catch return errorValue(ctx, "program input failed");
-    const output = builder.add(tag, .{ .none = {} }, &.{ a, b }) catch return errorValue(ctx, "operation validation failed");
-    const program = builder.finish(output) catch return errorValue(ctx, "program creation failed"); defer program.deinit();
-    const session = sessionFor(lhs.backend) catch return errorValue(ctx, "backend unavailable"); var compilation = session.compile(program, .{}) catch return errorValue(ctx, "compilation failed"); defer compilation.deinit();
-    const outputs = session.run(compilation.executable, &.{ lhs_value, rhs_value }) catch return errorValue(ctx, "execution failed");
-    if (outputs.len != 1) { session.releaseOutputs(outputs); return errorValue(ctx, "invalid output count"); }
-    const result = outputs[0]; allocator.free(outputs); return createTensorObject(ctx, result, lhs.backend);
-}
-fn binary(tag: compute.OpTag) type { return struct { fn call(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue { if (argc != 2) return typeError(ctx, "binary operation expects two Tensors"); const lhs = tensorObject(ctx, argv[0]) orelse return typeError(ctx, "expected Tensor"); const rhs = tensorObject(ctx, argv[1]) orelse return typeError(ctx, "expected Tensor"); return runBinary(ctx, tag, lhs, rhs); } }; }
-
 const JsonSpec = struct {
     dtype: []const u8,
     shape: []const usize,
@@ -593,7 +566,16 @@ fn jsSessionFull(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c
 
 fn compileNativeProgram(ctx: abi.JSContext, owner: *SessionObject, program_value: *const compute.Program, needs_seed: bool) abi.JSValue {
     var compilation = owner.value.?.compile(program_value, .{}) catch return errorValue(ctx, "Program compilation failed");
-    if (compilation == .diagnostics) { compilation.deinit(); return errorValue(ctx, "Program compilation diagnostics"); }
+    if (compilation == .diagnostics) {
+        const entries = compilation.diagnostics.entries();
+        var message: [256]u8 = undefined;
+        const rendered = if (entries.len == 0)
+            "Program compilation diagnostics"
+        else
+            std.fmt.bufPrintZ(&message, "Program compilation failed: {s}: {s}", .{ @tagName(entries[0].code()), entries[0].message() }) catch "Program compilation diagnostics";
+        compilation.deinit();
+        return errorValue(ctx, rendered.ptr);
+    }
     const executable = compilation.executable;
     executable.retain();
     compilation.deinit();
@@ -684,19 +666,6 @@ fn jsRunExecutable(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [
     defer allocator.free(outputs);
     const result = abi.jsNewArray(ctx);
     for (outputs, 0..) |output, index| if (abi.jsSetArrayElement(ctx, result, @intCast(index), createTensorObjectOwned(ctx, output, object.owner.backend, object.owner)) < 0) return errorValue(ctx, "failed to create output array");
-    return result;
-}
-
-// Kept for legacy model code while that package migrates to Program sessions.
-// The semantic compiler already owns graph execution, so this boundary only
-// preserves the old synchronous callback/result shape.
-fn jsWithGraphExecution(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
-    if (argc < 1 or !abi.jsIsFunction(ctx, argv[0])) return typeError(ctx, "$with_graph_execution expects a function");
-    const value = abi.jsCall(ctx, argv[0], abi.jsUndefined(ctx), &.{});
-    if (abi.jsIsException(value)) return value;
-    const result = abi.jsNewObject(ctx);
-    if (abi.jsIsException(result)) { abi.jsFreeValue(ctx, value); return result; }
-    if (abi.jsSetProperty(ctx, result, "value", value) < 0) return errorValue(ctx, "failed to create graph execution result");
     return result;
 }
 
@@ -1057,13 +1026,6 @@ fn readCheckpoint(ctx: abi.JSContext, argc: c_int, argv: [*c]abi.JSValueConst, i
 }
 
 const functions = [_]abi.JSFunction{
-    .{ .name = "tensor", .callback = jsTensor, .length = 1 },
-    .{ .name = "add", .callback = binary(.add).call, .length = 2 },
-    .{ .name = "sub", .callback = binary(.sub).call, .length = 2 },
-    .{ .name = "mul", .callback = binary(.mul).call, .length = 2 },
-    .{ .name = "div", .callback = binary(.div).call, .length = 2 },
-    .{ .name = "matmul", .callback = binary(.matmul).call, .length = 2 },
-    .{ .name = "dot", .callback = binary(.dot).call, .length = 2 },
     .{ .name = "defaultDevice", .callback = jsDefaultDevice, .length = 0 },
     .{ .name = "createSession", .callback = jsCreateSession, .length = 1 },
     .{ .name = "sessionTensor", .callback = jsSessionTensor, .length = 4 },
@@ -1075,7 +1037,6 @@ const functions = [_]abi.JSFunction{
     .{ .name = "saveNative", .callback = jsSaveNative, .length = 2 },
     .{ .name = "loadNative", .callback = jsLoadNative, .length = 2 },
     .{ .name = "inspectCheckpoint", .callback = jsInspectCheckpoint, .length = 1 },
-    .{ .name = "$with_graph_execution", .callback = jsWithGraphExecution, .length = 1 },
 };
 const function_ptrs = blk: { var pointers: [functions.len]*const abi.JSFunction = undefined; for (&functions, 0..) |*function, index| pointers[index] = function; break :blk pointers; };
 pub const specifier: [:0]const u8 = "affon:compute/native";

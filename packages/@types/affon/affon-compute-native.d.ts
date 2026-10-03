@@ -15,13 +15,6 @@ declare module "affon:compute/native" {
   interface NativeExecutable { dispose(): void }
 
   const native: {
-    tensor(values: number | readonly unknown[]): NativeTensor;
-    add(lhs: NativeTensor, rhs: NativeTensor): NativeTensor;
-    sub(lhs: NativeTensor, rhs: NativeTensor): NativeTensor;
-    mul(lhs: NativeTensor, rhs: NativeTensor): NativeTensor;
-    div(lhs: NativeTensor, rhs: NativeTensor): NativeTensor;
-    matmul(lhs: NativeTensor, rhs: NativeTensor): NativeTensor;
-    dot(lhs: NativeTensor, rhs: NativeTensor): NativeTensor;
     defaultDevice(): "cpu" | "metal" | "cuda";
     createSession(device: "cpu" | "metal" | "cuda" | `cuda:${number}`): NativeSession;
     sessionTensor(session: NativeSession, values: unknown, dtype: "f32" | "f64" | "i64", shape?: readonly number[]): NativeTensor;
@@ -33,7 +26,6 @@ declare module "affon:compute/native" {
     saveNative(entries: readonly { name: string; value: NativeTensor }[], path: string): void;
     loadNative(path: string, names?: readonly string[]): Record<string, NativeTensor>;
     inspectCheckpoint(path: string): Record<string, { dtype: "F32" | "F64" | "I64" | "BF16"; shape: number[] }>;
-    $with_graph_execution<T>(callback: () => T): { value: T };
   };
 
   export default native;

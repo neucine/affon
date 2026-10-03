@@ -24,4 +24,5 @@ export function flattenPersistableState(state: any, out: Record<string, ComputeV
 export function saveStateTree(state: ComputeState | ModuleRuntime, path: string): void
 export function loadStateTree(path: string): Record<string, ComputeValue>
 export function restorePersistedState(target: any, source: Record<string, ComputeValue>, prefix?: string): any
+export function inspectCheckpoint(path: string): Record<string, { dtype: string; shape: number[] }>
 }

@@ -7,6 +7,7 @@ import { open_checkpoint } from '../src/adapters/checkpoint.ts'
 import { load_llama } from '../src/adapters/llama.ts'
 import { snapshot_download } from '../src/index.ts'
 import { parse_checkpoint_index } from '../src/hub/checkpoint-index.ts'
+import { generate_causal } from './execute-causal.ts'
 const fixture = 'packages/@affon/huggingface/test/fixtures/llama'
 test('indexed shards match a single-file model and enforce tensor ownership', async () => {
   const temp = (await run({cmd:'mktemp',args:['-d','/tmp/affon-shard-test.XXXXXX']})).stdout.trim()
@@ -22,7 +23,7 @@ test('indexed shards match a single-file model and enforce tensor ownership', as
     fs.writeFileSync(`${temp}/config.json`,fs.readFileSync(`${fixture}/config.json`))
     const writeIndex = () => fs.writeFileSync(`${temp}/model.safetensors.index.json`,JSON.stringify({weight_map:map}))
     writeIndex()
-    expect(load_llama(temp).generate([1,7,12],3)).toEqual(load_llama(fixture).generate([1,7,12],3))
+    expect(generate_causal(load_llama(temp),[1,7,12],3)).toEqual(generate_causal(load_llama(fixture),[1,7,12],3))
     map['absent.weight']=names[0];writeIndex()
     expect(()=>open_checkpoint(temp)).toThrow('Missing indexed')
     delete map['absent.weight'];map[entries[0][0]]=names[1];writeIndex()

@@ -1,4 +1,4 @@
-import type { Session, Tensor } from 'affon:compute'
+import type { Session, Tensor, TensorData } from 'affon:compute'
 import type { TextEncodeOpts, TextTokenizer } from 'affon:dataset/tokenizer.ts'
 import { readDelimitedRows, readLines, readParagraphs, textFromString } from 'affon:dataset/text_io.ts'
 import type { DelimitedTextReadOpts, TextReadOpts, TextSourceOpts } from 'affon:dataset/text_io.ts'
@@ -246,7 +246,7 @@ function inferTensorDType(value: unknown): 'i64' | 'f32' {
 }
 
 function tensorizeSelectedValue(value: unknown, session: Session): Tensor {
-  return session.tensor(cloneValue(value), { dtype: inferTensorDType(value) })
+  return session.tensor(cloneValue(value) as TensorData, { dtype: inferTensorDType(value) })
 }
 
 function requireString(value: unknown, methodName: string, field: string): string {

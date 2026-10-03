@@ -8,6 +8,7 @@ import { load_vit } from "../../../packages/@affon/huggingface/src/adapters/vit.
 import { load_model } from "../../../packages/@affon/huggingface/src/index.ts";
 import type { OnnxImageClassifier } from "../../../packages/@affon/huggingface/src/index.ts";
 import { compare_values } from "../audit/compare.ts";
+import { execute_vit, GraphProgramRuntime } from "../src/inference/program-runtime.ts";
 const directory = getEnv("AFFON_ONNX_DIR")!;
 const modelDirectory = getEnv("AFFON_HF_MODEL_DIR")!;
 const device = (getEnv("AFFON_DEVICE") ?? "cpu") as Device;
@@ -47,8 +48,8 @@ const memory = () =>
 const start = Date.now();
 const model =
   route === "graph"
-    ? load_graph(directory, device)
-    : route === "hf-onnx" ? load_model(modelDirectory, {task:"image-classification",backend:"onnx",graph_dir:directory,device}) : load_vit(modelDirectory, device);
+    ? load_graph(directory)
+    : route === "hf-onnx" ? load_model(modelDirectory, {task:"image-classification",backend:"onnx",graph_dir:directory}) : load_vit(modelDirectory);
 const load_ms = Date.now() - start,
   after_load = memory();
 const ref = checkpoint.load(`${directory}/reference.safetensors`) as Record<
@@ -56,6 +57,7 @@ const ref = checkpoint.load(`${directory}/reference.safetensors`) as Record<
   Tensor
 >;
 const session = new Session({ device });
+const graphRuntime = route === "adapter" ? undefined : new GraphProgramRuntime(model as ReturnType<typeof load_graph>, device);
 const flatten = (x: Tensor) =>
   (x.to_array() as number[]).flat(Infinity) as number[];
 const results = [];
@@ -65,13 +67,11 @@ for (let i = 0; i < 2; i++) {
   let actual: number[] = [];
   for (let run = -warmups; run < iterations; run++) {
     const start = Date.now();
-    const out =
-      route === "graph"
-        ? (model as ReturnType<typeof load_graph>).forward({ pixels: input })
-            .logits
-        : (model as ReturnType<typeof load_vit> | OnnxImageClassifier).forward(input).output;
+    const native = route === "adapter" ? execute_vit(model as ReturnType<typeof load_vit>, input, device) : undefined;
+    const outputs = graphRuntime?.forward({ pixels: input });
+    const out = route === "adapter" ? native!.output : outputs![route === "graph" ? "logits" : (model as OnnxImageClassifier).output_name];
     actual = flatten(out);
-    out.dispose();
+    if (native) native.dispose(); else out.dispose();
     if (run >= 0) times.push(Date.now() - start);
   }
   const onnx = compare_values(actual, flatten(ref[`case_${i}.onnx`]));
@@ -105,4 +105,4 @@ fs.writeFileSync(getEnv("AFFON_HF_REPORT")!, JSON.stringify(report, null, 2));
 console.log(JSON.stringify(report));
 if (!report.passed) throw Error("ONNX parity check failed; see saved report");
 session.dispose();
-(model as any).dispose?.();
+graphRuntime?.dispose();

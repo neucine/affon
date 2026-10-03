@@ -47,8 +47,4 @@ For short scripts, `Tensor.from(...)`, `Tensor.zeros(...)`,
 lazy default Session. Explicit disposal is optional; use it only when a workload
 needs deterministic release.
 
-## Compatibility
-
-The previous eager/autograd surface remains temporarily available from
-`affon:compute/legacy`, and the previous module layer from `affon:nn/legacy`.
-Those modules are migration aids, not alternative spellings for new code.
+The Program API is the only public compute and neural-network authoring model.

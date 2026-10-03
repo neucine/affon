@@ -6,6 +6,7 @@ import type { Device, Tensor } from 'affon:compute'
 import { createHFTokenizerFromFile } from '../../../packages/@affon/tokenizers/src/index.ts'
 import { load_model } from '../../../packages/@affon/huggingface/src/index.ts'
 import { compare_values } from './compare.ts'
+import { CausalProgramRuntime } from '../src/inference/program-runtime.ts'
 
 const directory = getEnv('AFFON_HF_MODEL_DIR')
 if (!directory) throw new Error('Set AFFON_HF_MODEL_DIR to the prepared reference directory')
@@ -22,7 +23,8 @@ const memory = () => Object.fromEntries(telemetry.metrics()
     && (metric.name.includes('bytes') || metric.name.includes('footprint')))
   .map(metric => [`${metric.scope}.${metric.name}`, metric.value]))
 const memory_samples = [{ phase: 'before_load', values: memory() }]
-const model = load_model(directory, { task: 'text-generation', device: device as Device })
+const model = load_model(directory, { task: 'text-generation' })
+const runtime = new CausalProgramRuntime(model, device as Device)
 const load_ms = Date.now() - started
 memory_samples.push({ phase: 'after_load', values: memory() })
 const tokenizer = createHFTokenizerFromFile(`${directory}/tokenizer.json`)
@@ -51,28 +53,28 @@ for (let i = 0; i < manifest.cases.length; i++) {
   // Reference IDs deliberately isolate model errors from tokenizer errors.
   check(`case_${i}.forward`, () => {
     const start = Date.now()
-    const output = model.forward(sample.input_ids)
+    const output = runtime.forward(sample.input_ids)
     const logits = compareTensor(`case_${i}.logits`, output.logits)
     const hidden_states = output.hidden_states.map((hidden, layer) => compareTensor(`case_${i}.hidden_${layer}`, hidden))
+    output.logits.dispose(); for (const hidden of output.hidden_states) hidden.dispose()
     return { passed: logits.passed && hidden_states.every(result => result.passed), logits, hidden_states,
       forward_and_comparison_ms: Date.now() - start }
   })
-  check(`case_${i}.cached_forward`, () => {
-    const session = model.create_session()
+  check(`case_${i}.output_windows`, () => {
     const checks = []
     for (let start = 0; start < sample.input_ids.length;) {
       const end = Math.min(sample.input_ids.length, start + (start === 0 ? 1 : 2))
-      const output = session.forward(sample.input_ids.slice(start, end))
+      const output = runtime.forward(sample.input_ids.slice(0, end), start)
       checks.push(compareTensor(`case_${i}.logits`, output.logits, start, end))
       output.hidden_states.forEach((hidden, layer) => checks.push(compareTensor(`case_${i}.hidden_${layer}`, hidden, start, end)))
+      output.logits.dispose(); for (const hidden of output.hidden_states) hidden.dispose()
       start = end
     }
-    session.reset()
     return { passed: checks.every(result => result.passed), checks }
   })
   check(`case_${i}.generation`, () => {
     const start = Date.now()
-    const actual = model.generate(sample.input_ids, sample.max_new_tokens)
+    const actual = runtime.generate(sample.input_ids, sample.max_new_tokens)
     return { passed: JSON.stringify(actual) === JSON.stringify(sample.generated_ids), actual,
       expected: sample.generated_ids, cached_generation_ms: Date.now() - start }
   })
@@ -83,9 +85,9 @@ for (let i = 0; i < manifest.cases.length; i++) {
   memory_samples.push({ phase: `after_case_${i}`, values: memory() })
 }
 for (const [name, fn] of [
-  ['empty_input', () => model.forward([])],
-  ['invalid_token', () => model.forward([model.config.vocab_size])],
-  ['context_overflow', () => model.generate([0], model.config.n_positions)],
+  ['empty_input', () => runtime.forward([])],
+  ['invalid_token', () => runtime.forward([model.config.vocab_size])],
+  ['context_overflow', () => runtime.generate([0], model.config.n_positions)],
 ] as const) {
   check(name, () => {
     try { fn(); return { passed: false } }
@@ -97,10 +99,11 @@ const report = {
   device, dtype: 'f32', reference_versions: manifest.versions,
   build_profile: getEnv('AFFON_AUDIT_BUILD') ?? 'unspecified',
   weight_origin: manifest.weight_origin ?? 'pretrained',
-  scope: 'batch=1, unpadded, eager GPT-2; full forward and cached greedy generation; reference artifacts converted to f32 SafeTensors',
+  scope: 'batch=1, unpadded GPT-2 Programs; full forward, output windows, and caller-owned greedy generation; reference artifacts converted to f32 SafeTensors',
   load_ms, memory_samples, passed: results.every(result => result.passed), results,
 }
 const reportPath = getEnv('AFFON_HF_REPORT') ?? `${directory}/audit-${device.replace(':', '-')}.json`
 fs.writeFileSync(reportPath, JSON.stringify(report, null, 2))
+runtime.dispose()
 console.log(JSON.stringify(report, null, 2))
 if (!report.passed) throw new Error(`Inference audit found gaps; see ${reportPath}`)

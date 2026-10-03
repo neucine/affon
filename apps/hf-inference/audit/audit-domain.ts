@@ -6,6 +6,7 @@ import type { Device, Tensor } from 'affon:compute'
 import { load_bert_processor } from '../../../packages/@affon/huggingface/src/index.ts'
 import { load_model, process_rgb_image } from '../../../packages/@affon/huggingface/src/index.ts'
 import { compare_values } from './compare.ts'
+import { execute_bert, execute_vit } from '../src/inference/program-runtime.ts'
 
 const directory = getEnv('AFFON_HF_MODEL_DIR')
 if (!directory) throw new Error('Set AFFON_HF_MODEL_DIR')
@@ -48,7 +49,7 @@ memory('before_model_load')
 const start = Date.now()
 try {
   if (manifest.family === 'bert') {
-    const model = load_model(directory, { task: 'feature-extraction', device })
+    const model = load_model(directory, { task: 'feature-extraction' })
     const processor = load_bert_processor(directory)
     memory('after_model_load')
     for (let i = 0; i < manifest.cases.length; i++) {
@@ -63,16 +64,18 @@ try {
       })
       check(`case_${i}.forward`, () => {
         const input = prepared ?? sample
-        return { ...compareForward(i, model.forward(input.input_ids, input.attention_mask, input.token_type_ids)), input_source: prepared ? 'native_processor' : 'reference' }
+        const value = execute_bert(model, input.input_ids, input.attention_mask, input.token_type_ids, device)
+        try { return { ...compareForward(i, value), input_source: prepared ? 'native_processor' : 'reference' } }
+        finally { value.dispose() }
       })
       memory(`after_case_${i}`)
     }
     check('reject_all_masked', () => {
-      try { model.forward([[0]], [[0]], [[0]]); return { passed: false } }
+      try { execute_bert(model, [[0]], [[0]], [[0]], device); return { passed: false } }
       catch { return { passed: true } }
     })
   } else {
-    const model = load_model(directory, { task: 'image-classification', device })
+    const model = load_model(directory, { task: 'image-classification' })
     memory('after_model_load')
     for (let i = 0; i < manifest.cases.length; i++) {
       const sample = manifest.cases[i]
@@ -88,12 +91,14 @@ try {
         return result
       })
       check(`case_${i}.forward`, () => {
-        const value = model.forward(prepared ?? reference[`case_${i}.pixels`])
-        const comparison = compareForward(i, value)
-        const row = (value.output.to_array() as number[][])[0]
-        let top1 = 0
-        for (let j = 1; j < row.length; j++) if (row[j] > row[top1]) top1 = j
-        return { ...comparison, input_source: prepared ? 'native_processor' : 'reference', top1, expected_top1: sample.top1[0], passed: comparison.passed && top1 === sample.top1[0] }
+        const value = execute_vit(model, prepared ?? reference[`case_${i}.pixels`], device)
+        try {
+          const comparison = compareForward(i, value)
+          const row = (value.output.to_array() as number[][])[0]
+          let top1 = 0
+          for (let j = 1; j < row.length; j++) if (row[j] > row[top1]) top1 = j
+          return { ...comparison, input_source: prepared ? 'native_processor' : 'reference', top1, expected_top1: sample.top1[0], passed: comparison.passed && top1 === sample.top1[0] }
+        } finally { value.dispose() }
       })
       memory(`after_case_${i}`)
     }
@@ -103,7 +108,7 @@ const report = {
   format: 'affon-hf-domain-audit/v1', family: manifest.family, model_id: manifest.model_id,
   revision: manifest.revision, reference_versions: manifest.versions, device, dtype: 'f32',
   build_profile: getEnv('AFFON_AUDIT_BUILD') ?? 'unspecified',
-  implementation: '@affon/huggingface eager adapters; A&S erf-GELU approximation; ViT patch convolution expressed as matmul',
+  implementation: '@affon/huggingface Program adapters; A&S erf-GELU approximation; ViT patch convolution expressed as matmul',
   scope: 'Forward uses native processor outputs when their parity check passes; reference inputs are used only to isolate processor failures',
   elapsed_ms: Date.now() - start, memory_samples, passed: results.every(result => result.passed), results,
 }

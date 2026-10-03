@@ -42,16 +42,12 @@ Evaluated tensors, executables, execution state, and sessions all expose
 `dispose()`. A session retains its native resources until its remaining child
 objects have also been disposed or finalized.
 
-## Compatibility window
+## Public boundary
 
-`affon:compute` is the Program API. Legacy eager and captured-graph exports are
-temporarily available from `affon:compute/legacy` so existing Affon packages
-can migrate independently. They are not part of the Program model. In
-particular, `module`, legacy `compile(function)`, graph/report types, `grad`,
-`backward`, mutable `.grad`, global tensor math, global tensor constructors,
-and the stateful optimizer-step protocol must not be used to implement or
-explain the new surface. New code should use `learning_rate` and the
-snake_case Program options.
+`affon:compute` is the sole compute API. Operations are imported from
+`affon:ops`, optimizer descriptors from `affon:optim`, and neural-network
+parameters are declared through the active Program builder. Public options use
+snake_case names such as `learning_rate` and `out_features`.
 
 The new surface intentionally contains no `Module`, stateful callable layer,
 `Program.*`, hyperparameter/specialization API, `Context`, `Variables`, `Bindings`,

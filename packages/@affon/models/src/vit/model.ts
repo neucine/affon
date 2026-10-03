@@ -1,5 +1,5 @@
 import { add, cat, contiguous, div, erf, matmul, mean, mul, reshape, slice, softmax, sqrt, sub, transpose } from 'affon:ops'
-import { Session, Tensor, program, type Device, type FormalTensor } from 'affon:compute'
+import { Tensor, program, type FormalTensor } from 'affon:compute'
 import { positive_dimensions, parameter_checks } from '../shared/parameters.ts'
 import type { ModelTensor } from '../shared/parameters.ts'
 
@@ -10,14 +10,14 @@ export interface ViTWeights {
   classToken: ModelTensor; positionEmbedding: ModelTensor; patchProjection: ViTAffineWeights; finalNorm: ViTAffineWeights; classifier: ViTAffineWeights
 }
 
-/** Fixed-resolution, batch-one ViT executed as one reusable Program. */
-export function create_vit(config: ViTConfig, weights: ViTWeights, device: Device = 'cpu') {
+/** Author a fixed-resolution, batch-one ViT Program and its parameter initializer. */
+export function create_vit(config: ViTConfig, weights: ViTWeights) {
   const { width, innerWidth, heads, layers, imageSize, patchSize } = config
   positive_dimensions(width, innerWidth, heads, layers, imageSize, patchSize)
   if (width % heads || weights.blocks.length !== layers || imageSize % patchSize || !Number.isFinite(config.epsilon) || config.epsilon <= 0) throw new Error('Invalid ViT dimensions or normalization')
   const labels = weights.classifier?.bias?.shape[0]
   positive_dimensions(labels)
-  const check = parameter_checks(device)
+  const check = parameter_checks()
   for (const block of weights.blocks) {
     for (const params of [block.query, block.key, block.value, block.attentionOutput]) check.affine(params as any, [width, width])
     check.affine(block.attentionNorm as any, [width]); check.affine(block.feedForwardNorm as any, [width])
@@ -30,7 +30,6 @@ export function create_vit(config: ViTConfig, weights: ViTWeights, device: Devic
   check.tensor(weights.patchProjection.bias as any, [width])
   check.affine(weights.finalNorm as any, [width]); check.affine(weights.classifier as any, [width, labels])
 
-  const session = new Session({ device })
   const values: Record<string, ModelTensor> = {
     class_token: weights.classToken,
     position_embedding: weights.positionEmbedding,
@@ -85,8 +84,8 @@ export function create_vit(config: ViTConfig, weights: ViTWeights, device: Devic
       const expand = affine(`${prefix}_expand`, [width, innerWidth])
       const contract = affine(`${prefix}_contract`, [innerWidth, width])
       const input = norm(x, attentionNorm)
-      x = add(x, dense(attention(dense(input, query), dense(input, key), dense(input, value)), attentionOutput))
-      x = add(x, dense(gelu(dense(norm(x, feedForwardNorm), expand)), contract))
+      x = add(x, contiguous(dense(attention(dense(input, query), dense(input, key), dense(input, value)), attentionOutput)))
+      x = add(x, contiguous(dense(gelu(dense(norm(x, feedForwardNorm), expand)), contract)))
       hiddenStates.push(x)
     }
     const final = norm(x, affine('final_norm', [width]))
@@ -94,19 +93,5 @@ export function create_vit(config: ViTConfig, weights: ViTWeights, device: Devic
     const cls = reshape(contiguous(slice(final, [{ start: 0, stop: 1 }, { start: 0, stop: 1 }, { start: 0, stop: width }])), [1, width])
     return [dense(cls, affine('classifier', [width, labels])), ...hiddenStates]
   })
-  const state = session.initialize(source, { parameters: values })
-  const executable = session.compile(source)
-
-  function forward(pixels: ModelTensor) {
-    if (pixels.dtype !== 'f32' || JSON.stringify(pixels.shape) !== JSON.stringify([1, 3, imageSize, imageSize])) throw new Error('Expected fixed-size batch-one RGB ViT input')
-    const input = session.tensor(pixels.to_array())
-    try {
-      const outputs = executable.run({ pixels: input }, state) as Tensor[]
-      return { output: outputs[0], hidden_states: outputs.slice(1) }
-    } finally {
-      input.dispose()
-    }
-  }
-  function dispose() { state.dispose(); session.dispose() }
-  return { config, forward, dispose }
+  return { config, forward: source, parameters: values }
 }

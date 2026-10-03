@@ -1,16 +1,17 @@
 import fs from 'std:fs'
 import checkpoint from 'affon:checkpoint'
+import { Session } from 'affon:compute'
 import { describe, expect, test, values } from 'std:test'
-import { tensor } from 'affon:compute/legacy'
 
 describe('checkpoint bundle', () => {
   test('saves and loads a checkpoint bundle with tensor groups and manifest metadata', () => {
+    const session = new Session({ device: 'cpu' })
     const prefix = `/tmp/affon-checkpoint-bundle-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
     const state = {
-      weight: tensor([[1, 2], [3, 4]], { dtype: 'f32' }),
+      weight: session.tensor([[1, 2], [3, 4]], { dtype: 'f32' }),
     }
     const optimizer = {
-      momentum: tensor([0.1, 0.2], { dtype: 'f32' }),
+      momentum: session.tensor([0.1, 0.2], { dtype: 'f32' }),
     }
 
     checkpoint.saveBundle(prefix, {
@@ -37,5 +38,6 @@ describe('checkpoint bundle', () => {
     expect(values(loaded.state.weight)).toEqual([[1, 2], [3, 4]])
     expect(values(loaded.tensorGroups.optimizer.momentum)).toBeAllClose([0.1, 0.2])
     expect(loaded.manifest.format).toBe('affon-test-checkpoint-bundle/v1')
+    session.dispose()
   })
 })

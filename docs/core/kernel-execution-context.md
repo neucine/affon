@@ -29,6 +29,5 @@ negative-stride preparation retain their existing fallback behavior. Dense-row,
 rank-two, and ND f32 softmax use the common finish without changing shader math.
 
 See [scope semantics](metal-execution-scopes.md), [graph ownership](graph-memory-plan.md),
-and [matmul dispatch](metal-matmul-dispatch.md). Reproduce performance with the
-[operation harness](../../test/benchmarks/README.md); historical measurements are
-not part of this API contract.
+and [matmul dispatch](metal-matmul-dispatch.md). Historical measurements are not
+part of this API contract.

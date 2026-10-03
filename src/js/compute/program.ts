@@ -88,7 +88,7 @@ const BUILDER = Symbol.for("affon.compute.program_builder")
 const EMIT = Symbol("affon.compute.emit_operation")
 const FORMAL_OPERATION = Symbol("affon.compute.formal_operation")
 const FORMAL_SCALAR = Symbol("affon.compute.formal_scalar")
-const optimizationSources = new WeakMap<Program, { loss: Program; optimizer: Optimizer }>()
+const optimizationSources = new WeakMap<Program, { loss: Program<readonly FormalTensor[], FormalTensor>; optimizer: Optimizer }>()
 
 function freezeSpec(dtype: ProgramDType, shape: readonly number[], axes?: readonly string[]): TensorSpec {
   if (dtype !== "f32" && dtype !== "f64" && dtype !== "i64") throw new TypeError(`unsupported TensorSpec dtype: ${dtype}`)
@@ -868,6 +868,7 @@ function learningRateAt(value: LRSchedule, step: number): number {
     const ratio = Math.min((step - value.warmup_steps) / (value.total_steps - value.warmup_steps), 1)
     return value.end + (value.peak - value.end) * (1 + Math.cos(Math.PI * ratio)) / 2
   }
+  if (value.kind !== "sequence") throw new TypeError("unknown learning-rate schedule")
   let offset = step
   for (const part of value.schedules) {
     const duration = scheduleDuration(part)
@@ -1039,7 +1040,7 @@ export function optimize(
   if (source.parameters.length === 0) throw new TypeError("optimize requires at least one parameter")
   const snapshot = optimizerSnapshot(optimizer)
   const transition = Object.freeze({ kind: "optimize" as const, optimizer: snapshot, parameters: Object.freeze(source.parameters.map(parameter => parameter.provenance)) })
-  const result = createProgram(`${model.name}_${lossProgram.name}_${snapshot.kind}`, "optimize", source.nodes, source.outputs, Object.freeze([...source.transitions, transition]))
+  const result = createProgram(`${model.name}_${lossProgram.name}_${snapshot.kind}`, "optimize", source.nodes, source.outputs, Object.freeze([...source.transitions, transition])) as Program<readonly FormalTensor[], FormalTensor>
   optimizationSources.set(result, { loss: combined, optimizer: snapshot })
   return result
 }
@@ -1375,8 +1376,8 @@ export class Session {
         loss: this.compile(optimization.loss),
         gradient: this.compile(gradient(optimization.loss, names)),
         optimizer: optimization.optimizer,
-      })
-    } else executable = new Executable(this, source, native.compileProgram(this.#native, JSON.stringify(source.inspect())))
+      }) as Executable<Out>
+    } else executable = new Executable(this, source, native.compileProgram(this.#native, JSON.stringify(source.inspect()))) as Executable<Out>
     this.#cache.set(source, executable)
     return executable
   }

@@ -49,10 +49,11 @@ states use elementwise `abs(error) <= 1e-4 + 1e-4 * abs(reference)`; token IDs
 and decoded strings require exact agreement. Forward checks use reference IDs
 so a tokenizer mismatch does not conceal a separate model result.
 
-`load_gpt2(directory, device)` in `@affon/huggingface` also provides `forward(ids)` and
-`generate(ids, max_new_tokens)` for local experiments. The latter returns the
-prompt plus generated IDs and stops at EOS. The adapter uses `no_grad`, constant
-weights, and deterministic evaluation semantics (no dropout).
+`load_gpt2(directory)` in `@affon/huggingface` returns a device-neutral Program
+factory and checkpoint parameter initializer. The audit owns its `Session`,
+`ExecutionState`, causal inputs, greedy token selection, and resource disposal.
+`forward(length, outputStart)` is an output window over full-prefix execution;
+it is not described as a KV cache.
 
 ## Scope and limits
 
@@ -144,16 +145,9 @@ A passing classifier output is not a passing model audit. In `checks`,
 entry zero is the final output, followed by hidden states in reference order,
 then BERT's mean-pooled and pooler outputs when present.
 
-Both encoder adapters use an explicitly approximate erf-GELU composition from
-existing primitives. Its independent PyTorch fixture can be tested offline:
-
-```sh
-./zig-out/bin/affon test apps/hf-inference/tests/encoder-ops.test.ts
-```
-
-The fixture records `torch.nn.functional.gelu(approximate="none")` on 257 evenly
-spaced f32 values from -8 to 8. ViT patch convolution is expressed as patches
-plus matmul; general convolution support is not established by this adapter.
+Both encoder adapters author canonical Programs. ViT patch convolution is
+expressed as patches plus matmul; general convolution support is not
+established by this adapter.
 
 `processors.test.ts` covers 21 independent tokenizer and resize fixtures. To
 regenerate them with the pinned Python dependencies, run
@@ -162,17 +156,6 @@ require no downloaded model weights.
 
 ## Diagnose ViT numerical drift
 
-Capture individual PyTorch operation inputs and outputs, then run each native
-operation with the exact reference input:
-
-```sh
-/tmp/affon-hf-venv/bin/python apps/hf-inference/audit/prepare-vit-diagnostics.py \
-  --directory /tmp/affon-hf-vit
-AFFON_DEVICE=cpu AFFON_HF_MODEL_DIR=/tmp/affon-hf-vit \
-  /tmp/affon-hf-release/bin/affon apps/hf-inference/audit/diagnose-vit.ts
-```
-
-All 35 captured operations pass on CPU and Metal at the unchanged tolerance.
 To measure propagation of the initial embedding difference through PyTorch:
 
 ```sh
@@ -262,8 +245,8 @@ AFFON_DEVICE=cpu AFFON_SMOLLM2_DIR=/path/to/snapshot \
 Repeat the final command with `AFFON_DEVICE=metal`. The oracle uses PyTorch f32,
 eager attention, evaluation mode, and uncached greedy generation. Four prompts
 cover basic questions, rewriting, digits, Unicode, and whitespace. Checks require
-exact chat formatting, input IDs, eight-step cached/uncached output IDs, and
-decoded completions. All hidden states, full logits, and chunked cached logits
+exact chat formatting, input IDs, eight-step caller-owned output IDs, and
+decoded completions. All hidden states, full logits, and output-window logits
 use `abs(error) <= 5e-4 + 1e-4 * abs(reference)`. This model-specific absolute
 tolerance is looser than the GPT-2 audit's `1e-4`; strict parity at that older
 threshold is not claimed. Reports and model artifacts stay outside the repository.
@@ -309,7 +292,7 @@ Measured on an M4 MacBook Pro with 16 GB unified memory, ReleaseFast, Metal,
 
 These are observations for this workload, not a general model-size speed ranking.
 The 360M CPU and Metal oracles pass. For 1.7B, all four prompts' tokenization,
-eight-token cached/uncached greedy outputs, full logits, and cached chunk logits
+eight-token caller-owned greedy outputs, full logits, and output-window logits
 pass. Six late-layer hidden-state comparisons contain 22 out-of-tolerance values;
 the audit remains **failing**, with no tolerance relaxation. Its report records
 all numerical failures before exiting unsuccessfully. CUDA has not been run on
@@ -365,8 +348,7 @@ teardown diagnostic (two Hao resources, 1,672 bytes), reproduced using only nati
 
 Llama's trusted inference forward body now uses the existing bounded Metal
 execution scope (32 invocations / 64 MiB of leased capacity per chunk; oversized
-invocations execute alone). Outputs complete before return, and session cache
-updates occur only after successful completion. CPU and CUDA are unchanged.
+invocations execute alone). Outputs complete before return. CPU and CUDA are unchanged.
 
 On the same 135M, 40-prompt-token / 16-output-token profiling workload, the two
 measured 15-step decode intervals fell from 6.125–6.207 s to 2.609–2.659 s
@@ -376,8 +358,8 @@ command timestamps were complete. Generated text was identical. The batched
 measured 2.54–2.55, but that earlier run did not enable command timing.
 These short desktop runs do not establish universal speedups or memory stability.
 
-The small independent Llama oracle, cache isolation and retained-output tests
-pass on Metal; all four 360M reference cases pass. The batched 1.7B run matches
+The small independent Llama oracle and output-window tests pass on Metal; all
+four 360M reference cases pass. The batched 1.7B run matches
 all tested generated IDs and logits, retaining the same six failing hidden-state
 comparisons (22 values) at the unchanged tolerance. The 1.7B audit therefore
 continues to exit unsuccessfully. Batching does not fix that existing drift.

@@ -12,16 +12,13 @@ Use it when you want to:
 
 ```ts
 import checkpoint from 'affon:checkpoint'
-import nn from 'affon:nn/legacy'
+import { Session } from 'affon:compute'
 
-const model = nn.Sequential(
-  nn.Linear(3, 4),
-  nn.Linear(4, 2),
-)
+const session = new Session({ device: 'cpu' })
+const executionState = session.initialize(model, { seed: 7 })
 
-checkpoint.save(model.state(), 'model.safetensors')
-const state = checkpoint.load('model.safetensors')
-checkpoint.restore(model, state)
+checkpoint.save(executionState.parameters, 'model.safetensors')
+const parameters = checkpoint.load('model.safetensors')
 ```
 
 Loading accepts SafeTensors `F32`, `F64`, and `I64` entries. `BF16` storage is
@@ -54,7 +51,7 @@ For multi-file training checkpoints, use the bundle helpers:
 import checkpoint from 'affon:checkpoint'
 
 checkpoint.saveBundle('artifacts/run-1/epoch-2', {
-  state: model.state(),
+  state: executionState.parameters,
   tensorGroups: {
     optimizer: optimizerState.tensors,
   },
@@ -77,14 +74,8 @@ This writes:
 
 ## Module Convenience
 
-Compute-backed modules still expose:
-
-- `model.save(path)`
-- `model.load(path)`
-
-Those are convenience methods for the module instance itself. The public
-module-level persistence surface is `affon:checkpoint`, not `affon:compute` or
-`affon:nn/legacy`.
+The public persistence surface is `affon:checkpoint`. Program definitions stay
+device-neutral; persist the tensors held by their `ExecutionState`.
 
 ## Scope
 

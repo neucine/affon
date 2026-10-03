@@ -46,5 +46,5 @@ parameters, state, and constants.
 `ExecutionState`. `Executable.run(...)` accepts only named argument tensors;
 it obtains parameters and state from that object.
 
-The former module tree, callable layers, `.parameters`, and train/eval mode API
-is retained in `affon:nn/legacy` only for migration.
+There is no separate callable module tree or train/eval mode object. Programs
+make parameters and state explicit and inspectable.

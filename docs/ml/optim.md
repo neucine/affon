@@ -95,5 +95,5 @@ Optimizer moments live in `state.optimizer_state`; model parameters live in
 `state.parameters`. Dispose each output tensor after use, and dispose the
 executable, execution state, and Session when training is finished.
 
-The old mutable `.grad`, `clear_grad`, and callable optimizer-step protocol is
-available only through `affon:compute/legacy` during migration.
+Gradients and optimizer updates are Program transforms; evaluated tensors do
+not expose mutable gradient slots or stateful optimizer steps.

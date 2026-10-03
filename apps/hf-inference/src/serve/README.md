@@ -31,7 +31,8 @@ Invalid model inputs return 400 and HTTP bodies over 16 MiB return 413.
 Requests that observe active inference return 429. Synchronous inference blocks
 the event loop, so later requests can wait until it completes, including health
 checks. There is no worker isolation or guaranteed immediate busy response.
-Generation is greedy and uses a request-local KV cache.
+Generation is greedy and executes explicit full-prefix Programs with one-token
+output windows. No KV cache is claimed.
 
 ### Image classification
 
@@ -159,7 +160,7 @@ token budget. Full-prefix decoding preserves byte-level Unicode boundaries.
 
 Only one generation session may own the model at a time. `POST
 /api/generate/cancel` releases it; idle sessions expire after 90 seconds.
-Stop finishes the current token step, then releases the cache. Closing the tab
-stops further token requests, and idle expiry releases its remaining cache.
+Stop finishes the current token step, then releases the caller-owned runtime.
+Closing the tab stops further token requests, and idle expiry releases that runtime.
 Other inference requests receive 429 while a session is reserved. The original
 buffered `/api/generate` endpoint remains available.

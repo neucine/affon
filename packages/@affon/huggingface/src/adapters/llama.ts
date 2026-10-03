@@ -1,12 +1,11 @@
 import fs from 'std:fs'
-import type { Device } from 'affon:compute'
 import { create_llama, type LlamaWeights } from '../../../models/src/llama/index.ts'
 import { prepare_encoder_checkpoint } from './encoder-checkpoint.ts'
 
 /** Load the tied-head, bias-free, unscaled-RoPE Llama variant used by SmolLM2.
  * BF16 checkpoint storage is widened to f32 by checkpoint.load; execution is f32.
  */
-export function load_llama(directory: string, device: Device = 'cpu') {
+export function load_llama(directory: string) {
   const config = JSON.parse(fs.readFileSync(`${directory}/config.json`))
   if (config.model_type !== 'llama' || config.hidden_act !== 'silu' || config.tie_word_embeddings !== true
     || config.attention_bias || config.mlp_bias || config.rope_scaling != null || config.rope_interleaved
@@ -21,7 +20,7 @@ export function load_llama(directory: string, device: Device = 'cpu') {
     || !Number.isFinite(config.rope_theta) || config.rope_theta <= 0
     || !Number.isInteger(config.eos_token_id) || config.eos_token_id < 0 || config.eos_token_id >= config.vocab_size)
     throw Error('Invalid Llama dimensions, RoPE, normalization or EOS token')
-  const ops = prepare_encoder_checkpoint(directory, device)
+  const ops = prepare_encoder_checkpoint(directory)
   const require = ops.require_weight, w = ops.weights, kvWidth = d / heads * kvHeads
   require('model.embed_tokens.weight', [config.vocab_size, d]); require('model.norm.weight', [d])
   const blocks: LlamaWeights['blocks'] = []
@@ -36,6 +35,6 @@ export function load_llama(directory: string, device: Device = 'cpu') {
     blocks.push({ attentionNorm: weight('input_layernorm'), feedForwardNorm: weight('post_attention_layernorm'), query: weight('self_attn.q_proj'), key: weight('self_attn.k_proj'), value: weight('self_attn.v_proj'), attentionOutput: weight('self_attn.o_proj'), gate: weight('mlp.gate_proj'), up: weight('mlp.up_proj'), down: weight('mlp.down_proj') })
   }
   ops.finish()
-  const model = create_llama({ width: d, innerWidth: inner, heads, kvHeads, layers, contextLength: config.max_position_embeddings, vocabSize: config.vocab_size, epsilon: config.rms_norm_eps, ropeTheta: config.rope_theta, eosTokenId: config.eos_token_id }, { tokenEmbedding: w['model.embed_tokens.weight'], finalNorm: w['model.norm.weight'], blocks }, device)
+  const model = create_llama({ width: d, innerWidth: inner, heads, kvHeads, layers, contextLength: config.max_position_embeddings, vocabSize: config.vocab_size, epsilon: config.rms_norm_eps, ropeTheta: config.rope_theta, eosTokenId: config.eos_token_id }, { tokenEmbedding: w['model.embed_tokens.weight'], finalNorm: w['model.norm.weight'], blocks })
   return { ...model, config }
 }

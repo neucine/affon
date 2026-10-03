@@ -1,5 +1,6 @@
 import { decode_wav } from '../../../../packages/@affon/huggingface/src/index.ts'
 import type { InferenceModels, InferenceOptions } from './models.ts'
+import { WhisperProgramRuntime } from './program-runtime.ts'
 export function transcribe_audio(
   models: InferenceModels,
   bytes: Uint8Array,
@@ -15,7 +16,10 @@ export function transcribe_audio(
     audio.sampling_rate,
   )
   const preprocessing_ms = Date.now() - start
-  const result = models.speech.model.transcribe(features)
+  const runtime = new WhisperProgramRuntime(models.speech.model, device)
+  let result: ReturnType<WhisperProgramRuntime['transcribe']>
+  try { result = runtime.transcribe(features) }
+  finally { runtime.dispose(); features.dispose() }
   return {
     ...result,
     preprocessing_ms,

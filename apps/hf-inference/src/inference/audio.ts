@@ -1,6 +1,7 @@
 import { decode_wav } from '../../../../packages/@affon/huggingface/src/index.ts'
 import type { InferenceModels, InferenceOptions } from './models.ts'
 import { rank_classes } from './classification.ts'
+import { GraphProgramRuntime } from './program-runtime.ts'
 
 /** Decode, downmix, resample and classify WAV bytes without browser/Python processing. */
 export function classify_audio(
@@ -18,9 +19,12 @@ export function classify_audio(
     audio.sampling_rate,
   )
   const inference_start = Date.now()
-  const logits = (
-    models.audio.model.forward(features).output.to_array() as number[][]
-  )[0]
+  const runtime = new GraphProgramRuntime(models.audio.model, device)
+  const outputs = runtime.forward({ [models.audio.model.input_name]: features })
+  const output = outputs[models.audio.model.output_name]
+  let logits: number[]
+  try { logits = (output.to_array() as number[][])[0] }
+  finally { for (const value of Object.values(outputs)) value.dispose(); runtime.dispose(); features.dispose() }
   const inference_ms = Date.now() - inference_start
   const predictions = rank_classes(logits, models.audio.model.config.id2label)
   return {

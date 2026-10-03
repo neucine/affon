@@ -6,59 +6,43 @@
 bun x tsc -p test/types/tsconfig.json --noEmit
 ```
 
-`test/e2e/compute/` is the migrated Affon compute parity corpus. It uses Hao's
-`std:test` and `std:util` modules directly. Legacy neural-network parity remains
-in its separate `affon:nn/legacy` suite; canonical Program API coverage lives
-alongside compute tests here.
+`test/e2e/program/` follows the public Program paradigm: Program authoring and
+execution, operations shared by formal and evaluated tensors, and
+neural-network authoring. Dataset and checkpoint integration stay in their own
+focused directories. Package and application tests live beside their owners.
 
-Run selected migrated tests with:
+The Program boundary is organized by responsibility:
+
+- `contracts.test.ts` locks down the runtime export and value contracts.
+- `authoring.test.ts` covers composition, inspection, and transforms.
+- `lifecycle.test.ts` covers Session, Tensor, and Executable ownership.
+- `optimization.test.ts` covers loss templates, optimizer descriptors,
+  accumulation, and schedules.
+- `execution.test.ts` covers initialized state, validation, and lowering.
+- `tensor-construction.test.ts` covers evaluated Tensor factories and their
+  default Session behavior.
+- `operation-parity.test.ts` proves one operation vocabulary works for formal
+  and evaluated tensors.
+- `operation-coverage.test.ts` exercises the supported operation families and
+  metrics.
+- `operation-contracts.test.ts` isolates representation, shape, dtype, and
+  authoring failures.
+- `neural-network.test.ts` covers the `ProgramBuilder.nn` authoring helpers.
+- `test/types/program.test.ts` locks down the compile-time public surface and
+  verifies removed compatibility modules remain unavailable.
+
+Run the canonical runtime suites with:
 
 ```sh
 zig build install
-./zig-out/bin/affon test test/e2e/compute/autograd.test.ts
+./tools/test-runtime.sh
 ```
 
-## CUDA regressions
-
-On a Linux host with a working NVIDIA driver, NVRTC, and cuBLAS, run:
+Run only the Program API boundary with:
 
 ```sh
-./zig-out/bin/affon test test/cuda
+./zig-out/bin/affon test test/e2e/program
 ```
 
-These suites deliberately fail if CUDA is unavailable. They cover transfers,
-views, selection, casts, parameter initialization over non-finite storage,
-native graph execution, loss backward, clipping, and
-multi-step SGD/Adam/AdamW parity against CPU. A tiny decoder additionally checks
-tied embeddings, causal attention, training parity, and greedy/top-k generation. The
-sibling `compute` repository's `zig build test` also contains CUDA numerical
-regressions, which are skipped when its driver probe reports unavailable.
-
-For synchronized benchmark timings, build with `zig build -Doptimize=ReleaseFast`
-and run `./zig-out/bin/affon tools/bench-cuda.ts`. Uploads and first-use compilation
-are outside the timed region; scalar reads synchronize each measured operation.
-
-
-## Compute performance benchmarks
-
-[test/benchmarks](benchmarks/README.md) contains the model-independent compute
-benchmark cases, Affon/PyTorch workers, coverage reports and regression checks.
-It runs separately from the normal correctness suite because timing requires a
-ReleaseFast binary and a quiet host. The Python environment needs `torch` and
-`safetensors`.
-
-```sh
-/path/to/python test/benchmarks/run.py \
-  --affon /path/to/release/bin/affon \
-  --compute /path/to/compute \
-  --output /tmp/compute-bench-new
-```
-
-Run the benchmark reporting tests with:
-
-```sh
-python3 -m unittest discover -s test/benchmarks -p 'test_*.py'
-```
-
-Benchmark run outputs and investigation logs are local artifacts; keep reusable
-runners, case registries, and correctness fixtures in this repository.
+Backend coverage is exercised through the same Program suites by selecting the
+desired runtime device.

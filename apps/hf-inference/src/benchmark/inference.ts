@@ -8,6 +8,8 @@ import {
 } from '../../../../packages/@affon/huggingface/src/index.ts'
 import { TEXT_MODEL, IMAGE_MODEL } from '../inference/models.ts'
 import { rank_classes } from '../inference/classification.ts'
+import { CausalProgramRuntime, execute_vit } from '../inference/program-runtime.ts'
+import type { Device } from 'affon:compute'
 
 const device = getEnv('AFFON_DEVICE') ?? 'cpu'
 if (device !== 'cpu' && device !== 'metal') throw Error('Use cpu or metal')
@@ -16,7 +18,6 @@ if (family !== 'vit' && family !== 'gpt2') throw Error('Use vit or gpt2')
 const count = Number(getEnv('AFFON_BENCH_ITERATIONS') ?? 5)
 if (!Number.isInteger(count) || count < 3 || count > 100)
   throw Error('Use 3–100 measured iterations')
-const use_cache = getEnv('AFFON_BENCH_KV_CACHE') === '1'
 const path = getEnv('AFFON_BENCH_REPORT')
 if (!path) throw Error('Set AFFON_BENCH_REPORT')
 const spec = family === 'vit' ? IMAGE_MODEL : TEXT_MODEL
@@ -82,10 +83,9 @@ function record(values: Record<string, number>, index: number) {
   )
 }
 if (family === 'vit') {
-  const options = { task: 'image-classification' as const, device } as const
-  const processor = measure(() => load_processor(directory, options))
+  const processor = measure(() => load_processor(directory, { task: 'image-classification', device }))
   processor_load_ms = processor.ms
-  const loaded = measure(() => load_model(directory, options))
+  const loaded = measure(() => load_model(directory, { task: 'image-classification' }))
   model_load_ms = loaded.ms
   memory('after_load')
   // Fixed input construction is excluded; native resize/normalize is measured.
@@ -106,12 +106,11 @@ if (family === 'vit') {
       pixels.to_array()
       return pixels
     })
-    const forward = measure(
-      () =>
-        (
-          loaded.value.forward(prepared.value).output.to_array() as number[][]
-        )[0],
-    )
+    const forward = measure(() => {
+      const result = execute_vit(loaded.value, prepared.value, device as Device)
+      try { return (result.output.to_array() as number[][])[0] }
+      finally { result.dispose() }
+    })
     if (forward.value.some((x) => !Number.isFinite(x)))
       throw Error('Nonfinite output')
     const ranking = measure(() =>
@@ -128,10 +127,9 @@ if (family === 'vit') {
   }
   for (let i = -1; i < count; i++) record(iteration(i), i)
 } else {
-  const options = { task: 'text-generation' as const, device } as const
-  const processor = measure(() => load_processor(directory, options))
+  const processor = measure(() => load_processor(directory, { task: 'text-generation', device }))
   processor_load_ms = processor.ms
-  const loaded = measure(() => load_model(directory, options))
+  const loaded = measure(() => load_model(directory, { task: 'text-generation' }))
   model_load_ms = loaded.ms
   memory('after_load')
   const prompt = 'The future of computing is'
@@ -141,7 +139,7 @@ if (family === 'vit') {
     prompt_tokens: processor.value.encode(prompt).length,
     max_new_tokens: budget,
     batch: 1,
-    kv_cache: use_cache,
+    execution: 'full-prefix Program with one-token output window',
   }
   function iteration() {
     // Batch the very short tokenizer operation above millisecond clock resolution.
@@ -150,9 +148,9 @@ if (family === 'vit') {
       for (let i = 0; i < 1000; i++) ids = processor.value.encode(prompt)
       return ids
     })
-    const generation = measure(() =>
-      loaded.value.generate(encoding.value, budget, { use_cache }),
-    )
+    const runtime = new CausalProgramRuntime(loaded.value, device as Device)
+    const generation = measure(() => runtime.generate(encoding.value, budget))
+    runtime.dispose()
     const decoding = measure(() => processor.value.decode(generation.value))
     const tokens = generation.value.length - encoding.value.length
     if (

@@ -31,9 +31,8 @@ initialization. Simultaneous multi-device execution is not supported.
 
 Validation on RTX 3090 includes CPU/GPU parity for optimizer steps, losses and
 backward, fused dispatch, casts, views, infinite top-k values, and empty matmul.
-Run `zig build test` in `compute`, then `affon test test/cuda` in `affon`.
-`tools/bench-cuda.ts` provides synchronized timings with uploads and first-use
-compilation excluded. It is a small benchmark, not a production throughput claim.
+Run the canonical Program suites with a CUDA runtime device to validate the
+public execution path.
 
 The tables below retain the detailed CPU and Metal comparison.
 

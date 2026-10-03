@@ -1,4 +1,3 @@
-import { tensor } from 'affon:compute/legacy'
 import { figure, plot, show } from 'std:plot'
 import { inspect } from 'std:util'
 import { get } from 'std:http'
@@ -7,7 +6,7 @@ import ffi from 'std:ffi'
 import c from 'std:ffi/c'
 
 figure({ width: 600, height: 400 })
-plot(tensor([1, 2, 3]))
+plot([1, 2, 3])
 plot([1, 2], [3, 4], { label: 'series' })
 const svg: string = show().repr().data
 const description: string = inspect({ svg })

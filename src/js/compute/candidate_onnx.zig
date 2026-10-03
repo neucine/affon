@@ -23,6 +23,10 @@ pub const Comparison = struct {
 const TensorBytes = struct { shape: []const usize, bytes: []const u8 };
 
 pub fn run(allocator: std.mem.Allocator, io: std.Io, directory: []const u8, backend: compute.Backend, case_index: usize) !Result {
+    return runWithOptions(allocator, io, directory, backend, case_index, .{});
+}
+
+pub fn runWithOptions(allocator: std.mem.Allocator, io: std.Io, directory: []const u8, backend: compute.Backend, case_index: usize, compile_options: compute.CompileOptions) !Result {
     var scratch_arena = std.heap.ArenaAllocator.init(allocator);
     defer scratch_arena.deinit();
     const scratch = scratch_arena.allocator();
@@ -118,7 +122,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, directory: []const u8, back
     const reference_input = references.get(input_key) orelse return error.MissingReference;
     const input_tensor = try session.createTensor(input_spec, reference_input.bytes);
     defer input_tensor.deinit();
-    var compilation = try session.compile(program, .{});
+    var compilation = try session.compile(program, compile_options);
     defer compilation.deinit();
     var report = try compute.createExplanation(allocator, program, program, compilation.executable);
     defer report.deinit();

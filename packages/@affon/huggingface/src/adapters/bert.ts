@@ -1,14 +1,12 @@
 import { create_bert, type BertWeights } from '../../../models/src/bert/index.ts'
 import fs from 'std:fs'
-import type { Device } from 'affon:compute'
 import { prepare_encoder_checkpoint } from './encoder-checkpoint.ts'
 
 /** Load an f32 absolute-position BERT base encoder with its pooler.
  * @param directory Prepared local HF artifact directory.
- * @param device Execution device.
- * @returns Forward over rectangular ID, mask, and type-ID batches; includes hidden states and pooling.
+ * @returns Device-neutral shape-specialized Programs and a checkpoint parameter initializer.
  */
-export function load_bert(directory: string, device: Device) {
+export function load_bert(directory: string) {
   const config = JSON.parse(fs.readFileSync(`${directory}/config.json`))
   if (config.model_type !== 'bert' || config.hidden_act !== 'gelu' || config.is_decoder
     || config.add_cross_attention || (config.position_embedding_type ?? 'absolute') !== 'absolute') {
@@ -19,7 +17,7 @@ export function load_bert(directory: string, device: Device) {
     if (!Number.isInteger(value) || value <= 0) throw new Error('Invalid BERT dimension')
   }
   if (d % heads || !Number.isFinite(config.layer_norm_eps) || config.layer_norm_eps <= 0) throw new Error('Invalid BERT head/norm configuration')
-  const ops = prepare_encoder_checkpoint(directory, device)
+  const ops = prepare_encoder_checkpoint(directory)
   const { weights, require_weight: requireWeight } = ops
   const requireNorm = (prefix: string) => {
     requireWeight(`${prefix}.weight`, [d]); requireWeight(`${prefix}.bias`, [d])
@@ -50,6 +48,6 @@ export function load_bert(directory: string, device: Device) {
       return { query: affine(`${p}.attention.self.query`), key: affine(`${p}.attention.self.key`), value: affine(`${p}.attention.self.value`), attentionOutput: affine(`${p}.attention.output.dense`), attentionNorm: affine(`${p}.attention.output.LayerNorm`), feedForwardNorm: affine(`${p}.output.LayerNorm`), expand: affine(`${p}.intermediate.dense`), contract: affine(`${p}.output.dense`) }
     }),
   }
-  const model = create_bert({ width: config.hidden_size, innerWidth: config.intermediate_size, heads: config.num_attention_heads, layers: config.num_hidden_layers, vocabSize: config.vocab_size, contextLength: config.max_position_embeddings, typeVocabSize: config.type_vocab_size, epsilon: config.layer_norm_eps }, parameters, device)
+  const model = create_bert({ width: config.hidden_size, innerWidth: config.intermediate_size, heads: config.num_attention_heads, layers: config.num_hidden_layers, vocabSize: config.vocab_size, contextLength: config.max_position_embeddings, typeVocabSize: config.type_vocab_size, epsilon: config.layer_norm_eps }, parameters)
   return { ...model, config }
 }

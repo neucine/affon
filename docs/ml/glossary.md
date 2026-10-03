@@ -4,7 +4,7 @@
   `program(name, p => output)`.
 - **ProgramBuilder (`p`)** — The scoped authoring object that declares argument,
   parameter, state, and constant roles. Its `p.nn` namespace declares supported
-  neural-network parameters and losses.
+  parameterized neural-network operations.
 - **formal tensor** — A symbolic tensor value used only while authoring a
   Program. Operations on it add nodes to that Program.
 - **evaluated tensor** — A Session-owned value containing computed data.
@@ -26,6 +26,8 @@
   a parameterized `p.nn` helper.
 - **model state** — Persistent non-parameter data declared with `p.state(...)`.
 - **gradient Program** — A Program produced by `gradient(loss, names)`.
+- **loss template** — An immutable descriptor from `affon:compute`'s `losses`
+  namespace that `optimize` materializes against a model's output spec.
 - **optimization Program** — A state-transition Program produced by
   `optimize(model, loss, optimizer)`.
 - **optimizer descriptor** — An immutable value from `affon:optim`, such as
@@ -37,5 +39,3 @@
 - **shape** — The ordered sizes of a tensor's axes.
 - **axis** — One position in a tensor shape; it may optionally have a semantic
   name in a TensorSpec.
-- **legacy API** — The older eager/autograd and callable-module model exposed
-  temporarily through `affon:compute/legacy` and `affon:nn/legacy`.

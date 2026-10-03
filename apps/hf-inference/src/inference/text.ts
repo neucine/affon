@@ -1,4 +1,5 @@
 import type { InferenceModels } from './models.ts'
+import { CausalProgramRuntime } from './program-runtime.ts'
 
 /** Tokenize, generate greedily, and decode a passage using the loaded text model. */
 function prepare_text(
@@ -37,24 +38,25 @@ function prepare_text(
 /** Preserve the buffered API for existing callers. */
 export function generate_text(models: InferenceModels, prompt: string, budget: number, key?: string) {
   const {model, ids, result} = prepare_text(models, prompt, budget, key)
-  return result(model.generate(ids, budget))
+  const runtime = new CausalProgramRuntime(model, models.device)
+  try { return result(runtime.generate(ids, budget)) }
+  finally { runtime.dispose() }
 }
 
-/** One cached decode step per call. Decode the complete prefix to preserve UTF-8
+/** One explicit Program execution per call. Decode the complete prefix to preserve UTF-8
  * token boundaries; callers replace their displayed text with each snapshot. */
 export function create_text_generation(models: InferenceModels, prompt: string, budget: number, key?: string) {
   const {model, ids, result} = prepare_text(models, prompt, budget, key)
-  const session = model.create_session(), output = [...ids]
+  const runtime = new CausalProgramRuntime(model, models.device), output = [...ids]
   let done = false
-  const close = () => { done = true; session.reset() }
+  const close = () => { if (!done) runtime.dispose(); done = true }
   return {
     close,
     next() {
       if (done) throw Error('Generation has finished')
       try {
-        const input = output.length === ids.length ? ids : [output[output.length - 1]]
-        const logits = session.forward(input).logits
-        const row = (logits.to_array() as number[][][])[0][input.length - 1]
+        const logits = runtime.forward(output, output.length - 1).logits
+        const row = (logits.to_array() as number[][][])[0][0]
         let best = 0
         for (let i = 1; i < row.length; i++) if (row[i] > row[best]) best = i
         logits.dispose()
@@ -63,7 +65,7 @@ export function create_text_generation(models: InferenceModels, prompt: string, 
         const snapshot = result(output)
         // A byte-level tokenizer may end mid-codepoint before the next token.
         if (!done) snapshot.text = snapshot.text.replace(/\uFFFD+$/, '')
-        if (done) session.reset()
+        if (done) runtime.dispose()
         return {...snapshot, done}
       } catch (error) { close(); throw error }
     },

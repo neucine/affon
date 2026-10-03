@@ -44,7 +44,7 @@ describe('HF snapshots', () => {
   test('processor dispatch rejects unsupported task/model combinations', () => {
     expect(() => load_processor('packages/@affon/huggingface/test/fixtures/bert', { task: 'image-classification' })).toThrow('Unsupported HF processor/task')
   })
-  test('legacy ViT processor config applies scalar size and rescaling defaults', () => {
+  test('ViT scalar processor size applies rescaling defaults', () => {
     const processor = load_processor('packages/@affon/huggingface/test/fixtures/vit', { task: 'image-classification' })
     const pixels = processor.process([[[255, 0, 255]]])
     expect(pixels.shape).toEqual([1, 3, 2, 2])

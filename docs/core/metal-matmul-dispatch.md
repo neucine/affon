@@ -22,7 +22,7 @@ No kernel-selection policy lives in HF, ONNX or benchmark code.
 The old contiguous MPS-first implementation, duplicated custom contiguous/tiled
 encoding helpers and unused shader pipelines are removed. `AFFON_METAL_MATMUL`
 no longer forces a separate path. MPS failures propagate from the common path;
-there is no legacy retry through a custom kernel after an MPS execution error.
+there is no fallback retry through a custom kernel after an MPS execution error.
 This is an intentional behavior change for the old contiguous entry point.
 Previously custom-only offset entries can now choose MPS under the same policy.
 

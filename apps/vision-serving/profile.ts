@@ -4,6 +4,7 @@ import { getEnv } from "std:process";
 import telemetry from "std:telemetry";
 import { load_graph } from "../../packages/@affon/onnx/src/index.ts";
 import { process_mobilenet_image } from "../../packages/@affon/huggingface/src/processors/mobilenet.ts";
+import { Session, type Tensor } from 'affon:compute'
 const directory = getEnv("MODEL_DIR")!;
 const count = Number(getEnv("PROFILE_RUNS") ?? "30");
 const batch = Number(getEnv("PROFILE_BATCH") ?? "10");
@@ -13,10 +14,20 @@ const rgb = Array.from({ length: 260 }, (_, y) =>
     [0, 1, 2].map((c) => (x * 3 + y * 5 + c * 47) % 256),
   ),
 );
-const model = load_graph(directory, "cpu");
+const model = load_graph(directory);
+const session = new Session({ device: 'cpu' })
+const state = session.initialize(model.forward, { parameters: model.parameters })
+const executable = session.compile(model.forward)
+const run = () => {
+  const input = session.tensor(pixels.to_array())
+  try {
+    const value = executable.run({ pixels: input }, state) as Tensor | Tensor[]
+    return (Array.isArray(value) ? value : [value])[model.output_names.indexOf('logits')]
+  } finally { input.dispose() }
+}
 const pixels = process_mobilenet_image(`${directory}/source`, rgb, "cpu");
-let output = model.forward({ pixels }).logits;
-for (let i = 0; i < 5; i++) output = model.forward({ pixels }).logits;
+let output = run();
+for (let i = 0; i < 5; i++) { output.dispose(); output = run() }
 function metrics() {
   return telemetry.metrics().filter((m) => m.scope.startsWith("compute."));
 }
@@ -27,7 +38,7 @@ const graph: number[] = [],
 for (let i = 0; i < count; i++) {
   if (mode !== "preprocess") {
     const start = Date.now();
-    for (let j = 0; j < batch; j++) output = model.forward({ pixels }).logits;
+    for (let j = 0; j < batch; j++) { output.dispose(); output = run() }
     graph.push((Date.now() - start) / batch);
     const read = Date.now();
     for (let j = 0; j < batch; j++) output.to_array();
@@ -41,10 +52,7 @@ for (let i = 0; i < count; i++) {
   }
 }
 const after = metrics();
-const operators: any[] = [];
-if (mode === "all")
-  for (let i = 0; i < 10; i++)
-    model.forward({ pixels }, (event) => operators.push(event));
+const operators = model.forward.inspect().nodes.map(node => ({ id: node.id, op: node.op, shape: node.spec.shape }));
 fs.writeFileSync(
   getEnv("PROFILE_OUTPUT")!,
   JSON.stringify(
@@ -62,3 +70,4 @@ fs.writeFileSync(
     2,
   ),
 );
+output.dispose(); pixels.dispose(); state.dispose(); session.dispose()

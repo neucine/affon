@@ -1,12 +1,25 @@
 import { test, expect } from 'std:test'
 import { generate_text } from '../../src/inference/text.ts'
 import type { InferenceModels } from '../../src/inference/models.ts'
+import { Tensor, program } from 'affon:compute'
+import { contiguous, embedding, reshape, slice } from 'affon:ops'
 function fixture() {
-  let chatCalls = 0
+  let chatCalls = 0, truncate = false
   const processor = { encode: () => [5], encode_chat: () => {chatCalls++; return [1,5]}, decode: (ids: number[], opts?: {skipSpecialTokens?: boolean}) => (opts?.skipSpecialTokens ? ids.filter(id => id !== 2) : ids).join(',') }
-  const model = { config:{eos_token_id:2}, generate:(ids:number[]) => [...ids,8,2] }
-  const models = {texts:{distilgpt2:{id:'gpt',chat:false,processor,model},smollm2:{id:'smol',chat:true,processor,model}}} as unknown as InferenceModels
-  return {models, processor, model, chatCalls:()=>chatCalls}
+  const model = {
+    config: {eos_token_id: 2, vocab_size: 10, max_position_embeddings: 10}, parameters: {},
+    forward(length: number, outputStart = 0) {
+      return program('fixture_text', p => {
+        const ids = p.argument('ids', Tensor.i64([length]))
+        p.argument('mask', Tensor.i64([1, 1, length, length]))
+        const transitions = Array.from({length: 10}, (_, token) => Array.from({length: 10}, (_, candidate) => candidate === (token === 5 ? 8 : token === 8 ? (truncate ? 9 : 2) : 0) ? 1 : 0))
+        const logits = reshape(embedding(p.constant('transitions', transitions, Tensor.f32([10, 10])), ids), [1, length, 10])
+        return [contiguous(slice(logits, [{start: 0, stop: 1}, {start: outputStart, stop: length}, {start: 0, stop: 10}]))]
+      })
+    },
+  }
+  const models = {device:'cpu',default_text_model:'distilgpt2',texts:{distilgpt2:{id:'gpt',chat:false,processor,model},smollm2:{id:'smol',chat:true,processor,model}}} as unknown as InferenceModels
+  return {models, processor, model, chatCalls:()=>chatCalls, truncate:()=>{truncate=true}}
 }
 test('selected text model uses chat formatting and returns only decoded assistant text', () => {
   const f = fixture()
@@ -25,6 +38,6 @@ test('text generation rejects unknown models, invalid budgets and oversized form
   for (const budget of [0,65,NaN,1.5]) expect(() => generate_text(f.models,'Hi',budget)).toThrow()
   f.processor.encode_chat = () => Array(257).fill(1)
   expect(() => generate_text(f.models,'Hi',2,'smollm2')).toThrow()
-  f.model.generate = ids => [...ids,8,9]
+  f.truncate()
   expect(generate_text(f.models,'Hi',2).truncated).toBe(true)
 })

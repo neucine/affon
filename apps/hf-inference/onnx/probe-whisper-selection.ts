@@ -3,6 +3,7 @@ import checkpoint from 'affon:checkpoint'
 import { getEnv } from 'std:process'
 import { Session, type Tensor } from 'affon:compute'
 import { load_whisper } from '../../../packages/@affon/huggingface/src/adapters/whisper.ts'
+import { WhisperProgramRuntime } from '../src/inference/program-runtime.ts'
 const root = getEnv('AFFON_WHISPER_DIR') ?? '/private/tmp/affon-onnx-whisper'
 const policy = JSON.parse(fs.readFileSync(`${root}/whisper.json`))
 const suppress = new Set<number>(policy.suppress_tokens)
@@ -11,8 +12,8 @@ const model = load_whisper(`${root}/source`, {
   task: 'automatic-speech-recognition',
   backend: 'onnx',
   graph_dir: root,
-  device: 'metal',
 })
+const runtime = new WhisperProgramRuntime(model, 'metal')
 const refs = checkpoint.load(`${root}/reference.safetensors`) as Record<
   string,
   Tensor
@@ -34,7 +35,7 @@ function select(logits: number[], step: number, scoreFirst: boolean) {
 const cases: unknown[] = []
 const session = new Session({ device: 'metal' })
 const features = session.tensor(refs.features.to_array() as any, { dtype: refs.features.dtype })
-const result = model.transcribe(features, (step, logits) => {
+const result = runtime.transcribe(features, (step, logits) => {
   const expected = select(logits, step, false)
   if (select(logits, step, true) !== expected) throw Error('Selection mismatch')
   const times = [0, 0]
@@ -68,4 +69,4 @@ fs.writeFileSync(
   getEnv('PROFILE_OUTPUT')!,
   JSON.stringify({ cases, result }, null, 2),
 )
-features.dispose(); session.dispose()
+features.dispose(); session.dispose(); runtime.dispose()

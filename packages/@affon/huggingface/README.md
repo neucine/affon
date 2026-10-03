@@ -2,21 +2,22 @@
 
 Experimental Hugging Face integration for native Affon inference. This package
 owns HF configuration interpretation, weight mapping, model/task dispatch, and
-processor integration. Native GPT-2, Llama, BERT, and ViT execution is owned by
-`@affon/models`. These adapters map HF configuration and checkpoint tensors into
+processor integration. Native GPT-2, Llama, BERT, and ViT Program definitions are
+owned by `@affon/models`. These adapters map HF configuration and checkpoint tensors into
 the model constructors; processors and checkpoint validation remain here.
 
 Native checkpoint adapters live in `src/adapters/`. The shared
-`encoder-checkpoint.ts` validates, places, and converts checkpoint tensors; it
+`encoder-checkpoint.ts` validates and converts checkpoint tensors; it
 does not implement forward operations. ViT image processing lives separately
 in `src/processors/vit.ts`. Public loader and processor exports are unchanged.
 
 Family input preparation lives in `src/processors/`, with reused audio and RGB
 helpers in `processors/shared/`. Hub snapshot/cache handling lives in
 `src/hub/snapshot.ts`. The root `model.ts`, `processor.ts`, and `pretrained.ts`
-remain dispatch/composition entry points. Whisper graph loading lives in `adapters/whisper.ts`; execution and decoding
-are owned by `models/src/whisper/`. Generic ONNX classifier integration remains
-separate from preprocessing.
+remain dispatch/composition entry points. Whisper graph loading lives in
+`adapters/whisper.ts`; it returns Programs, weights, and generation metadata.
+Applications own execution state, decoding policy, and request-local caches.
+Generic ONNX classifier integration remains separate from preprocessing.
 
 It has no Python or PyTorch execution dependency. The audit uses Python only
 to prepare artifacts and generate independent reference results.
@@ -25,6 +26,7 @@ to prepare artifacts and generate independent reference results.
 
 ```ts
 import { from_pretrained } from '@affon/huggingface'
+import { Session } from 'affon:compute'
 
 const { model, processor } = await from_pretrained('distilbert/distilgpt2', {
   revision: '2290a62682d06624634c1f46a6ad5be0f47f38aa',
@@ -32,8 +34,14 @@ const { model, processor } = await from_pretrained('distilbert/distilgpt2', {
   task: 'text-generation',
   device: 'cpu',
 })
-const ids = model.generate(processor.encode('The future of computing is'), 4)
-console.log(processor.decode(ids))
+const tokenIds = processor.encode('The future of computing is')
+const source = model.forward(tokenIds.length)
+const session = new Session({ device: 'cpu' })
+const state = session.initialize(source, { parameters: model.parameters })
+const ids = session.tensor(tokenIds, { dtype: 'i64' })
+const positions = session.tensor(tokenIds.map((_, index) => index), { dtype: 'i64' })
+const mask = session.tensor([[tokenIds.map((_, row) => tokenIds.map((_, column) => column > row ? 1 : 0))]], { dtype: 'i64' })
+const [logits] = session.compile(source).run({ ids, positions, mask }, state)
 ```
 
 For vision, select `task: 'image-classification'` with the supported ViT
@@ -67,9 +75,19 @@ import { load_model, load_bert_processor } from '@affon/huggingface'
 
 const directory = '/models/bert'
 const processor = load_bert_processor(directory)
-const model = load_model(directory, { task: 'feature-extraction', device: 'cpu' })
+const model = load_model(directory, { task: 'feature-extraction' })
 const batch = processor.encode_batch(['Hello world', 'A second sentence'])
-const result = model.forward(batch.input_ids, batch.attention_mask, batch.token_type_ids)
+const source = model.forward(batch.input_ids.length, batch.input_ids[0].length)
+const session = new Session({ device: 'cpu' })
+const state = session.initialize(source, { parameters: model.parameters })
+const inputs = {
+  ids: session.tensor(batch.input_ids, { dtype: 'i64' }),
+  types: session.tensor(batch.token_type_ids, { dtype: 'i64' }),
+  positions: session.tensor(batch.input_ids.map(row => row.map((_, index) => index)), { dtype: 'i64' }),
+  valid: session.tensor(batch.attention_mask.map(row => row.map(value => [value]))),
+  attention_mask: session.tensor(batch.attention_mask.map(row => [[[...row.map(value => 1 - value)]]]), { dtype: 'i64' }),
+}
+const outputs = session.compile(source).run(inputs, state)
 ```
 
 The task is explicit and determines the TypeScript return contract. Architecture
@@ -78,10 +96,10 @@ weight loading. Inputs retain their domain-specific shapes.
 
 | Task | Model type | Forward input | Current boundary |
 | --- | --- | --- | --- |
-| `text-generation` | `gpt2` | One array of token IDs | Tied head, `gelu_new`, cached greedy generation |
-| `text-generation` | `llama` | One array of token IDs | Tied head, SiLU, full unscaled RoPE, GQA; verified with SmolLM2-135M-Instruct |
-| `feature-extraction` | `bert` | Batched IDs, attention masks, type IDs | Absolute positions, GELU, base encoder with pooler |
-| `image-classification` | `vit` | Batch-one f32 NCHW tensor | Fixed-size RGB, biased QKV, GELU, classifier |
+| `text-generation` | `gpt2` | `forward(length, outputStart?)` | Tied head, `gelu_new`; Program inputs are IDs, positions, and causal mask |
+| `text-generation` | `llama` | `forward(length, outputStart?)` | Tied head, SiLU, full unscaled RoPE, GQA; Program inputs are IDs and causal mask |
+| `feature-extraction` | `bert` | `forward(batch, length)` | Absolute positions, GELU, base encoder with pooler |
+| `image-classification` | `vit` | Fixed `forward` Program | Fixed-size RGB, biased QKV, GELU, classifier |
 
 Explicit `load_gpt2`, `load_bert`, and `load_vit` loaders are also exported.
 `load_bert_processor` applies templates and padding; `process_rgb_image` handles
@@ -94,8 +112,8 @@ Requires `config.json` and one `model.safetensors` (f32, or BF16 widened to f32)
 processor files, either downloaded directly or already local. Shards, pickle
 conversion, reduced-precision execution, custom Python execution, and a universal
 `pipeline` API are not supported. Weight names and shapes are checked strictly.
-Legacy GPT-2 causal-mask buffers are accepted only after validating their full
-contents; legacy ViT scalar sizes and omitted preprocessing defaults are handled.
+Stored GPT-2 causal-mask buffers are accepted only after validating their full
+contents; ViT scalar sizes and omitted preprocessing defaults are handled.
 
 ## Ownership
 
@@ -136,33 +154,14 @@ Build that optimized binary as described in the audit README. Set
 repeat using only the verified cache. The vision smoke uses synthetic RGB data,
 not an image decoder or a semantic classification benchmark.
 
-## GPT-2 KV caching
+## Causal Program windows
 
-`generate(ids, max_new_tokens)` uses a fresh request-local KV cache by default.
-It evaluates the prompt once, then processes only the newly generated token.
-Use `generate(ids, max_new_tokens, { use_cache: false })` to retain full-prefix
-execution for diagnostics. Generation releases its cache on completion or error.
-
-For incremental callers:
-
-```ts
-const session = model.create_session()
-const prefill = session.forward(prompt_ids)
-const next = session.forward([next_token_id]) // pass new tokens only
-console.log(session.length)
-session.reset()
-```
-
-`session.forward` returns logits and hidden states for the new chunk only.
-Position IDs continue from the cached length. Multi-token chunks use an offset
-causal mask. Sessions are independent; invalid steps preserve prior context.
-The total processed length cannot exceed `config.n_positions`.
-
-Caches store f32 keys/values in sequence-major layout on the model's device.
-Appending currently allocates/copies growing buffers; this is not a paged or
-in-place cache. Persistent K/V payload is `2 * layers * tokens * hidden_size * 4`
-bytes (36 KiB per cached token for DistilGPT-2), plus temporary allocations.
-Call `reset()` or release a manually managed session when it is no longer needed.
+GPT-2 and Llama expose `forward(length, outputStart = 0)`. `outputStart` narrows
+the returned logits and hidden states, which is useful for decode-shaped output,
+but the Program still declares and computes the complete prefix. The package
+does not claim KV caching. Applications own token validation, greedy or sampled
+generation, session reuse, and disposal explicitly. A future real cache must be
+represented in Program inputs/state rather than hidden behind a model façade.
 
 ## ONNX execution backend
 
@@ -175,18 +174,20 @@ const model = load_model('/models/vit-hf-config', {
   task: 'image-classification',
   backend: 'onnx',
   graph_dir: '/models/vit-converted',
-  device: 'metal',
 })
 const processor = load_processor('/models/vit-hf-config', {
   task: 'image-classification', device: 'metal',
 })
-const { output: logits } = model.forward(processor.process(rgb))
+const session = new Session({ device: 'metal' })
+const state = session.initialize(model.forward, { parameters: model.parameters })
+const pixels = processor.process(rgb)
+const logits = session.compile(model.forward).run({ [model.input_name]: pixels }, state)
 ```
 
 The HF directory supplies `config.json`; the prepared graph directory supplies
 `graph.json` and `weights.safetensors`. No native architecture weights or adapter
 are loaded for this backend. The classifier preserves HF labels/configuration
-and returns `{ output }`; hidden states and generation are not promised.
+and exposes its imported Program and named bindings; hidden states and generation are not promised.
 Only image classification is currently bound to the graph backend. It requires
 one NCHW RGB input and `[batch, classes]` output. Names are inferred when unique;
 use `input_name`/`output_name` to bind explicitly. Label counts must agree.
@@ -208,11 +209,14 @@ The [ONNX package](../onnx/README.md) documents preparation and capability limit
 ```ts
 import { load_model, load_processor, decode_wav } from './src/index.ts'
 const model = load_model('/models/ast/source', {
-  task: 'audio-classification', backend: 'onnx', graph_dir: '/models/ast', device: 'metal',
+  task: 'audio-classification', backend: 'onnx', graph_dir: '/models/ast',
 })
 const processor = load_processor('/models/ast/source', {task: 'audio-classification', device: 'metal'})
 const audio = decode_wav(wavBytes)
-const logits = model.forward(processor.process(audio.samples, audio.sampling_rate)).output
+const features = processor.process(audio.samples, audio.sampling_rate)
+const session = new Session({ device: 'metal' })
+const state = session.initialize(model.forward, { parameters: model.parameters })
+const logits = session.compile(model.forward).run({ [model.input_name]: features }, state)
 ```
 
 The HF layer decodes bounded RIFF/WAVE PCM8/16/24/32 or IEEE float32, averages
@@ -238,21 +242,25 @@ of silence/unknown words. See the app's audio report for tested coverage.
 ```ts
 const model = load_model('/models/whisper/source', {
   task: 'automatic-speech-recognition', backend: 'onnx',
-  graph_dir: '/models/whisper', device: 'metal',
+  graph_dir: '/models/whisper',
 })
 const processor = load_processor('/models/whisper/source', {
   task: 'automatic-speech-recognition', device: 'metal',
 })
 const audio = decode_wav(wavBytes)
-const result = model.transcribe(processor.process(audio.samples, audio.sampling_rate))
+const features = processor.process(audio.samples, audio.sampling_rate)
+const session = new Session({ device: 'metal' })
+const state = session.initialize(model.encoder.forward, { parameters: model.encoder.parameters })
+const encoded = session.compile(model.encoder.forward).run({ features }, state)
 ```
 
 This bounded integration supports the prepared `openai/whisper-tiny.en` bundle.
 It uses a centered 400-point STFT, Slaney Mel filters and 30-second zero padding.
-Frontend DSP runs in Affon TypeScript; encoder/decoder graphs run on the selected
-device. The Whisper model orchestrates encoder output, per-request self/cross-attention
-caches, suppression rules and token generation; the HF adapter supplies text decoding. The graph executor remains independent of
-HF architecture names. The local-only ONNX task API is required; `from_pretrained`
+Frontend DSP runs in Affon TypeScript. The returned definition exposes separate
+encoder, cross-attention, and decoder Programs plus embeddings, positions,
+suppression metadata, and text decoding. The application creates Sessions,
+owns request-local caches, and chooses token generation policy. The importer remains
+independent of HF architecture names. The local-only ONNX task API is required; `from_pretrained`
 still loads native architecture adapters only. See the app README for preparation
 and the short-WAV/254-token limits. No timestamps or silence detection are promised.
 
@@ -272,8 +280,9 @@ process is used at inference time.
 ```ts
 if (!('encode_chat' in processor)) throw Error('Expected a chat processor')
 const ids = processor.encode_chat([{role: 'user', content: 'What is the capital of France?'}])
-const output = model.generate(ids, 32)
-console.log(processor.decode(output.slice(ids.length), {skipSpecialTokens: true}))
+const source = model.forward(ids.length, ids.length - 1)
+// Execute the Program with a caller-owned Session/state, select a token, append,
+// and author the next full-prefix Program until the application budget or EOS.
 ```
 
 The native Llama adapter supports this bounded tied-head, bias-free variant with
@@ -281,8 +290,8 @@ RMSNorm, SiLU gating, grouped-query attention and full non-interleaved RoPE.
 Scaled RoPE, untied heads, attention/MLP biases, and sliding windows are rejected.
 The model configuration permits 8192 tokens; the playground deliberately limits
 formatted prompts to 256 tokens and outputs to 64. Large-context performance is
-not validated. Each generation owns its cache; appending copies growing K/V
-buffers. No quantized execution is provided.
+not validated. No KV cache is claimed; current application generation executes
+the full prefix with a one-token output window. No quantized execution is provided.
 
 The original ~269 MB BF16 checkpoint downloads through the existing Hub path.
 `checkpoint.load` widens BF16 values exactly to f32 on CPU before device placement;

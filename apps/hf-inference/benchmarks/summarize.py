@@ -28,7 +28,7 @@ lines = [f"# Local {run.get('cpu', run['machine'])} inference baseline", '',
 for row in rows:
     rss = f"{row['os_peak_rss_bytes'] / 2**20:.1f} MiB" if row['os_peak_rss_bytes'] is not None else 'unavailable'
     lines.append(f"| [{row['name']}]({row['report']}) | {row['median_ms'] / 1000:.3f} s | {row['model_load_ms']} ms | {rss} | {row['live_tensor_bytes_min'] / 2**20:.1f}–{row['live_tensor_bytes_max'] / 2**20:.1f} MiB |")
-lines.extend(['', f"GPT-2: five prompt tokens, 16 new greedy tokens, KV cache {'enabled' if run.get('kv_cache') else 'disabled'}. ViT (when measured): 320×256 synthetic RGB input; forward includes logit readback and excludes preprocessing.", '',
+lines.extend(['', "GPT-2: five prompt tokens, 16 new greedy tokens, explicit full-prefix Programs with one-token output windows. ViT (when measured): 320×256 synthetic RGB input; forward includes logit readback and excludes preprocessing.", '',
               'OS peak RSS covers the entire process, including startup/loading. Construction excludes snapshot validation; neither is guaranteed cold-disk timing. Memory ranges are six samples for the default five-run benchmark, not a leak-freedom claim.', '',
               'See [methodology](../../README.md) and [host/run metadata](run.json). Raw reports include preprocessing, warmup, all samples, and memory observations.', ''])
 (root / 'summary.md').write_text('\n'.join(lines))

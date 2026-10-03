@@ -55,12 +55,14 @@ AFFON_BENCH_REPORT=/tmp/vit-metal-benchmark.json \
   activity and the running playground are not controlled. Do not extrapolate
   these local measurements to other hardware or large batches.
 
-## Cached generation
+## Full-prefix generation
 
-Pass `--families gpt2 --kv-cache` to the runner to measure cached generation.
-Use fresh output directories outside the repository. Regenerate summaries with
-`summarize.py /path/to/results`. Compare matching prompts, token budgets, devices,
-builds, and warmup protocols; preserve environment metadata with each local run.
+The GPT-2 benchmark executes explicit full-prefix Programs with one-token output
+windows; it does not claim a KV cache. Use fresh output directories outside the
+repository. Regenerate summaries with `summarize.py /path/to/results`. Compare
+matching prompts, token budgets, devices, builds, and warmup protocols; preserve
+environment metadata with each local run.
 
-For operation and sequence coverage use [test/benchmarks](../../../test/benchmarks/README.md).
+Operation and sequence correctness is covered by the canonical Program suites
+under `test/e2e/program` and the model-family tests under `packages/@affon/models`.
 Model timings supplement that coverage rather than replacing it.

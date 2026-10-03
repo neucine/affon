@@ -15,8 +15,9 @@ beginner terminology.
 
 ## Public Boundaries
 
-- `p.nn` owns neural-network declarations and losses inside a Program.
-- `affon:compute` owns tensors, Programs, Sessions, differentiation, and Program transforms.
+- `p.nn` owns parameterized neural-network declarations inside a Program.
+- `affon:compute` owns tensors, Programs, Sessions, differentiation, built-in
+  loss templates under `losses`, and Program transforms such as `optimize`.
 - `affon:ops` owns tensor operations shared by formal and evaluated tensors.
 - `affon:optim` owns optimizer descriptors.
 - `affon:dataset` owns ingest, transforms, batching, and tensorization.
@@ -32,4 +33,3 @@ beginner terminology.
 - [NN Concepts](./nn/index.md)
 - [Checkpoints](./checkpoints.md)
 - [Text Datasets](./text-datasets.md)
-- [Illustrated Learning Coverage](../learn/illustrated/index.md)

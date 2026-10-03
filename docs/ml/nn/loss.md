@@ -52,6 +52,5 @@ Each accepts `{ target }` to replace the default training-input name (`labels`
 for cross entropy, otherwise `target`). All materialize ordinary scalar loss
 Programs; there is no separate optimizer execution path for built-in losses.
 
-The former callable loss modules remain available from `affon:nn/legacy` only
-for migration; new Program code should use `losses` or author an explicit loss
-Program from `affon:ops`.
+Use the built-in `losses` templates or author an explicit loss Program from
+`affon:ops`.

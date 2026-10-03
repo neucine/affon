@@ -21,15 +21,18 @@ test('runs ViT patch extraction and encoder through one Program', () => {
     classifier: affine(4, 3),
     blocks: [{ query: affine(4, 4), key: affine(4, 4), value: affine(4, 4), attentionOutput: affine(4, 4), attentionNorm: norm(), feedForwardNorm: norm(), expand: affine(4, 8), contract: affine(8, 4) }],
   })
-  const pixels = value([1, 3, 2, 2], 0.5)
-  const result = model.forward(pixels)
-  expect(result.output.shape).toEqual([1, 3])
-  expect(result.hidden_states.map(hidden => hidden.shape)).toEqual([[1, 5, 4], [1, 5, 4]])
-  expect((result.output.to_array() as number[][]).flat().every(Number.isFinite)).toBe(true)
+  const runtime = new Session({ device: 'cpu' })
+  const state = runtime.initialize(model.forward, { parameters: model.parameters })
+  const pixels = runtime.tensor(value([1, 3, 2, 2], 0.5).to_array())
+  const [output, ...hiddenStates] = runtime.compile(model.forward).run({ pixels }, state) as Tensor[]
+  expect(output.shape).toEqual([1, 3])
+  expect(hiddenStates.map(hidden => hidden.shape)).toEqual([[1, 5, 4], [1, 5, 4]])
+  expect((output.to_array() as number[][]).flat().every(Number.isFinite)).toBe(true)
 
-  result.output.dispose()
-  for (const hidden of result.hidden_states) hidden.dispose()
+  output.dispose()
+  for (const hidden of hiddenStates) hidden.dispose()
   pixels.dispose()
-  model.dispose()
+  state.dispose()
+  runtime.dispose()
   source.dispose()
 })

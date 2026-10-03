@@ -5,8 +5,10 @@ import telemetry from 'std:telemetry'
 import { Session, type Tensor } from 'affon:compute'
 import { load_graph } from '../../../packages/@affon/onnx/src/index.ts'
 const root = getEnv('AFFON_WHISPER_DIR') ?? '/private/tmp/affon-onnx-whisper'
-const model = load_graph(`${root}/step`, 'metal')
+const model = load_graph(`${root}/step`)
 const session = new Session({ device: 'metal' })
+const state = session.initialize(model.forward, { parameters: model.parameters })
+const executable = session.compile(model.forward)
 const zeros = (shape: number[]): unknown => shape.length === 1 ? Array(shape[0]).fill(0) : Array.from({ length: shape[0] }, () => zeros(shape.slice(1)))
 const inputs: Record<string, Tensor> = {}
 for (const [name, shape] of Object.entries(model.graph.inputs)) {
@@ -25,21 +27,17 @@ function metrics() {
       .map((m) => [`${m.scope}/${m.name}`, m.value]),
   )
 }
-model.forward(inputs)
+const dispose = (value: Tensor | Tensor[]) => (Array.isArray(value) ? value : [value]).forEach(output => output.dispose())
+dispose(executable.run(inputs, state) as Tensor | Tensor[])
 let before = metrics()
-const nodes: unknown[] = []
-model.forward(inputs, (event) => {
-  const after = metrics()
-  nodes.push({
-    ...event,
-    counters: Object.fromEntries(
-      Object.entries(after).map(([k, v]) => [k, v - (before[k] ?? 0)]),
-    ),
-  })
-  before = after
-})
+const start = Date.now()
+dispose(executable.run(inputs, state) as Tensor | Tensor[])
+const after = metrics()
+const counters = Object.fromEntries(Object.entries(after).map(([key, value]) => [key, value - (before[key] ?? 0)]))
+const operators = model.forward.inspect().nodes.map(node => ({ id: node.id, op: node.op, shape: node.spec.shape }))
 fs.writeFileSync(
   getEnv('PROFILE_OUTPUT')!,
-  JSON.stringify({ synthetic_inputs: true, nodes }, null, 2),
+  JSON.stringify({ synthetic_inputs: true, elapsed_ms: Date.now() - start, counters, operators }, null, 2),
 )
-model.dispose(); session.dispose()
+for (const input of Object.values(inputs)) input.dispose()
+state.dispose(); session.dispose()

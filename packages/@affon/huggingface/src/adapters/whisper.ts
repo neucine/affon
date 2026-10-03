@@ -1,21 +1,18 @@
 import fs from 'std:fs'
 import checkpoint from 'affon:checkpoint'
-import type { Tensor, Device } from 'affon:compute'
+import type { Tensor } from 'affon:compute'
 import { load_graph } from '../../../onnx/src/index.ts'
 import { createHFTokenizerFromFile } from '../../../tokenizers/src/index.ts'
-import { create_whisper } from '../../../models/src/whisper/index.ts'
 export type WhisperOptions = {
   task: 'automatic-speech-recognition'
   backend: 'onnx'
   graph_dir: string
-  device?: Device
 }
-/** Bounded English Whisper greedy decoding; the encoder output is reused across steps. */
+/** Load the prepared Whisper Programs, parameters, and generation metadata without creating execution state. */
 export function load_whisper(directory: string, options: WhisperOptions) {
   if (options.backend !== 'onnx' || !options.graph_dir)
     throw Error('Whisper requires prepared ONNX graphs')
-  const device = options.device ?? 'cpu',
-    root = options.graph_dir
+  const root = options.graph_dir
   const config = JSON.parse(fs.readFileSync(`${directory}/config.json`))
   const generation = JSON.parse(fs.readFileSync(`${root}/whisper.json`))
   if (
@@ -46,9 +43,9 @@ export function load_whisper(directory: string, options: WhisperOptions) {
     )
   )
     throw Error('Invalid Whisper generation configuration')
-  const encoder = load_graph(`${root}/encoder`, device),
-    cross = load_graph(`${root}/cross`, device),
-    decoder = load_graph(`${root}/step`, device)
+  const encoder = load_graph(`${root}/encoder`),
+    cross = load_graph(`${root}/cross`),
+    decoder = load_graph(`${root}/step`)
   if (
     decoder.graph.inputs.past_0?.[2] !== generation.width ||
     decoder.graph.inputs.mask?.[3] !== generation.width + 1
@@ -72,17 +69,22 @@ export function load_whisper(directory: string, options: WhisperOptions) {
   )
     throw Error('Invalid Whisper embedding shapes')
   const tokenizer = createHFTokenizerFromFile(`${directory}/tokenizer.json`)
-  const model = create_whisper({
+  return {
+    config,
+    backend: 'onnx' as const,
+    generation: {
     width: config.d_model, heads: config.decoder_attention_heads,
     layers: config.decoder_layers, vocabSize: config.vocab_size,
     contextLength: config.max_target_positions, cacheCapacity: generation.width,
     prefix: generation.prefix, eosTokenId: generation.eos,
     suppressTokens: generation.suppress_tokens, beginSuppressTokens: generation.begin_suppress_tokens,
-  }, {
-    encode: (features) => encoder.forward({ features }).output,
-    cross: (encoded) => cross.forward({ encoded }),
-    step: (inputs) => decoder.forward(inputs),
-  }, { embeddings, positions }, (ids) => tokenizer.decode(ids, { skipSpecialTokens: true }), device)
-  embeddings.dispose(); positions.dispose()
-  return { ...model, config, backend: 'onnx' as const, dispose() { model.dispose(); encoder.dispose(); cross.dispose(); decoder.dispose() } }
+    },
+    encoder,
+    cross,
+    decoder,
+    embeddings,
+    positions,
+    decode: (ids: number[]) => tokenizer.decode(ids, { skipSpecialTokens: true }),
+    max_new_tokens: generation.width - generation.prefix.length,
+  }
 }

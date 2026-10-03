@@ -1,6 +1,6 @@
 import {
   from_pretrained,
-  type ModelsByTask, type ProcessorsByTask,
+  type ModelsByTask, type ProcessorsByTask, type OnnxImageClassifier,
   load_model,
   load_processor,
 } from '../../../../packages/@affon/huggingface/src/index.ts'
@@ -32,13 +32,9 @@ export const SMOLLM2_MODELS = {
 export type SmolLM2Size = keyof typeof SMOLLM2_MODELS
 export const SMOLLM2_MODEL = SMOLLM2_MODELS['135M']
 type ImageEntry = {
-  id: string; label: string; backend: 'native' | 'onnx'
-  model: Pick<ModelsByTask['image-classification'], 'config' | 'forward'> | {
-    config: {id2label?: Record<string,string>}
-    forward: (pixels: ReturnType<ProcessorsByTask['image-classification']['process']>) => {output: ReturnType<ModelsByTask['image-classification']['forward']>['output']}
-  }
-  processor: ProcessorsByTask['image-classification']
-}
+  id: string; label: string; processor: ProcessorsByTask['image-classification']
+} & ({ backend: 'native'; model: ModelsByTask['image-classification'] }
+  | { backend: 'onnx'; model: OnnxImageClassifier })
 export const IMAGE_MODEL = {
   id: 'google/vit-base-patch16-224',
   revision: '3f49326eb077187dfe1c2a2bb15fbd74e6ab91e3',
@@ -66,7 +62,7 @@ export async function load_models(config: InferenceOptions) {
     })
     texts['smollm2'] = { id: smolSpec.id, label: `SmolLM2 ${size} Instruct`, chat: true, model: smollm2.model, processor: smollm2.processor }
   }
-  if (config.text_only) return {text: {model, processor}, texts, default_text_model, images: {} as Record<string, ImageEntry>, vision: undefined, audio: undefined, speech: undefined}
+  if (config.text_only) return {device: config.device, text: {model, processor}, texts, default_text_model, images: {} as Record<string, ImageEntry>, vision: undefined, audio: undefined, speech: undefined}
   const vision = await from_pretrained(IMAGE_MODEL.id, {
     revision: IMAGE_MODEL.revision,
     cache_dir: config.vision_cache_dir,
@@ -93,7 +89,6 @@ export async function load_models(config: InferenceOptions) {
         task: 'image-classification',
         backend: 'onnx',
         graph_dir: config.vit_onnx_dir,
-        device: config.device,
       }),
     }
   if (Boolean(config.mobilenet_dir) !== Boolean(config.mobilenet_onnx_dir))
@@ -113,7 +108,6 @@ export async function load_models(config: InferenceOptions) {
         task: 'image-classification',
         backend: 'onnx',
         graph_dir: config.mobilenet_onnx_dir,
-        device: config.device,
       }),
     }
   if (Boolean(config.ast_dir) !== Boolean(config.ast_onnx_dir))
@@ -130,7 +124,6 @@ export async function load_models(config: InferenceOptions) {
             task: 'audio-classification',
             backend: 'onnx',
             graph_dir: config.ast_onnx_dir,
-            device: config.device,
           }),
         }
       : undefined
@@ -147,7 +140,6 @@ export async function load_models(config: InferenceOptions) {
           task: 'automatic-speech-recognition',
           backend: 'onnx',
           graph_dir: config.whisper_dir,
-          device: config.device,
         }),
         processor: load_processor(`${config.whisper_dir}/source`, {
           task: 'automatic-speech-recognition',
@@ -155,6 +147,6 @@ export async function load_models(config: InferenceOptions) {
         }),
       }
     : undefined
-  return { text: { model, processor }, texts, default_text_model, vision, images, audio, speech }
+  return { device: config.device, text: { model, processor }, texts, default_text_model, vision, images, audio, speech }
 }
 export type InferenceModels = Awaited<ReturnType<typeof load_models>>

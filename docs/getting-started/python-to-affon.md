@@ -120,9 +120,6 @@ transitions inspectable before execution.
 - Classification labels for `cross_entropy` from `affon:ops` are `i64` and match the logits
   shape with the final class axis removed.
 
-## Legacy code
-
-Older examples may use global constructors, mutable `.grad`, callable layers,
-or `affon:nn`. During migration those APIs live under
-`affon:compute/legacy` and `affon:nn/legacy`. New code should not mix that model
-with Programs.
+Programs, evaluated tensors, and operations are the complete public compute
+surface. Use `gradient(...)` or `optimize(...)` for differentiation and
+training instead of mutable tensor gradients or callable module objects.

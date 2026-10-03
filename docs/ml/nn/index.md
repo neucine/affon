@@ -1,16 +1,17 @@
 # NN Concepts
 
 Neural-network authoring lives on the active Program builder under `p.nn`.
-These operations declare parameters and losses directly in the Program;
-execution and differentiation remain Program-level concerns.
+These helpers declare parameterized operations directly in the Program;
+losses, execution, and differentiation remain Program-level concerns.
 
 ## Topic Guides
 
 - [Program Components](./general.md) - reusable components, parameter roles, state, and composition.
 - [Basic Feed-Forward Models](./basic.md) - linear layers and simple classifiers/regressors.
-- [Recurrent Models](./recurrent.md) - current Program support and the legacy boundary.
+- [Recurrent Models](./recurrent.md) - current Program support and limitations.
 - [Activations](./activation.md) - activation functions and where they live.
-- [Loss Functions](./loss.md) - loss modules and target/prediction expectations.
+- [Loss Programs](./loss.md) - built-in templates, custom losses, and
+  target/prediction expectations.
 
 ## Program authoring
 
@@ -31,18 +32,21 @@ const classifier = program('classifier', p => {
 })
 ```
 
-The canonical helpers currently cover linear projections, embeddings, layer
-normalization, and cross entropy. Elementwise and
-tensor operations remain in `affon:ops`, where the same functions accept
+The canonical helpers currently cover linear projections, embeddings, and
+layer normalization. Elementwise, tensor, and custom loss operations remain in
+`affon:ops`, where the same functions accept
 formal tensors during Program construction and evaluated tensors for immediate
 value computation.
+
+Standard training losses are available as templates from the `losses`
+namespace in `affon:compute` and are combined with a reusable model through
+`optimize(model, loss, optimizer)`.
 
 Reusable components are ordinary functions that receive a `ProgramBuilder`
 and call its `p.nn` methods. This keeps one spelling for each NN operation.
 
-The former callable-module/eager-autograd API is legacy and is not the basis of
-new model code. It is available only from `affon:nn/legacy` and
-`affon:compute/legacy` during migration.
+Callable module objects are not part of the public API. Model structure,
+parameters, state, differentiation, and optimization are expressed as Programs.
 
 ## Related Docs
 

@@ -20,22 +20,22 @@ test('constructs GPT-2 from the family barrel and validates parameter shapes', (
   const config = { width: 4, heads: 2, layers: 1, contextLength: 4, vocabSize: 7, epsilon: 1e-5 }
   const weights = { tokenEmbedding: value([7, 4]), positionEmbedding: value([4, 4]), finalNorm: norm(), blocks: [{ attentionNorm: norm(), feedForwardNorm: norm(), qkv: affine(4, 12), attentionOutput: affine(4, 4), expand: affine(4, 8), contract: affine(8, 4) }] }
   const model = create_gpt2(config, weights)
-  const result = model.forward([1, 2])
-  expect(result.logits.shape).toEqual([1, 2, 7])
+  const program = model.forward(2)
+  expect(program.inspect().arguments.map(value => value.name)).toEqual(['ids', 'positions', 'mask'])
+  expect(program.inspect().parameters.length).toBe(Object.keys(model.parameters).length)
   expect(() => create_gpt2(config, { ...weights, tokenEmbedding: value([6, 4]) })).toThrow()
-  result.logits.dispose(); for (const hidden of result.hidden_states) hidden.dispose()
-  model.dispose(); session.dispose()
+  session.dispose()
 })
 
 test('constructs BERT from the family barrel and validates masks', () => {
   const { session, value, affine, norm, block } = fixture()
   const config = { width: 4, innerWidth: 8, heads: 2, layers: 1, contextLength: 4, vocabSize: 7, typeVocabSize: 2, epsilon: 1e-5 }
   const model = create_bert(config, { tokenEmbedding: value([7, 4]), positionEmbedding: value([4, 4]), typeEmbedding: value([2, 4]), embeddingNorm: norm(), pooler: affine(4, 4), blocks: [block()] })
-  const result = model.forward([[1, 2]], [[1, 1]], [[0, 0]])
-  expect(result.output.shape).toEqual([1, 2, 4])
-  expect(() => model.forward([[1]], [[0]], [[0]])).toThrow()
-  for (const tensor of [result.pooled, result.pooler, ...result.hidden_states]) tensor.dispose()
-  model.dispose(); session.dispose()
+  const program = model.forward(1, 2)
+  expect(program.inspect().arguments.map(value => value.name)).toEqual(['ids', 'types', 'valid', 'attention_mask', 'positions'])
+  expect(program.inspect().parameters.length).toBe(Object.keys(model.parameters).length)
+  expect(() => model.forward(1, 5)).toThrow()
+  session.dispose()
 })
 
 test('constructs ViT from the family barrel and rejects incompatible patches', () => {
@@ -43,10 +43,9 @@ test('constructs ViT from the family barrel and rejects incompatible patches', (
   const config = { width: 4, innerWidth: 8, heads: 2, layers: 1, imageSize: 4, patchSize: 2, epsilon: 1e-5 }
   const weights = { classToken: value([1, 1, 4]), positionEmbedding: value([1, 5, 4]), patchProjection: { weight: value([4, 3, 2, 2]), bias: value([4]) }, finalNorm: norm(), classifier: affine(4, 3), blocks: [block()] }
   const model = create_vit(config, weights)
-  const pixels = value([1, 3, 4, 4])
-  const result = model.forward(pixels)
-  expect(result.output.shape).toEqual([1, 3])
+  expect(model.forward.inspect().arguments.map(value => value.name)).toEqual(['pixels'])
+  expect(model.forward.inspect().outputs.length).toBe(config.layers + 2)
+  expect(model.forward.inspect().parameters.length).toBe(Object.keys(model.parameters).length)
   expect(() => create_vit({ ...config, patchSize: 3 }, weights)).toThrow()
-  result.output.dispose(); for (const hidden of result.hidden_states) hidden.dispose()
-  pixels.dispose(); model.dispose(); session.dispose()
+  session.dispose()
 })

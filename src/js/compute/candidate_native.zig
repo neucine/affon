@@ -2,6 +2,7 @@ const std = @import("std");
 const compute = @import("compute_candidate");
 
 pub const Backend = compute.Backend;
+pub const OptimizationProfile = compute.OptimizationProfile;
 pub const backendAvailable = compute.backendAvailable;
 
 /// Candidate-only native boundary used by the T13 canaries. This module imports
@@ -65,7 +66,7 @@ const BlockProof = struct {
     explanation: []u8,
 };
 
-fn runDecoderBlock(allocator: std.mem.Allocator, session: *compute.Session, hidden_spec: compute.TensorSpec, hidden: *compute.Tensor) !BlockProof {
+fn runDecoderBlock(allocator: std.mem.Allocator, session: *compute.Session, hidden_spec: compute.TensorSpec, hidden: *compute.Tensor, compile_options: compute.CompileOptions) !BlockProof {
     var projection_spec = try compute.TensorSpec.init(allocator, .f32, &.{ 3, 3 }, null);
     defer projection_spec.deinit();
     var expansion_spec = try compute.TensorSpec.init(allocator, .f32, &.{ 3, 6 }, null);
@@ -109,7 +110,7 @@ fn runDecoderBlock(allocator: std.mem.Allocator, session: *compute.Session, hidd
     const contraction_values = [_]f32{ 0.2, 0.1, -0.1, -0.2, 0.3, 0.1, 0.15, -0.1, 0.25, 0.05, 0.2, -0.3, -0.1, 0.4, 0.2, 0.3, -0.2, 0.1 };
     const contraction_tensor = try session.createTensor(contraction_spec, std.mem.asBytes(&contraction_values));
     defer contraction_tensor.deinit();
-    var compilation = try session.compile(program, .{});
+    var compilation = try session.compile(program, compile_options);
     defer compilation.deinit();
     var report = try compute.createExplanation(allocator, program, program, compilation.executable);
     defer report.deinit();
@@ -131,6 +132,10 @@ fn runDecoderBlock(allocator: std.mem.Allocator, session: *compute.Session, hidd
 /// The persistent values are ordinary explicit bindings, so the byte snapshot
 /// below is also the checkpoint boundary used to resume in a fresh Session.
 pub fn runDecoderProof(allocator: std.mem.Allocator, backend: compute.Backend) !DecoderProof {
+    return runDecoderProofWithOptions(allocator, backend, .{});
+}
+
+pub fn runDecoderProofWithOptions(allocator: std.mem.Allocator, backend: compute.Backend, compile_options: compute.CompileOptions) !DecoderProof {
     var hidden_spec = try compute.TensorSpec.init(allocator, .f32, &.{ 2, 3 }, null);
     defer hidden_spec.deinit();
     var parameter_spec = try compute.TensorSpec.init(allocator, .f32, &.{ 3, 4 }, null);
@@ -156,7 +161,7 @@ pub fn runDecoderProof(allocator: std.mem.Allocator, backend: compute.Backend) !
     defer session.deinit() catch unreachable;
     const hidden = try session.createTensor(hidden_spec, std.mem.asBytes(&[_]f32{ 1, 0, -1, 0.5, 1, 0.25 }));
     defer hidden.deinit();
-    var block = try runDecoderBlock(allocator, session, hidden_spec, hidden);
+    var block = try runDecoderBlock(allocator, session, hidden_spec, hidden, compile_options);
     defer block.output.deinit();
     defer allocator.free(block.explanation);
     const initial_parameter = [_]f32{ 0.2, -0.1, 0.3, 0.0, -0.2, 0.4, 0.1, -0.3, 0.05, 0.2, -0.15, 0.35 };
@@ -166,7 +171,7 @@ pub fn runDecoderProof(allocator: std.mem.Allocator, backend: compute.Backend) !
     defer targets.deinit();
     const seed = try session.createTensor(scalar_spec, std.mem.asBytes(&[_]f32{1}));
     defer seed.deinit();
-    var derivative_compilation = try session.compile(derivative.program(), .{});
+    var derivative_compilation = try session.compile(derivative.program(), compile_options);
     defer derivative_compilation.deinit();
     const derivative_outputs = try session.run(derivative_compilation.executable, &.{ block.output, parameter, targets, seed });
     defer session.releaseOutputs(derivative_outputs);
@@ -191,7 +196,7 @@ pub fn runDecoderProof(allocator: std.mem.Allocator, backend: compute.Backend) !
     defer first_tensor.deinit();
     const second_tensor = try session.createTensor(parameter_spec, std.mem.asBytes(&zeroes));
     defer second_tensor.deinit();
-    var update_compilation = try session.compile(update_program, .{});
+    var update_compilation = try session.compile(update_program, compile_options);
     defer update_compilation.deinit();
     const first_update = try session.run(update_compilation.executable, &.{ parameter, derivative_outputs[1], first_tensor, second_tensor });
     defer session.releaseOutputs(first_update);
@@ -209,7 +214,7 @@ pub fn runDecoderProof(allocator: std.mem.Allocator, backend: compute.Backend) !
     defer resumed.deinit() catch unreachable;
     const resumed_hidden = try resumed.createTensor(hidden_spec, hidden.bytes());
     defer resumed_hidden.deinit();
-    var resumed_block = try runDecoderBlock(allocator, resumed, hidden_spec, resumed_hidden);
+    var resumed_block = try runDecoderBlock(allocator, resumed, hidden_spec, resumed_hidden, compile_options);
     defer resumed_block.output.deinit();
     defer allocator.free(resumed_block.explanation);
     const original_block_values = f32Values(block.output);
@@ -224,7 +229,7 @@ pub fn runDecoderProof(allocator: std.mem.Allocator, backend: compute.Backend) !
     defer resumed_first.deinit();
     const resumed_second = try resumed.createTensor(parameter_spec, first_update[2].bytes());
     defer resumed_second.deinit();
-    var resumed_compilation = try resumed.compile(update_program, .{});
+    var resumed_compilation = try resumed.compile(update_program, compile_options);
     defer resumed_compilation.deinit();
     const second_update = try resumed.run(resumed_compilation.executable, &.{ resumed_parameter, resumed_gradient, resumed_first, resumed_second });
     defer resumed.releaseOutputs(second_update);
@@ -264,4 +269,13 @@ test "T13b candidate decoder proof runs on one available accelerator" {
     defer accelerated.deinit(std.testing.allocator);
     try std.testing.expectApproxEqAbs(cpu.loss, accelerated.loss, 1e-5);
     for (cpu.resumed_parameter, accelerated.resumed_parameter) |expected, actual| try std.testing.expectApproxEqAbs(expected, actual, 1e-4);
+}
+
+test "O00c decoder proof has safe and unoptimized numerical parity" {
+    var reference = try runDecoderProofWithOptions(std.testing.allocator, .cpu, .{ .optimization_profile = .off });
+    defer reference.deinit(std.testing.allocator);
+    var optimized = try runDecoderProofWithOptions(std.testing.allocator, .cpu, .{ .optimization_profile = .safe });
+    defer optimized.deinit(std.testing.allocator);
+    try std.testing.expectEqual(reference.loss, optimized.loss);
+    try std.testing.expectEqualSlices(f32, &reference.resumed_parameter, &optimized.resumed_parameter);
 }

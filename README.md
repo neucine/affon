@@ -78,11 +78,11 @@ changed through the canonical API.
 
 ## Public Modules
 
-- `affon:compute` is the declarative Program, Session, differentiation, and Program-transform surface.
+- `affon:compute` is the declarative Program, Session, differentiation,
+  built-in loss-template, and Program-transform surface.
 - `affon:ops` is the shared operation vocabulary for formal and evaluated tensors.
 - `affon:optim` contains immutable optimizer descriptors.
-- `affon:compute/legacy` temporarily contains the older eager tensor and captured-graph API.
-- `affon:nn/legacy` temporarily contains the older eager model-building layer; canonical NN authoring lives on `p.nn`.
+- Neural-network authoring lives on the active Program builder under `p.nn`.
 - `affon:dataset` is the ingest, preprocessing, batching, text-record, and tokenizer surface.
 - `affon:checkpoint` is the training-state persistence and restore surface.
 
@@ -93,7 +93,8 @@ by the underlying runtime under `std:*` specifiers.
 
 - **Declarative compute Programs** with typed tensor roles, explicit state, differentiation, optimization, and compilation
 - **CPU, Metal, and CUDA device placement** with kernel-capability-aware lowering
-- **Program-bound neural-network declarations** for linear, embedding, layer normalization, and cross entropy
+- **Program-bound neural-network declarations** for linear, embedding, and layer normalization
+- **Built-in loss templates** under `losses`, combined with reusable models by `optimize(model, loss, optimizer)`
 - **Immutable optimizer descriptors** for SGD, Adam, and AdamW Program transforms
 - **Dataset pipelines** for tabular and text workflows, including token windows and tokenizer adapters
 - **Checkpoint persistence** for model and optimizer state

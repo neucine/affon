@@ -17,13 +17,24 @@ test('runs BERT entirely through Program and Session', () => {
   const config = { width: 4, innerWidth: 8, heads: 2, layers: 1, contextLength: 4, vocabSize: 7, typeVocabSize: 2, epsilon: 1e-5 }
   const model = create_bert(config, { tokenEmbedding: value([7, 4]), positionEmbedding: value([4, 4]), typeEmbedding: value([2, 4]), embeddingNorm: norm(), pooler: affine(4, 4), blocks: [block()] } as any)
 
-  const result = model.forward([[1, 2]], [[1, 1]], [[0, 0]])
-  expect(result.output.shape).toEqual([1, 2, 4])
-  expect(result.pooled.shape).toEqual([1, 4])
-  expect(result.pooler.shape).toEqual([1, 4])
-  expect((result.output.to_array() as number[][][]).flat(Infinity).every(Number.isFinite)).toBe(true)
+  const runtime = new Session({ device: 'cpu' })
+  const program = model.forward(1, 2)
+  const state = runtime.initialize(program, { parameters: model.parameters })
+  const inputs = {
+    ids: runtime.tensor([[1, 2]], { dtype: 'i64' }),
+    types: runtime.tensor([[0, 0]], { dtype: 'i64' }),
+    positions: runtime.tensor([[0, 1]], { dtype: 'i64' }),
+    valid: runtime.tensor([[[1], [1]]]),
+    attention_mask: runtime.tensor([[[[0, 0]]]], { dtype: 'i64' }),
+  }
+  const [pooled, pooler, ...hiddenStates] = runtime.compile(program).run(inputs, state) as Tensor[]
+  expect(hiddenStates.at(-1)!.shape).toEqual([1, 2, 4])
+  expect(pooled.shape).toEqual([1, 4])
+  expect(pooler.shape).toEqual([1, 4])
+  expect((hiddenStates.at(-1)!.to_array() as number[][][]).flat(Infinity).every(Number.isFinite)).toBe(true)
 
-  for (const tensor of [result.pooled, result.pooler, ...result.hidden_states]) tensor.dispose()
-  model.dispose()
+  for (const tensor of [pooled, pooler, ...hiddenStates, ...Object.values(inputs)]) tensor.dispose()
+  state.dispose()
+  runtime.dispose()
   source.dispose()
 })

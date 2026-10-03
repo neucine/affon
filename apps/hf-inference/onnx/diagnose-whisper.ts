@@ -5,20 +5,21 @@ import { getEnv } from 'std:process'
 import { load_whisper } from '../../../packages/@affon/huggingface/src/adapters/whisper.ts'
 import { load_whisper_processor } from '../../../packages/@affon/huggingface/src/processors/whisper.ts'
 import { decode_wav } from '../../../packages/@affon/huggingface/src/processors/shared/audio.ts'
+import { WhisperProgramRuntime } from '../src/inference/program-runtime.ts'
 const root = getEnv('AFFON_WHISPER_DIR') ?? '/private/tmp/affon-onnx-whisper'
 const model = load_whisper(`${root}/source`, {
   task: 'automatic-speech-recognition',
   backend: 'onnx',
   graph_dir: root,
-  device: 'metal',
 })
+const runtime = new WhisperProgramRuntime(model, 'metal')
 const processor = load_whisper_processor(`${root}/source`, 'metal')
 const bytes = new Uint8Array(
   JSON.parse(fs.readFileSync(getEnv('PROFILE_AUDIO_BYTES')!)),
 )
 const audio = decode_wav(bytes)
 const features = processor.process(audio.samples, audio.sampling_rate)
-model.transcribe(features)
+runtime.transcribe(features)
 function snapshot() {
   return Object.fromEntries(
     telemetry
@@ -35,7 +36,7 @@ const runs = Array.from({ length: 3 }, () => {
     string,
     { calls: number; elapsed_ms: number; counters: Record<string, number> }
   > = {}
-  const result = model.transcribe(features, undefined, (name, elapsed_ms) => {
+  const result = runtime.transcribe(features, undefined, (name, elapsed_ms) => {
     const after = snapshot()
     const phase = (phases[name] ??= { calls: 0, elapsed_ms: 0, counters: {} })
     phase.calls++
@@ -61,3 +62,4 @@ console.log(
     })),
   ),
 )
+features.dispose(); runtime.dispose()

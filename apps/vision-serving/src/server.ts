@@ -2,7 +2,7 @@
 import fs from 'std:fs'
 import http from 'std:http'
 import { getEnv } from 'std:process'
-import type { Device } from 'affon:compute'
+import { Session, type Device, type Tensor } from 'affon:compute'
 import { load_graph } from '../../../packages/@affon/onnx/src/index.ts'
 import { process_mobilenet_image } from '../../../packages/@affon/huggingface/src/processors/mobilenet.ts'
 
@@ -16,15 +16,27 @@ if (!/^[a-zA-Z0-9_-]+$/.test(name)) throw Error('Invalid MODEL_NAME')
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw Error('Invalid PORT')
 const config = JSON.parse(fs.readFileSync(`${directory}/source/preprocessor_config.json`))
 if (config.image_processor_type !== 'MobileNetV2ImageProcessor') throw Error('This service requires MobileNetV2 preprocessing')
-const model = load_graph(directory, device)
+const model = load_graph(directory)
+const session = new Session({ device })
+const state = session.initialize(model.forward, { parameters: model.parameters })
+const executable = session.compile(model.forward)
+function forward(pixels: Tensor) {
+  const input = session.tensor(pixels.to_array(), { dtype: 'f32' })
+  try {
+    const result = executable.run({ pixels: input }, state) as Tensor | Tensor[]
+    return (Array.isArray(result) ? result : [result])[model.output_names.indexOf('logits')]
+  } finally { input.dispose() }
+}
 if (Object.keys(model.graph.inputs).join(',') !== 'pixels'
     || JSON.stringify(model.graph.inputs.pixels) !== '[1,3,224,224]'
     || model.graph.outputs.join(',') !== 'logits') throw Error('Expected pixels [1,3,224,224] → logits graph')
 // Check the complete processor/model contract before accepting traffic.
-const probe = model.forward({pixels: process_mobilenet_image(`${directory}/source`, [[[0, 0, 0]]], device)}).logits
+const probePixels = process_mobilenet_image(`${directory}/source`, [[[0, 0, 0]]], device)
+const probe = forward(probePixels)
 if (probe.shape.length !== 2 || probe.shape[0] !== 1) throw Error('Expected batch-one classification logits')
 const outputShape = probe.shape
 probe.dispose()
+probePixels.dispose()
 const base = `/v2/models/${name}`
 const json = (value: unknown, status = 200) => ({status, json: value})
 function validate(input: any) {
@@ -74,7 +86,7 @@ http.serve({
           return rgb.data.slice(offset, offset + 3)
         })), device)
       const prepared = Date.now()
-      const logits = model.forward({pixels}).logits
+      const logits = forward(pixels)
       try {
         const data = (logits.to_array() as number[]).flat(Infinity)
         if (data.some(v => !Number.isFinite(v))) throw Error('Nonfinite model output')

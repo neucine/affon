@@ -23,7 +23,7 @@ When adding new files, prefer lowercase hyphenated names such as `runtime-bounda
 
 Rules:
 - use lowercase hyphenated names for public docs, examples, package files, scripts, and new source files when there is no stronger local convention
-- keep established local conventions where they already exist, such as type declaration names like `affon-compute.d.ts` or implementation files that intentionally match exported class names
+- keep established local conventions where they already exist, such as type declaration names like `affon-compute-program.d.ts` or implementation files that intentionally match exported class names
 - avoid adding new mixed-case filenames unless the filename needs to mirror a public class, package convention, or external tool expectation
 
 ## Examples And Apps

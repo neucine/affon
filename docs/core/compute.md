@@ -9,8 +9,9 @@ Program -> Session.compile/cache -> Executable -> run -> Tensor
                   +---- ExecutionState ----------+
 ```
 
-The older eager and captured-graph API is temporarily available from
-`affon:compute/legacy`. New code should not mix the two execution models.
+The Program API is the only public compute model. Tensor operations live in
+`affon:ops`; execution, differentiation, and optimization remain Program-level
+concerns.
 
 ## Author a Program
 
@@ -154,9 +155,10 @@ target shape can be inferred from a model.
 
 ## Optimization
 
-`optimize` declares a state transition over a loss Program. Keep the model and
-loss separate when the same model must also be compiled for evaluation or
-inference:
+`optimize(model, loss, optimizer)` combines a reusable model, a scalar loss
+Program or built-in loss template, and an immutable optimizer descriptor into
+a state-transition Program. Keep the model and loss separate when the same
+model must also be compiled for evaluation or inference:
 
 ```ts
 import { losses, optimize } from "affon:compute"
@@ -201,15 +203,3 @@ not required in ordinary code. Native Session storage remains alive while a
 child tensor or executable still owns it, preventing dangling native handles.
 After a Session is disposed, existing tensors remain safely readable, while
 executables and state cannot start new work.
-
-## Legacy Migration
-
-Existing packages that still use global constructors, global math functions,
-`module`, legacy `compile(function)`, mutable gradients, or stateful optimizer
-steps must import them from `affon:compute/legacy`:
-
-```ts
-import { tensor, matmul } from "affon:compute/legacy"
-```
-
-Those exports are a migration boundary, not part of the Program API.

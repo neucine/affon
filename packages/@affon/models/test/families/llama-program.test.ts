@@ -3,7 +3,7 @@ import { Session } from 'affon:compute'
 import type { Tensor } from 'affon:compute'
 import { create_llama } from '../../src/llama/model.ts'
 
-test('runs Llama forward, decode sessions, and generation through Programs', () => {
+test('authors Llama forward windows as caller-executed Programs', () => {
   const source = new Session({ device: 'cpu' })
   const value = (shape: number[], fill = 0.1): Tensor => {
     const data = (dimensions: number[]): any => dimensions.length
@@ -38,20 +38,18 @@ test('runs Llama forward, decode sessions, and generation through Programs', () 
     }],
   } as any)
 
-  const forward = model.forward([1, 2])
-  expect(forward.logits.shape).toEqual([1, 2, 7])
-  expect(forward.hidden_states.map(hidden => hidden.shape)).toEqual([[1, 2, 4], [1, 2, 4]])
-  const decode = model.create_session()
-  const first = decode.forward([1, 2])
-  const second = decode.forward([3])
-  expect(decode.length).toBe(3)
-  expect(second.logits.shape).toEqual([1, 1, 7])
-  expect(model.generate([1], 2)).toEqual([1, 0, 0])
+  const runtime = new Session({ device: 'cpu' })
+  const program = model.forward(3, 2)
+  const state = runtime.initialize(program, { parameters: model.parameters })
+  const ids = runtime.tensor([1, 2, 3], { dtype: 'i64' })
+  const mask = runtime.tensor([[[[0, 1, 1], [0, 0, 1], [0, 0, 0]]]], { dtype: 'i64' })
+  const [logits, ...hiddenStates] = runtime.compile(program).run({ ids, mask }, state) as Tensor[]
+  expect(logits.shape).toEqual([1, 1, 7])
+  expect(hiddenStates.map(hidden => hidden.shape)).toEqual([[1, 1, 4], [1, 1, 4]])
+  expect(() => model.forward(3, 3)).toThrow()
 
-  for (const result of [forward, first, second]) {
-    result.logits.dispose()
-    for (const hidden of result.hidden_states) hidden.dispose()
-  }
-  model.dispose()
+  for (const tensor of [logits, ...hiddenStates, ids, mask]) tensor.dispose()
+  state.dispose()
+  runtime.dispose()
   source.dispose()
 })

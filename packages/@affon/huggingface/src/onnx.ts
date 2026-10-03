@@ -1,4 +1,3 @@
-import type { Device, Tensor } from 'affon:compute'
 import { load_graph } from '../../onnx/src/index.ts'
 
 /** ONNX is an execution backend, not an HF architecture. Preparation is explicit. */
@@ -6,7 +5,6 @@ export type OnnxModelOptions = {
   task: 'image-classification' | 'audio-classification'
   backend: 'onnx'
   graph_dir: string
-  device?: Device
   input_name?: string
   output_name?: string
 }
@@ -18,8 +16,7 @@ export function load_onnx_classifier(
     throw Error('Unsupported ONNX classification task')
   if (!options.graph_dir)
     throw Error('ONNX backend requires a prepared graph_dir')
-  const graph = load_graph(options.graph_dir, options.device ?? 'cpu')
-  const device = options.device ?? 'cpu'
+  const graph = load_graph(options.graph_dir)
   const inputs = Object.keys(graph.graph.inputs)
   if (inputs.length !== 1)
     throw Error('HF classification requires one graph input')
@@ -64,11 +61,12 @@ export function load_onnx_classifier(
   return {
     config,
     backend: 'onnx' as const,
+    parameters: graph.parameters,
+    output_names: graph.output_names,
+    input_name: input,
+    output_name: output,
     input_shape: [...input_shape],
-    forward(pixels: Tensor): { output: Tensor } {
-      return { output: graph.forward({ [input]: pixels })[output] }
-    },
-    dispose() { graph.dispose() },
+    forward: graph.forward,
   }
 }
 export type OnnxClassifier = ReturnType<typeof load_onnx_classifier>

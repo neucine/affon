@@ -17,9 +17,10 @@ and apps that build on those surfaces.
 
 Affon keeps the public runtime surface intentionally small:
 
-- `affon:compute` provides tensors, Programs, Sessions, differentiation, and Program transforms.
+- `affon:compute` provides tensors, Programs, Sessions, differentiation,
+  built-in loss templates, and Program transforms.
 - `affon:ops` provides operations shared by formal and evaluated tensors.
-- `p.nn` provides builder-bound neural-network declarations and losses.
+- `p.nn` provides builder-bound parameterized neural-network declarations.
 - `affon:optim` provides optimizer descriptors.
 - `affon:dataset` provides ingest, preprocessing, batching, text records, and tensor export.
 - `affon:checkpoint` provides training-state persistence and restoration.
@@ -43,7 +44,6 @@ Complete runnable workflows live under `apps/`.
 
 ## Machine Learning
 
-- [Illustrated Learning Coverage](./learn/illustrated/index.md)
 - [ML Overview](./ml/index.md)
 - [ML Glossary](./ml/glossary.md)
 - [Metrics Concepts](./ml/metrics.md)

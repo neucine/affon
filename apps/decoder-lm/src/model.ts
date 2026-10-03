@@ -80,9 +80,9 @@ export function DecoderModel(vocabSize: number, dModel: number, options: Decoder
         const k = split(dense(input, `${prefix}_key`, dModel, dModel))
         const v = split(dense(input, `${prefix}_value`, dModel, dModel))
         const attended = reshape(contiguous(transpose(matmul(softmax(masked_fill(div(matmul(q, transpose(k, [0, 1, 3, 2])), scale), mask, -3.4028234663852886e38), 3), v), [0, 2, 1, 3])), [batch, length, dModel])
-        x = add(x, dense(attended, `${prefix}_attention_output`, dModel, dModel))
+        x = add(x, contiguous(dense(attended, `${prefix}_attention_output`, dModel, dModel)))
         const hidden = norm(x, `${prefix}_feed_forward_norm`)
-        x = add(x, dense(gelu(dense(hidden, `${prefix}_expand`, dModel, opts.hiddenDim)), `${prefix}_contract`, opts.hiddenDim, dModel))
+        x = add(x, contiguous(dense(gelu(dense(hidden, `${prefix}_expand`, dModel, opts.hiddenDim)), `${prefix}_contract`, opts.hiddenDim, dModel)))
       }
       const normalized = norm(x, 'final_norm')
       return opts.tieEmbeddings ? matmul(normalized, transpose(tokenEmbedding, [1, 0])) : dense(normalized, 'lm_head', dModel, vocabSize)

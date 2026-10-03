@@ -43,8 +43,11 @@ For native execution alone:
 
 ```ts
 import { load_graph } from '@affon/onnx'
-const model = load_graph('/path/to/converted', 'metal')
-const { logits } = model.forward({ pixels })
+import { Session } from 'affon:compute'
+const model = load_graph('/path/to/converted')
+const session = new Session({ device: 'metal' })
+const state = session.initialize(model.forward, { parameters: model.parameters })
+const logits = session.compile(model.forward).run({ pixels }, state)
 ```
 
 The runner starts separate graph/adapter processes on CPU and Metal sequentially.
@@ -86,7 +89,7 @@ operations and attributes are rejected during conversion.
 - Transpose, Concat, constant-shape Reshape (`allowzero=0`), Softmax and constant
   scalar-i64 Gather. ONNX scalar Gather removes its indexed axis.
 - LayerNormalization: final axis only, f32 accumulation, affine scale and bias,
-  one output. Native eager normalization is used.
+  one output. Normalization is authored as canonical Program operations.
 - Conv: NCHW/OIHW 2D, constant weights and optional constant bias, explicit
   nonnegative padding, positive strides/dilations and compatible groups.
   Nonoverlapping group-one windows keep the original patch/matmul path; other

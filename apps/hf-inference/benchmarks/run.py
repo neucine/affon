@@ -17,7 +17,6 @@ parser.add_argument('--output', required=True)
 parser.add_argument('--iterations', type=int, default=5)
 parser.add_argument('--build-profile', default='unspecified')
 parser.add_argument('--families', nargs='+', choices=['gpt2', 'vit'], default=['gpt2', 'vit'])
-parser.add_argument('--kv-cache', action='store_true')
 args = parser.parse_args()
 if not 3 <= args.iterations <= 100:
     parser.error('Use 3–100 measured iterations')
@@ -27,7 +26,7 @@ executable = Path(args.affon).resolve()
 metadata = {'platform': platform.platform(), 'machine': platform.machine(), 'build_profile': args.build_profile,
             'affon_sha256': hashlib.sha256(executable.read_bytes()).hexdigest(), 'iterations': args.iterations,
             'execution': 'Fresh processes, sequential; one warmup then measured runs; existing playground left running; other system activity uncontrolled.',
-            'families': args.families, 'kv_cache': args.kv_cache,
+            'families': args.families,
             'gpt2_source_sha256': hashlib.sha256((repo / 'packages/@affon/huggingface/src/gpt2.ts').read_bytes()).hexdigest(), 'runs': []}
 if platform.system() == 'Darwin':
     metadata['cpu'] = subprocess.check_output(['sysctl', '-n', 'machdep.cpu.brand_string'], text=True).strip()
@@ -37,7 +36,7 @@ for family in args.families:
         name = f'{family}-{device}'
         report = output / f'{name}.json'
         env = {**os.environ, 'AFFON_DEVICE': device, 'AFFON_BENCH_FAMILY': family, 'AFFON_BENCH_REPORT': str(report),
-               'AFFON_HF_CACHE': str(Path(args.cache).resolve()), 'AFFON_BENCH_KV_CACHE': '1' if args.kv_cache else '0', 'AFFON_BENCH_ITERATIONS': str(args.iterations), 'AFFON_AUDIT_BUILD': args.build_profile}
+               'AFFON_HF_CACHE': str(Path(args.cache).resolve()), 'AFFON_BENCH_ITERATIONS': str(args.iterations), 'AFFON_AUDIT_BUILD': args.build_profile}
         command = [str(executable), 'apps/hf-inference/src/benchmark/inference.ts']
         if platform.system() == 'Darwin': command = ['/usr/bin/time', '-l', *command]
         print(f'Running {name}', flush=True)

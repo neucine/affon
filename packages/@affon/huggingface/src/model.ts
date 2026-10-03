@@ -1,7 +1,6 @@
 import { load_llama } from './adapters/llama.ts'
 import { load_whisper, type WhisperOptions } from './adapters/whisper.ts'
 import fs from 'std:fs'
-import type { Device } from 'affon:compute'
 import { load_gpt2 } from './adapters/gpt2.ts'
 import { load_bert } from './adapters/bert.ts'
 import { load_vit } from './adapters/vit.ts'
@@ -21,15 +20,14 @@ export type ModelTask =
   | 'automatic-speech-recognition'
 export type ModelOptions<T extends NativeModelTask> = {
   task: T
-  device?: Device
   backend?: 'native'
 }
 
 /**
  * Load a supported HF architecture and task from a prepared local directory.
  * @param directory Directory containing config.json and one f32 or BF16 model.safetensors (BF16 widens to f32).
- * @param options Explicit task and execution device (CPU by default).
- * @returns Native model with a task-specific forward signature.
+ * @param options Explicit task.
+ * @returns A device-neutral Program definition and checkpoint parameter initializer.
  * @throws If the task/model-type combination or model configuration is unsupported.
  * @example
  * const model = load_model('/models/bert', { task: 'feature-extraction' })
@@ -55,22 +53,19 @@ export function load_model(
   | OnnxClassifier
   | ReturnType<typeof load_whisper> {
   const config = JSON.parse(fs.readFileSync(`${directory}/config.json`))
-  const device = options.device ?? 'cpu'
-  if (!/^(cpu|metal|cuda(:\d+)?)$/.test(device))
-    throw new Error(`Invalid HF device: ${device}`)
   if (options.task === 'automatic-speech-recognition')
     return load_whisper(directory, options)
   if (options.backend === 'onnx') return load_onnx_classifier(config, options)
   if (options.backend !== undefined && options.backend !== 'native')
     throw Error('Unsupported HF execution backend')
   if (options.task === 'text-generation' && config.model_type === 'gpt2')
-    return load_gpt2(directory, device)
+    return load_gpt2(directory)
   if (options.task === 'text-generation' && config.model_type === 'llama')
-    return load_llama(directory, device)
+    return load_llama(directory)
   if (options.task === 'feature-extraction' && config.model_type === 'bert')
-    return load_bert(directory, device)
+    return load_bert(directory)
   if (options.task === 'image-classification' && config.model_type === 'vit')
-    return load_vit(directory, device)
+    return load_vit(directory)
   throw new Error(
     `Unsupported HF model/task: ${config.model_type}/${options.task}`,
   )

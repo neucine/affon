@@ -1,6 +1,7 @@
 import { type InferenceModels } from "./models.ts";
 import type { InferenceOptions } from "./models.ts";
 import { rank_classes } from "./classification.ts";
+import { execute_vit, GraphProgramRuntime } from "./program-runtime.ts";
 
 /** Preprocess packed RGB8 for the selected model, run inference, and rank logits. */
 export function classify_image(
@@ -23,9 +24,17 @@ export function classify_image(
   );
   const processed = vision.processor.process(rgb);
   const inference_start = Date.now();
-  const logits = (
-    vision.model.forward(processed).output.to_array() as number[][]
-  )[0];
+  const result = vision.backend === 'native'
+    ? execute_vit(vision.model, processed, device)
+    : (() => {
+        const runtime = new GraphProgramRuntime(vision.model, device)
+        const outputs = runtime.forward({ [vision.model.input_name]: processed })
+        const output = outputs[vision.model.output_name]
+        return { output, dispose: () => { for (const value of Object.values(outputs)) value.dispose(); runtime.dispose() } }
+      })();
+  let logits: number[]
+  try { logits = (result.output.to_array() as number[][])[0] }
+  finally { result.dispose(); processed.dispose() }
   const inference_ms = Date.now() - inference_start;
   const predictions = rank_classes(logits, vision.model.config.id2label ?? {});
   return {
