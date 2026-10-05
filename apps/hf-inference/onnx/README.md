@@ -26,12 +26,12 @@ versions in `requirements.txt`. Commands run from the repository root:
 
 ```sh
 python apps/hf-inference/onnx/export-vit.py \
-  --model-dir /tmp/affon-hf-vit --output /tmp/affon-onnx-vit
+  --model-dir apps/hf-inference/artifacts/vit --output apps/hf-inference/artifacts/vit-onnx
 python apps/hf-inference/onnx/convert.py \
-  /tmp/affon-onnx-vit/model.onnx /tmp/affon-onnx-vit
+  apps/hf-inference/artifacts/vit-onnx/model.onnx apps/hf-inference/artifacts/vit-onnx
 python apps/hf-inference/onnx/run.py \
   --affon /tmp/affon-hf-decode/bin/affon \
-  --model-dir /tmp/affon-hf-vit --graph-dir /tmp/affon-onnx-vit \
+  --model-dir apps/hf-inference/artifacts/vit --graph-dir apps/hf-inference/artifacts/vit-onnx \
   --output /tmp/affon-onnx-results
 ```
 
@@ -63,13 +63,13 @@ latency or long-term memory-stability measurement.
 python apps/hf-inference/onnx/export-image-model.py \
   --model google/mobilenet_v2_1.0_224 \
   --revision 75e607b00aeae1297cc89d026a118bce012f5c5a \
-  --output /tmp/affon-onnx-mobilenet
+  --output apps/hf-inference/artifacts/mobilenet
 python apps/hf-inference/onnx/convert.py \
-  /tmp/affon-onnx-mobilenet/model.onnx /tmp/affon-onnx-mobilenet
+  apps/hf-inference/artifacts/mobilenet/model.onnx apps/hf-inference/artifacts/mobilenet
 python apps/hf-inference/onnx/run.py \
   --affon /tmp/affon-hf-decode/bin/affon --routes graph \
-  --model-dir /tmp/affon-onnx-mobilenet/source \
-  --graph-dir /tmp/affon-onnx-mobilenet --output /tmp/mobilenet-results \
+  --model-dir apps/hf-inference/artifacts/mobilenet/source \
+  --graph-dir apps/hf-inference/artifacts/mobilenet --output /tmp/mobilenet-results \
   --build-profile ReleaseFast
 ```
 

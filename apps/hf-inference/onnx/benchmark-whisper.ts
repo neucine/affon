@@ -5,7 +5,7 @@ import { load_whisper_processor } from '../../../packages/@affon/huggingface/src
 import { decode_wav } from '../../../packages/@affon/huggingface/src/processors/shared/audio.ts'
 import type { Device } from 'affon:compute'
 import { WhisperProgramRuntime } from '../src/inference/program-runtime.ts'
-const root = getEnv('AFFON_WHISPER_DIR') ?? '/private/tmp/affon-onnx-whisper'
+const root = getEnv('AFFON_WHISPER_DIR') ?? 'apps/hf-inference/artifacts/whisper'
 const device = (getEnv('AFFON_DEVICE') ?? 'metal') as Device
 const model = load_whisper(`${root}/source`, {
   task: 'automatic-speech-recognition',

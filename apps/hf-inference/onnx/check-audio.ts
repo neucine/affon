@@ -4,7 +4,7 @@ import checkpoint from 'affon:checkpoint'
 import type { Device } from 'affon:compute'
 import { load_model, load_processor } from '../../../packages/@affon/huggingface/src/index.ts'
 import { GraphProgramRuntime } from '../src/inference/program-runtime.ts'
-const directory = getEnv('AFFON_AST_ONNX_DIR') ?? '/tmp/affon-onnx-ast'
+const directory = getEnv('AFFON_AST_ONNX_DIR') ?? 'apps/hf-inference/artifacts/ast'
 const source = getEnv('AFFON_AST_DIR') ?? `${directory}/source`
 const device = (getEnv('AFFON_DEVICE') ?? 'cpu') as Device
 const reference = checkpoint.load(`${directory}/reference.safetensors`)

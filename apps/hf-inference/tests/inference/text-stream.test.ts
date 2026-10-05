@@ -1,13 +1,15 @@
 import { test, expect } from 'std:test'
 import { Tensor, program } from 'affon:compute'
-import { create_text_generation, generate_text } from '../../src/inference/text.ts'
+import { div } from 'affon:ops'
+import { create_text_generation, dispose_text_runtimes, generate_text } from '../../src/inference/text.ts'
+import { CausalProgramRuntime } from '../../src/inference/program-runtime.ts'
 import { create_handler } from '../../src/serve/http/routes.ts'
 import type { InferenceModels } from '../../src/inference/models.ts'
 import type { PlaygroundConfig } from '../../src/serve/config.ts'
 import { load_llama } from '../../../../packages/@affon/huggingface/src/adapters/llama.ts'
 
 function fixture() {
-  let fail = false
+  let fail = false, nonfinite = false
   const lengths: number[] = []
   const model = {
     config: {eos_token_id: 2, vocab_size: 5, max_position_embeddings: 10},
@@ -15,6 +17,12 @@ function fixture() {
     forward(length: number, outputStart = 0) {
       if (fail && length > 1) { fail = false; throw Error('test decode failure') }
       lengths.push(length)
+      if (nonfinite) return program(`invalid_${length}_${outputStart}`, p => {
+        p.argument('ids', Tensor.i64([length]))
+        p.argument('mask', Tensor.i64([1, 1, length, length]))
+        const zeros = p.constant('zeros', [[[0, 0, 0, 0, 0]]], Tensor.f32([1, 1, 5]))
+        return [div(zeros, zeros)]
+      })
       return program(`fixture_${length}_${outputStart}`, p => {
         p.argument('ids', Tensor.i64([length]))
         p.argument('mask', Tensor.i64([1, 1, length, length]))
@@ -28,8 +36,22 @@ function fixture() {
     decode: (ids: number[]) => ids.includes(4) ? '你好' : ids.includes(3) ? '你�' : '',
   }
   const models = {device:'cpu', default_text_model:'smollm2', images:{}, texts:{smollm2:{id:'fixture',chat:true,model,processor}}} as unknown as InferenceModels
-  return {models, lengths, fail:()=>{fail=true}}
+  return {models, lengths, fail:()=>{fail=true}, nonfinite:()=>{nonfinite=true}}
 }
+
+test('HTTP reports non-finite model logits as a server failure', async () => {
+  const f = fixture()
+  f.nonfinite()
+  const handler = create_handler({port:8766,origin:'http://127.0.0.1:8766',device:'cpu'} as PlaygroundConfig, f.models)
+  const response = await handler({
+    method:'POST',url:'/api/generate',headers:{host:'127.0.0.1:8766','content-type':'application/json'},
+    json: <T>() => ({prompt:'Hi',max_new_tokens:1}) as T,
+    text: () => '', bytes: () => new Uint8Array(),
+  } satisfies HttpServerRequest)
+  expect(response.status).toBe(500)
+  expect((response.json as {error:string}).error).toContain('Non-finite model logit')
+  dispose_text_runtimes(f.models)
+})
 
 test('incremental decoding preserves byte boundaries, Program prefixes, EOS and buffered output', () => {
   const f = fixture(), stream = create_text_generation(f.models, 'Hi', 8)
@@ -39,11 +61,12 @@ test('incremental decoding preserves byte boundaries, Program prefixes, EOS and 
   expect(last.done).toBe(true)
   expect(last.truncated).toBe(false)
   expect(last.text).toBe(generate_text(f.models, 'Hi', 8).text)
-  expect(f.lengths).toEqual([1, 2, 3, 4, 1, 2, 3, 4])
+  expect(f.lengths).toEqual([1, 2, 3, 4, 2, 3, 4])
   expect(() => stream.next()).toThrow('finished')
+  dispose_text_runtimes(f.models)
 })
 
-test('token budget, cancellation and failed Program authoring release the runtime', () => {
+test('token budget, cancellation and failed Program authoring preserve the shared runtime', () => {
   const f = fixture(), bounded = create_text_generation(f.models, 'Hi', 1)
   expect(bounded.next().truncated).toBe(true)
   const cancelled = create_text_generation(f.models, 'Hi', 8)
@@ -52,16 +75,29 @@ test('token budget, cancellation and failed Program authoring release the runtim
   const failed = create_text_generation(f.models, 'Hi', 8)
   f.fail()
   expect(() => failed.next()).toThrow('test decode failure')
+  dispose_text_runtimes(f.models)
 })
 
 test('incremental real Llama decoding matches buffered greedy generation', () => {
   const model = load_llama('packages/@affon/huggingface/test/fixtures/llama')
   const processor = {encode:()=>[1,7,12], decode:(ids:number[])=>ids.join(',')}
   const models = {device:'cpu', texts:{tiny:{id:'tiny',chat:false,model,processor}},default_text_model:'tiny'} as unknown as InferenceModels
+  const fullRuntime = new CausalProgramRuntime(model, 'cpu')
+  const full = [1, 7, 12]
+  for (let index = 0; index < 4; index++) {
+    const value = fullRuntime.forward(full, full.length - 1)
+    try {
+      const row = (value.logits.to_array() as number[][][])[0][0]
+      full.push(row.indexOf(Math.max(...row)))
+    } finally { value.logits.dispose(); for (const hidden of value.hidden_states) hidden.dispose() }
+  }
+  fullRuntime.dispose()
   const stream = create_text_generation(models,'test',4)
   let last = stream.next()
   while (!last.done) last = stream.next()
-  expect(last.text).toBe(generate_text(models,'test',4).text)
+  expect(last.text).toBe(full.join(','))
+  expect(generate_text(models,'test',4).text).toBe(full.join(','))
+  dispose_text_runtimes(models)
 })
 
 test('HTTP generation reserves the model until finish/cancel and recovers after errors', async () => {
@@ -84,4 +120,5 @@ test('HTTP generation reserves the model until finish/cancel and recovers after 
   const fourth = (await start()).json as {id:string}
   expect(typeof fourth.id).toBe('string')
   await request('/api/generate/cancel',fourth)
+  dispose_text_runtimes(f.models)
 })

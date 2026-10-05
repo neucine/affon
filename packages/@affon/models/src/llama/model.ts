@@ -88,5 +88,122 @@ export function create_llama(config: LlamaConfig, weights: LlamaWeights) {
     })
     return source
   }
-  return { config, forward, parameters: parameterValues }
+
+  const prefillPrograms = new Map<number, ReturnType<typeof program>>()
+  function prefill(length: number) {
+    positive_dimensions(length)
+    if (length > contextLength) throw Error('Invalid Llama prefill length')
+    const cached = prefillPrograms.get(length)
+    if (cached) return cached
+    const source = program('llama', p => {
+      const ids = p.argument('ids', Tensor.i64([length]))
+      const mask = p.argument('mask', Tensor.i64([1, 1, length, length]))
+      const tokenEmbedding = parameter(p, 'token_embedding', [vocabSize, width])
+      const finalNorm = parameter(p, 'final_norm', [width])
+      const scalar = (name: string, value: number) => p.constant(name, value, Tensor.f32([1]))
+      const epsilon = scalar('epsilon', config.epsilon), one = scalar('one', 1)
+      const scale = scalar('attention_scale', 1 / Math.sqrt(headWidth))
+      const repeatIds = p.constant('repeat_ids', Array.from({ length: heads }, (_, index) => Math.floor(index / (heads / kvHeads))), Tensor.i64([heads]))
+      const angles = Array.from({ length }, (_, token) => Array.from({ length: headWidth }, (_, index) => token / Math.pow(config.ropeTheta, 2 * (index % (headWidth / 2)) / headWidth)))
+      const cosine = p.constant('rope_cosine', [angles.map(row => [row.map(Math.cos)])], Tensor.f32([1, length, 1, headWidth]))
+      const sine = p.constant('rope_sine', [angles.map(row => [row.map(Math.sin)])], Tensor.f32([1, length, 1, headWidth]))
+      const norm = (x: FormalTensor, weight: FormalTensor) => mul(mul(x, div(one, sqrt(add(mean(mul(x, x), 2, true), epsilon)))), weight)
+      const rope = (value: FormalTensor, headCount: number) => {
+        const reshaped = reshape(value, [1, length, headCount, headWidth])
+        const first = contiguous(slice(reshaped, [{ start: 0, stop: 1 }, { start: 0, stop: length }, { start: 0, stop: headCount }, { start: 0, stop: headWidth / 2 }]))
+        const second = contiguous(slice(reshaped, [{ start: 0, stop: 1 }, { start: 0, stop: length }, { start: 0, stop: headCount }, { start: headWidth / 2, stop: headWidth }]))
+        return add(mul(reshaped, cosine), mul(cat([neg(second), first], 3), sine))
+      }
+      const expand = (value: FormalTensor) => index_select(value, 1, repeatIds)
+      let x = reshape(embedding(tokenEmbedding, ids), [1, length, width])
+      const caches: FormalTensor[] = []
+      for (let index = 0; index < layers; index++) {
+        const prefix = `block_${index}`
+        const attentionNorm = parameter(p, `${prefix}_attentionNorm`, [width])
+        const feedForwardNorm = parameter(p, `${prefix}_feedForwardNorm`, [width])
+        const query = parameter(p, `${prefix}_query`, [width, width])
+        const key = parameter(p, `${prefix}_key`, [width, kvWidth])
+        const value = parameter(p, `${prefix}_value`, [width, kvWidth])
+        const attentionOutput = parameter(p, `${prefix}_attentionOutput`, [width, width])
+        const gate = parameter(p, `${prefix}_gate`, [width, innerWidth])
+        const up = parameter(p, `${prefix}_up`, [width, innerWidth])
+        const down = parameter(p, `${prefix}_down`, [innerWidth, width])
+        const normalized = norm(x, attentionNorm)
+        const q = transpose(rope(matmul(normalized, query), heads), [0, 2, 1, 3])
+        const k = contiguous(transpose(rope(matmul(normalized, key), kvHeads), [0, 2, 1, 3]))
+        const v = contiguous(transpose(reshape(matmul(normalized, value), [1, length, kvHeads, headWidth]), [0, 2, 1, 3]))
+        caches.push(k, v)
+        const scores = masked_fill(mul(matmul(q, transpose(expand(k), [0, 1, 3, 2])), scale), mask, -3.4028234663852886e38)
+        const attention = reshape(contiguous(transpose(matmul(softmax(scores, 3), expand(v)), [0, 2, 1, 3])), [1, length, width])
+        x = add(x, matmul(attention, attentionOutput))
+        const normalizedFeedForward = norm(x, feedForwardNorm)
+        x = add(x, matmul(mul(silu(matmul(normalizedFeedForward, gate)), matmul(normalizedFeedForward, up)), down))
+      }
+      x = norm(x, finalNorm)
+      const last = contiguous(slice(x, [{ start: 0, stop: 1 }, { start: length - 1, stop: length }, { start: 0, stop: width }]))
+      return [matmul(last, transpose(tokenEmbedding, [1, 0])), ...caches]
+    })
+    prefillPrograms.set(length, source)
+    return source
+  }
+
+  const decodePrograms = new Map<number, ReturnType<typeof program>>()
+  function decode(position: number) {
+    if (!Number.isInteger(position) || position < 1 || position >= contextLength) throw Error('Invalid Llama cache position')
+    const cached = decodePrograms.get(position)
+    if (cached) return cached
+    const source = program('llama', p => {
+      const id = p.argument('ids', Tensor.i64([1]))
+      const tokenEmbedding = parameter(p, 'token_embedding', [vocabSize, width])
+      const finalNorm = parameter(p, 'final_norm', [width])
+      const scalar = (name: string, value: number) => p.constant(name, value, Tensor.f32([1]))
+      const epsilon = scalar('epsilon', config.epsilon), one = scalar('one', 1)
+      const scale = scalar('attention_scale', 1 / Math.sqrt(headWidth))
+      const repeatIds = p.constant('repeat_ids', Array.from({ length: heads }, (_, index) => Math.floor(index / (heads / kvHeads))), Tensor.i64([heads]))
+      const angles = Array.from({ length: headWidth }, (_, index) => position / Math.pow(config.ropeTheta, 2 * (index % (headWidth / 2)) / headWidth))
+      const cosine = p.constant('rope_cosine', [[[angles.map(Math.cos)]]], Tensor.f32([1, 1, 1, headWidth]))
+      const sine = p.constant('rope_sine', [[[angles.map(Math.sin)]]], Tensor.f32([1, 1, 1, headWidth]))
+      const norm = (x: FormalTensor, weight: FormalTensor) => mul(mul(x, div(one, sqrt(add(mean(mul(x, x), 2, true), epsilon)))), weight)
+      const rope = (value: FormalTensor, headCount: number) => {
+        const reshaped = reshape(value, [1, 1, headCount, headWidth])
+        const first = contiguous(slice(reshaped, [{ start: 0, stop: 1 }, { start: 0, stop: 1 }, { start: 0, stop: headCount }, { start: 0, stop: headWidth / 2 }]))
+        const second = contiguous(slice(reshaped, [{ start: 0, stop: 1 }, { start: 0, stop: 1 }, { start: 0, stop: headCount }, { start: headWidth / 2, stop: headWidth }]))
+        return add(mul(reshaped, cosine), mul(cat([neg(second), first], 3), sine))
+      }
+      const expand = (value: FormalTensor) => index_select(value, 1, repeatIds)
+      let x = reshape(embedding(tokenEmbedding, id), [1, 1, width])
+      const caches: FormalTensor[] = []
+      for (let index = 0; index < layers; index++) {
+        const prefix = `block_${index}`
+        const attentionNorm = parameter(p, `${prefix}_attentionNorm`, [width])
+        const feedForwardNorm = parameter(p, `${prefix}_feedForwardNorm`, [width])
+        const query = parameter(p, `${prefix}_query`, [width, width])
+        const key = parameter(p, `${prefix}_key`, [width, kvWidth])
+        const value = parameter(p, `${prefix}_value`, [width, kvWidth])
+        const attentionOutput = parameter(p, `${prefix}_attentionOutput`, [width, width])
+        const gate = parameter(p, `${prefix}_gate`, [width, innerWidth])
+        const up = parameter(p, `${prefix}_up`, [width, innerWidth])
+        const down = parameter(p, `${prefix}_down`, [innerWidth, width])
+        const pastK = p.argument(`past_${index}_k`, Tensor.f32([1, kvHeads, position, headWidth]))
+        const pastV = p.argument(`past_${index}_v`, Tensor.f32([1, kvHeads, position, headWidth]))
+        const normalized = norm(x, attentionNorm)
+        const q = transpose(rope(matmul(normalized, query), heads), [0, 2, 1, 3])
+        const currentK = contiguous(transpose(rope(matmul(normalized, key), kvHeads), [0, 2, 1, 3]))
+        const currentV = contiguous(transpose(reshape(matmul(normalized, value), [1, 1, kvHeads, headWidth]), [0, 2, 1, 3]))
+        const k = cat([pastK, currentK], 2), v = cat([pastV, currentV], 2)
+        caches.push(k, v)
+        const scores = mul(matmul(q, transpose(expand(k), [0, 1, 3, 2])), scale)
+        const attention = reshape(contiguous(transpose(matmul(softmax(scores, 3), expand(v)), [0, 2, 1, 3])), [1, 1, width])
+        x = add(x, matmul(attention, attentionOutput))
+        const normalizedFeedForward = norm(x, feedForwardNorm)
+        x = add(x, matmul(mul(silu(matmul(normalizedFeedForward, gate)), matmul(normalizedFeedForward, up)), down))
+      }
+      x = norm(x, finalNorm)
+      return [matmul(x, transpose(tokenEmbedding, [1, 0])), ...caches]
+    })
+    decodePrograms.set(position, source)
+    return source
+  }
+
+  return { config, forward, prefill, decode, parameters: parameterValues }
 }

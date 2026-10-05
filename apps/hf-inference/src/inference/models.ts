@@ -6,7 +6,7 @@ import {
 } from '../../../../packages/@affon/huggingface/src/index.ts'
 /** Model loading options, independent of HTTP and environment variables. */
 export interface InferenceOptions {
-  smollm2?: boolean | SmolLM2Size
+  smollm2?: boolean | SmolLM2Size | 'all'
   text_only?: boolean
   device: 'cpu' | 'metal' | 'cuda'
   cache_dir: string
@@ -31,6 +31,11 @@ export const SMOLLM2_MODELS = {
 } as const
 export type SmolLM2Size = keyof typeof SMOLLM2_MODELS
 export const SMOLLM2_MODEL = SMOLLM2_MODELS['135M']
+const SMOLLM2_KEYS: Record<SmolLM2Size, string> = {
+  '135M': 'smollm2',
+  '360M': 'smollm2-360m',
+  '1.7B': 'smollm2-1.7b',
+}
 type ImageEntry = {
   id: string; label: string; processor: ProcessorsByTask['image-classification']
 } & ({ backend: 'native'; model: ModelsByTask['image-classification'] }
@@ -42,25 +47,30 @@ export const IMAGE_MODEL = {
 
 /** Load pinned native checkpoints and configured local graphs once for reuse. */
 export async function load_models(config: InferenceOptions) {
-  const size = config.smollm2 === true ? '135M' : config.smollm2 || undefined
-  if (size && !Object.hasOwn(SMOLLM2_MODELS, size)) throw Error('Unknown SmolLM2 size')
-  if (config.text_only && !size) throw Error('Text-only mode requires a SmolLM2 size')
-  const smolSpec = size ? SMOLLM2_MODELS[size] : undefined
-  const primarySpec = config.text_only ? smolSpec! : TEXT_MODEL
+  const requested = config.smollm2 === true ? '135M' : config.smollm2 || undefined
+  if (requested && requested !== 'all' && !Object.hasOwn(SMOLLM2_MODELS, requested)) throw Error('Unknown SmolLM2 size')
+  const sizes: SmolLM2Size[] = requested === 'all'
+    ? Object.keys(SMOLLM2_MODELS) as SmolLM2Size[]
+    : requested ? [requested as SmolLM2Size] : []
+  if (config.text_only && sizes.length === 0) throw Error('Text-only mode requires a SmolLM2 size')
+  const primarySize = config.text_only ? sizes[0] : undefined
+  const primarySpec = primarySize ? SMOLLM2_MODELS[primarySize] : TEXT_MODEL
   const default_text_model = config.text_only ? 'smollm2' : 'distilgpt2'
   const { model, processor } = await from_pretrained(primarySpec.id, {
     revision: primarySpec.revision, cache_dir: config.cache_dir,
     task: 'text-generation', device: config.device, local_files_only: config.local_files_only,
   })
   const texts: Record<string, { id: string; label: string; chat: boolean; model: typeof model; processor: typeof processor }> = {
-    [default_text_model]: { id: primarySpec.id, label: config.text_only ? `SmolLM2 ${size} Instruct` : 'DistilGPT-2', chat: Boolean(config.text_only), model, processor },
+    [default_text_model]: { id: primarySpec.id, label: primarySize ? `SmolLM2 ${primarySize} Instruct` : 'DistilGPT-2', chat: Boolean(primarySize), model, processor },
   }
-  if (smolSpec && !config.text_only) {
-    const smollm2 = await from_pretrained(smolSpec.id, {
-      revision: smolSpec.revision, cache_dir: config.cache_dir,
+  for (const size of sizes) {
+    if (size === primarySize) continue
+    const spec = SMOLLM2_MODELS[size]
+    const smollm2 = await from_pretrained(spec.id, {
+      revision: spec.revision, cache_dir: config.cache_dir,
       task: 'text-generation', device: config.device, local_files_only: config.local_files_only,
     })
-    texts['smollm2'] = { id: smolSpec.id, label: `SmolLM2 ${size} Instruct`, chat: true, model: smollm2.model, processor: smollm2.processor }
+    texts[SMOLLM2_KEYS[size]] = { id: spec.id, label: `SmolLM2 ${size} Instruct`, chat: true, model: smollm2.model, processor: smollm2.processor }
   }
   if (config.text_only) return {device: config.device, text: {model, processor}, texts, default_text_model, images: {} as Record<string, ImageEntry>, vision: undefined, audio: undefined, speech: undefined}
   const vision = await from_pretrained(IMAGE_MODEL.id, {

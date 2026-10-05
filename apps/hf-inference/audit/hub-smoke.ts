@@ -23,5 +23,9 @@ if (getEnv('AFFON_HF_FAMILY') === 'vit') {
   const runtime = new CausalProgramRuntime(model, (getEnv('AFFON_DEVICE') ?? 'cpu') as Device)
   const output = runtime.generate(ids, 4)
   runtime.dispose()
+  const expected = [464, 2003, 286, 14492, 318, 257, 2300, 286, 640]
+  if (output.length !== expected.length || output.some((id, index) => id !== expected[index])) {
+    throw new Error(`DistilGPT-2 generation mismatch: ${JSON.stringify(output)}`)
+  }
   console.log(JSON.stringify({ directory, task: 'text-generation', ids: output, text: processor.decode(output) }))
 }

@@ -1,7 +1,11 @@
 import type { PlaygroundConfig } from '../config.ts'
 import { type InferenceModels } from '../../inference/models.ts'
 import { generate_text, create_text_generation } from '../../inference/text.ts'
-import { transcribe_audio } from '../../inference/speech.ts'
+import { ModelOutputError } from '../../inference/program-runtime.ts'
+import {
+  TRANSCRIPTION_MAX_NEW_TOKENS,
+  transcribe_audio,
+} from '../../inference/speech.ts'
 import { classify_audio } from '../../inference/audio.ts'
 import { classify_image } from '../../inference/image.ts'
 import { download_image } from './image-url.ts'
@@ -49,7 +53,10 @@ export function create_handler(
           ? {
               id: models.speech.id,
               backend: 'onnx',
-              max_new_tokens: models.speech.model.max_new_tokens,
+              max_new_tokens: Math.min(
+                models.speech.model.max_new_tokens,
+                TRANSCRIPTION_MAX_NEW_TOKENS,
+              ),
             }
           : null,
         audio_model: models.audio
@@ -196,7 +203,7 @@ export function create_handler(
       }
       return json(generate_text(models, input.prompt, Number(budget), input.model as string | undefined))
     } catch (error) {
-      return json({ error: String(error) }, 400)
+      return json({ error: String(error) }, error instanceof ModelOutputError ? 500 : 400)
     } finally {
       busy = false
     }

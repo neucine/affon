@@ -7,7 +7,7 @@ const bytes = new Uint8Array(
 )
 const audio = decode_wav(bytes)
 const p = load_whisper_processor(
-  `${getEnv('AFFON_WHISPER_DIR') ?? '/private/tmp/affon-onnx-whisper'}/source`,
+  `${getEnv('AFFON_WHISPER_DIR') ?? 'apps/hf-inference/artifacts/whisper'}/source`,
   'metal',
 )
 p.process(audio.samples, audio.sampling_rate)

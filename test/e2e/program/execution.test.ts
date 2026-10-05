@@ -1,5 +1,6 @@
 import { add, cat, contiguous, embedding, index_select, layer_norm, masked_fill, mean, mul, slice, squeeze, unsqueeze } from "affon:ops"
 import { describe, expect, test } from "std:test"
+import telemetry from "std:telemetry"
 import { Session, Tensor, gradient, optimize, program } from "affon:compute"
 import { cross_entropy, linear } from "affon:nn"
 import { adam } from "affon:optim"
@@ -27,12 +28,15 @@ describe("Program execution state and lowering", () => {
     const state = firstSession.initialize(step, { seed: 7 })
     const x = firstSession.tensor([[1, 0], [0, 1]])
     const labels = firstSession.tensor([0, 1], { dtype: "i64" })
+    const runsBeforeTraining = telemetry.metrics().find(metric => metric.scope === "compute.execution" && metric.name === "runs_total")?.value ?? 0
     const result = firstSession.compile(step).run({ x, labels }, state) as any
     expect(Number.isFinite(result.item())).toBe(true)
     expect(state.optimizer_state.$step).toBe(1)
+    expect(telemetry.metrics().find(metric => metric.scope === "compute.execution" && metric.name === "runs_total")?.value).toBe(runsBeforeTraining + 2)
     const secondResult = firstSession.compile(step).run({ x, labels }, state) as any
     expect(Number.isFinite(secondResult.item())).toBe(true)
     expect(state.optimizer_state.$step).toBe(2)
+    expect(telemetry.metrics().find(metric => metric.scope === "compute.execution" && metric.name === "runs_total")?.value).toBe(runsBeforeTraining + 4)
 
     result.dispose()
     secondResult.dispose()

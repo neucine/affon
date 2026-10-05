@@ -6,7 +6,7 @@ import { getEnv } from 'std:process'
 import { Session, type Tensor, type Device } from 'affon:compute'
 import { load_whisper } from '../../../packages/@affon/huggingface/src/adapters/whisper.ts'
 import { WhisperProgramRuntime } from '../src/inference/program-runtime.ts'
-const root = getEnv('AFFON_WHISPER_DIR') ?? '/private/tmp/affon-onnx-whisper'
+const root = getEnv('AFFON_WHISPER_DIR') ?? 'apps/hf-inference/artifacts/whisper'
 const device = (getEnv('AFFON_DEVICE') ?? 'metal') as Device
 const refs = checkpoint.load(`${root}/reference.safetensors`) as Record<
   string,

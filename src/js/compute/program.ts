@@ -691,6 +691,7 @@ export class ProgramBuilder {
     return new FormalTensor(this, node.id, spec, "intermediate")
   }
 
+
   [FORMAL_SCALAR](reference: FormalTensor, value: number): FormalTensor {
     if (!Number.isFinite(value)) throw new TypeError("scalar operand must be finite")
     return this.constant(`scalar_${this.nodeList.length}`, value, Tensor.spec(reference.spec.dtype, [1]))
@@ -1415,27 +1416,7 @@ export class Executable<Out extends FormalTensor | readonly FormalTensor[] = For
     })
     return freezeJson(JSON.parse(native.explainExecutable(this.nativeExecutable)))
   }
-  run(arguments_: ProgramArguments, state?: ExecutionState): EvaluatedProgramOutput<Out> {
-    if (this.#disposed) throw new Error("Executable has been disposed")
-    if (this.session.disposed) throw new Error("Session has been disposed")
-    if (state && state.session !== this.session) throw new TypeError("ExecutionState belongs to a different Session")
-    if (state?.disposed) throw new Error("ExecutionState has been disposed")
-    if (this.optimization) {
-      if (!state) throw new TypeError("optimize Executable.run requires an ExecutionState")
-      const result = this.optimization.source.run(arguments_, state)
-      let values: any[] = []
-      try {
-        const gradients = this.optimization.gradients.run(arguments_, state)
-        values = Array.isArray(gradients) ? gradients : [gradients]
-        this.session.applyOptimizer(this.program, state, values, this.optimization.optimizer, this.optimization.parameters)
-        return result as EvaluatedProgramOutput<Out>
-      } catch (error) {
-        ;(result as any)?.dispose?.()
-        throw error
-      } finally {
-        for (const value of values) value?.dispose?.()
-      }
-    }
+  private runNative(arguments_: ProgramArguments, state?: ExecutionState): any[] {
     if (!arguments_ || typeof arguments_ !== "object" || Array.isArray(arguments_)) throw new TypeError("Executable.run expects named arguments")
     const expected = new Set(this.argument_names)
     for (const name of Object.keys(arguments_)) if (!expected.has(name)) throw new TypeError(`unknown Program argument: ${name}`)
@@ -1462,15 +1443,49 @@ export class Executable<Out extends FormalTensor | readonly FormalTensor[] = For
     }
     const outputs = native.runExecutable(this.nativeExecutable, inputs as any)
     for (const output of outputs) this.session.adopt(output)
-    const visible = this.program.inspect().kind === "gradient" ? outputs.slice(1) : outputs
-    if (this.program.inspect().kind === "gradient") outputs[0]?.dispose?.()
-    const outputNodes = this.program.inspect().outputs.map(id => this.program.inspect().nodes.find(node => node.id === id)!)
-    for (let index = 0; index < visible.length; index++) {
+    const inspection = this.program.inspect()
+    const outputNodes = inspection.outputs.map(id => inspection.nodes.find(node => node.id === id)!)
+    const offset = inspection.kind === "gradient" ? 1 : 0
+    for (let index = 0; index < outputNodes.length; index++) {
       const axes = outputNodes[index]?.spec.axes
-      if (axes && visible[index] && !("axes" in visible[index])) {
-        Object.defineProperty(visible[index], "axes", { value: Object.freeze([...axes]), enumerable: true })
+      const output = outputs[index + offset]
+      if (axes && output && !("axes" in output)) {
+        Object.defineProperty(output, "axes", { value: Object.freeze([...axes]), enumerable: true })
       }
     }
+    return outputs
+  }
+  private runGradientWithPrimal(arguments_: ProgramArguments, state: ExecutionState): { primal: any; gradients: any[] } {
+    if (this.program.inspect().kind !== "gradient") throw new TypeError("gradient executable required")
+    const outputs = this.runNative(arguments_, state)
+    return { primal: outputs[0], gradients: outputs.slice(1) }
+  }
+  run(arguments_: ProgramArguments, state?: ExecutionState): EvaluatedProgramOutput<Out> {
+    if (this.#disposed) throw new Error("Executable has been disposed")
+    if (this.session.disposed) throw new Error("Session has been disposed")
+    if (state && state.session !== this.session) throw new TypeError("ExecutionState belongs to a different Session")
+    if (state?.disposed) throw new Error("ExecutionState has been disposed")
+    if (this.optimization) {
+      if (!state) throw new TypeError("optimize Executable.run requires an ExecutionState")
+      let values: any[] = []
+      let result: any
+      try {
+        const evaluated = this.optimization.gradients.runGradientWithPrimal(arguments_, state)
+        result = evaluated.primal
+        values = evaluated.gradients
+        this.session.applyOptimizer(this.program, state, values, this.optimization.optimizer, this.optimization.parameters)
+        return result as EvaluatedProgramOutput<Out>
+      } catch (error) {
+        result?.dispose?.()
+        throw error
+      } finally {
+        for (const value of values) value?.dispose?.()
+      }
+    }
+    const outputs = this.runNative(arguments_, state)
+    const gradient = this.program.inspect().kind === "gradient"
+    const visible = gradient ? outputs.slice(1) : outputs
+    if (gradient) outputs[0]?.dispose?.()
     return (visible.length === 1 ? visible[0] : Object.freeze(visible)) as EvaluatedProgramOutput<Out>
   }
   dispose(): void {
@@ -1486,6 +1501,7 @@ export class Session {
   readonly determinism: "strict" | "allow_nondeterministic"
   readonly telemetry: false | Required<TelemetryOptions>
   readonly #cache = new Map<Program, Map<string, Executable<any>>>()
+  readonly #optimizerExecutables = new Map<string, Executable<any>>()
   readonly #native: any
   #disposed = false
 
@@ -1580,8 +1596,16 @@ export class Session {
             throw new TypeError(`${formal.name} initializer does not match its TensorSpec`)
           }
         }
-        const materialized = raw && typeof raw === "object" && "to_array" in raw && typeof (raw as any).to_array === "function" ? (raw as any).to_array() : raw
-        const value = this.tensor(materialized as TensorData, { dtype: formal.spec.dtype, axes: formal.spec.axes })
+        const copied = raw && typeof raw === "object" && "to_array" in raw ? native.sessionTensorCopy(this.#native, raw) : undefined
+        let value: Tensor
+        if (copied) {
+          if (formal.spec.axes) Object.defineProperty(copied, "axes", { value: Object.freeze([...formal.spec.axes]), enumerable: true })
+          this.adopt(copied)
+          value = copied as Tensor
+        } else {
+          const materialized = raw && typeof raw === "object" && "to_array" in raw && typeof (raw as any).to_array === "function" ? (raw as any).to_array() : raw
+          value = this.tensor(materialized as TensorData, { dtype: formal.spec.dtype, axes: formal.spec.axes })
+        }
         if (value.shape.length !== formal.spec.shape.length || value.shape.some((size, index) => size !== formal.spec.shape[index])) {
           value.dispose()
           throw new TypeError(`${formal.name} initializer does not match its TensorSpec`)
@@ -1614,6 +1638,58 @@ export class Session {
       })
       tensorOwners.set(tensor, this)
     }
+  }
+  private optimizerExecutable(parameters: readonly ProgramFormal[], optimizer: Exclude<Optimizer, { kind: "accumulate" | "scheduled" }>): Executable<any> {
+    const configuration = optimizer.kind === "sgd"
+      ? { kind: optimizer.kind, momentum: optimizer.momentum ?? 0 }
+      : { kind: optimizer.kind, beta1: optimizer.beta1 ?? 0.9, beta2: optimizer.beta2 ?? 0.999, epsilon: optimizer.epsilon ?? 1e-8, weight_decay: optimizer.kind === "adamw" ? optimizer.weight_decay ?? 0 : 0 }
+    const key = JSON.stringify({ configuration, parameters: parameters.map(parameter => ({ provenance: parameter.provenance, spec: parameter.spec })) })
+    const cached = this.#optimizerExecutables.get(key)
+    if (cached && !cached.disposed) return cached
+    const update = program(`optimizer_${optimizer.kind}_${parameters.length}`, p => {
+      const outputs: FormalTensor[] = []
+      const scalarArguments = new Map<string, FormalTensor>()
+      const scalarArgument = (name: string, dtype: ProgramDType): FormalTensor => {
+        const argumentName = `${name}_${dtype}`
+        const existing = scalarArguments.get(argumentName)
+        if (existing) return existing
+        const value = p.argument(argumentName, scalarSpec(dtype))
+        scalarArguments.set(argumentName, value)
+        return value
+      }
+      for (let index = 0; index < parameters.length; index++) {
+        const formal = parameters[index]
+        const current = p.argument(`parameter_${index}`, formal.spec)
+        const derivative = p.argument(`gradient_${index}`, formal.spec)
+        const learningRate = scalarArgument("learning_rate", formal.spec.dtype)
+        const scalar = (label: string, value: number) => p.constant(`${label}_${index}`, value, scalarSpec(formal.spec.dtype))
+        if (optimizer.kind === "sgd") {
+          if ((optimizer.momentum ?? 0) === 0) {
+            outputs.push($formalOperation("sub", [current, $formalOperation("mul", [derivative, learningRate])]))
+          } else {
+            const velocity = p.argument(`velocity_${index}`, formal.spec)
+            const nextVelocity = $formalOperation("add", [$formalOperation("mul", [velocity, scalar("momentum", optimizer.momentum ?? 0)]), derivative])
+            outputs.push($formalOperation("sub", [current, $formalOperation("mul", [nextVelocity, learningRate])]), nextVelocity)
+          }
+          continue
+        }
+        const first = p.argument(`first_moment_${index}`, formal.spec)
+        const second = p.argument(`second_moment_${index}`, formal.spec)
+        const beta1 = optimizer.beta1 ?? 0.9
+        const beta2 = optimizer.beta2 ?? 0.999
+        const nextFirst = $formalOperation("add", [$formalOperation("mul", [first, scalar("beta1", beta1)]), $formalOperation("mul", [derivative, scalar("one_minus_beta1", 1 - beta1)])])
+        const nextSecond = $formalOperation("add", [$formalOperation("mul", [second, scalar("beta2", beta2)]), $formalOperation("mul", [$formalOperation("mul", [derivative, derivative]), scalar("one_minus_beta2", 1 - beta2)])])
+        const correctedFirst = $formalOperation("div", [nextFirst, scalarArgument("bias_correction1", formal.spec.dtype)])
+        const correctedSecond = $formalOperation("div", [nextSecond, scalarArgument("bias_correction2", formal.spec.dtype)])
+        let direction = $formalOperation("div", [correctedFirst, $formalOperation("add", [$formalOperation("sqrt", [correctedSecond]), scalar("epsilon", optimizer.epsilon ?? 1e-8)])])
+        if (optimizer.kind === "adamw" && (optimizer.weight_decay ?? 0) !== 0) direction = $formalOperation("add", [direction, $formalOperation("mul", [current, scalar("weight_decay", optimizer.weight_decay ?? 0)])])
+        outputs.push($formalOperation("sub", [current, $formalOperation("mul", [direction, learningRate])]), nextFirst, nextSecond)
+      }
+      return outputs
+    })
+    const executable = this.compile(update)
+    this.#optimizerExecutables.set(key, executable)
+    return executable
   }
   applyOptimizer(source: Program, state: ExecutionState, gradients: readonly unknown[], optimizer: Optimizer, parameterProvenances?: readonly string[]): void {
     const available = source.inspect().parameters
@@ -1691,73 +1767,66 @@ export class Session {
     const previousStep = state.optimizer_state["$step"] ?? 0
     if (typeof previousStep !== "number" || !Number.isSafeInteger(previousStep) || previousStep < 0) throw new TypeError("ExecutionState optimizer step must be a non-negative integer")
     const step = previousStep + 1
+    const executable = this.optimizerExecutable(parameters, optimizer)
+    const args: Record<string, any> = {}
+    const temporary: any[] = []
     const nextParameters: Array<{ key: string; old: any; next: any }> = []
     const nextOptimizer: Array<{ key: string; old?: any; next: any }> = []
     try {
+      const dtypes = new Set(parameters.map(parameter => parameter.spec.dtype))
+      for (const dtype of dtypes) {
+        args[`learning_rate_${dtype}`] = this.tensor([optimizer.learning_rate], { dtype })
+        temporary.push(args[`learning_rate_${dtype}`])
+        if (optimizer.kind === "adam" || optimizer.kind === "adamw") {
+          args[`bias_correction1_${dtype}`] = this.tensor([1 - Math.pow(optimizer.beta1 ?? 0.9, step)], { dtype })
+          args[`bias_correction2_${dtype}`] = this.tensor([1 - Math.pow(optimizer.beta2 ?? 0.999, step)], { dtype })
+          temporary.push(args[`bias_correction1_${dtype}`], args[`bias_correction2_${dtype}`])
+        }
+      }
       for (let index = 0; index < parameters.length; index++) {
         const formal = parameters[index]
         const parameter = state.parameters[formal.provenance] as any
-        const grad = gradients[index] as any
-        if (!parameter || !grad) throw new TypeError(`missing optimizer value for ${formal.provenance}`)
-        const name = `optimizer_update_${index}`
-        const update = program(name, p => {
-          const current = p.argument("parameter", formal.spec)
-          const derivative = p.argument("gradient", formal.spec)
-          const scalar = (label: string, value: number) => p.constant(label, value, scalarSpec(formal.spec.dtype))
-          const learningRate = scalar("learning_rate", optimizer.learning_rate)
-          if (optimizer.kind === "sgd") {
-            if ((optimizer.momentum ?? 0) === 0) return $formalOperation("sub", [current, $formalOperation("mul", [derivative, learningRate])])
-            const velocity = p.argument("velocity", formal.spec)
-            const nextVelocity = $formalOperation("add", [$formalOperation("mul", [velocity, scalar("momentum", optimizer.momentum ?? 0)]), derivative])
-            return [$formalOperation("sub", [current, $formalOperation("mul", [nextVelocity, learningRate])]), nextVelocity]
-          }
-          const first = p.argument("first_moment", formal.spec)
-          const second = p.argument("second_moment", formal.spec)
-          const beta1 = optimizer.beta1 ?? 0.9
-          const beta2 = optimizer.beta2 ?? 0.999
-          const nextFirst = $formalOperation("add", [$formalOperation("mul", [first, scalar("beta1", beta1)]), $formalOperation("mul", [derivative, scalar("one_minus_beta1", 1 - beta1)])])
-          const nextSecond = $formalOperation("add", [$formalOperation("mul", [second, scalar("beta2", beta2)]), $formalOperation("mul", [$formalOperation("mul", [derivative, derivative]), scalar("one_minus_beta2", 1 - beta2)])])
-          const correctedFirst = $formalOperation("div", [nextFirst, p.argument("bias_correction1", scalarSpec(formal.spec.dtype))])
-          const correctedSecond = $formalOperation("div", [nextSecond, p.argument("bias_correction2", scalarSpec(formal.spec.dtype))])
-          let direction = $formalOperation("div", [correctedFirst, $formalOperation("add", [$formalOperation("sqrt", [correctedSecond]), scalar("epsilon", optimizer.epsilon ?? 1e-8)])])
-          if (optimizer.kind === "adamw" && (optimizer.weight_decay ?? 0) !== 0) direction = $formalOperation("add", [direction, $formalOperation("mul", [current, scalar("weight_decay", optimizer.weight_decay ?? 0)])])
-          return [$formalOperation("sub", [current, $formalOperation("mul", [direction, learningRate])]), nextFirst, nextSecond]
-        })
-        const args: Record<string, any> = { parameter, gradient: grad }
-        const temporary: any[] = []
+        const gradient = gradients[index] as any
+        if (!parameter || !gradient) throw new TypeError(`missing optimizer value for ${formal.provenance}`)
+        args[`parameter_${index}`] = parameter
+        args[`gradient_${index}`] = gradient
         const statePrefix = `${formal.provenance}/${optimizer.kind}`
-        try {
-          if (optimizer.kind === "sgd" && (optimizer.momentum ?? 0) !== 0) {
-            const key = `${statePrefix}/velocity`
-            const old = state.optimizer_state[key] as any
-            args.velocity = old ?? this.tensor(initializedValue(formal.spec, { kind: "zeros" }, seededRandom(0)), { dtype: formal.spec.dtype })
-            if (!old) temporary.push(args.velocity)
-            const outputs = this.compile(update).run(args) as readonly any[]
-            nextParameters.push({ key: formal.provenance, old: parameter, next: outputs[0] })
-            nextOptimizer.push({ key, old, next: outputs[1] })
-          } else if (optimizer.kind === "adam" || optimizer.kind === "adamw") {
-            const firstKey = `${statePrefix}/first_moment`
-            const secondKey = `${statePrefix}/second_moment`
-            const oldFirst = state.optimizer_state[firstKey] as any
-            const oldSecond = state.optimizer_state[secondKey] as any
-            args.first_moment = oldFirst ?? this.tensor(initializedValue(formal.spec, { kind: "zeros" }, seededRandom(0)), { dtype: formal.spec.dtype })
-            args.second_moment = oldSecond ?? this.tensor(initializedValue(formal.spec, { kind: "zeros" }, seededRandom(0)), { dtype: formal.spec.dtype })
-            args.bias_correction1 = this.tensor([1 - Math.pow(optimizer.beta1 ?? 0.9, step)], { dtype: formal.spec.dtype })
-            args.bias_correction2 = this.tensor([1 - Math.pow(optimizer.beta2 ?? 0.999, step)], { dtype: formal.spec.dtype })
-            if (!oldFirst) temporary.push(args.first_moment)
-            if (!oldSecond) temporary.push(args.second_moment)
-            temporary.push(args.bias_correction1, args.bias_correction2)
-            const outputs = this.compile(update).run(args) as readonly any[]
-            nextParameters.push({ key: formal.provenance, old: parameter, next: outputs[0] })
-            nextOptimizer.push({ key: firstKey, old: oldFirst, next: outputs[1] }, { key: secondKey, old: oldSecond, next: outputs[2] })
-          } else {
-            const next = this.compile(update).run(args)
-            nextParameters.push({ key: formal.provenance, old: parameter, next })
-          }
-        } finally {
-          for (const value of temporary) value.dispose?.()
+        if (optimizer.kind === "sgd" && (optimizer.momentum ?? 0) !== 0) {
+          const key = `${statePrefix}/velocity`
+          const old = state.optimizer_state[key] as any
+          args[`velocity_${index}`] = old ?? this[SESSION_FULL](formal.spec.shape, 0, { dtype: formal.spec.dtype, axes: formal.spec.axes })
+          if (!old) temporary.push(args[`velocity_${index}`])
+        } else if (optimizer.kind === "adam" || optimizer.kind === "adamw") {
+          const firstKey = `${statePrefix}/first_moment`
+          const secondKey = `${statePrefix}/second_moment`
+          const oldFirst = state.optimizer_state[firstKey] as any
+          const oldSecond = state.optimizer_state[secondKey] as any
+          args[`first_moment_${index}`] = oldFirst ?? this[SESSION_FULL](formal.spec.shape, 0, { dtype: formal.spec.dtype, axes: formal.spec.axes })
+          args[`second_moment_${index}`] = oldSecond ?? this[SESSION_FULL](formal.spec.shape, 0, { dtype: formal.spec.dtype, axes: formal.spec.axes })
+          if (!oldFirst) temporary.push(args[`first_moment_${index}`])
+          if (!oldSecond) temporary.push(args[`second_moment_${index}`])
         }
       }
+      const evaluated = executable.run(args)
+      const outputs = Array.isArray(evaluated) ? evaluated as readonly any[] : [evaluated]
+      let outputIndex = 0
+      for (const formal of parameters) {
+        const parameter = state.parameters[formal.provenance] as any
+        nextParameters.push({ key: formal.provenance, old: parameter, next: outputs[outputIndex++] })
+        const statePrefix = `${formal.provenance}/${optimizer.kind}`
+        if (optimizer.kind === "sgd" && (optimizer.momentum ?? 0) !== 0) {
+          const key = `${statePrefix}/velocity`
+          nextOptimizer.push({ key, old: state.optimizer_state[key] as any, next: outputs[outputIndex++] })
+        } else if (optimizer.kind === "adam" || optimizer.kind === "adamw") {
+          const firstKey = `${statePrefix}/first_moment`
+          const secondKey = `${statePrefix}/second_moment`
+          nextOptimizer.push(
+            { key: firstKey, old: state.optimizer_state[firstKey] as any, next: outputs[outputIndex++] },
+            { key: secondKey, old: state.optimizer_state[secondKey] as any, next: outputs[outputIndex++] },
+          )
+        }
+      }
+      if (outputIndex !== outputs.length) throw new Error("optimizer output count does not match parameters")
       for (const change of nextParameters) { state.parameters[change.key] = change.next; change.old.dispose?.() }
       for (const change of nextOptimizer) { state.optimizer_state[change.key] = change.next; change.old?.dispose?.() }
       state.optimizer_state["$step"] = step
@@ -1766,6 +1835,8 @@ export class Session {
       for (const change of nextParameters) change.next?.dispose?.()
       for (const change of nextOptimizer) change.next?.dispose?.()
       throw error
+    } finally {
+      for (const value of temporary) value.dispose?.()
     }
   }
   owns(value: unknown): boolean {

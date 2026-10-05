@@ -41,6 +41,16 @@ test('Whisper app policy executes imported-style Programs with fresh request cac
     expect(result.truncated).toBe(false)
     expect(observed).toEqual([0, 1])
   }
+  const limitedFeatures = values.tensor([0])
+  const limited = runtime.transcribe(
+    limitedFeatures,
+    undefined,
+    undefined,
+    1,
+  )
+  limitedFeatures.dispose()
+  expect(limited.tokens).toEqual([1, 2, 4])
+  expect(limited.truncated).toBe(true)
   runtime.dispose()
   model.embeddings.dispose(); model.positions.dispose(); values.dispose()
 })

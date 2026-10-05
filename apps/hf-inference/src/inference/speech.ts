@@ -1,6 +1,11 @@
 import { decode_wav } from '../../../../packages/@affon/huggingface/src/index.ts'
 import type { InferenceModels, InferenceOptions } from './models.ts'
 import { WhisperProgramRuntime } from './program-runtime.ts'
+
+// A missed EOS previously let a synchronous request run for roughly 20 minutes
+// on Metal. Short-form UI transcription favors a predictable upper bound.
+export const TRANSCRIPTION_MAX_NEW_TOKENS = 32
+
 export function transcribe_audio(
   models: InferenceModels,
   bytes: Uint8Array,
@@ -18,7 +23,14 @@ export function transcribe_audio(
   const preprocessing_ms = Date.now() - start
   const runtime = new WhisperProgramRuntime(models.speech.model, device)
   let result: ReturnType<WhisperProgramRuntime['transcribe']>
-  try { result = runtime.transcribe(features) }
+  try {
+    result = runtime.transcribe(
+      features,
+      undefined,
+      undefined,
+      TRANSCRIPTION_MAX_NEW_TOKENS,
+    )
+  }
   finally { runtime.dispose(); features.dispose() }
   return {
     ...result,

@@ -3,7 +3,7 @@ import { getEnv } from 'std:process'
 import checkpoint from 'affon:checkpoint'
 import { Session, type Tensor, type Device } from 'affon:compute'
 import { load_graph } from '../../../packages/@affon/onnx/src/index.ts'
-const root = getEnv('AFFON_WHISPER_DIR') ?? '/tmp/affon-onnx-whisper'
+const root = getEnv('AFFON_WHISPER_DIR') ?? 'apps/hf-inference/artifacts/whisper'
 const model = load_graph(`${root}/encoder`)
 const refs = checkpoint.load(`${root}/reference.safetensors`) as Record<
   string,

@@ -16,10 +16,11 @@ Model adapters and processors are shared from `packages/@affon/huggingface`.
 import { load_models } from './models.ts'
 import { generate_text } from './text.ts'
 
+const cache = '/absolute/path/to/repo/apps/hf-inference/artifacts/hf-cache'
 const models = await load_models({
   device: 'metal',
-  cache_dir: '/tmp/affon-hub-cache',
-  vision_cache_dir: '/tmp/affon-hub-cache',
+  cache_dir: cache,
+  vision_cache_dir: cache,
   local_files_only: true,
 })
 const result = generate_text(models, 'The future of computing is', 4)
@@ -32,7 +33,8 @@ Run from the repository root:
 affon test apps/hf-inference/tests/inference/classification.test.ts
 ```
 
-Set `smollm2: "135M"`, `"360M"`, or `"1.7B"` in load options; `true` aliases
-135M. Pass `"smollm2"` as the generation model key. With `text_only: true`, only
-the selected SmolLM2 loads and omitted generation keys select it. Otherwise
-DistilGPT-2 remains the default. `device` accepts CPU, Metal, or CUDA.
+Set `smollm2: "135M"`, `"360M"`, `"1.7B"`, or `"all"` in load options; `true`
+aliases 135M. Pass an advertised model key to generation. With `text_only: true`,
+only the selected SmolLM2 model or models load and omitted generation keys select
+135M. Otherwise DistilGPT-2 remains the default. `device` accepts CPU, Metal, or
+CUDA.

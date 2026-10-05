@@ -4,7 +4,7 @@ import { getEnv } from 'std:process'
 import telemetry from 'std:telemetry'
 import { Session, type Tensor } from 'affon:compute'
 import { load_graph } from '../../../packages/@affon/onnx/src/index.ts'
-const root = getEnv('AFFON_WHISPER_DIR') ?? '/private/tmp/affon-onnx-whisper'
+const root = getEnv('AFFON_WHISPER_DIR') ?? 'apps/hf-inference/artifacts/whisper'
 const model = load_graph(`${root}/step`)
 const session = new Session({ device: 'metal' })
 const state = session.initialize(model.forward, { parameters: model.parameters })

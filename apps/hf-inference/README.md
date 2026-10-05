@@ -15,10 +15,26 @@ onnx/          # Bounded static graph-import experiment, tests and reports
 The dependency direction is `serve → inference → @affon/huggingface`.
 Inference has no dependency on serving or browser code.
 
+Generated model data lives under `artifacts/`:
+
+```text
+artifacts/
+  hf-cache/    # downloaded native Hugging Face snapshots
+  vit/         # prepared ViT source/reference files
+  vit-onnx/    # converted ViT graph
+  mobilenet/   # MobileNet source plus converted graph
+  ast/         # AST source plus converted graph
+  whisper/     # Whisper source, graphs, and decoder data
+```
+
+Only the directory skeleton is tracked. Generated contents are ignored by Git.
+The server automatically discovers complete optional bundles in these standard
+locations; explicit `AFFON_*_DIR` variables can still override them.
+
 Run from the repository root:
 
 ```sh
-AFFON_DEVICE=metal AFFON_HF_CACHE=/tmp/affon-hub-cache \
+AFFON_DEVICE=metal AFFON_HF_CACHE="$PWD/apps/hf-inference/artifacts/hf-cache" \
   ./zig-out/bin/affon apps/hf-inference/src/serve/server.ts
 ```
 
@@ -79,16 +95,16 @@ Prepare the pinned model once (Python is only preparation/reference tooling):
 ```sh
 python apps/hf-inference/onnx/export-audio-model.py \
   --revision 315b0b847a3ca207e68b718503ad72066612eacd \
-  --output /tmp/affon-onnx-ast \
+  --output apps/hf-inference/artifacts/ast \
   --wav apps/hf-inference/tests/fixtures/command-yes.wav
 python packages/@affon/onnx/tools/convert.py \
-  /tmp/affon-onnx-ast/model.onnx /tmp/affon-onnx-ast
-AFFON_DEVICE=metal AFFON_AST_ONNX_DIR=/tmp/affon-onnx-ast \
+  apps/hf-inference/artifacts/ast/model.onnx apps/hf-inference/artifacts/ast
+AFFON_DEVICE=metal AFFON_AST_ONNX_DIR=apps/hf-inference/artifacts/ast \
   affon apps/hf-inference/onnx/check-audio.ts
 ```
 
-Add `AFFON_AST_DIR=/tmp/affon-onnx-ast/source` and
-`AFFON_AST_ONNX_DIR=/tmp/affon-onnx-ast` to the existing server launch environment.
+Add `AFFON_AST_DIR=apps/hf-inference/artifacts/ast/source` and
+`AFFON_AST_ONNX_DIR=apps/hf-inference/artifacts/ast` to the existing server launch environment.
 The model is optional, and both paths must be supplied together. Without them,
 the audio tab explains that it is unavailable. `POST /api/classify-audio` accepts
 raw `audio/wav` bytes and returns top predictions, source audio metadata,
@@ -98,26 +114,28 @@ truncation status, device, and inference/total timing.
 
 The **Speech to text** tab runs `openai/whisper-tiny.en` using a native frontend
 and cached ONNX decoding. Upload an English WAV up to 30 seconds and 16 MiB.
-The model has a 254-token generation budget; the UI marks transcripts that reach
-that limit. No timestamps, long-form segmentation or silence detection yet.
+The model context supports 254 generated tokens, but the interactive app caps
+each request at 32 so a missed end token cannot occupy the server indefinitely.
+The UI marks transcripts that reach that limit. No timestamps, long-form
+segmentation or silence detection yet.
 
 Prepare the pinned graphs and independent reference once:
 
 ```sh
 python apps/hf-inference/onnx/export-whisper.py \
   --revision 87c7102498dcde7456f24cfd30239ca606ed9063 \
-  --output /tmp/affon-onnx-whisper \
+  --output apps/hf-inference/artifacts/whisper \
   --wav apps/hf-inference/tests/fixtures/whisper-sentence.wav
-python apps/hf-inference/onnx/export-whisper-cache.py /tmp/affon-onnx-whisper
+python apps/hf-inference/onnx/export-whisper-cache.py apps/hf-inference/artifacts/whisper
 for part in encoder decoder cross step; do
   python packages/@affon/onnx/tools/convert.py \
-    /tmp/affon-onnx-whisper/$part/model.onnx /tmp/affon-onnx-whisper/$part
+    apps/hf-inference/artifacts/whisper/$part/model.onnx apps/hf-inference/artifacts/whisper/$part
 done
-AFFON_DEVICE=metal AFFON_WHISPER_DIR=/tmp/affon-onnx-whisper \
+AFFON_DEVICE=metal AFFON_WHISPER_DIR=apps/hf-inference/artifacts/whisper \
   affon apps/hf-inference/onnx/check-whisper.ts
 ```
 
-Add `AFFON_WHISPER_DIR=/tmp/affon-onnx-whisper` to the existing server environment.
+Add `AFFON_WHISPER_DIR=apps/hf-inference/artifacts/whisper` to the existing server environment.
 This bundle includes source configuration/tokenizer, embeddings/positions,
 generation settings and converted encoder/cross/step directories. The full-prefix
 `decoder` and reference tensors are audit artifacts, not required for serving.
@@ -128,10 +146,11 @@ encoder/inference/total timings and truncation status. The UI is kept in
 
 ### SmolLM2 instruction generation
 
-Set `AFFON_SMOLLM2=135M`, `360M`, or `1.7B` with a freshly built runtime
+Set `AFFON_SMOLLM2=135M`, `360M`, `1.7B`, or `all` with a freshly built runtime
 (`1` remains an alias for `135M`). The Text generation tab adds the selected
-instruction model alongside DistilGPT-2. Set `AFFON_TEXT_ONLY=1` to load only
-that model and make it the default, avoiding other model allocations.
+instruction model or models alongside DistilGPT-2. `all` exposes every pinned
+SmolLM2 size. Set `AFFON_TEXT_ONLY=1` to omit DistilGPT-2 and image/audio models;
+the 135M model remains the default when all sizes are loaded.
 Pinned BF16 checkpoints run with native f32 execution. CPU, Metal, and CUDA
 are selectable; each backend needs validation on its own host.
 See [serving](src/serve/README.md#smollm2-instructions) for launch/API usage and

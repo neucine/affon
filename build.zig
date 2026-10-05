@@ -4,6 +4,7 @@ fn addComputeBackends(compute_dep: *std.Build.Dependency, module: *std.Build.Mod
     if (target.result.os.tag == .macos) {
         module.linkFramework("Accelerate", .{});
         module.linkFramework("Metal", .{});
+        module.linkFramework("MetalPerformanceShaders", .{});
         module.linkFramework("Foundation", .{});
         module.addCSourceFile(.{ .file = compute_dep.path("src/backend/metal/ffi.m"), .flags = &.{"-fobjc-arc"} });
     } else module.addCSourceFile(.{ .file = compute_dep.path("src/backend/metal/ffi_stub.c"), .flags = &.{"-std=c11"} });

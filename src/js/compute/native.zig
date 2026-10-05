@@ -676,6 +676,26 @@ fn jsSessionTensor(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [
     return createTensorObjectOwned(ctx, bytes, owner.backend, owner);
 }
 
+// Checkpoint tensors already have validated native storage. Copy their logical
+// values directly into the requested session without a JS array round trip.
+fn jsSessionTensorCopy(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    if (argc < 2) return typeError(ctx, "sessionTensorCopy expects Session and Tensor");
+    const owner = sessionObject(ctx, argv[0]) orelse return typeError(ctx, "invalid Session");
+    if (owner.disposed) return typeError(ctx, "Session has been disposed");
+    const source_object = tensorObject(ctx, argv[1]) orelse return abi.jsUndefined(ctx);
+    const source = source_object.value orelse return typeError(ctx, "Tensor has been disposed");
+    if (source_object.backend != .cpu) return abi.jsUndefined(ctx);
+    const shape = source.spec().dimensions();
+    const byte_count = std.math.mul(usize, elementCount(shape), source.spec().dtype().size()) catch return errorValue(ctx, "tensor is too large");
+    const bytes = allocator.alloc(u8, byte_count) catch return errorValue(ctx, "out of memory");
+    defer allocator.free(bytes);
+    copyLogicalTensorBytes(source, bytes) catch return errorValue(ctx, "invalid Tensor layout");
+    var spec = compute.TensorSpec.init(allocator, source.spec().dtype(), shape, null) catch return errorValue(ctx, "tensor spec failed");
+    defer spec.deinit();
+    const copied = owner.value.?.createTensor(spec, bytes) catch return errorValue(ctx, "tensor creation failed");
+    return createTensorObjectOwned(ctx, copied, owner.backend, owner);
+}
+
 fn jsSessionFull(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
     if (argc < 4) return typeError(ctx, "sessionFull expects Session, shape, value, and dtype");
     const owner = sessionObject(ctx, argv[0]) orelse return typeError(ctx, "invalid Session");
@@ -1202,6 +1222,7 @@ const functions = [_]abi.JSFunction{
     .{ .name = "defaultDevice", .callback = jsDefaultDevice, .length = 0 },
     .{ .name = "createSession", .callback = jsCreateSession, .length = 2 },
     .{ .name = "sessionTensor", .callback = jsSessionTensor, .length = 4 },
+    .{ .name = "sessionTensorCopy", .callback = jsSessionTensorCopy, .length = 2 },
     .{ .name = "sessionFull", .callback = jsSessionFull, .length = 4 },
     .{ .name = "compileProgram", .callback = jsCompileProgram, .length = 3 },
     .{ .name = "explainExecutable", .callback = jsExplainExecutable, .length = 1 },

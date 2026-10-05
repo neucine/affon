@@ -4,7 +4,7 @@ import { getEnv } from 'std:process'
 import { Session, type Tensor } from 'affon:compute'
 import { load_whisper } from '../../../packages/@affon/huggingface/src/adapters/whisper.ts'
 import { WhisperProgramRuntime } from '../src/inference/program-runtime.ts'
-const root = getEnv('AFFON_WHISPER_DIR') ?? '/private/tmp/affon-onnx-whisper'
+const root = getEnv('AFFON_WHISPER_DIR') ?? 'apps/hf-inference/artifacts/whisper'
 const policy = JSON.parse(fs.readFileSync(`${root}/whisper.json`))
 const suppress = new Set<number>(policy.suppress_tokens)
 const begin = new Set<number>(policy.begin_suppress_tokens)

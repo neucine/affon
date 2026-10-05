@@ -79,6 +79,41 @@ describe("Program optimization", () => {
     session.dispose()
   })
 
+  test("preserves optimizer transition semantics across repeated steps", () => {
+    const model = program("optimizer_transition_model", p => mul(
+      p.argument("value", Tensor.f32([1])),
+      p.parameter("weight", Tensor.f32([1]), { initializer: { kind: "ones" } }),
+    ))
+    const loss = program("optimizer_transition_loss", p => mean(
+      p.argument("prediction", Tensor.f32([1])),
+    ))
+    const cases = [
+      { optimizer: sgd({ learning_rate: 0.1 }), expected: [0.8, 0.6] },
+      { optimizer: sgd({ learning_rate: 0.1, momentum: 0.5 }), expected: [0.8, 0.5] },
+      { optimizer: adam({ learning_rate: 0.1 }), expected: [0.9, 0.8] },
+      { optimizer: adamw({ learning_rate: 0.1, weight_decay: 0.1 }), expected: [0.89, 0.7811] },
+    ]
+
+    for (const { optimizer, expected } of cases) {
+      const train = optimize(model, loss, optimizer)
+      const session = new Session()
+      const state = session.initialize(train)
+      const value = session.tensor([2])
+      const executable = session.compile(train)
+      const parameterKey = train.inspect().parameters[0].provenance
+      for (const expectedWeight of expected) {
+        const output = executable.run({ value }, state)
+        output.dispose()
+        const actual = (state.parameters[parameterKey].to_array() as number[])[0]
+        expect(Math.abs(actual - expectedWeight) < 1e-5).toBe(true)
+      }
+      expect(state.optimizer_state.$step).toBe(2)
+      value.dispose()
+      state.dispose()
+      session.dispose()
+    }
+  })
+
   test("combines reusable model and loss Programs while preserving inference state", () => {
     const model = program("reusable_classifier", p => {
       const x = p.argument("x", Tensor.f32([2, 2]))

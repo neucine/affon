@@ -5,7 +5,7 @@ import type {Device, Tensor} from 'affon:compute'
 import {load_whisper} from '../../../packages/@affon/huggingface/src/adapters/whisper.ts'
 import {load_whisper_processor} from '../../../packages/@affon/huggingface/src/processors/whisper.ts'
 import {WhisperProgramRuntime} from '../src/inference/program-runtime.ts'
-const root=getEnv('AFFON_WHISPER_DIR')??'/tmp/affon-onnx-whisper',device=(getEnv('AFFON_DEVICE')??'cpu') as Device
+const root=getEnv('AFFON_WHISPER_DIR')??'apps/hf-inference/artifacts/whisper',device=(getEnv('AFFON_DEVICE')??'cpu') as Device
 const reference=checkpoint.load(`${root}/reference.safetensors`) as Record<string,Tensor>
 const processor=load_whisper_processor(`${root}/source`,device)
 const features=processor.process(new Float32Array(reference.waveform.to_array() as number[]),16000)

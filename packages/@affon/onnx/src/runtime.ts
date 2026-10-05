@@ -72,7 +72,7 @@ function selectors(value: FormalTensor, node: Node) {
   return reshape(contiguous(slice(value, ranges)), node.shape)
 }
 
-function zero_pad(p: any, node: Node, input: FormalTensor, pads: readonly number[]) {
+function zero_pad(p: any, nodeIndex: number, input: FormalTensor, pads: readonly number[]) {
   if (input.spec.shape.length !== 4 || pads.length !== 4) throw Error('Pad requires NCHW input and four spatial pads')
   const [batch, channels, height, width] = input.spec.shape
   const [top, left, bottom, right] = pads
@@ -81,12 +81,12 @@ function zero_pad(p: any, node: Node, input: FormalTensor, pads: readonly number
     const parts: FormalTensor[] = []
     if (left) {
       const shape = [batch, channels, height, left]
-      parts.push(p.constant(`${node.output}_pad_left`, zeros(shape), Tensor.f32(shape)))
+      parts.push(p.constant(`generated.${nodeIndex}.pad_left`, zeros(shape), Tensor.f32(shape)))
     }
     parts.push(result)
     if (right) {
       const shape = [batch, channels, height, right]
-      parts.push(p.constant(`${node.output}_pad_right`, zeros(shape), Tensor.f32(shape)))
+      parts.push(p.constant(`generated.${nodeIndex}.pad_right`, zeros(shape), Tensor.f32(shape)))
     }
     result = cat(parts, 3)
   }
@@ -95,19 +95,19 @@ function zero_pad(p: any, node: Node, input: FormalTensor, pads: readonly number
     const parts: FormalTensor[] = []
     if (top) {
       const shape = [batch, channels, top, paddedWidth]
-      parts.push(p.constant(`${node.output}_pad_top`, zeros(shape), Tensor.f32(shape)))
+      parts.push(p.constant(`generated.${nodeIndex}.pad_top`, zeros(shape), Tensor.f32(shape)))
     }
     parts.push(result)
     if (bottom) {
       const shape = [batch, channels, bottom, paddedWidth]
-      parts.push(p.constant(`${node.output}_pad_bottom`, zeros(shape), Tensor.f32(shape)))
+      parts.push(p.constant(`generated.${nodeIndex}.pad_bottom`, zeros(shape), Tensor.f32(shape)))
     }
     result = cat(parts, 2)
   }
   return result
 }
 
-function convolution(p: any, node: Node, input: FormalTensor, weight: FormalTensor, bias?: FormalTensor) {
+function convolution(p: any, node: Node, nodeIndex: number, input: FormalTensor, weight: FormalTensor, bias?: FormalTensor) {
   const oneDimensional = input.spec.shape.length === 3
   let x = oneDimensional ? reshape(input, [input.spec.shape[0], input.spec.shape[1], 1, input.spec.shape[2]]) : input
   let w = oneDimensional ? reshape(weight, [weight.spec.shape[0], weight.spec.shape[1], 1, weight.spec.shape[2]]) : weight
@@ -116,7 +116,7 @@ function convolution(p: any, node: Node, input: FormalTensor, weight: FormalTens
   const strides = oneDimensional ? [1, attrs.strides[0]] : attrs.strides
   const dilations = oneDimensional ? [1, attrs.dilations[0]] : attrs.dilations
   const pads = oneDimensional ? [0, attrs.pads[0], 0, attrs.pads[1]] : attrs.pads
-  x = zero_pad(p, node, x, pads)
+  x = zero_pad(p, nodeIndex, x, pads)
   const [batch, channels, height, width] = x.spec.shape
   const [outputs, channelsPerGroup, kh, kw] = w.spec.shape
   const groups = attrs.group ?? 1
@@ -148,9 +148,9 @@ function convolution(p: any, node: Node, input: FormalTensor, weight: FormalTens
   return oneDimensional ? reshape(result, node.shape) : result
 }
 
-function lower(p: any, node: Node, args: FormalTensor[]) {
+function lower(p: any, node: Node, nodeIndex: number, args: FormalTensor[]) {
   const [x, y, z] = args, a = node.attrs
-  const scalar = (suffix: string, value: number) => p.constant(`${node.output}_${suffix}`, value, Tensor.f32([1])) as FormalTensor
+  const scalar = (suffix: string, value: number) => p.constant(`generated.${nodeIndex}.${suffix}`, value, Tensor.f32([1])) as FormalTensor
   switch (node.op) {
     case 'Identity': case 'Cast': return x
     case 'Add': return add(x, y)
@@ -159,7 +159,10 @@ function lower(p: any, node: Node, args: FormalTensor[]) {
     case 'MatMul': return matmul(x, y)
     case 'Concat': return cat(args, a.axis)
     case 'Flatten': case 'Reshape': return reshape(x, a.shape)
-    case 'Transpose': return transpose(x, a.perm)
+    // ONNX Transpose produces a logical tensor that a following Reshape must
+    // consume in transposed order. Materialize it because Metal reshape is a
+    // storage reinterpretation and cannot preserve a strided transpose view.
+    case 'Transpose': return contiguous(transpose(x, a.perm))
     case 'Softmax': return softmax(x, a.axis)
     case 'Erf': return erf(x)
     case 'LayerNormalization': return add(mul(layer_norm(x, a.axis, a.epsilon ?? 1e-5), y), z)
@@ -177,8 +180,8 @@ function lower(p: any, node: Node, args: FormalTensor[]) {
       return result
     }
     case 'Slice': return selectors(x, node)
-    case 'Pad': return zero_pad(p, node, x, a.pads)
-    case 'Conv': return convolution(p, node, x, y, z)
+    case 'Pad': return zero_pad(p, nodeIndex, x, a.pads)
+    case 'Conv': return convolution(p, node, nodeIndex, x, y, z)
     case 'Clip': {
       const minimum = scalar('clip_min', a.min), maximum = scalar('clip_max', a.max)
       return sub(maximum, relu(sub(maximum, add(relu(sub(x, minimum)), minimum))))
@@ -198,17 +201,24 @@ export function load_graph(directory: string) {
     if (!value || value.dtype !== 'f32' || !same(value.shape, shape)) throw Error(`Invalid constant: ${name}`)
   }
   if (Object.keys(loaded).some(name => !Object.hasOwn(graph.constants, name))) throw Error('Unexpected graph weights')
+  const parameters: typeof loaded = Object.create(null)
   const forward = program('onnx_import', p => {
     const values = new Map<string, FormalTensor>()
     for (const [name, shape] of Object.entries(graph.inputs)) values.set(name, p.argument(name, Tensor.f32(shape)))
-    for (const [name, shape] of Object.entries(graph.constants)) values.set(name, p.parameter(name, Tensor.f32(shape)))
-    for (const node of graph.nodes) values.set(node.output, lower(p, node, node.inputs.map(name => values.get(name)!)))
+    let parameterIndex = 0
+    for (const [name, shape] of Object.entries(graph.constants)) {
+      const parameterName = `constant.${parameterIndex++}`
+      parameters[parameterName] = loaded[name]
+      values.set(name, p.parameter(parameterName, Tensor.f32(shape)))
+    }
+    for (const [nodeIndex, node] of graph.nodes.entries())
+      values.set(node.output, lower(p, node, nodeIndex, node.inputs.map(name => values.get(name)!)))
     return graph.outputs.map(name => values.get(name)!)
   })
   return {
     graph,
     forward,
-    parameters: loaded,
+    parameters,
     output_names: [...graph.outputs],
     semanticLoss: classify_import_semantics(graph),
   }

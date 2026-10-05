@@ -10,7 +10,7 @@ Run from the repository root, using a build that includes Hao's HTTP server:
 
 ```sh
 AFFON_DEVICE=metal \
-AFFON_HF_CACHE=/tmp/affon-hub-cache \
+AFFON_HF_CACHE="$PWD/apps/hf-inference/artifacts/hf-cache" \
 /tmp/affon-hf-release/bin/affon apps/hf-inference/src/serve/server.ts
 ```
 
@@ -115,7 +115,7 @@ Build the updated runtime, then enable SmolLM2 alongside DistilGPT-2:
 
 ```sh
 zig build -Doptimize=ReleaseFast --prefix /tmp/affon-smollm-release install
-AFFON_SMOLLM2=1 AFFON_DEVICE=metal AFFON_HF_CACHE=/tmp/affon-hub-cache \
+AFFON_SMOLLM2=1 AFFON_DEVICE=metal AFFON_HF_CACHE="$PWD/apps/hf-inference/artifacts/hf-cache" \
   /tmp/affon-smollm-release/bin/affon apps/hf-inference/src/serve/server.ts
 ```
 
@@ -124,10 +124,13 @@ single-turn instruction; no conversation history is retained. The server applies
 the pinned chat template, stops on `<|im_end|>`, and returns only assistant text.
 Token-limit truncation is shown in the UI. The 256-token prompt limit includes
 chat formatting. SmolLM2 is optional; without the flag, only DistilGPT-2 appears.
-With offline mode enabled, its verified snapshot must already be cached.
+Set `AFFON_SMOLLM2=all` to load 135M, 360M, and 1.7B together. Their API keys are
+`smollm2`, `smollm2-360m`, and `smollm2-1.7b` respectively. With offline mode
+enabled, every requested snapshot must already be cached.
 
-`POST /api/generate` accepts `model: "smollm2"` or `"distilgpt2"` (the default).
-Unknown/unavailable models return 400. `GET /api/health` advertises `text_models`.
+`POST /api/generate` accepts any advertised text-model key; `"distilgpt2"` is
+the default unless text-only mode is active. Unknown or unavailable models
+return 400. `GET /api/health` advertises `text_models`.
 
 ```sh
 curl http://127.0.0.1:8765/api/generate -H 'Content-Type: application/json' \
@@ -136,12 +139,13 @@ curl http://127.0.0.1:8765/api/generate -H 'Content-Type: application/json' \
 
 The tiny model is experimental: factual accuracy and reasoning remain limited.
 
-For larger models, choose `AFFON_SMOLLM2=360M` or `1.7B`. Only one SmolLM2 size
-loads per process. On a memory-constrained machine use text-only serving:
+For a single larger model, choose `AFFON_SMOLLM2=360M` or `1.7B`. Loading all
+sizes uses substantially more memory. On a memory-constrained machine use
+text-only serving with one size:
 
 ```sh
 AFFON_SMOLLM2=1.7B AFFON_TEXT_ONLY=1 AFFON_DEVICE=metal \
-  AFFON_HF_CACHE=/tmp/affon-hub-cache \
+  AFFON_HF_CACHE="$PWD/apps/hf-inference/artifacts/hf-cache" \
   /tmp/affon-smollm-release/bin/affon apps/hf-inference/src/serve/server.ts
 ```
 
