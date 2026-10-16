@@ -10,6 +10,18 @@ declare module "affon:nn" {
     bias?: boolean;
   }>;
 
+  export type Conv1DOptions = Readonly<{
+    out_channels: number;
+    kernel_size: number;
+    stride?: number;
+    padding?: number;
+    dilation?: number;
+    groups?: number;
+    bias?: boolean;
+  }>;
+
+  export type ConvTranspose1DOptions = Conv1DOptions & Readonly<{ output_padding?: number }>;
+
   export type EmbeddingOptions = Readonly<{
     num_embeddings: number;
     embedding_dim: number;
@@ -31,6 +43,10 @@ declare module "affon:nn" {
 
   /** Configure a reusable affine projection factory. */
   export function linear(options: LinearOptions): Callable<{ x: FormalTensor }, FormalTensor>;
+  /** Convolve NCL input with [out_channels, in_channels/groups, kernel_size] weights. */
+  export function conv1d(options: Conv1DOptions): Callable<{ x: FormalTensor }, FormalTensor>;
+  /** Transposed convolution with [in_channels, out_channels/groups, kernel_size] weights. */
+  export function conv_transpose1d(options: ConvTranspose1DOptions): Callable<{ x: FormalTensor }, FormalTensor>;
   /** Configure a reusable learned embedding-table factory. */
   export function embedding(options: EmbeddingOptions): Callable<{ indices: FormalTensor }, FormalTensor>;
   /** Configure reusable normalization over the final tensor dimension. */

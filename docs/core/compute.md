@@ -39,8 +39,8 @@ The four declaration roles are:
 - `p.state(name, spec, { initializer })` for persistent model state.
 - `p.constant(name, value, spec)` for immutable Program data.
 
-Specs are created with `Tensor.f32`, `Tensor.f64`, `Tensor.i64`, or
-`Tensor.spec`. These are the same three dtypes supported by evaluated tensors,
+Specs are created with `Tensor.bf16`, `Tensor.f32`, `Tensor.f64`, `Tensor.u32`,
+`Tensor.i64`, or `Tensor.spec`. These are the same dtypes supported by evaluated tensors,
 so every declared Program argument can be supplied through `Session.tensor()`.
 
 Operations can be imported selectively or as a namespace:

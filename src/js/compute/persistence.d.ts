@@ -1,5 +1,5 @@
 declare module "affon:compute/persistence.ts" {
-export type DType = "f32" | "f64" | "i64"
+export type DType = "bf16" | "f32" | "f64" | "u32" | "i64"
 export type Device = "cpu" | "metal" | "cuda" | `cuda:${number}`
 
 export type ComputeValue = {

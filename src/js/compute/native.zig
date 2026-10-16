@@ -219,7 +219,7 @@ fn createTensorObjectOwned(ctx: abi.JSContext, value: *compute.Tensor, backend: 
     for (value.spec().dimensions(), 0..) |dimension, index| {
         if (abi.jsSetArrayElement(ctx, shape, @intCast(index), abi.jsInt32(ctx, @intCast(dimension))) < 0) return errorValue(ctx, "failed to create shape");
     }
-    const dtype: [:0]const u8 = switch (value.spec().dtype()) { .f32 => "f32", .f64 => "f64", .i64 => "i64" };
+    const dtype: [:0]const u8 = switch (value.spec().dtype()) { .bf16 => "bf16", .f32 => "f32", .f64 => "f64", .u32 => "u32", .i64 => "i64" };
     const device: [:0]const u8 = switch (backend) { .cpu => "cpu", .metal => "metal", .cuda => "cuda" };
     if (abi.jsSetProperty(ctx, result, "shape", shape) < 0 or
         abi.jsSetProperty(ctx, result, "ndim", abi.jsInt32(ctx, @intCast(value.spec().dimensions().len))) < 0 or
@@ -248,8 +248,10 @@ fn scalar(ctx: abi.JSContext, tensor: *compute.Tensor, linear: usize) abi.JSValu
     const offset: usize = @intCast(element);
     const bytes = tensor.bytes();
     return switch (tensor.spec().dtype()) {
+        .bf16 => abi.jsFloat64(ctx, compute.bfloat.toF32(std.mem.bytesAsSlice(u16, @as([]align(2) const u8, @alignCast(bytes)))[offset])),
         .f32 => abi.jsFloat64(ctx, std.mem.bytesAsSlice(f32, @as([]align(4) const u8, @alignCast(bytes)))[offset]),
         .f64 => abi.jsFloat64(ctx, std.mem.bytesAsSlice(f64, @as([]align(8) const u8, @alignCast(bytes)))[offset]),
+        .u32 => abi.jsFloat64(ctx, @floatFromInt(std.mem.bytesAsSlice(u32, @as([]align(4) const u8, @alignCast(bytes)))[offset])),
         .i64 => abi.jsFloat64(ctx, @floatFromInt(std.mem.bytesAsSlice(i64, @as([]align(8) const u8, @alignCast(bytes)))[offset])),
     };
 }
@@ -320,8 +322,10 @@ fn parseBackend(text: []const u8) ?compute.Backend {
 }
 
 fn parseDType(text: []const u8) ?compute.DType {
+    if (std.mem.eql(u8, text, "bf16")) return .bf16;
     if (std.mem.eql(u8, text, "f32")) return .f32;
     if (std.mem.eql(u8, text, "f64")) return .f64;
+    if (std.mem.eql(u8, text, "u32")) return .u32;
     if (std.mem.eql(u8, text, "i64")) return .i64;
     return null;
 }
@@ -517,8 +521,10 @@ fn buildJsonProgram(source: JsonProgram, output_ids: []const usize) !BuiltProgra
                 const value = node.value orelse return error.MissingConstant;
                 if (jsonNumber(value)) |number| {
                     mapped[node.id] = switch (dtype) {
+                        .bf16 => try builder.addConstant(spec, .{ .scalar = .{ .bf16 = compute.bfloat.fromF32(@floatCast(number)) } }),
                         .f32 => try builder.addConstant(spec, .{ .scalar = .{ .f32 = @floatCast(number) } }),
                         .f64 => try builder.addConstant(spec, .{ .scalar = .{ .f64 = number } }),
+                        .u32 => try builder.addConstant(spec, .{ .scalar = .{ .u32 = @intFromFloat(number) } }),
                         .i64 => try builder.addConstant(spec, .{ .scalar = .{ .i64 = @intFromFloat(number) } }),
                     };
                 } else {
@@ -527,6 +533,12 @@ fn buildJsonProgram(source: JsonProgram, output_ids: []const usize) !BuiltProgra
                     try appendJsonNumbers(value, &numbers);
                     if (numbers.items.len != elementCount(node.spec.shape)) return error.InvalidConstantShape;
                     mapped[node.id] = switch (dtype) {
+                        .bf16 => blk: {
+                            const values = try allocator.alloc(u16, numbers.items.len);
+                            defer allocator.free(values);
+                            for (numbers.items, values) |source_number, *destination| destination.* = compute.bfloat.fromF32(@floatCast(source_number));
+                            break :blk try builder.addConstant(spec, .{ .bytes = std.mem.sliceAsBytes(values) });
+                        },
                         .f32 => blk: {
                             const values = try allocator.alloc(f32, numbers.items.len);
                             defer allocator.free(values);
@@ -534,6 +546,12 @@ fn buildJsonProgram(source: JsonProgram, output_ids: []const usize) !BuiltProgra
                             break :blk try builder.addConstant(spec, .{ .bytes = std.mem.sliceAsBytes(values) });
                         },
                         .f64 => try builder.addConstant(spec, .{ .bytes = std.mem.sliceAsBytes(numbers.items) }),
+                        .u32 => blk: {
+                            const values = try allocator.alloc(u32, numbers.items.len);
+                            defer allocator.free(values);
+                            for (numbers.items, values) |source_number, *destination| destination.* = @intFromFloat(source_number);
+                            break :blk try builder.addConstant(spec, .{ .bytes = std.mem.sliceAsBytes(values) });
+                        },
                         .i64 => blk: {
                             const values = try allocator.alloc(i64, numbers.items.len);
                             defer allocator.free(values);
@@ -669,8 +687,10 @@ fn jsSessionTensor(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [
     if (elementCount(shape) != flat.values.items.len) return typeError(ctx, "shape does not match tensor values");
     var spec = compute.TensorSpec.init(allocator, dtype, shape, null) catch return errorValue(ctx, "tensor spec failed"); defer spec.deinit();
     const bytes = switch (dtype) {
+        .bf16 => blk: { const values = allocator.alloc(u16, flat.values.items.len) catch return errorValue(ctx, "out of memory"); defer allocator.free(values); for (flat.values.items, values) |source, *destination| destination.* = compute.bfloat.fromF32(@floatCast(source)); break :blk owner.value.?.createTensor(spec, std.mem.sliceAsBytes(values)) catch return errorValue(ctx, "tensor creation failed"); },
         .f32 => blk: { const values = allocator.alloc(f32, flat.values.items.len) catch return errorValue(ctx, "out of memory"); defer allocator.free(values); for (flat.values.items, values) |source, *destination| destination.* = @floatCast(source); break :blk owner.value.?.createTensor(spec, std.mem.sliceAsBytes(values)) catch return errorValue(ctx, "tensor creation failed"); },
         .f64 => owner.value.?.createTensor(spec, std.mem.sliceAsBytes(flat.values.items)) catch return errorValue(ctx, "tensor creation failed"),
+        .u32 => blk: { const values = allocator.alloc(u32, flat.values.items.len) catch return errorValue(ctx, "out of memory"); defer allocator.free(values); for (flat.values.items, values) |source, *destination| destination.* = @intFromFloat(source); break :blk owner.value.?.createTensor(spec, std.mem.sliceAsBytes(values)) catch return errorValue(ctx, "tensor creation failed"); },
         .i64 => blk: { const values = allocator.alloc(i64, flat.values.items.len) catch return errorValue(ctx, "out of memory"); defer allocator.free(values); for (flat.values.items, values) |source, *destination| destination.* = @intFromFloat(source); break :blk owner.value.?.createTensor(spec, std.mem.sliceAsBytes(values)) catch return errorValue(ctx, "tensor creation failed"); },
     };
     return createTensorObjectOwned(ctx, bytes, owner.backend, owner);
@@ -724,11 +744,17 @@ fn jsSessionFull(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c
     const bytes = allocator.alloc(u8, byte_count) catch return errorValue(ctx, "out of memory");
     defer allocator.free(bytes);
     switch (dtype) {
+        .bf16 => {
+            for (std.mem.bytesAsSlice(u16, @as([]align(2) u8, @alignCast(bytes)))) |*item| item.* = compute.bfloat.fromF32(@floatCast(fill));
+        },
         .f32 => {
             for (std.mem.bytesAsSlice(f32, @as([]align(4) u8, @alignCast(bytes)))) |*item| item.* = @floatCast(fill);
         },
         .f64 => {
             for (std.mem.bytesAsSlice(f64, @as([]align(8) u8, @alignCast(bytes)))) |*item| item.* = fill;
+        },
+        .u32 => {
+            for (std.mem.bytesAsSlice(u32, @as([]align(4) u8, @alignCast(bytes)))) |*item| item.* = @intFromFloat(fill);
         },
         .i64 => {
             for (std.mem.bytesAsSlice(i64, @as([]align(8) u8, @alignCast(bytes)))) |*item| item.* = @intFromFloat(fill);
@@ -845,9 +871,10 @@ fn jsRunExecutable(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [
     if (object.needs_seed) {
         const expected = executable.inputs()[executable.inputs().len - 1].spec();
         seed = switch (expected.dtype()) {
+            .bf16 => blk: { const one: u16 = compute.bfloat.fromF32(1); break :blk object.owner.value.?.createTensor(expected.*, std.mem.asBytes(&one)) catch return errorValue(ctx, "seed creation failed"); },
             .f32 => blk: { const one: f32 = 1; break :blk object.owner.value.?.createTensor(expected.*, std.mem.asBytes(&one)) catch return errorValue(ctx, "seed creation failed"); },
             .f64 => blk: { const one: f64 = 1; break :blk object.owner.value.?.createTensor(expected.*, std.mem.asBytes(&one)) catch return errorValue(ctx, "seed creation failed"); },
-            .i64 => return typeError(ctx, "gradient loss must use a floating dtype"),
+            .u32, .i64 => return typeError(ctx, "gradient loss must use a floating dtype"),
         };
         inputs[inputs.len - 1] = seed.?;
     }
@@ -991,12 +1018,14 @@ fn jsFilterbank(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]
 const CheckpointEntry = struct { name: []u8, value: *compute.Tensor };
 
 fn checkpointDTypeName(dtype: compute.DType) []const u8 {
-    return switch (dtype) { .f32 => "F32", .f64 => "F64", .i64 => "I64" };
+    return switch (dtype) { .bf16 => "BF16", .f32 => "F32", .f64 => "F64", .u32 => "U32", .i64 => "I64" };
 }
 
 fn checkpointDType(text: []const u8) ?compute.DType {
+    if (std.mem.eql(u8, text, "BF16")) return .bf16;
     if (std.mem.eql(u8, text, "F32")) return .f32;
     if (std.mem.eql(u8, text, "F64")) return .f64;
+    if (std.mem.eql(u8, text, "U32")) return .u32;
     if (std.mem.eql(u8, text, "I64")) return .i64;
     return null;
 }
@@ -1153,8 +1182,7 @@ fn readCheckpoint(ctx: abi.JSContext, argc: c_int, argv: [*c]abi.JSValueConst, i
         }
         const dtype_text = object.get("dtype") orelse return errorValue(ctx, "checkpoint.load metadata is missing dtype");
         if (dtype_text != .string) return errorValue(ctx, "checkpoint.load dtype must be a string");
-        const is_bf16 = std.mem.eql(u8, dtype_text.string, "BF16");
-        const dtype = if (is_bf16) compute.DType.f32 else checkpointDType(dtype_text.string) orelse return errorValue(ctx, "checkpoint.load has unsupported dtype");
+        const dtype = checkpointDType(dtype_text.string) orelse return errorValue(ctx, "checkpoint.load has unsupported dtype");
         const shape_value = object.get("shape") orelse return errorValue(ctx, "checkpoint.load metadata is missing shape");
         if (shape_value != .array) return errorValue(ctx, "checkpoint.load shape must be an array");
         const dimensions = allocator.alloc(usize, shape_value.array.items.len) catch return errorValue(ctx, "checkpoint.load out of memory");
@@ -1171,7 +1199,7 @@ fn readCheckpoint(ctx: abi.JSContext, argc: c_int, argv: [*c]abi.JSValueConst, i
         const start = std.math.cast(usize, offsets.array.items[0].integer) orelse return errorValue(ctx, "checkpoint.load offset is too large");
         const end = std.math.cast(usize, offsets.array.items[1].integer) orelse return errorValue(ctx, "checkpoint.load offset is too large");
         if (end < start or end > raw_size) return errorValue(ctx, "checkpoint.load offsets exceed file size");
-        const byte_count = std.math.mul(usize, elements, if (is_bf16) @as(usize, 2) else dtype.size()) catch return errorValue(ctx, "checkpoint.load tensor is too large");
+        const byte_count = std.math.mul(usize, elements, dtype.size()) catch return errorValue(ctx, "checkpoint.load tensor is too large");
         if (byte_count != end - start) return errorValue(ctx, "checkpoint.load tensor byte length mismatch");
         const name_z = allocator.dupeZ(u8, name) catch return errorValue(ctx, "checkpoint.load out of memory");
         defer allocator.free(name_z);
@@ -1192,19 +1220,7 @@ fn readCheckpoint(ctx: abi.JSContext, argc: c_int, argv: [*c]abi.JSValueConst, i
         const output_byte_count = std.math.mul(usize, elements, dtype.size()) catch return errorValue(ctx, "checkpoint.load tensor is too large");
         const bytes = allocator.alloc(u8, output_byte_count) catch return errorValue(ctx, "checkpoint.load out of memory");
         defer allocator.free(bytes);
-        if (is_bf16) {
-            var buffer: [64 * 1024]u8 = undefined;
-            var offset: usize = 0;
-            while (offset < elements) {
-                const count: usize = @min(buffer.len / 2, elements - offset);
-                readCheckpointBytes(file, buffer[0 .. count * 2]) catch return errorValue(ctx, "checkpoint.load truncated tensor");
-                for (0..count) |index| {
-                    const bits: u32 = @as(u32, std.mem.readInt(u16, buffer[index * 2 ..][0..2], .little)) << 16;
-                    @memcpy(bytes[(offset + index) * 4 ..][0..4], std.mem.asBytes(&bits));
-                }
-                offset += count;
-            }
-        } else readCheckpointBytes(file, bytes) catch return errorValue(ctx, "checkpoint.load truncated tensor");
+        readCheckpointBytes(file, bytes) catch return errorValue(ctx, "checkpoint.load truncated tensor");
         var spec = compute.TensorSpec.init(allocator, dtype, dimensions, null) catch return errorValue(ctx, "checkpoint.load invalid Tensor spec");
         defer spec.deinit();
         const session = sessionFor(.cpu) catch return errorValue(ctx, "checkpoint.load CPU session unavailable");

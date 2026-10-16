@@ -12,7 +12,8 @@
 - **evaluated tensor** — A Session-owned value containing computed data.
   Operations on it execute immediately and are computation-only.
 - **TensorSpec** — Immutable shape, dtype, and optional semantic-axis metadata.
-  Construct one with `Tensor.f32(...)`, `Tensor.f64(...)`, `Tensor.i64(...)`, or
+  Construct one with `Tensor.bf16(...)`, `Tensor.f32(...)`, `Tensor.f64(...)`,
+  `Tensor.u32(...)`, `Tensor.i64(...)`, or
   `Tensor.spec(...)`.
 - **Session** — The owner of evaluated tensors, executable caches, and execution
   resources for one device.
@@ -41,7 +42,7 @@
   `adamw({ learning_rate: 3e-4 })`.
 - **logits** — Raw class scores before softmax. `cross_entropy` from `affon:ops`
   consumes logits directly.
-- **dtype** — The tensor numeric type: currently `f32`, `f64`, or `i64` in the
+- **dtype** — The tensor numeric type: `bf16`, `f32`, `f64`, `u32`, or `i64` in the
   canonical Program surface.
 - **shape** — The ordered sizes of a tensor's axes.
 - **axis** — One position in a tensor shape; it may optionally have a semantic

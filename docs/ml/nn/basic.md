@@ -1,4 +1,4 @@
-# Linear, Embedding, and Normalization
+# Linear, Convolution, Embedding, and Normalization
 
 `affon:nn` exports factories for parameterized neural-network operations.
 
@@ -21,6 +21,27 @@ const output = projection({ x: input }, 'output')
 The input feature width is inferred from the formal tensor specification. The
 optional instance name determines dotted parameter names such as
 `output.weight` and `output.bias`; it defaults to `linear`.
+
+## One-dimensional convolution
+
+```ts
+const encoder = conv1d({ out_channels: 32, kernel_size: 3, stride: 2, padding: 1 })
+const encoded = encoder({ x: p.argument('x', Tensor.f32([8, 16, 100])) }, 'encoder')
+// encoded shape: [8, 32, 50]
+
+const decoder = conv_transpose1d({ out_channels: 16, kernel_size: 3,
+  stride: 2, padding: 1, output_padding: 1 })
+const restored = decoder({ x: encoded }, 'decoder')
+// restored shape: [8, 16, 100]
+```
+
+Both factories use `[batch, channels, length]` inputs. `conv1d` declares
+`[out_channels, in_channels/groups, kernel_size]` weights, while
+`conv_transpose1d` declares `[in_channels, out_channels/groups, kernel_size]`
+weights. Both support `stride`, `padding`, `dilation`, `groups`, and `bias`;
+transposed convolution also supports `output_padding`, which must be smaller
+than `stride`. The factories expand into standard tensor operations and support
+gradients through their weights and inputs.
 
 ## Embedding
 

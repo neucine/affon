@@ -35,8 +35,8 @@ const restored = session.initialize(model, {
 })
 ```
 
-Loading accepts SafeTensors `F32`, `F64`, and `I64` entries. `BF16` storage is
-widened exactly to f32 on CPU; BF16 execution and writing are not supported.
+Loading and saving accept SafeTensors `BF16`, `F32`, `F64`, `U32`, and `I64`
+entries. BF16 values retain their two-byte storage and dtype when loaded.
 Loading ignores the optional `__metadata__` string mapping used by external
 producers. Unsupported dtypes and malformed tensor entries are rejected.
 Reading a file does not perform architecture or weight-name conversion.
@@ -49,8 +49,8 @@ const metadata = checkpoint.inspect('model.safetensors')
 const selected = checkpoint.load('model.safetensors', {names: ['model.embed_tokens.weight']})
 ```
 
-The loader seeks directly to selected tensors and streams BF16 widening through
-64 KiB chunks. It validates all tensor metadata even for an empty selection;
+The loader seeks directly to selected tensors and reads their native storage.
+It validates all tensor metadata even for an empty selection;
 missing or duplicate requested names are errors. JSON headers are limited to
 16 MiB. The previous 500 MiB whole-file limit is removed. Loading all tensors
 still requires memory for all resulting values. HF index/shard resolution lives

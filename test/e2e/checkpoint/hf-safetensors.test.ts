@@ -21,10 +21,10 @@ describe('HF SafeTensors interoperability', () => {
   })
 })
 
-test('BF16 storage widens exactly to f32, including subnormals and special values', () => {
+test('BF16 storage retains its dtype and exposes exact numeric values, including subnormals and special values', () => {
   const state = checkpoint.load(fixture('bf16')) as any
   const v = values(state.weight)
-  expect(state.weight.dtype).toBe('f32')
+  expect(state.weight.dtype).toBe('bf16')
   expect(v.slice(0, 4)).toEqual([0, -0, 1, -2.5])
   expect(Object.is(v[1], -0)).toBe(true)
   expect(v[4]).toBe(2 ** -133)

@@ -8,7 +8,7 @@ declare module "affon:compute" {
   import type { Optimizer } from "affon:optim";
   import type { LossCallable } from "affon:nn";
   /** Numeric element types supported by the Program API. */
-  export type ProgramDType = "f32" | "f64" | "i64";
+  export type ProgramDType = "bf16" | "f32" | "f64" | "u32" | "i64";
   /** Compute device selected when a Session is created. */
   export type Device = "cpu" | "metal" | "cuda" | `cuda:${number}`;
   export type OptimizationLevel = "none" | "safe";
@@ -127,6 +127,10 @@ declare module "affon:compute" {
     f32(shape: readonly number[], options?: { axes?: readonly string[] }): TensorSpec;
     /** Create an f64 formal tensor specification. */
     f64(shape: readonly number[], options?: { axes?: readonly string[] }): TensorSpec;
+    /** Create a bfloat16 formal tensor specification. */
+    bf16(shape: readonly number[], options?: { axes?: readonly string[] }): TensorSpec;
+    /** Create an unsigned 32-bit integer formal tensor specification. */
+    u32(shape: readonly number[], options?: { axes?: readonly string[] }): TensorSpec;
     /** Create an i64 formal tensor specification. */
     i64(shape: readonly number[], options?: { axes?: readonly string[] }): TensorSpec;
     /** Create an evaluated tensor from scalar or rectangular nested-array data. */
@@ -155,7 +159,7 @@ declare module "affon:compute" {
     /** Number of dimensions. */
     readonly ndim: number;
     /** Element dtype. */
-    readonly dtype: "f32" | "f64" | "i64";
+    readonly dtype: ProgramDType;
     /** Device of the owning Session. */
     readonly device: Device;
     readonly disposed: boolean;

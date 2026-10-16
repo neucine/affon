@@ -42,7 +42,21 @@ dtype on every accelerator.
 
 ## Compatibility rules
 
-- Supported public dtypes are `f32`, `f64`, and `i64`.
+- Supported public dtypes are `bf16`, `f32`, `f64`, `u32`, and `i64`.
+- `bf16` uses two-byte storage and round-to-nearest-even conversion. `u32`
+  values are integers from `0` through `4294967295`; elementwise integer
+  arithmetic and matrix multiplication wrap at 32 bits.
+- On Metal, `bf16`/`u32` arithmetic, comparisons, selection, indexing reads,
+  top-k, scatter-add, unary operations, reductions, matrix multiplication,
+  and dot products use native kernels. `bf16` softmax, normalization, and
+  cross entropy also use native kernels. Casts involving `bf16` or `u32`
+  and `f32`, `f64`, or `i64` are native. CUDA also has native kernels for
+  `bf16`/`u32` arithmetic, unary operations, comparisons, selection, casts,
+  matrix products, reductions, indexing reads, top-k, scatter-add, and
+  structural copies. `bf16` softmax, normalization, and cross entropy are
+  native on CUDA. GPU checks report zero divisors, out-of-range unsigned
+  casts, and invalid indices. Unsupported accelerator combinations fail
+  explicitly instead of running on the CPU.
 - Elementwise broadcasting is right-aligned: dimensions must be equal or one
   side must be `1`.
 - Values used as indices are `i64` and are bounds-checked.

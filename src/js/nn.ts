@@ -2,6 +2,8 @@ import {
   $formalOperation,
   $formalParameter,
   $formalScalarLike,
+  $formalCat,
+  $formalZerosLike,
   Tensor,
   type Callable,
   type FormalTensor,
@@ -15,6 +17,18 @@ export type LinearOptions = Readonly<{
   out_features: number
   bias?: boolean
 }>
+
+export type Conv1DOptions = Readonly<{
+  out_channels: number
+  kernel_size: number
+  stride?: number
+  padding?: number
+  dilation?: number
+  groups?: number
+  bias?: boolean
+}>
+
+export type ConvTranspose1DOptions = Conv1DOptions & Readonly<{ output_padding?: number }>
 
 export type EmbeddingOptions = Readonly<{
   num_embeddings: number
@@ -47,6 +61,158 @@ function binding<T extends FormalTensor>(bindings: unknown, key: string, label: 
   const names = Object.keys(bindings)
   if (names.length !== 1 || names[0] !== key) throw new TypeError(`${label} expects only the ${key} binding`)
   return (bindings as Record<string, T>)[key]
+}
+
+function positiveInteger(value: number, label: string): void {
+  if (!Number.isSafeInteger(value) || value <= 0) throw new TypeError(`${label} must be a positive integer`)
+}
+
+function convolutionOptions(options: Conv1DOptions, label: string) {
+  if (!options || typeof options !== "object") throw new TypeError(`${label} expects options`)
+  const { out_channels, kernel_size } = options
+  const stride = options.stride ?? 1
+  const padding = options.padding ?? 0
+  const dilation = options.dilation ?? 1
+  const groups = options.groups ?? 1
+  const bias = options.bias ?? true
+  for (const [name, value] of Object.entries({ out_channels, kernel_size, stride, dilation, groups })) positiveInteger(value, `${label} ${name}`)
+  if (!Number.isSafeInteger(padding) || padding < 0) throw new TypeError(`${label} padding must be a non-negative integer`)
+  if (typeof bias !== "boolean") throw new TypeError(`${label} bias must be boolean`)
+  if (out_channels % groups !== 0) throw new TypeError(`${label} out_channels must be divisible by groups`)
+  return { out_channels, kernel_size, stride, padding, dilation, groups, bias }
+}
+
+function operation(op: string, values: FormalTensor[], options: unknown[] = []): FormalTensor {
+  return $formalOperation(op, values, options)
+}
+
+function temporalSlice(x: FormalTensor, start: number, stop: number, step = 1): FormalTensor {
+  return operation("slice", [x], [[
+    { start: 0, stop: x.spec.shape[0] },
+    { start: 0, stop: x.spec.shape[1] },
+    { start, stop, step },
+  ]])
+}
+
+function channelSlice(x: FormalTensor, start: number, stop: number): FormalTensor {
+  return operation("slice", [x], [[
+    { start: 0, stop: x.spec.shape[0] },
+    { start, stop },
+    { start: 0, stop: x.spec.shape[2] },
+  ]])
+}
+
+function filterSlice(x: FormalTensor, start: number, stop: number): FormalTensor {
+  return operation("slice", [x], [[
+    { start, stop },
+    { start: 0, stop: x.spec.shape[1] },
+    { start: 0, stop: x.spec.shape[2] },
+  ]])
+}
+
+function padded(x: FormalTensor, left: number, right: number): FormalTensor {
+  const [batch, channels, length] = x.spec.shape
+  if (![left, right, length + Math.max(0, left) + Math.max(0, right)].every(Number.isSafeInteger)) throw new TypeError("convolution padded length exceeds the safe integer range")
+  const cropLeft = Math.max(0, -left)
+  const cropRight = Math.max(0, -right)
+  if (cropLeft + cropRight > length) throw new TypeError("convolution padding removes the entire input")
+  const middle = cropLeft || cropRight ? temporalSlice(x, cropLeft, length - cropRight) : x
+  const parts = [
+    ...(left > 0 ? [$formalZerosLike(x, [batch, channels, left])] : []),
+    middle,
+    ...(right > 0 ? [$formalZerosLike(x, [batch, channels, right])] : []),
+  ]
+  return parts.length === 1 ? parts[0] : $formalCat(parts, 2)
+}
+
+function convolveValid(x: FormalTensor, weight: FormalTensor, stride: number, dilation: number, groups: number): FormalTensor {
+  const length = x.spec.shape[2]
+  const [outChannels, channelsPerGroup, kernel] = weight.spec.shape
+  const effective = dilation * (kernel - 1) + 1
+  if (!Number.isSafeInteger(effective)) throw new TypeError("convolution effective kernel exceeds the safe integer range")
+  if (length < effective) throw new TypeError("convolution kernel exceeds padded input length")
+  const outputLength = Math.floor((length - effective) / stride) + 1
+  if (!Number.isSafeInteger(outputLength)) throw new TypeError("convolution output length exceeds the safe integer range")
+  const outputs: FormalTensor[] = []
+  for (let group = 0; group < groups; group++) {
+    const input = channelSlice(x, group * channelsPerGroup, (group + 1) * channelsPerGroup)
+    const groupOutputs = outChannels / groups
+    const filter = filterSlice(weight, group * groupOutputs, (group + 1) * groupOutputs)
+    const tapMajor = operation("transpose", [filter], [[0, 2, 1]])
+    const matrix = operation("transpose", [operation("reshape", [operation("contiguous", [tapMajor])], [[groupOutputs, channelsPerGroup * kernel]])], [[1, 0]])
+    const taps: FormalTensor[] = []
+    for (let tap = 0; tap < kernel; tap++) {
+      const offset = tap * dilation
+      const selected = temporalSlice(input, offset, offset + (outputLength - 1) * stride + 1, stride)
+      taps.push(operation("transpose", [selected], [[0, 2, 1]]))
+    }
+    const patches = taps.length === 1 ? taps[0] : $formalCat(taps, 2)
+    outputs.push(operation("transpose", [operation("matmul", [patches, matrix])], [[0, 2, 1]]))
+  }
+  return outputs.length === 1 ? outputs[0] : $formalCat(outputs, 1)
+}
+
+/** Learned one-dimensional convolution over NCL tensors. */
+export function conv1d(options: Conv1DOptions): Callable<{ x: FormalTensor }, FormalTensor> {
+  const config = convolutionOptions(options, "conv1d")
+  return Object.freeze((bindings: { x: FormalTensor }, name = "conv1d") => {
+    assertInstanceName(name, "conv1d")
+    const x = binding<FormalTensor>(bindings, "x", "conv1d")
+    if (x.spec.shape.length !== 3) throw new TypeError("conv1d input must have NCL rank three")
+    const channels = x.spec.shape[1]
+    positiveInteger(channels, "conv1d input channels")
+    if (channels % config.groups !== 0) throw new TypeError("conv1d input channels must be divisible by groups")
+    const weight = $formalParameter(x, `${name}.weight`, Tensor.spec(x.spec.dtype, [config.out_channels, channels / config.groups, config.kernel_size]), { initializer: { kind: "xavier_uniform" } })
+    let result = convolveValid(padded(x, config.padding, config.padding), weight, config.stride, config.dilation, config.groups)
+    if (config.bias) {
+      const bias = $formalParameter(x, `${name}.bias`, Tensor.spec(x.spec.dtype, [config.out_channels]), { initializer: { kind: "zeros" } })
+      result = operation("add", [result, operation("reshape", [bias], [[1, config.out_channels, 1]])])
+    }
+    return result
+  })
+}
+
+/** Learned transposed one-dimensional convolution over NCL tensors. */
+export function conv_transpose1d(options: ConvTranspose1DOptions): Callable<{ x: FormalTensor }, FormalTensor> {
+  const config = convolutionOptions(options, "conv_transpose1d")
+  const outputPadding = options.output_padding ?? 0
+  if (!Number.isSafeInteger(outputPadding) || outputPadding < 0 || outputPadding >= config.stride) throw new TypeError("conv_transpose1d output_padding must be non-negative and smaller than stride")
+  return Object.freeze((bindings: { x: FormalTensor }, name = "conv_transpose1d") => {
+    assertInstanceName(name, "conv_transpose1d")
+    const x = binding<FormalTensor>(bindings, "x", "conv_transpose1d")
+    if (x.spec.shape.length !== 3) throw new TypeError("conv_transpose1d input must have NCL rank three")
+    const [batch, channels, length] = x.spec.shape
+    positiveInteger(channels, "conv_transpose1d input channels")
+    positiveInteger(length, "conv_transpose1d input length")
+    if (channels % config.groups !== 0) throw new TypeError("conv_transpose1d input channels must be divisible by groups")
+    if (!Number.isSafeInteger(length * config.stride)) throw new TypeError("conv_transpose1d upsampled length exceeds the safe integer range")
+    const weight = $formalParameter(x, `${name}.weight`, Tensor.spec(x.spec.dtype, [channels, config.out_channels / config.groups, config.kernel_size]), { initializer: { kind: "xavier_uniform" } })
+    let upsampled = x
+    if (config.stride > 1) {
+      const samples = operation("reshape", [x], [[batch, channels, length, 1]])
+      const gaps = $formalZerosLike(samples, [batch, channels, length, config.stride - 1])
+      const interleaved = operation("reshape", [$formalCat([samples, gaps], 3)], [[batch, channels, length * config.stride]])
+      upsampled = temporalSlice(interleaved, 0, (length - 1) * config.stride + 1)
+    }
+    const extent = config.dilation * (config.kernel_size - 1)
+    const prepared = padded(upsampled, extent - config.padding, extent - config.padding + outputPadding)
+    const grouped: FormalTensor[] = []
+    const inputGroup = channels / config.groups
+    const outputGroup = config.out_channels / config.groups
+    for (let group = 0; group < config.groups; group++) {
+      const input = channelSlice(prepared, group * inputGroup, (group + 1) * inputGroup)
+      const filter = filterSlice(weight, group * inputGroup, (group + 1) * inputGroup)
+      const reversed = $formalCat(Array.from({ length: config.kernel_size }, (_, tap) => temporalSlice(filter, config.kernel_size - 1 - tap, config.kernel_size - tap)), 2)
+      const transposed = operation("transpose", [reversed], [[1, 0, 2]])
+      grouped.push(convolveValid(input, transposed, 1, config.dilation, 1))
+    }
+    let result = grouped.length === 1 ? grouped[0] : $formalCat(grouped, 1)
+    if (config.bias) {
+      const bias = $formalParameter(x, `${name}.bias`, Tensor.spec(x.spec.dtype, [config.out_channels]), { initializer: { kind: "zeros" } })
+      result = operation("add", [result, operation("reshape", [bias], [[1, config.out_channels, 1]])])
+    }
+    return result
+  })
 }
 
 function lossBindings(bindings: unknown, label: string): { input: FormalTensor; target: FormalTensor } {
@@ -109,7 +275,7 @@ export function embedding(options: EmbeddingOptions): Callable<{ indices: Formal
   const dtype = options.dtype ?? "f32"
   if (!Number.isSafeInteger(num_embeddings) || num_embeddings <= 0) throw new TypeError("embedding num_embeddings must be a positive integer")
   if (!Number.isSafeInteger(embedding_dim) || embedding_dim <= 0) throw new TypeError("embedding embedding_dim must be a positive integer")
-  if (dtype !== "f32" && dtype !== "f64" && dtype !== "i64") throw new TypeError("embedding dtype is unsupported")
+  if (dtype !== "bf16" && dtype !== "f32" && dtype !== "f64" && dtype !== "u32" && dtype !== "i64") throw new TypeError("embedding dtype is unsupported")
 
   return Object.freeze((bindings: { indices: FormalTensor }, name = "embedding") => {
     assertInstanceName(name, "embedding")

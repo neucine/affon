@@ -1,7 +1,7 @@
 import native from "affon:compute/native"
 import type { LRSchedule, Optimizer } from "affon:optim"
 
-export type ProgramDType = "f32" | "f64" | "i64"
+export type ProgramDType = "bf16" | "f32" | "f64" | "u32" | "i64"
 export type Device = "cpu" | "metal" | "cuda" | `cuda:${number}`
 export type OptimizationLevel = "none" | "safe"
 export type NumericalPolicy = "exact_only" | "backend_equivalent" | "approximate"
@@ -93,7 +93,7 @@ export interface Tensor {
   readonly shape: readonly number[]
   readonly axes?: readonly string[]
   readonly ndim: number
-  readonly dtype: "f32" | "f64" | "i64"
+  readonly dtype: ProgramDType
   readonly device: Device
   readonly disposed: boolean
   item(): number
@@ -203,7 +203,7 @@ const parameterUpdateSources = new WeakMap<Program, {
 }>()
 
 function freezeSpec(dtype: ProgramDType, shape: readonly number[], axes?: readonly string[]): TensorSpec {
-  if (dtype !== "f32" && dtype !== "f64" && dtype !== "i64") throw new TypeError(`unsupported TensorSpec dtype: ${dtype}`)
+  if (dtype !== "bf16" && dtype !== "f32" && dtype !== "f64" && dtype !== "u32" && dtype !== "i64") throw new TypeError(`unsupported TensorSpec dtype: ${dtype}`)
   if (!Array.isArray(shape) || shape.some(value => !Number.isSafeInteger(value) || value < 0)) {
     throw new TypeError("TensorSpec shape must contain non-negative integers")
   }
@@ -244,6 +244,8 @@ export const Tensor = Object.freeze({
   },
   f32(shape: readonly number[], options: { axes?: readonly string[] } = {}): TensorSpec { return freezeSpec("f32", shape, options.axes) },
   f64(shape: readonly number[], options: { axes?: readonly string[] } = {}): TensorSpec { return freezeSpec("f64", shape, options.axes) },
+  bf16(shape: readonly number[], options: { axes?: readonly string[] } = {}): TensorSpec { return freezeSpec("bf16", shape, options.axes) },
+  u32(shape: readonly number[], options: { axes?: readonly string[] } = {}): TensorSpec { return freezeSpec("u32", shape, options.axes) },
   i64(shape: readonly number[], options: { axes?: readonly string[] } = {}): TensorSpec { return freezeSpec("i64", shape, options.axes) },
   from(values: TensorData, options: TensorValueOptions = {}): Tensor {
     return defaultSession().tensor(values, options)
@@ -251,6 +253,7 @@ export const Tensor = Object.freeze({
   full(shape: readonly number[], value: number, options: TensorValueOptions = {}): Tensor {
     if (!Number.isFinite(value)) throw new TypeError("Tensor.full value must be finite")
     if (options.dtype === "i64" && !Number.isSafeInteger(value)) throw new TypeError("Tensor.full i64 value must be a safe integer")
+    if (options.dtype === "u32" && (!Number.isInteger(value) || value < 0 || value > 0xffffffff)) throw new TypeError("Tensor.full u32 value must be an integer in [0, 4294967295]")
     return defaultSession()[SESSION_FULL](checkedTensorShape(shape), value, options)
   },
   zeros(shape: readonly number[], options: TensorValueOptions = {}): Tensor {
@@ -274,13 +277,13 @@ export const Tensor = Object.freeze({
   rand(shape: readonly number[], options: TensorValueOptions & { seed?: number } = {}): Tensor {
     const { seed = 0, ...tensorOptions } = options
     const spec = freezeSpec(tensorOptions.dtype ?? "f32", checkedTensorShape(shape), tensorOptions.axes)
-    if (spec.dtype === "i64") throw new TypeError("Tensor.rand requires a floating-point dtype")
+    if (spec.dtype === "i64" || spec.dtype === "u32") throw new TypeError("Tensor.rand requires a floating-point dtype")
     return defaultSession().tensor(initializedValue(spec, { kind: "uniform", min: 0, max: 1 }, seededRandom(seed)), tensorOptions)
   },
   randn(shape: readonly number[], options: TensorValueOptions & { seed?: number } = {}): Tensor {
     const { seed = 0, ...tensorOptions } = options
     const spec = freezeSpec(tensorOptions.dtype ?? "f32", checkedTensorShape(shape), tensorOptions.axes)
-    if (spec.dtype === "i64") throw new TypeError("Tensor.randn requires a floating-point dtype")
+    if (spec.dtype === "i64" || spec.dtype === "u32") throw new TypeError("Tensor.randn requires a floating-point dtype")
     return defaultSession().tensor(initializedValue(spec, { kind: "normal" }, seededRandom(seed)), tensorOptions)
   },
 })
@@ -304,10 +307,11 @@ function freezeMetadata<T>(value: T): T {
   return Object.freeze(Object.fromEntries(entries)) as T
 }
 
-function snapshotTensorData(value: unknown, options: { label: string; finite?: boolean; integer?: boolean }): { data: TensorData; shape: readonly number[] } {
+function snapshotTensorData(value: unknown, options: { label: string; finite?: boolean; integer?: boolean; unsigned?: boolean }): { data: TensorData; shape: readonly number[] } {
   if (typeof value === "number") {
     if (options.finite && !Number.isFinite(value)) throw new TypeError(`${options.label} must contain finite numbers`)
     if (options.integer && !Number.isSafeInteger(value)) throw new TypeError(`${options.label} i64 values must be safe integers`)
+    if (options.unsigned && (!Number.isInteger(value) || value < 0 || value > 0xffffffff)) throw new TypeError(`${options.label} u32 values must be integers in [0, 4294967295]`)
     return { data: value, shape: Object.freeze([]) }
   }
   if (!Array.isArray(value)) throw new TypeError(`${options.label} must be a rectangular numeric value`)
@@ -545,7 +549,7 @@ export class FormalTensor<S extends TensorSpec = TensorSpec> {
     return this.owner[EMIT]("stack", values, freezeSpec(this.spec.dtype, shape), { axis: normalized })
   }
   #cross_entropy(labels: FormalTensor): FormalTensor {
-    if (this.spec.dtype !== "f32" && this.spec.dtype !== "f64") throw new TypeError("cross_entropy logits must have a floating-point dtype")
+    if (this.spec.dtype !== "bf16" && this.spec.dtype !== "f32" && this.spec.dtype !== "f64") throw new TypeError("cross_entropy logits must have a floating-point dtype")
     if (labels.spec.dtype !== "i64") throw new TypeError("cross_entropy labels must have i64 dtype")
     if (this.spec.shape.length === 0) throw new TypeError("cross_entropy logits must include a class dimension")
     const labelShape = this.spec.shape.slice(0, -1)
@@ -576,6 +580,12 @@ export function $formalOperation(op: string, operands: readonly FormalTensor[], 
 /** Internal scalar hook used only by affon:ops composite operations. */
 export function $formalScalarLike(reference: FormalTensor, value: number): FormalTensor {
   return (reference as any).owner[FORMAL_SCALAR](reference, value)
+}
+
+/** Internal shaped constant hook for composite neural-network layers. */
+export function $formalZerosLike(reference: FormalTensor, shape: readonly number[]): FormalTensor {
+  const owner = (reference as any).owner as ProgramBuilder
+  return owner.zeroLike(reference, shape)
 }
 
 /** Internal parameter-declaration hook used by affon:nn factories. */
@@ -634,6 +644,13 @@ export class ProgramBuilder {
 
   constructor(name: string) { this.programName = name }
 
+  /** Used by composite operations that need explicit padding. */
+  zeroLike(reference: FormalTensor, shape: readonly number[]): FormalTensor {
+    const zeros = (dimensions: readonly number[]): TensorData =>
+      dimensions.length === 0 ? 0 : Array.from({ length: dimensions[0] }, () => zeros(dimensions.slice(1)))
+    return this.constant(`composite_zero_${this.nodeList.length}`, zeros(shape), Tensor.spec(reference.spec.dtype, shape, { axes: reference.spec.axes }))
+  }
+
   private recordComponent(component: Omit<ProgramComponentInspection, "id">): void {
     const base = componentId(component.path)
     const occurrence = this.componentCounts.get(base) ?? 0
@@ -668,7 +685,7 @@ export class ProgramBuilder {
   private constantAtPath(name: string, value: ProgramValue, spec: TensorSpec, path: ProgramPath): FormalTensor {
     assertQualifiedName(name, "constant")
     if (this.names.has(name)) throw new TypeError(`duplicate formal name: ${name}`)
-    const snapshot = snapshotTensorData(value, { label: "constant", finite: true, integer: spec.dtype === "i64" })
+    const snapshot = snapshotTensorData(value, { label: "constant", finite: true, integer: spec.dtype === "i64", unsigned: spec.dtype === "u32" })
     const scalarShorthand = typeof snapshot.data === "number" && elementCount(spec.shape) === 1
     if (!scalarShorthand && (snapshot.shape.length !== spec.shape.length || snapshot.shape.some((size, index) => size !== spec.shape[index]))) {
       throw new TypeError("constant value does not match its TensorSpec")
@@ -1113,7 +1130,7 @@ function lossProgramFromCallable(
   const targetName = metadata?.target ?? "target"
   if (inspection.outputs.length !== 1) throw new TypeError(`${kind} requires a model with one output`)
   const outputSpec = inspection.nodes[inspection.outputs[0]].spec
-  if (outputSpec.dtype !== "f32" && outputSpec.dtype !== "f64") throw new TypeError(`${kind} requires a floating-point model output`)
+  if (outputSpec.dtype !== "bf16" && outputSpec.dtype !== "f32" && outputSpec.dtype !== "f64") throw new TypeError(`${kind} requires a floating-point model output`)
   return program(`${model.name}_${kind}_loss`, p => {
     const input = p.argument("input", outputSpec)
     let targetSpec = outputSpec
@@ -1519,8 +1536,8 @@ export class Session {
   [SESSION_TENSOR](values: TensorData, options: TensorValueOptions = {}, requestedShape?: readonly number[]): Tensor {
     if (this.#disposed) throw new Error("Session has been disposed")
     const dtype = options.dtype ?? "f32"
-    if (dtype !== "f32" && dtype !== "f64" && dtype !== "i64") throw new TypeError(`unsupported Tensor dtype: ${dtype}`)
-    const snapshot = snapshotTensorData(values, { label: "Tensor", integer: dtype === "i64" })
+    if (dtype !== "bf16" && dtype !== "f32" && dtype !== "f64" && dtype !== "u32" && dtype !== "i64") throw new TypeError(`unsupported Tensor dtype: ${dtype}`)
+    const snapshot = snapshotTensorData(values, { label: "Tensor", integer: dtype === "i64", unsigned: dtype === "u32" })
     const shape = requestedShape ?? snapshot.shape
     if (options.axes && (options.axes.length !== shape.length || options.axes.some(axis => typeof axis !== "string" || axis.length === 0))) {
       throw new TypeError("Tensor axes must contain one non-empty name per dimension")
@@ -1536,7 +1553,7 @@ export class Session {
   [SESSION_FULL](shape: readonly number[], fill: number, options: TensorValueOptions = {}): Tensor {
     if (this.#disposed) throw new Error("Session has been disposed")
     const dtype = options.dtype ?? "f32"
-    if (dtype !== "f32" && dtype !== "f64" && dtype !== "i64") throw new TypeError(`unsupported Tensor dtype: ${dtype}`)
+    if (dtype !== "bf16" && dtype !== "f32" && dtype !== "f64" && dtype !== "u32" && dtype !== "i64") throw new TypeError(`unsupported Tensor dtype: ${dtype}`)
     if (options.axes && (options.axes.length !== shape.length || options.axes.some(axis => typeof axis !== "string" || axis.length === 0))) {
       throw new TypeError("Tensor axes must contain one non-empty name per dimension")
     }
