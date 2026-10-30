@@ -1,0 +1,257 @@
+{
+  "schema_version": 1,
+  "suite": "affon_dispatch_boundary_audit",
+  "binary_sha256": "bca9848ea8ab1cac637efad5710434f28e4b84620619ca0f2613ee1d80eb5d1c",
+  "summary": {
+    "boundaries": 6,
+    "expected_transition": 4,
+    "unobserved_transition": 2,
+    "failed": 0
+  },
+  "boundaries": [
+    {
+      "id": "metal-f32-gemv-min-k",
+      "source": "compute/src/backend/metal/matmul_plan.h:85",
+      "predicate": "M == 1, N >= 64, K >= 64, dense inputs",
+      "status": "expected_transition",
+      "below": {
+        "case": {
+          "id": "metal/f32/matmul/decode_m1",
+          "op": "matmul",
+          "dtype": "f32",
+          "shape": [
+            1,
+            63,
+            64
+          ],
+          "dense_inputs": true
+        },
+        "status": "correct",
+        "path": [
+          "metal.matmul.mps_single"
+        ]
+      },
+      "at": {
+        "case": {
+          "id": "metal/f32/matmul/decode_m1",
+          "op": "matmul",
+          "dtype": "f32",
+          "shape": [
+            1,
+            64,
+            64
+          ],
+          "dense_inputs": true
+        },
+        "status": "correct",
+        "path": [
+          "metal.matmul.simd_gemv"
+        ]
+      }
+    },
+    {
+      "id": "metal-f32-gemv-min-n",
+      "source": "compute/src/backend/metal/matmul_plan.h:85",
+      "predicate": "M == 1, N >= 64, K >= 64, dense inputs",
+      "status": "expected_transition",
+      "below": {
+        "case": {
+          "id": "metal/f32/matmul/decode_m1",
+          "op": "matmul",
+          "dtype": "f32",
+          "shape": [
+            1,
+            64,
+            63
+          ],
+          "dense_inputs": true
+        },
+        "status": "correct",
+        "path": [
+          "metal.matmul.mps_single"
+        ]
+      },
+      "at": {
+        "case": {
+          "id": "metal/f32/matmul/decode_m1",
+          "op": "matmul",
+          "dtype": "f32",
+          "shape": [
+            1,
+            64,
+            64
+          ],
+          "dense_inputs": true
+        },
+        "status": "correct",
+        "path": [
+          "metal.matmul.simd_gemv"
+        ]
+      }
+    },
+    {
+      "id": "metal-f32-gemv-dense-contract",
+      "source": "compute/src/backend/metal/matmul_plan.h:85",
+      "predicate": "Dense input compilation contract enables the specialized one-row path",
+      "status": "expected_transition",
+      "below": {
+        "case": {
+          "id": "metal/f32/matmul/decode_m1",
+          "op": "matmul",
+          "dtype": "f32",
+          "shape": [
+            1,
+            64,
+            64
+          ],
+          "dense_inputs": false
+        },
+        "status": "correct",
+        "path": [
+          "metal.matmul.tiled"
+        ]
+      },
+      "at": {
+        "case": {
+          "id": "metal/f32/matmul/decode_m1",
+          "op": "matmul",
+          "dtype": "f32",
+          "shape": [
+            1,
+            64,
+            64
+          ],
+          "dense_inputs": true
+        },
+        "status": "correct",
+        "path": [
+          "metal.matmul.simd_gemv"
+        ]
+      }
+    },
+    {
+      "id": "metal-f32-gemv-row-count",
+      "source": "compute/src/backend/metal/matmul_plan.h:85",
+      "predicate": "M == 1",
+      "status": "expected_transition",
+      "below": {
+        "case": {
+          "id": "metal/f32/matmul/small_batch",
+          "op": "matmul",
+          "dtype": "f32",
+          "shape": [
+            2,
+            64,
+            64
+          ],
+          "dense_inputs": true
+        },
+        "status": "correct",
+        "path": [
+          "metal.matmul.mps_single"
+        ]
+      },
+      "at": {
+        "case": {
+          "id": "metal/f32/matmul/decode_m1",
+          "op": "matmul",
+          "dtype": "f32",
+          "shape": [
+            1,
+            64,
+            64
+          ],
+          "dense_inputs": true
+        },
+        "status": "correct",
+        "path": [
+          "metal.matmul.simd_gemv"
+        ]
+      }
+    },
+    {
+      "id": "metal-f32-small-loop-min-batches",
+      "source": "compute/src/backend/metal/matmul_plan.h:119",
+      "predicate": "Batches >= 4, shared left, batched right, dimensions <= 64",
+      "status": "unobserved_transition",
+      "below": {
+        "case": {
+          "id": "metal/f32/matmul/batched",
+          "op": "matmul",
+          "dtype": "f32",
+          "shape": [
+            3,
+            8,
+            8,
+            8
+          ],
+          "dense_inputs": true
+        },
+        "status": "correct",
+        "path": [
+          "metal.matmul.tiled"
+        ]
+      },
+      "at": {
+        "case": {
+          "id": "metal/f32/matmul/batched",
+          "op": "matmul",
+          "dtype": "f32",
+          "shape": [
+            4,
+            8,
+            8,
+            8
+          ],
+          "dense_inputs": true
+        },
+        "status": "correct",
+        "path": [
+          "metal.matmul.tiled"
+        ]
+      }
+    },
+    {
+      "id": "metal-f32-small-loop-max-m",
+      "source": "compute/src/backend/metal/matmul_plan.h:120",
+      "predicate": "M <= 64 for four small batches",
+      "status": "unobserved_transition",
+      "below": {
+        "case": {
+          "id": "metal/f32/matmul/batched",
+          "op": "matmul",
+          "dtype": "f32",
+          "shape": [
+            4,
+            65,
+            8,
+            8
+          ],
+          "dense_inputs": true
+        },
+        "status": "correct",
+        "path": [
+          "metal.matmul.tiled"
+        ]
+      },
+      "at": {
+        "case": {
+          "id": "metal/f32/matmul/batched",
+          "op": "matmul",
+          "dtype": "f32",
+          "shape": [
+            4,
+            64,
+            8,
+            8
+          ],
+          "dense_inputs": true
+        },
+        "status": "correct",
+        "path": [
+          "metal.matmul.tiled"
+        ]
+      }
+    }
+  ]
+}

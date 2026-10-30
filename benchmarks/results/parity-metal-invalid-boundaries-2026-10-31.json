@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "suite": "affon_parity_invalid_boundaries",
+  "binary_sha256": "ad90e56f47b7fb149ae7fd8cb3c96e37edb551854a4a2404f625a99a28304ff3",
+  "source_sha256": {
+    "/Users/chao.yang/Private/affon/test/parity/invalid-index-boundary.ts": "b820e9097fa58db53c68c37bd49f9ef4b0d9eb490eb17619128e880cf9ebcd40",
+    "/Users/chao.yang/Private/affon/src/js/compute/program.ts": "8d64100e2011ab3e7abaad32154491aa7af7f2412e0ffd13b7e81925960186d1",
+    "/Users/chao.yang/Private/compute/src/backend/metal/ffi.m": "f30dcbbf06aef25926a923e3b51a225bf6199b1f7c1b1a710f61efc4063f6abf"
+  },
+  "peer_engine": "pytorch",
+  "peer_version": "2.10.0",
+  "affon": {
+    "metal/f32/scatter_add/invalid_index": {
+      "id": "metal/f32/scatter_add/invalid_index",
+      "status": "returned",
+      "output": [
+        [
+          1,
+          3
+        ],
+        [
+          3,
+          4
+        ]
+      ]
+    },
+    "metal/f32/topk/invalid_index": {
+      "id": "metal/f32/topk/invalid_index",
+      "status": "error",
+      "error": "TypeError: invalid topk options or input"
+    },
+    "metal/bf16/scatter_add/invalid_index": {
+      "id": "metal/bf16/scatter_add/invalid_index",
+      "status": "error",
+      "error": "InternalError: Program execution failed: BackendFailure"
+    },
+    "metal/bf16/topk/invalid_index": {
+      "id": "metal/bf16/topk/invalid_index",
+      "status": "error",
+      "error": "TypeError: invalid topk options or input"
+    }
+  },
+  "peer": {
+    "metal/f32/scatter_add/invalid_index": {
+      "status": "returned",
+      "output": [
+        [
+          1.0,
+          3.0
+        ],
+        [
+          3.0,
+          4.0
+        ]
+      ]
+    },
+    "metal/f32/topk/invalid_index": {
+      "status": "error",
+      "error": "selected index k out of range"
+    },
+    "metal/bf16/scatter_add/invalid_index": {
+      "status": "returned",
+      "output": [
+        [
+          1.0,
+          3.0
+        ],
+        [
+          3.0,
+          4.0
+        ]
+      ]
+    },
+    "metal/bf16/topk/invalid_index": {
+      "status": "error",
+      "error": "selected index k out of range"
+    }
+  },
+  "decisions": {
+    "metal/bf16/scatter_add/invalid_index": {
+      "support": "unsupported",
+      "reason": "Metal BF16 scatter_add rejects an out-of-range index with BackendFailure while PyTorch MPS returns a value; numerical and timing parity are unavailable."
+    },
+    "metal/f32/topk/invalid_index": {
+      "support": "unsupported",
+      "reason": "An out-of-range topk k is rejected before execution by Affon and PyTorch; no numerical output or timing sample exists."
+    },
+    "metal/bf16/topk/invalid_index": {
+      "support": "unsupported",
+      "reason": "An out-of-range topk k is rejected before execution by Affon and PyTorch; no numerical output or timing sample exists."
+    }
+  },
+  "f32_scatter_parity_run": "/Users/chao.yang/Private/affon/benchmarks/results/parity-metal-invalid-scatter-2-2026-10-31"
+}

@@ -1,0 +1,1354 @@
+{
+  "date": "2026-10-16T21:35:46.608098+13:00",
+  "hardware": "Apple M4",
+  "affon_base_commit": "3e9fcb1dede7f8afdaf4870a1887cec536c7d1f6",
+  "compute_base_commit": "d3100914fb152785b3e52813946b8cccf858d27b",
+  "source_state": "uncommitted optimized quantized_matmul changes accompanying this report",
+  "build": "Zig 0.16.0 ReleaseFast",
+  "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "python": "3.13.16",
+  "mlx": "0.32.4",
+  "method": {
+    "warmup": 10,
+    "samples": 5,
+    "iterations": 30,
+    "resident_weights": true,
+    "input_dtype": "f32",
+    "parameter_dtype": "bf16",
+    "output_dtype": "f32",
+    "timed_scope": "call + output allocation + synchronization + full nested-list readback",
+    "affon_timer": "Date.now; 0.0333ms resolution per reported iteration",
+    "mlx_timer": "perf_counter_ns",
+    "affon_gpu_timer": "Metal command buffer timestamps; diagnostic only",
+    "mlx_variants": [
+      "eager quantized_matmul",
+      "mx.compile quantized_matmul"
+    ],
+    "affon_backend_timing_enabled": true,
+    "completion_scope": "qmm + scalar slice + synchronized item read; Affon and MLX both return the first scalar",
+    "completion_iterations": 100,
+    "construction_and_compilation_excluded": true
+  },
+  "results": [
+    {
+      "affon": {
+        "completion_samples_ms": [
+          0.3,
+          0.29,
+          0.31,
+          0.32,
+          0.31
+        ],
+        "completion_gpu_samples_ms": [
+          0.07970284,
+          0.07955996000000001,
+          0.07938736,
+          0.09245916,
+          0.0798596
+        ],
+        "completion_iterations": 100,
+        "engine": "affon",
+        "m": 1,
+        "n": 2048,
+        "k": 1024,
+        "bits": 4,
+        "group_size": 64,
+        "iterations": 30,
+        "samples_ms": [
+          0.6,
+          0.36666666666666664,
+          0.3333333333333333,
+          0.36666666666666664,
+          0.3333333333333333
+        ],
+        "gpu_samples_ms": [
+          0.2339787,
+          0.08041896666666666,
+          0.08000936666666666,
+          0.0796676,
+          0.08016346666666666
+        ],
+        "max_error": 0,
+        "explanation": {
+          "schema_version": 1,
+          "authored_program": {
+            "id": 6573733794119990000,
+            "instructions": [
+              {
+                "id": 0,
+                "op": "quantized_matmul"
+              }
+            ],
+            "state_inputs": []
+          },
+          "compiled_program": {
+            "id": 6573733794119990000,
+            "instructions": [
+              {
+                "id": 0,
+                "op": "quantized_matmul"
+              }
+            ],
+            "state_inputs": []
+          },
+          "transformation": null,
+          "executable": {
+            "id": 2233154414070707000,
+            "program_id": 6573733794119990000,
+            "backend": "metal",
+            "planned_temporary_bytes": 0,
+            "steps": [
+              {
+                "index": 0,
+                "implementation": "metal_quantized_matmul",
+                "physical_implementation": "metal_quantized_matmul.simd1",
+                "physical_cost": {
+                  "target_score": 0,
+                  "library_calls": 0,
+                  "custom_dispatches": 1,
+                  "synchronizations": 0,
+                  "required_transfers": 0,
+                  "temporary_bytes": 0,
+                  "estimated_work": 2097152
+                },
+                "physical_alternatives": [
+                  {
+                    "id": "metal_quantized_matmul.simd1",
+                    "version": 2,
+                    "deterministic": true,
+                    "selected": true,
+                    "numerical_class": "reassociated",
+                    "layout_contract": "runtime_generic",
+                    "resource_temporary_bytes": 0,
+                    "resource_alignment": 1,
+                    "resource_lifetime": "invocation",
+                    "cost": {
+                      "target_score": 0,
+                      "library_calls": 0,
+                      "custom_dispatches": 1,
+                      "synchronizations": 0,
+                      "required_transfers": 0,
+                      "temporary_bytes": 0,
+                      "estimated_work": 2097152
+                    }
+                  }
+                ],
+                "source_instructions": [
+                  0
+                ]
+              }
+            ],
+            "resources": [],
+            "optimizations": [],
+            "residuals": []
+          },
+          "runtime": null
+        },
+        "median_ms": 0.36666666666666664,
+        "gpu_median_ms": 0.08016346666666666,
+        "completion_median_ms": 0.31
+      },
+      "mlx": {
+        "eager": {
+          "samples_ms": [
+            0.28604583333333333,
+            0.2541278,
+            0.2570097,
+            0.2536444666666667,
+            0.23179723333333332
+          ],
+          "median_ms": 0.2541278,
+          "max_error": 0.0
+        },
+        "compiled": {
+          "samples_ms": [
+            0.2488361,
+            0.25318196666666665,
+            0.25193333333333334,
+            0.23652083333333335,
+            0.2517180333333333
+          ],
+          "median_ms": 0.2517180333333333,
+          "max_error": 0.0
+        },
+        "eager_completion": {
+          "samples_ms": [
+            0.19740833,
+            0.20794209,
+            0.21671875,
+            0.22018917000000002,
+            0.21735833
+          ],
+          "median_ms": 0.21671875,
+          "max_error": 0.0
+        },
+        "compiled_completion": {
+          "samples_ms": [
+            0.22123667000000002,
+            0.20326,
+            0.21700833,
+            0.2216275,
+            0.2209075
+          ],
+          "median_ms": 0.2209075,
+          "max_error": 0.0
+        }
+      }
+    },
+    {
+      "affon": {
+        "completion_samples_ms": [
+          0.69,
+          0.69,
+          0.69,
+          0.7,
+          0.69
+        ],
+        "completion_gpu_samples_ms": [
+          0.38688654,
+          0.38533869,
+          0.38499447,
+          0.38624575,
+          0.38731575
+        ],
+        "completion_iterations": 100,
+        "engine": "affon",
+        "m": 8,
+        "n": 2048,
+        "k": 1024,
+        "bits": 4,
+        "group_size": 64,
+        "iterations": 30,
+        "samples_ms": [
+          1.1,
+          1.0333333333333334,
+          1.0333333333333334,
+          1.0666666666666667,
+          1.0333333333333334
+        ],
+        "gpu_samples_ms": [
+          0.3858647333333333,
+          0.38533556666666663,
+          0.38570509999999997,
+          0.38418293333333337,
+          0.3872482666666667
+        ],
+        "max_error": 0,
+        "explanation": {
+          "schema_version": 1,
+          "authored_program": {
+            "id": 7702223485875140000,
+            "instructions": [
+              {
+                "id": 0,
+                "op": "quantized_matmul"
+              }
+            ],
+            "state_inputs": []
+          },
+          "compiled_program": {
+            "id": 7702223485875140000,
+            "instructions": [
+              {
+                "id": 0,
+                "op": "quantized_matmul"
+              }
+            ],
+            "state_inputs": []
+          },
+          "transformation": null,
+          "executable": {
+            "id": 8467181258502732000,
+            "program_id": 7702223485875140000,
+            "backend": "metal",
+            "planned_temporary_bytes": 0,
+            "steps": [
+              {
+                "index": 0,
+                "implementation": "metal_quantized_matmul",
+                "physical_implementation": "metal_quantized_matmul.matrix32",
+                "physical_cost": {
+                  "target_score": 0,
+                  "library_calls": 0,
+                  "custom_dispatches": 1,
+                  "synchronizations": 0,
+                  "required_transfers": 0,
+                  "temporary_bytes": 0,
+                  "estimated_work": 16777216
+                },
+                "physical_alternatives": [
+                  {
+                    "id": "metal_quantized_matmul.matrix32",
+                    "version": 2,
+                    "deterministic": true,
+                    "selected": true,
+                    "numerical_class": "reassociated",
+                    "layout_contract": "runtime_generic",
+                    "resource_temporary_bytes": 0,
+                    "resource_alignment": 1,
+                    "resource_lifetime": "invocation",
+                    "cost": {
+                      "target_score": 0,
+                      "library_calls": 0,
+                      "custom_dispatches": 1,
+                      "synchronizations": 0,
+                      "required_transfers": 0,
+                      "temporary_bytes": 0,
+                      "estimated_work": 16777216
+                    }
+                  }
+                ],
+                "source_instructions": [
+                  0
+                ]
+              }
+            ],
+            "resources": [],
+            "optimizations": [],
+            "residuals": []
+          },
+          "runtime": null
+        },
+        "median_ms": 1.0333333333333334,
+        "gpu_median_ms": 0.38570509999999997,
+        "completion_median_ms": 0.69
+      },
+      "mlx": {
+        "eager": {
+          "samples_ms": [
+            0.5014458333333334,
+            0.5016097333333334,
+            0.4857791666666667,
+            0.4985861,
+            0.4896472333333333
+          ],
+          "median_ms": 0.4985861,
+          "max_error": 0.0
+        },
+        "compiled": {
+          "samples_ms": [
+            0.4977514,
+            0.5072458333333333,
+            0.5272291666666666,
+            0.5220347333333334,
+            0.5086791666666667
+          ],
+          "median_ms": 0.5086791666666667,
+          "max_error": 0.0
+        },
+        "eager_completion": {
+          "samples_ms": [
+            0.2942675,
+            0.29720542,
+            0.30251167,
+            0.29101416999999996,
+            0.28548417
+          ],
+          "median_ms": 0.2942675,
+          "max_error": 0.0
+        },
+        "compiled_completion": {
+          "samples_ms": [
+            0.28682665999999996,
+            0.289205,
+            0.2860725,
+            0.2853,
+            0.28034208
+          ],
+          "median_ms": 0.2860725,
+          "max_error": 0.0
+        }
+      }
+    },
+    {
+      "affon": {
+        "completion_samples_ms": [
+          0.73,
+          0.73,
+          0.74,
+          0.73,
+          0.73
+        ],
+        "completion_gpu_samples_ms": [
+          0.42072577,
+          0.42008066,
+          0.42020909,
+          0.42021703000000005,
+          0.4204303
+        ],
+        "completion_iterations": 100,
+        "engine": "affon",
+        "m": 32,
+        "n": 2048,
+        "k": 1024,
+        "bits": 4,
+        "group_size": 64,
+        "iterations": 30,
+        "samples_ms": [
+          2.433333333333333,
+          2.466666666666667,
+          2.5,
+          2.466666666666667,
+          2.466666666666667
+        ],
+        "gpu_samples_ms": [
+          0.4248703,
+          0.42510929999999997,
+          0.42551609999999995,
+          0.4257189666666667,
+          0.4271884
+        ],
+        "max_error": 0,
+        "explanation": {
+          "schema_version": 1,
+          "authored_program": {
+            "id": 8118450651345439000,
+            "instructions": [
+              {
+                "id": 0,
+                "op": "quantized_matmul"
+              }
+            ],
+            "state_inputs": []
+          },
+          "compiled_program": {
+            "id": 8118450651345439000,
+            "instructions": [
+              {
+                "id": 0,
+                "op": "quantized_matmul"
+              }
+            ],
+            "state_inputs": []
+          },
+          "transformation": null,
+          "executable": {
+            "id": 14155357735631028000,
+            "program_id": 8118450651345439000,
+            "backend": "metal",
+            "planned_temporary_bytes": 0,
+            "steps": [
+              {
+                "index": 0,
+                "implementation": "metal_quantized_matmul",
+                "physical_implementation": "metal_quantized_matmul.matrix32",
+                "physical_cost": {
+                  "target_score": 0,
+                  "library_calls": 0,
+                  "custom_dispatches": 1,
+                  "synchronizations": 0,
+                  "required_transfers": 0,
+                  "temporary_bytes": 0,
+                  "estimated_work": 67108864
+                },
+                "physical_alternatives": [
+                  {
+                    "id": "metal_quantized_matmul.matrix32",
+                    "version": 2,
+                    "deterministic": true,
+                    "selected": true,
+                    "numerical_class": "reassociated",
+                    "layout_contract": "runtime_generic",
+                    "resource_temporary_bytes": 0,
+                    "resource_alignment": 1,
+                    "resource_lifetime": "invocation",
+                    "cost": {
+                      "target_score": 0,
+                      "library_calls": 0,
+                      "custom_dispatches": 1,
+                      "synchronizations": 0,
+                      "required_transfers": 0,
+                      "temporary_bytes": 0,
+                      "estimated_work": 67108864
+                    }
+                  }
+                ],
+                "source_instructions": [
+                  0
+                ]
+              }
+            ],
+            "resources": [],
+            "optimizations": [],
+            "residuals": []
+          },
+          "runtime": null
+        },
+        "median_ms": 2.466666666666667,
+        "gpu_median_ms": 0.42551609999999995,
+        "completion_median_ms": 0.73
+      },
+      "mlx": {
+        "eager": {
+          "samples_ms": [
+            1.2077403,
+            1.1956388666666666,
+            1.2267875,
+            1.3083055666666668,
+            1.3553097333333335
+          ],
+          "median_ms": 1.2267875,
+          "max_error": 0.0
+        },
+        "compiled": {
+          "samples_ms": [
+            1.3062375,
+            1.5328722,
+            1.4980708333333332,
+            1.3256277666666667,
+            1.2536097333333334
+          ],
+          "median_ms": 1.3256277666666667,
+          "max_error": 0.0
+        },
+        "eager_completion": {
+          "samples_ms": [
+            0.2849575,
+            0.27889333,
+            0.28718958,
+            0.28439708,
+            0.29451041
+          ],
+          "median_ms": 0.2849575,
+          "max_error": 0.0
+        },
+        "compiled_completion": {
+          "samples_ms": [
+            0.29280584000000004,
+            0.29333541999999996,
+            0.29936083,
+            0.31198625,
+            0.31322915999999995
+          ],
+          "median_ms": 0.29936083,
+          "max_error": 0.0
+        }
+      }
+    },
+    {
+      "affon": {
+        "completion_samples_ms": [
+          1.81,
+          1.82,
+          1.85,
+          1.8,
+          1.81
+        ],
+        "completion_gpu_samples_ms": [
+          1.48768158,
+          1.4880731999999999,
+          1.4979966200000001,
+          1.48700116,
+          1.49015406
+        ],
+        "completion_iterations": 100,
+        "engine": "affon",
+        "m": 128,
+        "n": 2048,
+        "k": 1024,
+        "bits": 4,
+        "group_size": 64,
+        "iterations": 30,
+        "samples_ms": [
+          8.566666666666666,
+          9.1,
+          8.633333333333333,
+          8.833333333333334,
+          8.766666666666667
+        ],
+        "gpu_samples_ms": [
+          1.8537286333333334,
+          2.3445967666666667,
+          1.8791203333333333,
+          2.0780093666666666,
+          2.1024244333333333
+        ],
+        "max_error": 0,
+        "explanation": {
+          "schema_version": 1,
+          "authored_program": {
+            "id": 14081105965497350000,
+            "instructions": [
+              {
+                "id": 0,
+                "op": "quantized_matmul"
+              }
+            ],
+            "state_inputs": []
+          },
+          "compiled_program": {
+            "id": 14081105965497350000,
+            "instructions": [
+              {
+                "id": 0,
+                "op": "quantized_matmul"
+              }
+            ],
+            "state_inputs": []
+          },
+          "transformation": null,
+          "executable": {
+            "id": 12961903743040942000,
+            "program_id": 14081105965497350000,
+            "backend": "metal",
+            "planned_temporary_bytes": 0,
+            "steps": [
+              {
+                "index": 0,
+                "implementation": "metal_quantized_matmul",
+                "physical_implementation": "metal_quantized_matmul.matrix32",
+                "physical_cost": {
+                  "target_score": 0,
+                  "library_calls": 0,
+                  "custom_dispatches": 1,
+                  "synchronizations": 0,
+                  "required_transfers": 0,
+                  "temporary_bytes": 0,
+                  "estimated_work": 268435456
+                },
+                "physical_alternatives": [
+                  {
+                    "id": "metal_quantized_matmul.matrix32",
+                    "version": 2,
+                    "deterministic": true,
+                    "selected": true,
+                    "numerical_class": "reassociated",
+                    "layout_contract": "runtime_generic",
+                    "resource_temporary_bytes": 0,
+                    "resource_alignment": 1,
+                    "resource_lifetime": "invocation",
+                    "cost": {
+                      "target_score": 0,
+                      "library_calls": 0,
+                      "custom_dispatches": 1,
+                      "synchronizations": 0,
+                      "required_transfers": 0,
+                      "temporary_bytes": 0,
+                      "estimated_work": 268435456
+                    }
+                  }
+                ],
+                "source_instructions": [
+                  0
+                ]
+              }
+            ],
+            "resources": [],
+            "optimizations": [],
+            "residuals": []
+          },
+          "runtime": null
+        },
+        "median_ms": 8.766666666666667,
+        "gpu_median_ms": 2.0780093666666666,
+        "completion_median_ms": 1.81
+      },
+      "mlx": {
+        "eager": {
+          "samples_ms": [
+            5.6118111,
+            5.5957097000000005,
+            5.454306933333333,
+            5.456943033333333,
+            5.09855
+          ],
+          "median_ms": 5.456943033333333,
+          "max_error": 0.0
+        },
+        "compiled": {
+          "samples_ms": [
+            5.1607597,
+            4.999938866666667,
+            4.9334625,
+            4.965669433333334,
+            5.0356860999999995
+          ],
+          "median_ms": 4.999938866666667,
+          "max_error": 0.0
+        },
+        "eager_completion": {
+          "samples_ms": [
+            0.45018041999999997,
+            0.44702583,
+            0.44553290999999995,
+            0.44772833,
+            0.44794375
+          ],
+          "median_ms": 0.44772833,
+          "max_error": 0.0
+        },
+        "compiled_completion": {
+          "samples_ms": [
+            0.47221665999999995,
+            0.48153209,
+            0.47371208000000004,
+            0.461065,
+            0.44796458
+          ],
+          "median_ms": 0.47221665999999995,
+          "max_error": 0.0
+        }
+      }
+    },
+    {
+      "affon": {
+        "completion_samples_ms": [
+          0.34,
+          0.35,
+          0.34,
+          0.33,
+          0.34
+        ],
+        "completion_gpu_samples_ms": [
+          0.10838828,
+          0.10892908999999999,
+          0.10954248,
+          0.10956242,
+          0.10997330999999999
+        ],
+        "completion_iterations": 100,
+        "engine": "affon",
+        "m": 1,
+        "n": 2048,
+        "k": 1024,
+        "bits": 8,
+        "group_size": 64,
+        "iterations": 30,
+        "samples_ms": [
+          0.7,
+          0.36666666666666664,
+          0.36666666666666664,
+          0.4,
+          0.4
+        ],
+        "gpu_samples_ms": [
+          0.22044396666666669,
+          0.10843146666666666,
+          0.10848719999999999,
+          0.10889123333333334,
+          0.10853013333333333
+        ],
+        "max_error": 0,
+        "explanation": {
+          "schema_version": 1,
+          "authored_program": {
+            "id": 9617588495416048000,
+            "instructions": [
+              {
+                "id": 0,
+                "op": "quantized_matmul"
+              }
+            ],
+            "state_inputs": []
+          },
+          "compiled_program": {
+            "id": 9617588495416048000,
+            "instructions": [
+              {
+                "id": 0,
+                "op": "quantized_matmul"
+              }
+            ],
+            "state_inputs": []
+          },
+          "transformation": null,
+          "executable": {
+            "id": 8434249898862423000,
+            "program_id": 9617588495416048000,
+            "backend": "metal",
+            "planned_temporary_bytes": 0,
+            "steps": [
+              {
+                "index": 0,
+                "implementation": "metal_quantized_matmul",
+                "physical_implementation": "metal_quantized_matmul.simd1",
+                "physical_cost": {
+                  "target_score": 0,
+                  "library_calls": 0,
+                  "custom_dispatches": 1,
+                  "synchronizations": 0,
+                  "required_transfers": 0,
+                  "temporary_bytes": 0,
+                  "estimated_work": 2097152
+                },
+                "physical_alternatives": [
+                  {
+                    "id": "metal_quantized_matmul.simd1",
+                    "version": 2,
+                    "deterministic": true,
+                    "selected": true,
+                    "numerical_class": "reassociated",
+                    "layout_contract": "runtime_generic",
+                    "resource_temporary_bytes": 0,
+                    "resource_alignment": 1,
+                    "resource_lifetime": "invocation",
+                    "cost": {
+                      "target_score": 0,
+                      "library_calls": 0,
+                      "custom_dispatches": 1,
+                      "synchronizations": 0,
+                      "required_transfers": 0,
+                      "temporary_bytes": 0,
+                      "estimated_work": 2097152
+                    }
+                  }
+                ],
+                "source_instructions": [
+                  0
+                ]
+              }
+            ],
+            "resources": [],
+            "optimizations": [],
+            "residuals": []
+          },
+          "runtime": null
+        },
+        "median_ms": 0.4,
+        "gpu_median_ms": 0.10853013333333333,
+        "completion_median_ms": 0.34
+      },
+      "mlx": {
+        "eager": {
+          "samples_ms": [
+            0.24616526666666666,
+            0.24269860000000001,
+            0.2372444333333333,
+            0.24541666666666664,
+            0.2513819666666667
+          ],
+          "median_ms": 0.24541666666666664,
+          "max_error": 0.0
+        },
+        "compiled": {
+          "samples_ms": [
+            0.25097776666666666,
+            0.2437125,
+            0.250525,
+            0.25059583333333335,
+            0.24554306666666667
+          ],
+          "median_ms": 0.250525,
+          "max_error": 0.0
+        },
+        "eager_completion": {
+          "samples_ms": [
+            0.21939709,
+            0.2179075,
+            0.22953083,
+            0.22906666,
+            0.22770416000000002
+          ],
+          "median_ms": 0.22770416000000002,
+          "max_error": 0.0
+        },
+        "compiled_completion": {
+          "samples_ms": [
+            0.227945,
+            0.22805333,
+            0.22831041,
+            0.23275792,
+            0.23115375
+          ],
+          "median_ms": 0.22831041,
+          "max_error": 0.0
+        }
+      }
+    },
+    {
+      "affon": {
+        "completion_samples_ms": [
+          0.7,
+          0.71,
+          0.71,
+          0.7,
+          0.69
+        ],
+        "completion_gpu_samples_ms": [
+          0.38805615000000004,
+          0.38707198,
+          0.38706364,
+          0.38774909,
+          0.38510245
+        ],
+        "completion_iterations": 100,
+        "engine": "affon",
+        "m": 8,
+        "n": 2048,
+        "k": 1024,
+        "bits": 8,
+        "group_size": 64,
+        "iterations": 30,
+        "samples_ms": [
+          1.1666666666666667,
+          1.0666666666666667,
+          1.0333333333333334,
+          1.0333333333333334,
+          1.0333333333333334
+        ],
+        "gpu_samples_ms": [
+          0.4405536666666667,
+          0.3882605333333333,
+          0.38688006666666663,
+          0.3879758333333333,
+          0.38789536666666663
+        ],
+        "max_error": 0,
+        "explanation": {
+          "schema_version": 1,
+          "authored_program": {
+            "id": 12793109924081525000,
+            "instructions": [
+              {
+                "id": 0,
+                "op": "quantized_matmul"
+              }
+            ],
+            "state_inputs": []
+          },
+          "compiled_program": {
+            "id": 12793109924081525000,
+            "instructions": [
+              {
+                "id": 0,
+                "op": "quantized_matmul"
+              }
+            ],
+            "state_inputs": []
+          },
+          "transformation": null,
+          "executable": {
+            "id": 13128700449395827000,
+            "program_id": 12793109924081525000,
+            "backend": "metal",
+            "planned_temporary_bytes": 0,
+            "steps": [
+              {
+                "index": 0,
+                "implementation": "metal_quantized_matmul",
+                "physical_implementation": "metal_quantized_matmul.matrix32",
+                "physical_cost": {
+                  "target_score": 0,
+                  "library_calls": 0,
+                  "custom_dispatches": 1,
+                  "synchronizations": 0,
+                  "required_transfers": 0,
+                  "temporary_bytes": 0,
+                  "estimated_work": 16777216
+                },
+                "physical_alternatives": [
+                  {
+                    "id": "metal_quantized_matmul.matrix32",
+                    "version": 2,
+                    "deterministic": true,
+                    "selected": true,
+                    "numerical_class": "reassociated",
+                    "layout_contract": "runtime_generic",
+                    "resource_temporary_bytes": 0,
+                    "resource_alignment": 1,
+                    "resource_lifetime": "invocation",
+                    "cost": {
+                      "target_score": 0,
+                      "library_calls": 0,
+                      "custom_dispatches": 1,
+                      "synchronizations": 0,
+                      "required_transfers": 0,
+                      "temporary_bytes": 0,
+                      "estimated_work": 16777216
+                    }
+                  }
+                ],
+                "source_instructions": [
+                  0
+                ]
+              }
+            ],
+            "resources": [],
+            "optimizations": [],
+            "residuals": []
+          },
+          "runtime": null
+        },
+        "median_ms": 1.0333333333333334,
+        "gpu_median_ms": 0.3879758333333333,
+        "completion_median_ms": 0.7
+      },
+      "mlx": {
+        "eager": {
+          "samples_ms": [
+            0.5160638666666666,
+            0.5131583333333333,
+            0.5100764,
+            0.5111110999999999,
+            0.5033764000000001
+          ],
+          "median_ms": 0.5111110999999999,
+          "max_error": 0.0
+        },
+        "compiled": {
+          "samples_ms": [
+            0.5123278,
+            0.5098805333333333,
+            0.4989347333333333,
+            0.5045527666666667,
+            0.4826472333333333
+          ],
+          "median_ms": 0.5045527666666667,
+          "max_error": 0.0
+        },
+        "eager_completion": {
+          "samples_ms": [
+            0.26858792,
+            0.28335042,
+            0.27868167,
+            0.277065,
+            0.28278917
+          ],
+          "median_ms": 0.27868167,
+          "max_error": 0.0
+        },
+        "compiled_completion": {
+          "samples_ms": [
+            0.28276125,
+            0.28287416,
+            0.28162458,
+            0.28268334,
+            0.29078375
+          ],
+          "median_ms": 0.28276125,
+          "max_error": 0.0
+        }
+      }
+    },
+    {
+      "affon": {
+        "completion_samples_ms": [
+          0.74,
+          0.73,
+          0.72,
+          0.74,
+          0.72
+        ],
+        "completion_gpu_samples_ms": [
+          0.42194237,
+          0.42233789,
+          0.42151152000000003,
+          0.42329409,
+          0.42195581
+        ],
+        "completion_iterations": 100,
+        "engine": "affon",
+        "m": 32,
+        "n": 2048,
+        "k": 1024,
+        "bits": 8,
+        "group_size": 64,
+        "iterations": 30,
+        "samples_ms": [
+          2.533333333333333,
+          2.5,
+          2.5,
+          2.433333333333333,
+          2.4
+        ],
+        "gpu_samples_ms": [
+          0.4684286,
+          0.43040093333333335,
+          0.43282173333333335,
+          0.43292443333333336,
+          0.4338842333333333
+        ],
+        "max_error": 0,
+        "explanation": {
+          "schema_version": 1,
+          "authored_program": {
+            "id": 12478098902834702000,
+            "instructions": [
+              {
+                "id": 0,
+                "op": "quantized_matmul"
+              }
+            ],
+            "state_inputs": []
+          },
+          "compiled_program": {
+            "id": 12478098902834702000,
+            "instructions": [
+              {
+                "id": 0,
+                "op": "quantized_matmul"
+              }
+            ],
+            "state_inputs": []
+          },
+          "transformation": null,
+          "executable": {
+            "id": 6222160146299230000,
+            "program_id": 12478098902834702000,
+            "backend": "metal",
+            "planned_temporary_bytes": 0,
+            "steps": [
+              {
+                "index": 0,
+                "implementation": "metal_quantized_matmul",
+                "physical_implementation": "metal_quantized_matmul.matrix32",
+                "physical_cost": {
+                  "target_score": 0,
+                  "library_calls": 0,
+                  "custom_dispatches": 1,
+                  "synchronizations": 0,
+                  "required_transfers": 0,
+                  "temporary_bytes": 0,
+                  "estimated_work": 67108864
+                },
+                "physical_alternatives": [
+                  {
+                    "id": "metal_quantized_matmul.matrix32",
+                    "version": 2,
+                    "deterministic": true,
+                    "selected": true,
+                    "numerical_class": "reassociated",
+                    "layout_contract": "runtime_generic",
+                    "resource_temporary_bytes": 0,
+                    "resource_alignment": 1,
+                    "resource_lifetime": "invocation",
+                    "cost": {
+                      "target_score": 0,
+                      "library_calls": 0,
+                      "custom_dispatches": 1,
+                      "synchronizations": 0,
+                      "required_transfers": 0,
+                      "temporary_bytes": 0,
+                      "estimated_work": 67108864
+                    }
+                  }
+                ],
+                "source_instructions": [
+                  0
+                ]
+              }
+            ],
+            "resources": [],
+            "optimizations": [],
+            "residuals": []
+          },
+          "runtime": null
+        },
+        "median_ms": 2.5,
+        "gpu_median_ms": 0.43292443333333336,
+        "completion_median_ms": 0.73
+      },
+      "mlx": {
+        "eager": {
+          "samples_ms": [
+            1.2112736333333334,
+            1.5207013999999999,
+            1.2907569333333333,
+            1.2508514,
+            1.3930125
+          ],
+          "median_ms": 1.2907569333333333,
+          "max_error": 0.0
+        },
+        "compiled": {
+          "samples_ms": [
+            1.2800597333333334,
+            1.2966458333333333,
+            1.3543903,
+            1.3578958333333333,
+            1.3353819333333334
+          ],
+          "median_ms": 1.3353819333333334,
+          "max_error": 0.0
+        },
+        "eager_completion": {
+          "samples_ms": [
+            0.2953275,
+            0.31062209,
+            0.31516708000000004,
+            0.32182333,
+            0.38268375
+          ],
+          "median_ms": 0.31516708000000004,
+          "max_error": 0.0
+        },
+        "compiled_completion": {
+          "samples_ms": [
+            0.32983041999999996,
+            0.31266041,
+            0.29730584000000004,
+            0.29462416999999996,
+            0.30084875
+          ],
+          "median_ms": 0.30084875,
+          "max_error": 0.0
+        }
+      }
+    },
+    {
+      "affon": {
+        "completion_samples_ms": [
+          1.87,
+          1.87,
+          1.89,
+          1.86,
+          1.81
+        ],
+        "completion_gpu_samples_ms": [
+          1.50465201,
+          1.4904357099999999,
+          1.4962865600000002,
+          1.50031154,
+          1.48947954
+        ],
+        "completion_iterations": 100,
+        "engine": "affon",
+        "m": 128,
+        "n": 2048,
+        "k": 1024,
+        "bits": 8,
+        "group_size": 64,
+        "iterations": 30,
+        "samples_ms": [
+          8.766666666666667,
+          8.6,
+          8.7,
+          8.633333333333333,
+          8.666666666666666
+        ],
+        "gpu_samples_ms": [
+          2.0635398,
+          1.9826621333333334,
+          1.9589648333333332,
+          1.9473148333333332,
+          1.9993494333333333
+        ],
+        "max_error": 0,
+        "explanation": {
+          "schema_version": 1,
+          "authored_program": {
+            "id": 18096068024468566000,
+            "instructions": [
+              {
+                "id": 0,
+                "op": "quantized_matmul"
+              }
+            ],
+            "state_inputs": []
+          },
+          "compiled_program": {
+            "id": 18096068024468566000,
+            "instructions": [
+              {
+                "id": 0,
+                "op": "quantized_matmul"
+              }
+            ],
+            "state_inputs": []
+          },
+          "transformation": null,
+          "executable": {
+            "id": 7372297849328961000,
+            "program_id": 18096068024468566000,
+            "backend": "metal",
+            "planned_temporary_bytes": 0,
+            "steps": [
+              {
+                "index": 0,
+                "implementation": "metal_quantized_matmul",
+                "physical_implementation": "metal_quantized_matmul.matrix32",
+                "physical_cost": {
+                  "target_score": 0,
+                  "library_calls": 0,
+                  "custom_dispatches": 1,
+                  "synchronizations": 0,
+                  "required_transfers": 0,
+                  "temporary_bytes": 0,
+                  "estimated_work": 268435456
+                },
+                "physical_alternatives": [
+                  {
+                    "id": "metal_quantized_matmul.matrix32",
+                    "version": 2,
+                    "deterministic": true,
+                    "selected": true,
+                    "numerical_class": "reassociated",
+                    "layout_contract": "runtime_generic",
+                    "resource_temporary_bytes": 0,
+                    "resource_alignment": 1,
+                    "resource_lifetime": "invocation",
+                    "cost": {
+                      "target_score": 0,
+                      "library_calls": 0,
+                      "custom_dispatches": 1,
+                      "synchronizations": 0,
+                      "required_transfers": 0,
+                      "temporary_bytes": 0,
+                      "estimated_work": 268435456
+                    }
+                  }
+                ],
+                "source_instructions": [
+                  0
+                ]
+              }
+            ],
+            "resources": [],
+            "optimizations": [],
+            "residuals": []
+          },
+          "runtime": null
+        },
+        "median_ms": 8.666666666666666,
+        "gpu_median_ms": 1.9826621333333334,
+        "completion_median_ms": 1.87
+      },
+      "mlx": {
+        "eager": {
+          "samples_ms": [
+            5.137044433333333,
+            5.108547233333334,
+            5.062769433333334,
+            5.012069433333334,
+            5.031833333333333
+          ],
+          "median_ms": 5.062769433333334,
+          "max_error": 0.0
+        },
+        "compiled": {
+          "samples_ms": [
+            5.031575,
+            5.0053014000000005,
+            5.044511133333334,
+            4.981690266666667,
+            4.9508152999999995
+          ],
+          "median_ms": 5.0053014000000005,
+          "max_error": 0.0
+        },
+        "eager_completion": {
+          "samples_ms": [
+            0.47077791999999996,
+            0.45955,
+            0.48543334000000005,
+            0.48313083,
+            0.46344041999999996
+          ],
+          "median_ms": 0.47077791999999996,
+          "max_error": 0.0
+        },
+        "compiled_completion": {
+          "samples_ms": [
+            0.46885959000000005,
+            0.46332708,
+            0.45683708,
+            0.45768625,
+            0.46304083
+          ],
+          "median_ms": 0.46304083,
+          "max_error": 0.0
+        }
+      }
+    }
+  ]
+}

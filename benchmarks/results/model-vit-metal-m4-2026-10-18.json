@@ -1,0 +1,49 @@
+{
+  "date": "2026-10-18",
+  "status": "exploratory; not accepted baseline",
+  "target": "Apple M4 local Metal",
+  "model_id": "google/vit-base-patch16-224",
+  "revision": "3f49326eb077187dfe1c2a2bb15fbd74e6ab91e3",
+  "workload": {
+    "input": "deterministic RGB8 (x*3+y*5+c*47)%256",
+    "width": 320,
+    "height": 256,
+    "batch": 1,
+    "runtime_residency": "initialized and compiled once before warmup; input imported during preprocessing"
+  },
+  "timing_scope": "resident compiled ViT forward plus full logit readback; input import excluded",
+  "affon_binary_sha256": "9e95c6c7b35875743090c3110635b1e6e6f3d9fcb1b494aa1c58190b8c2c1e7d",
+  "affon_build_profile": "ReleaseFast binary rebuilt with Zig 0.16.0; native binary hash unchanged",
+  "affon_git_head": "3e9fcb1dede7f8afdaf4870a1887cec536c7d1f6",
+  "compute_git_head": "d3100914fb152785b3e52813946b8cccf858d27b",
+  "source_state": "working trees contain uncommitted changes",
+  "affon_samples_ms": [
+    163,
+    146,
+    145
+  ],
+  "pytorch_samples_ms": [
+    20.289458,
+    19.651666,
+    20.0875
+  ],
+  "pytorch_version": "2.14.1",
+  "maximum_absolute_logit_error": 6.4373016357421875e-06,
+  "affon_median_ms": 146,
+  "pytorch_median_ms": 20.0875,
+  "ratio": 7.268201617921593,
+  "peer_gate_pass": false,
+  "limitations": [
+    "Three samples on a shared laptop; not a calibrated performance gate.",
+    "Operator and host phases within forward are not yet attributed.",
+    "The original per-call-initialization path measured 56205 ms median and is not comparable to the resident PyTorch path.",
+    "Production classify smoke has only two calls and is not a latency distribution; first call includes lazy runtime setup."
+  ],
+  "raw_report_directory": "/tmp/affon-model-gate-vit-metal-resident",
+  "production_classify_smoke": {
+    "first_inference_ms": 50838,
+    "second_inference_ms": 228,
+    "top1_class": 733,
+    "description": "Two sequential classify_image calls in one process after adding a cached native ViT runtime; includes input transfer and complete logit readback, excludes preprocessing and ranking."
+  }
+}

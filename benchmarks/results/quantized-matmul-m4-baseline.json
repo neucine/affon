@@ -1,0 +1,39 @@
+{
+  "date": "2026-10-16",
+  "hardware": "Apple M4, 10 CPU cores, 16 GB",
+  "os": "macOS 26.6.2 (25G83)",
+  "zig": "0.16.0",
+  "optimization": "ReleaseFast",
+  "affon_base_commit": "3e9fcb1dede7f8afdaf4870a1887cec536c7d1f6",
+  "compute_base_commit": "d3100914fb152785b3e52813946b8cccf858d27b",
+  "source_state": "Both checkouts include the uncommitted quantized_matmul implementation accompanying this report",
+  "command": "./zig-out/bin/affon benchmarks/quantized-matmul.ts",
+  "method": {
+    "warmup_runs": 3,
+    "samples": 5,
+    "iterations_per_sample": 10,
+    "timer": "Date.now",
+    "timer_resolution_ms_per_iteration": 0.1,
+    "includes": ["Executable.run", "output allocation", "output synchronization and readback", "output disposal"],
+    "excludes": ["input construction", "compilation", "warmup"],
+    "synthetic_weights": true,
+    "mlx_comparison": false
+  },
+  "weight": {
+    "n": 2048,
+    "k": 1024,
+    "bits": 8,
+    "group_size": 64,
+    "input_dtype": "f32",
+    "parameter_dtype": "bf16",
+    "output_dtype": "f32",
+    "packed_and_parameters_bytes": 2228224,
+    "dense_f32_weights_bytes": 8388608
+  },
+  "results": [
+    { "device": "cpu", "m": 1, "median_ms": 1.4, "samples_ms": [1.4, 1.4, 1.4, 1.4, 1.4] },
+    { "device": "cpu", "m": 8, "median_ms": 11.1, "samples_ms": [11.1, 11.1, 11.1, 11.2, 11.2] },
+    { "device": "metal", "m": 1, "median_ms": 1.4, "samples_ms": [1.3, 1.3, 1.4, 1.4, 1.5] },
+    { "device": "metal", "m": 8, "median_ms": 5.8, "samples_ms": [5.8, 5.8, 5.8, 5.8, 5.8] }
+  ]
+}

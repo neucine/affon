@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "suite": "affon_dispatch_boundaries",
+  "boundaries": [
+    {
+      "id": "metal-f32-gemv-min-k",
+      "source": "compute/src/backend/metal/matmul_plan.h:85",
+      "source_assertion": "m == 1 && n >= 64 && k >= 64 && left_dense && right_dense",
+      "predicate": "M == 1, N >= 64, K >= 64, dense inputs",
+      "below": {"id": "metal/f32/matmul/decode_m1", "op": "matmul", "dtype": "f32", "shape": [1, 63, 64], "dense_inputs": true},
+      "at": {"id": "metal/f32/matmul/decode_m1", "op": "matmul", "dtype": "f32", "shape": [1, 64, 64], "dense_inputs": true},
+      "expected_at_implementation": "metal.matmul.simd_gemv"
+    },
+    {
+      "id": "metal-f32-gemv-min-n",
+      "source": "compute/src/backend/metal/matmul_plan.h:85",
+      "source_assertion": "m == 1 && n >= 64 && k >= 64 && left_dense && right_dense",
+      "predicate": "M == 1, N >= 64, K >= 64, dense inputs",
+      "below": {"id": "metal/f32/matmul/decode_m1", "op": "matmul", "dtype": "f32", "shape": [1, 64, 63], "dense_inputs": true},
+      "at": {"id": "metal/f32/matmul/decode_m1", "op": "matmul", "dtype": "f32", "shape": [1, 64, 64], "dense_inputs": true},
+      "expected_at_implementation": "metal.matmul.simd_gemv"
+    },
+    {
+      "id": "metal-f32-gemv-dense-contract",
+      "source": "compute/src/backend/metal/matmul_plan.h:85",
+      "source_assertion": "m == 1 && n >= 64 && k >= 64 && left_dense && right_dense",
+      "predicate": "Dense input compilation contract enables the specialized one-row path",
+      "below": {"id": "metal/f32/matmul/decode_m1", "op": "matmul", "dtype": "f32", "shape": [1, 64, 64], "dense_inputs": false},
+      "at": {"id": "metal/f32/matmul/decode_m1", "op": "matmul", "dtype": "f32", "shape": [1, 64, 64], "dense_inputs": true},
+      "expected_at_implementation": "metal.matmul.simd_gemv"
+    },
+    {
+      "id": "metal-f32-gemv-row-count",
+      "source": "compute/src/backend/metal/matmul_plan.h:85",
+      "source_assertion": "m == 1 && n >= 64 && k >= 64 && left_dense && right_dense",
+      "predicate": "M == 1",
+      "below": {"id": "metal/f32/matmul/small_batch", "op": "matmul", "dtype": "f32", "shape": [2, 64, 64], "dense_inputs": true},
+      "at": {"id": "metal/f32/matmul/decode_m1", "op": "matmul", "dtype": "f32", "shape": [1, 64, 64], "dense_inputs": true},
+      "expected_at_implementation": "metal.matmul.simd_gemv"
+    },
+    {
+      "id": "metal-f32-small-loop-min-batches",
+      "source": "compute/src/backend/metal/matmul_plan.h:119",
+      "source_assertion": "plan->kind != COMPUTE_MATMUL_MPS_LOOP || plan->batches < 4 ||",
+      "predicate": "Batches >= 4, shared left, batched right, dimensions <= 64",
+      "below": {"id": "metal/f32/matmul/batched", "op": "matmul", "dtype": "f32", "shape": [3, 8, 8, 8], "dense_inputs": true},
+      "at": {"id": "metal/f32/matmul/batched", "op": "matmul", "dtype": "f32", "shape": [4, 8, 8, 8], "dense_inputs": true},
+      "expected_at_implementation": "metal.matmul.tiled"
+    },
+    {
+      "id": "metal-f32-small-loop-max-m",
+      "source": "compute/src/backend/metal/matmul_plan.h:120",
+      "source_assertion": "plan->m > 64 || plan->n > 64 || plan->k > 64",
+      "predicate": "M <= 64 for four small batches",
+      "below": {"id": "metal/f32/matmul/batched", "op": "matmul", "dtype": "f32", "shape": [4, 65, 8, 8], "dense_inputs": true},
+      "at": {"id": "metal/f32/matmul/batched", "op": "matmul", "dtype": "f32", "shape": [4, 64, 8, 8], "dense_inputs": true},
+      "expected_at_implementation": "metal.matmul.tiled"
+    }
+  ]
+}
