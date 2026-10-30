@@ -52,6 +52,32 @@ export class GraphProgramRuntime {
   dispose() { this.state.dispose(); this.session.dispose() }
 }
 
+/** Reusable ViT Program execution with parameters and compiled plan kept resident. */
+export class VitProgramRuntime {
+  readonly session: Session
+  readonly state: ExecutionState
+  readonly executable: Executable
+
+  constructor(readonly model: ProgramDefinition & { forward: Program }, device: Device) {
+    this.session = new Session({ device })
+    try {
+      this.state = this.session.initialize(model.forward, { parameters: model.parameters })
+      this.executable = this.session.compile(model.forward)
+    } catch (error) { this.session.dispose(); throw error }
+  }
+
+  import(pixels: ModelTensor | Tensor) {
+    return this.session.tensor(pixels.to_array(), { dtype: 'f32' })
+  }
+
+  forward(input: Tensor) {
+    const [output, ...hidden_states] = this.executable.run({ pixels: input }, this.state) as Tensor[]
+    return { output, hidden_states, dispose: () => { output.dispose(); for (const value of hidden_states) value.dispose() } }
+  }
+
+  dispose() { this.state.dispose(); this.session.dispose() }
+}
+
 export interface WhisperProgramDefinition {
   generation: {
     width: number
@@ -212,8 +238,9 @@ export class WhisperProgramRuntime {
 export interface CausalProgramDefinition extends ProgramDefinition {
   config: { vocab_size: number; n_positions?: number; max_position_embeddings?: number; eos_token_id?: number }
   forward(length: number, outputStart?: number): Program
-  prefill?(length: number): Program
+  prefill?(length: number, capacity?: number): Program
   decode?(position: number): Program
+  cacheMode?: 'fixed'
 }
 
 export class ModelOutputError extends Error {}
@@ -238,11 +265,31 @@ export function finite_argmax(row: readonly number[], expected: number, position
 export class CausalProgramRuntime {
   readonly session: Session
   readonly state: ExecutionState
+  private preparedCapacity?: number
+  private readonly prefillExecutables = new Map<string, Executable>()
+  private readonly decodeExecutables = new Map<number, Executable>()
 
   constructor(readonly model: CausalProgramDefinition, device: Device) {
     this.session = new Session({ device })
     try { this.state = this.session.initialize(model.forward(1), { parameters: model.parameters }) }
     catch (error) { this.session.dispose(); throw error }
+  }
+
+  /** Prepare fixed-cache programs before reporting a serving model as ready. */
+  prepareFixedCache(capacity: number, promptLengths: readonly number[] = []) {
+    const context = this.model.config.n_positions ?? this.model.config.max_position_embeddings ?? 0
+    if (this.model.cacheMode !== 'fixed' || !this.model.prefill || !this.model.decode ||
+      !Number.isInteger(capacity) || capacity < 2 || capacity > context)
+      throw Error('Invalid fixed-cache preparation')
+    const decode = this.model.decode(capacity)
+    this.decodeExecutables.set(capacity, this.session.compile(decode))
+    for (const length of promptLengths) {
+      if (!Number.isInteger(length) || length < 1 || length > capacity) throw Error('Invalid prefill length')
+      const key = `${length}:${capacity}`
+      if (!this.prefillExecutables.has(key))
+        this.prefillExecutables.set(key, this.session.compile(this.model.prefill(length, capacity)))
+    }
+    this.preparedCapacity = capacity
   }
 
   forward(ids: readonly number[], outputStart = 0) {
@@ -272,6 +319,10 @@ export class CausalProgramRuntime {
     const output = Array.from(ids)
     let caches: Tensor[] = [], done = budget === 0
     const cached = Boolean(this.model.prefill && this.model.decode)
+    const fixedCache = this.model.cacheMode === 'fixed'
+    const cacheCapacity = fixedCache ? Math.max(output.length + budget, this.preparedCapacity ?? 0) : output.length + budget
+    let fixedDecodeSource: Program | undefined
+    let decodeExecutable: Executable | undefined
     const release = () => { for (const value of caches) value.dispose(); caches = [] }
     return {
       get done() { return done },
@@ -281,7 +332,11 @@ export class CausalProgramRuntime {
         let logits: Tensor, nextCaches: Tensor[] = [], hiddenStates: Tensor[] = []
         if (cached) {
           const first = caches.length === 0
-          const source = first ? this.model.prefill!(output.length) : this.model.decode!(output.length - 1)
+          const source = first
+            ? this.model.prefill!(output.length, fixedCache ? cacheCapacity : undefined)
+            : fixedCache
+              ? (this.decodeExecutables.has(cacheCapacity) ? undefined : (fixedDecodeSource ??= this.model.decode!(cacheCapacity)))
+              : this.model.decode!(output.length - 1)
           const inputs: Record<string, Tensor> = {
             ids: this.session.tensor(first ? output : [output.at(-1)!], { dtype: 'i64' }),
           }
@@ -290,12 +345,19 @@ export class CausalProgramRuntime {
             inputs[`past_${index}_k`] = caches[index * 2]
             inputs[`past_${index}_v`] = caches[index * 2 + 1]
           }
+          if (!first && fixedCache) inputs.position = this.session.tensor([output.length - 1], { dtype: 'i64' })
           try {
-            const values = this.session.compile(source).run(inputs, this.state) as Tensor[]
+            const executable = fixedCache && !first
+              ? (decodeExecutable ??= this.decodeExecutables.get(cacheCapacity) ?? this.session.compile(source!))
+              : fixedCache
+                ? this.prefillExecutables.get(`${output.length}:${cacheCapacity}`) ?? this.session.compile(source!)
+                : this.session.compile(source!)
+            const values = executable.run(inputs, this.state) as Tensor[]
             ;[logits, ...nextCaches] = values
           } finally {
             inputs.ids.dispose()
             inputs.mask?.dispose()
+            inputs.position?.dispose()
           }
         } else {
           const result = this.forward(output, output.length - 1)

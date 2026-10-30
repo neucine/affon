@@ -183,6 +183,7 @@ def main():
     parser.add_argument("--memory-iterations", type=int, default=0)
     parser.add_argument("--threads", type=int, default=4)
     parser.add_argument("--warmups", type=int, default=2)
+    parser.add_argument("--target-fingerprint", help="Exact machine identity for normalized performance evidence")
     args = parser.parse_args()
     if args.iterations < 1 or args.warmups < 0 or args.threads < 1 or args.memory_iterations < 0:
         parser.error("iterations must be positive and warmups nonnegative")
@@ -225,6 +226,10 @@ def main():
         print(json.dumps(report, indent=2))
         if not report["passed"]:
             raise SystemExit("End-to-end output parity failed")
+        if args.target_fingerprint:
+            subprocess.run([sys.executable, str(REPO / "tools/normalize-model-performance.py"),
+                            "--source", "vision", "--input", str(out / "report.json"),
+                            "--target", args.target_fingerprint, "--output-dir", str(out / "normalized")], check=True)
 
 
 if __name__ == "__main__":

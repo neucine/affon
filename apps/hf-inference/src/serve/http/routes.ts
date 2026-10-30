@@ -1,5 +1,5 @@
 import type { PlaygroundConfig } from '../config.ts'
-import { type InferenceModels } from '../../inference/models.ts'
+import { APERTUS_MODEL, type InferenceModels } from '../../inference/models.ts'
 import { generate_text, create_text_generation } from '../../inference/text.ts'
 import { ModelOutputError } from '../../inference/program-runtime.ts'
 import {
@@ -176,10 +176,12 @@ export function create_handler(
         model?: unknown
         prompt?: unknown
         max_new_tokens?: unknown
+        stop_at_sentence?: unknown
       } | null>()
       const budget = input?.max_new_tokens ?? 24
       if (
         (input?.model !== undefined && typeof input.model !== 'string') ||
+        (input?.stop_at_sentence !== undefined && typeof input.stop_at_sentence !== 'boolean') ||
         typeof input?.prompt !== 'string' ||
         !input.prompt.trim() ||
         input.prompt.length > 4096 ||
@@ -195,7 +197,10 @@ export function create_handler(
           400,
         )
       if (path === '/api/generate/start') {
-        const generation = create_text_generation(models, input.prompt, Number(budget), input.model as string | undefined)
+        const modelKey = (input.model as string | undefined) ?? models.default_text_model
+        const stopAtSentence = (input.stop_at_sentence as boolean | undefined)
+          ?? (models.texts[modelKey]?.id === APERTUS_MODEL.id)
+        const generation = create_text_generation(models, input.prompt, Number(budget), modelKey, stopAtSentence)
         const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`
         active = {id, generation}
         touch()

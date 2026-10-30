@@ -19,6 +19,11 @@ compiler/runtime controls and extension rules, then consult the
 [Backend Support](./backend-support.md) for device contracts and
 [Error Handling](./errors.md) for failure and cleanup patterns.
 
+[Quantized Inference](./quantized-inference.md) documents the affine packed-weight
+operation, native CPU/Metal implementations, and benchmark protocol.
+[Quantized Inference Profiling](./quantized-profiling.md) separates GPU work, host
+readback, and synchronized-call overhead and compares the optimized path with MLX.
+
 The draft [Interactive Program Inspection](./inspection-visualization.md)
 describes a generic viewer built on the serialized `ProgramInspection` contract.
 
@@ -51,5 +56,12 @@ For short scripts, `Tensor.from(...)`, `Tensor.zeros(...)`,
 `Tensor.ones(...)`, and `Tensor.full(...)` create evaluated tensors in a hidden
 lazy default Session. Explicit disposal is optional; use it only when a workload
 needs deterministic release.
+
+Tensors and execution states are finalized when unreachable. A Session caches
+compiled Executables; it is also finalized when unreachable. For short scripts,
+there is no disposal boilerplate. In a long-running workload, call `dispose()`
+on outputs produced repeatedly in a loop when memory must be released promptly,
+and close a Session when finished with it. Programs are descriptions and do not
+need disposal. The current Affon TypeScript loader does not parse `using` syntax.
 
 The Program API is the only public compute and neural-network authoring model.

@@ -151,7 +151,8 @@ Set `AFFON_SMOLLM2=135M`, `360M`, `1.7B`, or `all` with a freshly built runtime
 instruction model or models alongside DistilGPT-2. `all` exposes every pinned
 SmolLM2 size. Set `AFFON_TEXT_ONLY=1` to omit DistilGPT-2 and image/audio models;
 the 135M model remains the default when all sizes are loaded.
-Pinned BF16 checkpoints run with native f32 execution. CPU, Metal, and CUDA
+Pinned BF16 checkpoints retain BF16 parameter storage and cast within the current
+f32 model graph. CPU, Metal, and CUDA
 are selectable; each backend needs validation on its own host.
 See [serving](src/serve/README.md#smollm2-instructions) for launch/API usage and
 [audits](audit/README.md#smollm2) for reference validation.

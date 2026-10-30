@@ -51,9 +51,10 @@ pub fn build(b: *std.Build) void {
         }),
     });
     cli.root_module.linkLibrary(hao.artifact("hao_runtime"));
+    // Link the Rust archive at the final executable; a static library cannot
+    // contain another archive as an object member.
+    cli.root_module.addObjectFile(hao.path("libs/transpiler/target/release/libhao_transpiler.a"));
     if (target.result.os.tag == .linux) {
-        // ELF linking does not resolve the Rust archive nested in hao_runtime.
-        cli.root_module.addObjectFile(hao.path("libs/transpiler/target/release/libhao_transpiler.a"));
         cli.root_module.linkSystemLibrary("unwind", .{});
     }
     addComputeBackends(compute_dep, cli.root_module, target);
@@ -72,8 +73,8 @@ pub fn build(b: *std.Build) void {
         }),
     });
     tests.root_module.linkLibrary(hao.artifact("hao_runtime"));
+    tests.root_module.addObjectFile(hao.path("libs/transpiler/target/release/libhao_transpiler.a"));
     if (target.result.os.tag == .linux) {
-        tests.root_module.addObjectFile(hao.path("libs/transpiler/target/release/libhao_transpiler.a"));
         tests.root_module.linkSystemLibrary("unwind", .{});
     }
     addComputeBackends(compute_dep, tests.root_module, target);

@@ -144,6 +144,22 @@ detection. The canonical API provides no global setter, replacement Session,
 or per-constructor device override. Create an explicit `Session` when a workload
 needs isolation or a specific device.
 
+Array-based `Tensor.from`, `Session.tensor`, and Program constants accept at
+most 262,144 array entries, counting nested arrays. For larger evaluated inputs, pass row-major,
+native-endian bytes with an explicit shape and dtype:
+
+```ts
+import { Session, Tensor } from "affon:compute"
+const session = new Session({ device: "metal" })
+const values = new Float32Array(1024 * 1024)
+const tensor = session.fromBytes(values.buffer, Tensor.f32([1024, 1024]))
+```
+
+`Tensor.fromBytes` uses the default Session. Both byte APIs copy into Session
+storage, so callers may reuse the buffer after the call. Program authors can
+use `p.full("padding", 0, Tensor.f32([1024, 1024]))` for a uniform constant
+without constructing or serializing a large JavaScript array.
+
 ## Losses and Differentiation
 
 Program transforms remain declarative:

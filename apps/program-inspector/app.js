@@ -115,6 +115,41 @@ function render_structure() {
   visit('scope:', 0)
 }
 
+function compact_graph(graph) {
+  if (!$('#compact').checked) return graph
+  const groups = new Map()
+  for (const node of graph.nodes) {
+    if (node.kind !== 'scope') continue
+    const scope = model.scopes_by_id.get(node.scope_id)
+    const key = `${scope.parent_id}|${scope.path.at(-1).program}`
+    const members = groups.get(key) ?? []
+    members.push(node)
+    groups.set(key, members)
+  }
+  const replacements = new Map(), repeats = []
+  for (const members of groups.values()) {
+    if (members.length < 2) continue
+    const first = members[0], program = model.scopes_by_id.get(first.scope_id).path.at(-1).program
+    const repeated = {
+      id: `repeat:${first.id}`, kind: 'repeat', label: program, role: 'scope',
+      scope_ids: members.map(member => member.scope_id),
+      is_program_output: members.some(member => member.is_program_output),
+      is_component_output: members.some(member => member.is_component_output),
+      component_output_count: members.reduce((sum, member) => sum + member.component_output_count, 0),
+    }
+    repeats.push(repeated)
+    for (const member of members) replacements.set(member.id, repeated.id)
+  }
+  const nodes = [...graph.nodes.filter(node => !replacements.has(node.id)), ...repeats]
+  const edges = [], seen = new Set()
+  for (const edge of graph.edges) {
+    const from = replacements.get(edge.from) ?? edge.from, to = replacements.get(edge.to) ?? edge.to
+    const id = `${from}->${to}`
+    if (from !== to && !seen.has(id)) { edges.push({ id, from, to }); seen.add(id) }
+  }
+  return { nodes, edges }
+}
+
 function graph_layout(graph) {
   const incoming = new Map(graph.nodes.map(node => [node.id, []]))
   const outgoing = new Map(graph.nodes.map(node => [node.id, []]))
@@ -141,7 +176,7 @@ function graph_layout(graph) {
 }
 
 function render_graph() {
-  const svg = $('#graph svg'), graph = model.visible_graph(expanded), layout = graph_layout(graph)
+  const svg = $('#graph svg'), graph = compact_graph(model.visible_graph(expanded)), layout = graph_layout(graph)
   svg.replaceChildren()
   svg.setAttribute('viewBox', `0 0 ${layout.width} ${layout.height}`)
   svg.style.width = `${layout.width}px`; svg.style.height = `${layout.height}px`
@@ -153,26 +188,30 @@ function render_graph() {
   }
   for (const node of graph.nodes) {
     const position = layout.positions.get(node.id), role = node.role
-    const selected = node.kind === selection.kind && (node.kind === 'node' ? node.node_id === selection.id : node.scope_id === selection.id)
+    const selected = node.kind === 'repeat' ? selection.kind === 'repeat' && selection.id === node.id ||
+      selection.kind === 'scope' && node.scope_ids.includes(selection.id)
+      : node.kind === selection.kind && (node.kind === 'node' ? node.node_id === selection.id : node.scope_id === selection.id)
     const group = svg_el('g', {
       class: `graph-node ${node.kind} role-${role}${node.is_component_output ? ' component-output' : ''}${node.is_program_output ? ' program-output' : ''}${selected ? ' selected' : ''}`,
       transform: `translate(${position.x} ${position.y})`, tabindex: 0,
     })
-    if (!matches(node.kind, node.kind === 'node' ? node.node_id : node.scope_id, role)) group.classList.add('dim')
+    if (node.kind === 'repeat' ? !node.scope_ids.some(id => matches('scope', id, role))
+      : !matches(node.kind, node.kind === 'node' ? node.node_id : node.scope_id, role)) group.classList.add('dim')
     group.append(svg_el('rect', { width: 146, height: 46 }))
     const title = svg_el('text', { x: 10, y: 19 }), meta = svg_el('text', { x: 10, y: 35, class: 'meta' })
     title.textContent = node.label.length > 20 ? `${node.label.slice(0, 19)}…` : node.label
     const output_label = node.is_program_output
       ? 'program out'
       : node.is_component_output ? `${node.component_output_count > 1 ? `${node.component_output_count} ` : ''}component out` : ''
-    meta.textContent = node.kind === 'node'
+    meta.textContent = node.kind === 'repeat' ? `${node.scope_ids.length} repeated blocks`
+      : node.kind === 'node'
       ? [`node:${node.node_id}`, role, output_label].filter(Boolean).join(' · ')
       : [`${model.scope_node_ids(node.scope_id, { recursive: true }).length} nodes`, output_label || 'scope'].join(' · ')
     group.append(title, meta)
     if (node.is_component_output || node.is_program_output) {
       group.append(svg_el('circle', { class: 'output-port', cx: 146, cy: 23, r: node.is_program_output ? 6 : 5 }))
     }
-    group.addEventListener('click', () => node.kind === 'scope'
+    group.addEventListener('click', () => node.kind === 'repeat' ? set_selection('repeat', node.id) : node.kind === 'scope'
       ? toggle_scope(node.scope_id)
       : set_selection('node', node.node_id))
     svg.append(group)
@@ -214,7 +253,18 @@ function render_details() {
   const container = $('#details')
   container.replaceChildren()
   $('#selection-kind').textContent = selection.kind
-  if (selection.kind === 'node') {
+  if (selection.kind === 'repeat') {
+    const graph = compact_graph(model.visible_graph(expanded))
+    const repeated = graph.nodes.find(node => node.id === selection.id)
+    if (!repeated) { container.append(el('p', 'empty', 'Repeated blocks are unavailable.')); return }
+    container.append(title(repeated.id, repeated.label), field('Instances', `${repeated.scope_ids.length} blocks`))
+    for (const id of repeated.scope_ids) {
+      const scope = model.scopes_by_id.get(id)
+      const button = el('button', 'node-link', `${scope.path.at(-1).instance} · ${model.scope_node_ids(id, { recursive: true }).length} nodes`)
+      button.addEventListener('click', () => set_selection('scope', id))
+      container.append(button)
+    }
+  } else if (selection.kind === 'node') {
     const node = model.nodes_by_id.get(selection.id)
     if (!node) { container.append(el('p', 'empty', 'Selected node is unavailable.')); return }
     const role = model.roles_by_id.get(node.id)
@@ -272,6 +322,13 @@ function render() { render_overview(); render_structure(); render_graph(); rende
 function open_inspection(inspection) {
   model = create_inspection_model(inspection)
   expanded = new Set(['scope:'])
+  // Reveal the model boundary while keeping repeated siblings folded.
+  let current = model.root_scope
+  while (current.child_ids.length === 1) {
+    const child = model.scopes_by_id.get(current.child_ids[0])
+    expanded.add(child.id)
+    current = child
+  }
   selection = { kind: 'scope', id: 'scope:' }
   $('#search').value = ''; $('#role').value = ''; search = { node_ids: [], scope_ids: [] }
   render()
@@ -285,6 +342,7 @@ async function open_file(file) {
 $('#file').addEventListener('change', event => { if (event.target.files[0]) open_file(event.target.files[0]); event.target.value = '' })
 $('#search').addEventListener('input', event => { search = model.search(event.target.value); render_structure(); render_graph() })
 $('#role').addEventListener('change', () => { render_structure(); render_graph() })
+$('#compact').addEventListener('change', () => { render_graph(); render_details() })
 let drag_depth = 0
 window.addEventListener('dragenter', event => { event.preventDefault(); drag_depth++; $('#drop-zone').hidden = false })
 window.addEventListener('dragleave', () => { if (--drag_depth === 0) $('#drop-zone').hidden = true })

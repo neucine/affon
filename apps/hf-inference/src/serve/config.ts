@@ -33,6 +33,7 @@ export function load_config(): PlaygroundConfig {
   const size = smol === '1' ? '135M' : smol
   if (size && size !== 'all' && !Object.hasOwn(SMOLLM2_MODELS, size)) throw Error('AFFON_SMOLLM2 must be 1, 135M, 360M, 1.7B or all')
   return {
+    apertus: getEnv('AFFON_APERTUS') === '1',
     text_only: getEnv('AFFON_TEXT_ONLY') === '1',
     smollm2: size as SmolLM2Size | 'all' | undefined,
     vit_onnx_dir: prepared('AFFON_VIT_ONNX_DIR', `${artifacts}/vit-onnx`),

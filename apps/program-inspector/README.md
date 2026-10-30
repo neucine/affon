@@ -3,6 +3,10 @@
 This zero-build browser app is the first interactive consumer of
 `@affon/inspector`. It opens serialized `ProgramInspection` JSON and keeps its
 structure tree, collapsed dependency graph, and exact details panel synchronized.
+The graph opens the outer model scope and groups repeated sibling components
+into one block with an instance count. Select that block to inspect each
+instance, or clear **Group repeated blocks** to see every component and wire.
+The structure tree always retains the individual instances.
 
 From the repository root, serve the checkout over HTTP and open the route:
 

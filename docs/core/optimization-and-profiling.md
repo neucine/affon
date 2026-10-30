@@ -46,6 +46,22 @@ const candidate = session.compile(model, {
 })
 ```
 
+For dynamic shapes that require repeated compilation, `searchLimits` bounds
+physical candidate exploration per compilation. The chosen limits and any
+truncation are included in `executable.explain().executable.selection`.
+
+```ts
+session.compile(model, {
+  searchLimits: {
+    structuralStates: 16,
+    structuralExpansions: 512,
+    completeEvaluations: 64,
+    physicalWork: 128,
+    readyWork: 64,
+  },
+})
+```
+
 The controls have distinct meanings:
 
 - `optimizationLevel`: `none` is the legalization/reference path; `safe`
@@ -64,6 +80,26 @@ The controls have distinct meanings:
 
 Normalized options form part of the executable cache key. The same Program and
 options return the cached variant; different options produce separate variants.
+
+`denseInputs: true` opts into the compute core's existing dense-input guards for
+every argument, parameter, and state tensor. Inputs must have dense strides and
+zero byte offset; incompatible views fail with `GuardMismatch` instead of
+silently copying or selecting a different implementation. The default remains
+layout-generic. This is useful for frozen inference weights packed into the
+backend's preferred matrix order once at model installation/loading time:
+
+```ts
+const inference = session.compile(model, { denseInputs: true })
+```
+
+The guarded executable has a distinct cache key and exposes its chosen physical
+implementations through `explain()`. A dense-input promise does not imply that
+every intermediate view is dense. Keep trained parameter layouts in the model's
+declared order; inference packing is an explicit adapter step for fixed weights.
+
+Inserted layout materializations are prepared as native `contiguous` copies on
+the selected device. They depend on their producer and precede their consumer;
+they do not read pending accelerator results through an unsynchronized host map.
 
 ## Explain the compiler decision
 

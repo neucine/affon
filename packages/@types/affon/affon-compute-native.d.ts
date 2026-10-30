@@ -18,6 +18,7 @@ declare module "affon:compute/native" {
     defaultDevice(): "cpu" | "metal" | "cuda";
     createSession(device: "cpu" | "metal" | "cuda" | `cuda:${number}`, options_json?: string): NativeSession;
     sessionTensor(session: NativeSession, values: unknown, dtype: "bf16" | "f32" | "f64" | "u32" | "i64", shape?: readonly number[]): NativeTensor;
+    sessionTensorBytes(session: NativeSession, bytes: ArrayBuffer, dtype: "bf16" | "f32" | "f64" | "u32" | "i64", shape: readonly number[]): NativeTensor;
     sessionTensorCopy(session: NativeSession, source: unknown): NativeTensor | undefined;
     sessionFull(session: NativeSession, shape: readonly number[], value: number, dtype: "bf16" | "f32" | "f64" | "u32" | "i64"): NativeTensor;
     compileProgram(session: NativeSession, program_json: string, options_json?: string): NativeExecutable;

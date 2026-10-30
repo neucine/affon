@@ -237,7 +237,7 @@ fn execDrop(df: *DataFrame, col_names: []const []const u8) PipelineError!void {
     const allocator = df.allocator;
 
     // Find indices to drop
-    var drop_set = std.StaticBitSet(256).initEmpty();
+    var drop_set = std.StaticBitSet(256).empty;
     for (col_names) |name| {
         const idx = df.findColumn(name) orelse return PipelineError.ColumnNotFound;
         drop_set.set(idx);

@@ -22,6 +22,14 @@ test('Llama Programs match independent PyTorch GQA/RoPE hidden states, logits an
   expect(generate_causal(model, reference.ids, 4)).toEqual(reference.generated)
 })
 
+test('Llama preserves BF16 checkpoint parameters for forward and cached decoding', () => {
+  const model = load_llama('packages/@affon/huggingface/test/fixtures/llama-bf16')
+  for (const source of [model.forward(3), model.prefill(3), model.decode(3)])
+    expect(source.inspect().parameters.every(value => value.spec.dtype === 'bf16')).toBe(true)
+  const logits = execute_causal(model, reference.ids.slice(0, 3)).logits as number[][][]
+  expect(logits[0][0].every(Number.isFinite)).toBe(true)
+})
+
 test('Llama output windows expose decode-shaped results without a fake cache', () => {
   const model = load_llama(directory)
   const suffix = execute_causal(model, reference.ids, 2)

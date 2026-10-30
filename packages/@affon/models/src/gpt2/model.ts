@@ -1,6 +1,6 @@
 import { add, contiguous, div, embedding, gelu, layer_norm, masked_fill, matmul, mul, reshape, slice, softmax, transpose } from 'affon:ops'
 import { Tensor, program, type FormalTensor } from 'affon:compute'
-import { positive_dimensions, parameter_checks } from '../shared/parameters.ts'
+import { f32_parameter, positive_dimensions, parameter_checks } from '../shared/parameters.ts'
 import type { ModelAffineWeights, ModelTensor } from '../shared/parameters.ts'
 
 export interface GPT2Config { width: number; heads: number; layers: number; contextLength: number; vocabSize: number; epsilon: number; eosTokenId?: number; scaleAttention?: boolean }
@@ -9,7 +9,7 @@ export interface GPT2Weights {
   blocks: { attentionNorm: ModelAffineWeights; feedForwardNorm: ModelAffineWeights; qkv: ModelAffineWeights; attentionOutput: ModelAffineWeights; expand: ModelAffineWeights; contract: ModelAffineWeights }[]
 }
 
-/** Author shape-specialized f32 GPT-2 Programs and their parameter initializer. */
+/** Author shape-specialized GPT-2 Programs with f32 arithmetic and BF16/f32 parameter storage. */
 export function create_gpt2(config: GPT2Config, weights: GPT2Weights) {
   if (!Number.isInteger(config.width) || config.width <= 0 || !Number.isInteger(config.heads) || config.heads <= 0 || config.width % config.heads || !Number.isInteger(config.layers) || config.layers <= 0 || weights.blocks.length !== config.layers || !Number.isFinite(config.epsilon) || config.epsilon <= 0) throw new Error('Invalid model dimensions or normalization')
   const check = parameter_checks()
@@ -40,7 +40,7 @@ export function create_gpt2(config: GPT2Config, weights: GPT2Weights) {
     }
   })
 
-  const parameter = (p: any, name: string, shape: readonly number[]) => p.parameter(name, Tensor.f32(shape)) as FormalTensor
+  const parameter = (p: any, name: string, shape: readonly number[]) => f32_parameter(p, name, shape, parameterValues[name])
   const affine = (p: any, name: string, shape: readonly number[]) => ({
     weight: parameter(p, `${name}_weight`, shape),
     bias: parameter(p, `${name}_bias`, shape.length === 1 ? shape : [shape[shape.length - 1]]),

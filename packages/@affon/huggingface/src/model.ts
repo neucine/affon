@@ -1,4 +1,5 @@
 import { load_llama } from './adapters/llama.ts'
+import { load_apertus } from './adapters/apertus.ts'
 import { load_whisper, type WhisperOptions } from './adapters/whisper.ts'
 import fs from 'std:fs'
 import { load_gpt2 } from './adapters/gpt2.ts'
@@ -9,7 +10,7 @@ import type { OnnxModelOptions, OnnxClassifier } from './onnx.ts'
 
 /** Native model contracts by supported task; inputs remain domain-specific. */
 export type ModelsByTask = {
-  'text-generation': ReturnType<typeof load_gpt2> | ReturnType<typeof load_llama>
+  'text-generation': ReturnType<typeof load_gpt2> | ReturnType<typeof load_llama> | ReturnType<typeof load_apertus>
   'feature-extraction': ReturnType<typeof load_bert>
   'image-classification': ReturnType<typeof load_vit>
 }
@@ -25,7 +26,7 @@ export type ModelOptions<T extends NativeModelTask> = {
 
 /**
  * Load a supported HF architecture and task from a prepared local directory.
- * @param directory Directory containing config.json and one f32 or BF16 model.safetensors (BF16 widens to f32).
+ * @param directory Directory containing config.json and one f32 or BF16 model.safetensors.
  * @param options Explicit task.
  * @returns A device-neutral Program definition and checkpoint parameter initializer.
  * @throws If the task/model-type combination or model configuration is unsupported.
@@ -62,6 +63,8 @@ export function load_model(
     return load_gpt2(directory)
   if (options.task === 'text-generation' && config.model_type === 'llama')
     return load_llama(directory)
+  if (options.task === 'text-generation' && config.model_type === 'apertus')
+    return load_apertus(directory)
   if (options.task === 'feature-extraction' && config.model_type === 'bert')
     return load_bert(directory)
   if (options.task === 'image-classification' && config.model_type === 'vit')

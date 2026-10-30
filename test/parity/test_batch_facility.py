@@ -721,9 +721,9 @@ class BatchFacilityTest(unittest.TestCase):
                         {"id": "cuda/f32/cos/small_dense", "probe_status": "probe_failed",
                          "operator_peer": "probe_not_correct", "program_peer": "probe_not_correct"}]}
         output = report.render(manifest)
-        self.assertIn("Candidate cells: 2", output)
-        self.assertIn("Numerical capability passed: 1", output)
-        self.assertIn("Program incorrect or error: 1", output)
+        self.assertIn("Cases run: 2", output)
+        self.assertIn("Numerical check passed: 1", output)
+        self.assertIn("Program failures: 1", output)
         self.assertIn("2 / 1", output)
         self.assertIn("probe_not_correct", output)
         self.assertIn("[incorrect](program_peer_failures/a.json)", output)

@@ -147,7 +147,12 @@ function convolveValid(x: FormalTensor, weight: FormalTensor, stride: number, di
       taps.push(operation("transpose", [selected], [[0, 2, 1]]))
     }
     const patches = taps.length === 1 ? taps[0] : $formalCat(taps, 2)
-    outputs.push(operation("transpose", [operation("matmul", [patches, matrix])], [[0, 2, 1]]))
+    // A shared filter does not need batched GEMM. Flatten sample/time rows so
+    // the backend can select its tuned matrix implementation (e.g. MPS).
+    const rows = operation("reshape", [patches], [[x.spec.shape[0] * outputLength, channelsPerGroup * kernel]])
+    const projected = operation("matmul", [rows, matrix])
+    const sequence = operation("reshape", [projected], [[x.spec.shape[0], outputLength, groupOutputs]])
+    outputs.push(operation("transpose", [sequence], [[0, 2, 1]]))
   }
   return outputs.length === 1 ? outputs[0] : $formalCat(outputs, 1)
 }

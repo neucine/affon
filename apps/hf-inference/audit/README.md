@@ -231,7 +231,7 @@ Download and smoke-test the original pinned BF16 checkpoint without Python:
 AFFON_DEVICE=metal /tmp/affon-smollm-release/bin/affon apps/hf-inference/audit/hub-smollm2.ts
 ```
 
-Requires a current optimized build with BF16 checkpoint widening. Repeat with
+Requires a current optimized build with BF16 checkpoint loading. Repeat with
 `AFFON_HF_OFFLINE=1` to verify cache-only operation. Prepare independent references
 from the downloaded snapshot using the audit Python environment:
 
@@ -280,7 +280,8 @@ prefill from subsequent decoding and include sampled telemetry. OS peak RSS
 includes runtime and temporary allocations; neither metric is just weight size.
 Loading time includes cache hashing and tokenizer preparation. The short fixed
 workload does not establish long-context speed, memory stability, or model quality.
-BF16 files are widened to f32; quantized execution is not implemented here.
+BF16 files retain BF16 parameter storage; the SmolLM2 graph casts parameters for
+f32 operations. Quantized execution is not implemented here.
 
 Measured on an M4 MacBook Pro with 16 GB unified memory, ReleaseFast, Metal,
 2026-09-28 (40 prompt tokens, 16 generated tokens; average of two post-warmup runs):

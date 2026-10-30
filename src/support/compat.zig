@@ -94,7 +94,7 @@ pub fn readFileAlloc(allocator: std.mem.Allocator, path: []const u8, max_bytes: 
         return std.fs.cwd().readFileAlloc(allocator, path, max_bytes);
     }
 
-    const path_z = try allocator.dupeZ(u8, path);
+    const path_z = try allocator.dupeSentinel(u8, path, 0);
     defer allocator.free(path_z);
 
     const fd = std.c.open(path_z.ptr, .{ .ACCMODE = .RDONLY });
@@ -126,7 +126,7 @@ pub const FdFile = struct {
         if (@hasDecl(std.fs, "cwd")) {
             @compileError("FdFile is intended for Zig std.fs-free builds");
         }
-        const path_z = try std.heap.page_allocator.dupeZ(u8, path);
+        const path_z = try std.heap.page_allocator.dupeSentinel(u8, path, 0);
         defer std.heap.page_allocator.free(path_z);
         const fd = std.c.open(path_z.ptr, .{ .ACCMODE = .RDONLY });
         if (fd < 0) return error.FileNotFound;
@@ -137,7 +137,7 @@ pub const FdFile = struct {
         if (@hasDecl(std.fs, "cwd")) {
             @compileError("FdFile is intended for Zig std.fs-free builds");
         }
-        const path_z = try std.heap.page_allocator.dupeZ(u8, path);
+        const path_z = try std.heap.page_allocator.dupeSentinel(u8, path, 0);
         defer std.heap.page_allocator.free(path_z);
         const fd = std.c.open(path_z.ptr, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true }, @as(std.c.mode_t, 0o666));
         if (fd < 0) return error.OpenFailed;
@@ -216,7 +216,7 @@ pub fn realpathAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     }
 
     var buf: [std.fs.max_path_bytes]u8 = undefined;
-    const path_z = try allocator.dupeZ(u8, path);
+    const path_z = try allocator.dupeSentinel(u8, path, 0);
     defer allocator.free(path_z);
     const resolved = std.c.realpath(path_z.ptr, &buf) orelse return error.FileNotFound;
     return allocator.dupe(u8, std.mem.span(resolved));
@@ -252,7 +252,7 @@ pub fn pathExists(path: []const u8) bool {
         std.fs.cwd().access(path, .{}) catch return false;
         return true;
     }
-    const path_z = std.heap.page_allocator.dupeZ(u8, path) catch return false;
+    const path_z = std.heap.page_allocator.dupeSentinel(u8, path, 0) catch return false;
     defer std.heap.page_allocator.free(path_z);
     return std.c.access(path_z.ptr, std.c.F_OK) == 0;
 }

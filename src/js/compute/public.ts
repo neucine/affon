@@ -15,6 +15,7 @@ export type {
   OptimizationGoal,
   ExplanationLevel,
   ResidualPolicy,
+  SearchLimits,
   CompileOptions,
   TelemetryOptions,
   SessionOptions,

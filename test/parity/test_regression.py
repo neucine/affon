@@ -51,6 +51,20 @@ class RegressionTest(unittest.TestCase):
         current['samples'] = 10
         self.assertEqual(regression.compare(previous, current)['cells'][0]['timing'], {})
 
+    def test_changed_case_definition_is_not_compared_as_regression(self):
+        old = self.cell()
+        new = self.cell(operator='incorrect')
+        old['axes'] = {'shape': [2, 4], 'layout': 'dense'}
+        new['axes'] = {'shape': [8, 4], 'layout': 'dense'}
+        result = regression.compare(self.manifest([old]), self.manifest([new]))
+        self.assertEqual(result['changed_cases'], [old['id']])
+        self.assertEqual(result['correctness_regressions'], 0)
+        new['axes'] = {**old['axes'], 'operation_family': 'renamed_group'}
+        old['axes']['operation_family'] = 'arithmetic'
+        self.assertEqual(regression.compare(self.manifest([old]), self.manifest([new]))['changed_cases'], [])
+        old['case_sha256'], new['case_sha256'] = 'a' * 64, 'b' * 64
+        self.assertEqual(regression.compare(self.manifest([old]), self.manifest([new]))['changed_cases'], [old['id']])
+
     def test_curated_catalog_has_declared_complete_cells(self):
         catalog = json.loads((ROOT / 'test/parity/catalogs/metal-regression-smoke.json').read_text())
         outcomes = json.loads((ROOT / 'benchmarks/results/coverage-outcomes-current-mac-2026-10-29.json').read_text())

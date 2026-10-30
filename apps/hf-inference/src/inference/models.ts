@@ -6,6 +6,7 @@ import {
 } from '../../../../packages/@affon/huggingface/src/index.ts'
 /** Model loading options, independent of HTTP and environment variables. */
 export interface InferenceOptions {
+  apertus?: boolean
   smollm2?: boolean | SmolLM2Size | 'all'
   text_only?: boolean
   device: 'cpu' | 'metal' | 'cuda'
@@ -23,6 +24,10 @@ export interface InferenceOptions {
 export const TEXT_MODEL = {
   id: 'distilbert/distilgpt2',
   revision: '2290a62682d06624634c1f46a6ad5be0f47f38aa',
+} as const
+export const APERTUS_MODEL = {
+  id: 'swiss-ai/Apertus-8B-2509',
+  revision: '3162c99675aa588097cecd4a24b9aa1f712af477',
 } as const
 export const SMOLLM2_MODELS = {
   '135M': { id: 'HuggingFaceTB/SmolLM2-135M-Instruct', revision: '12fd25f77366fa6b3b4b768ec3050bf629380bac' },
@@ -52,16 +57,16 @@ export async function load_models(config: InferenceOptions) {
   const sizes: SmolLM2Size[] = requested === 'all'
     ? Object.keys(SMOLLM2_MODELS) as SmolLM2Size[]
     : requested ? [requested as SmolLM2Size] : []
-  if (config.text_only && sizes.length === 0) throw Error('Text-only mode requires a SmolLM2 size')
+  if (config.text_only && sizes.length === 0 && !config.apertus) throw Error('Text-only mode requires a text model')
   const primarySize = config.text_only ? sizes[0] : undefined
-  const primarySpec = primarySize ? SMOLLM2_MODELS[primarySize] : TEXT_MODEL
-  const default_text_model = config.text_only ? 'smollm2' : 'distilgpt2'
+  const primarySpec = primarySize ? SMOLLM2_MODELS[primarySize] : config.text_only && config.apertus ? APERTUS_MODEL : TEXT_MODEL
+  const default_text_model = primarySize ? 'smollm2' : config.text_only && config.apertus ? 'apertus' : 'distilgpt2'
   const { model, processor } = await from_pretrained(primarySpec.id, {
     revision: primarySpec.revision, cache_dir: config.cache_dir,
     task: 'text-generation', device: config.device, local_files_only: config.local_files_only,
   })
   const texts: Record<string, { id: string; label: string; chat: boolean; model: typeof model; processor: typeof processor }> = {
-    [default_text_model]: { id: primarySpec.id, label: primarySize ? `SmolLM2 ${primarySize} Instruct` : 'DistilGPT-2', chat: Boolean(primarySize), model, processor },
+    [default_text_model]: { id: primarySpec.id, label: primarySize ? `SmolLM2 ${primarySize} Instruct` : config.text_only && config.apertus ? 'Apertus 8B' : 'DistilGPT-2', chat: Boolean(primarySize), model, processor },
   }
   for (const size of sizes) {
     if (size === primarySize) continue
@@ -71,6 +76,13 @@ export async function load_models(config: InferenceOptions) {
       task: 'text-generation', device: config.device, local_files_only: config.local_files_only,
     })
     texts[SMOLLM2_KEYS[size]] = { id: spec.id, label: `SmolLM2 ${size} Instruct`, chat: true, model: smollm2.model, processor: smollm2.processor }
+  }
+  if (config.apertus && primarySpec !== APERTUS_MODEL) {
+    const apertus = await from_pretrained(APERTUS_MODEL.id, {
+      revision: APERTUS_MODEL.revision, cache_dir: config.cache_dir,
+      task: 'text-generation', device: config.device, local_files_only: config.local_files_only,
+    })
+    texts.apertus = { id: APERTUS_MODEL.id, label: 'Apertus 8B', chat: false, model: apertus.model, processor: apertus.processor }
   }
   if (config.text_only) return {device: config.device, text: {model, processor}, texts, default_text_model, images: {} as Record<string, ImageEntry>, vision: undefined, audio: undefined, speech: undefined}
   const vision = await from_pretrained(IMAGE_MODEL.id, {

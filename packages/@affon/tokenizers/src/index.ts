@@ -55,6 +55,13 @@ export type LookupTokenizerOptions = LookupTokenizerOpts
 export type HFTokenizerOptions = Pick<LookupTokenizerOpts, 'specialTokens'>
 export type SentencePieceTokenizerOptions = SentencePieceTokenizerOpts
 
+function hfVocabSize(spec: HFTokenizerJSON): number {
+  let highest = -1
+  for (const id of Object.values(spec.model.vocab)) if (id > highest) highest = id
+  for (const token of spec.added_tokens ?? []) if (token.id > highest) highest = token.id
+  return highest + 1
+}
+
 function uniqueSortedTokenIds(ids: readonly number[]): ReadonlyArray<number> {
   return Object.freeze(Array.from(new Set(ids)).sort((a, b) => a - b))
 }
@@ -140,10 +147,7 @@ export function createHFTokenizerFromJSON(
   const extraSpecialTokenIds = (spec.added_tokens ?? [])
     .filter((token) => token.special)
     .map((token) => token.id)
-  const explicitVocabSize = Math.max(
-    ...Object.values(spec.model.vocab),
-    ...(spec.added_tokens ?? []).map(token => token.id),
-  ) + 1
+  const explicitVocabSize = hfVocabSize(spec)
   return wrapDatasetTokenizer(
     createInternalHFTokenizerFromJSON(spec, opts),
     'hf-tokenizer-json',
@@ -161,10 +165,7 @@ export function createHFTokenizerFromFile(
   const extraSpecialTokenIds = (parsed.added_tokens ?? [])
     .filter((token) => token.special)
     .map((token) => token.id)
-  const explicitVocabSize = Math.max(
-    ...Object.values(parsed.model.vocab),
-    ...(parsed.added_tokens ?? []).map(token => token.id),
-  ) + 1
+  const explicitVocabSize = hfVocabSize(parsed)
   return wrapDatasetTokenizer(
     createInternalHFTokenizerFromFile(path, opts),
     'hf-tokenizer-json',

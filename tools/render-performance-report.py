@@ -167,12 +167,12 @@ def data(matrix, summary, raw_directory, boundary_report=None, program_summary=N
     insights = [
         {"title": "Consistent candidate gaps", "body": f"{len(gaps)} cells exceed the provisional ratio in every round. The largest absolute difference is {gaps[0]['id']} at {(gaps[0]['affon_ms'] - gaps[0]['peer_ms']) * 1000:.1f} µs per call." if gaps else "No cell exceeds the provisional ratio in every round."},
         {"title": "Mixed measurements", "body": f"{len(mixed)} cells cross the threshold between rounds. Repeat on a controlled target before treating these as optimization targets."},
-        {"title": "Evidence still needed", "body": f"{totals['evidence']['program_peer'].get('missing', 0)} Program peer cells and {totals['evidence']['self_baseline'].get('missing', 0)} baseline cells remain missing. Timing phase splits are diagnostic because accelerator work may finish during readback."},
+        {"title": "Checks still needed", "body": f"{totals['evidence']['program_peer'].get('missing', 0)} Program peer cells and {totals['evidence']['self_baseline'].get('missing', 0)} baseline cells remain missing. Timing phase splits are diagnostic because accelerator work may finish during readback."},
     ]
     unstable = [row for row in baseline_calibrations if row["status"] == "Too variable"]
     if unstable:
         insights.append({"title": "Baseline timing is too variable", "body":
-            f"{len(unstable)} calibration runs across {len({row['id'] for row in unstable})} cells exceeded the provisional repeatability limits. Keep baseline evidence open and stabilize measurement before making regression or optimization decisions."})
+            f"{len(unstable)} calibration runs across {len({row['id'] for row in unstable})} cells exceeded the provisional repeatability limits. Keep baseline review open and stabilize measurement before making regression or optimization decisions."})
     boundaries = []
     if boundary_report is not None:
         if boundary_report.get("suite") != "affon_dispatch_boundary_audit":
@@ -191,7 +191,7 @@ def data(matrix, summary, raw_directory, boundary_report=None, program_summary=N
                 f"{unobserved} declared planner transitions were masked by the compiler's selected path. They need a planner-level check or a workload that selects both paths before dispatch coverage is claimed."})
     phase_status = [
         {"name": "Foundation", "state": "Complete",
-         "detail": "The ledger, evidence import, report joins, and baseline gate have executable checks."},
+         "detail": "The saved results, report links, and baseline gate have executable checks."},
         {"name": "Coverage expansion", "state": "Next",
          "detail": "Classify combinations and add concrete correctness, operator, Program, and dispatch checks by regime."},
         {"name": "Optimization", "state": "Later",

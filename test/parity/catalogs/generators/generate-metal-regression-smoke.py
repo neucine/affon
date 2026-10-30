@@ -2,8 +2,11 @@
 """Rebuild the compact Metal regression catalog from declared master cases."""
 import json
 from pathlib import Path
+import sys
 
 ROOT = Path(__file__).resolve().parents[4]
+sys.path.insert(0, str(ROOT / 'test/parity'))
+from case import families, layout_of
 IDS = (
     'metal/f32/add/small_dense',
     'metal/bf16/mul/small_dense',
@@ -26,8 +29,13 @@ def main():
     missing = set(IDS) - cases.keys()
     if missing:
         raise ValueError(f'master catalog lacks smoke cells: {sorted(missing)}')
-    catalog = {'schema_version': 1, 'suite': 'affon_capability_probes',
-               'cases': [cases[cell] for cell in IDS]}
+    operation_families = families()
+    selected = []
+    for cell in IDS:
+        case = cases[cell].copy()
+        case.update(family=operation_families[case['op']], layout=layout_of(case), scope='operation')
+        selected.append(case)
+    catalog = {'schema_version': 1, 'suite': 'affon_capability_probes', 'cases': selected}
     output = Path(__file__).resolve().parent.parent / 'metal-regression-smoke.json'
     output.write_text(json.dumps(catalog, indent=2) + '\n')
     print(f'{len(IDS)} Metal regression cells: {output}')

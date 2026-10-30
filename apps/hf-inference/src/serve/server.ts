@@ -2,11 +2,14 @@
 import http from 'std:http'
 import { load_config } from './config.ts'
 import { load_models } from '../inference/models.ts'
+import { prepare_text_models } from '../inference/text.ts'
 import { create_handler } from './http/routes.ts'
 
 const config = load_config()
 console.log('Loading configured inference models…')
 const models = await load_models(config)
+console.log('Preparing text inference…')
+prepare_text_models(models)
 
 http.serve({
   hostname: '127.0.0.1',

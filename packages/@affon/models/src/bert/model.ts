@@ -1,6 +1,6 @@
 import { add, contiguous, div, embedding, erf, masked_fill, matmul, mean, mul, reshape, slice, softmax, sqrt, sub, sum, tanh, transpose } from 'affon:ops'
 import { Tensor, program, type FormalTensor } from 'affon:compute'
-import { positive_dimensions, parameter_checks } from '../shared/parameters.ts'
+import { f32_parameter, positive_dimensions, parameter_checks } from '../shared/parameters.ts'
 import type { ModelAffineWeights, ModelTensor } from '../shared/parameters.ts'
 
 export interface BertConfig { width: number; innerWidth: number; heads: number; layers: number; vocabSize: number; contextLength: number; typeVocabSize: number; epsilon: number }
@@ -9,7 +9,7 @@ export interface BertWeights {
   tokenEmbedding: ModelTensor; positionEmbedding: ModelTensor; typeEmbedding: ModelTensor; embeddingNorm: ModelAffineWeights; pooler: ModelAffineWeights
 }
 
-/** Author shape-specialized f32 BERT Programs and their parameter initializer. */
+/** Author shape-specialized BERT Programs with f32 arithmetic and BF16/f32 parameter storage. */
 export function create_bert(config: BertConfig, weights: BertWeights) {
   if (!Number.isInteger(config.width) || config.width <= 0 || !Number.isInteger(config.heads) || config.heads <= 0 || config.width % config.heads || !Number.isInteger(config.layers) || config.layers <= 0 || weights.blocks.length !== config.layers || !Number.isFinite(config.epsilon) || config.epsilon <= 0) throw new Error('Invalid model dimensions or normalization')
   const check = parameter_checks()
@@ -43,7 +43,7 @@ export function create_bert(config: BertConfig, weights: BertWeights) {
     }
   })
 
-  const parameter = (p: any, name: string, shape: readonly number[]) => p.parameter(name, Tensor.f32(shape)) as FormalTensor
+  const parameter = (p: any, name: string, shape: readonly number[]) => f32_parameter(p, name, shape, parameterValues[name])
   const affine = (p: any, name: string, shape: readonly number[]) => ({
     weight: parameter(p, `${name}_weight`, shape),
     bias: parameter(p, `${name}_bias`, shape.length === 1 ? shape : [shape[shape.length - 1]]),

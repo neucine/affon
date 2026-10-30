@@ -6,6 +6,7 @@ from pathlib import Path
 
 TIERS = ('probe_status', 'operator_peer', 'program_peer')
 PASS = {'probe_status': 'correct', 'operator_peer': 'passed', 'program_peer': 'passed'}
+CASE_IDENTITY = ('device', 'dtype', 'operation', 'shape', 'layout', 'regime', 'variant', 'scope', 'piece')
 
 
 def compare(previous, current, timing_factor=1.5):
@@ -16,9 +17,17 @@ def compare(previous, current, timing_factor=1.5):
     target_matches = previous['target'] == current['target']
     protocol_matches = all(previous[key] == current[key] for key in ('iterations', 'samples', 'rounds'))
     rows = []
+    contract_changes = []
     for cell in sorted(old.keys() & new.keys()):
         now = new[cell]
         before = old[cell]
+        definition_changed = (before.get('case_sha256') and now.get('case_sha256') and
+                              before['case_sha256'] != now['case_sha256'])
+        axes_changed = before.get('axes') and now.get('axes') and any(
+            before['axes'].get(key) != now['axes'].get(key) for key in CASE_IDENTITY)
+        if definition_changed or axes_changed:
+            contract_changes.append(cell)
+            continue
         regressions = [tier for tier in TIERS if before[tier] == PASS[tier] and now[tier] != PASS[tier]]
         timing = {}
         for tier in ('operator_peer', 'program_peer'):
@@ -37,6 +46,7 @@ def compare(previous, current, timing_factor=1.5):
             'protocol_matches': protocol_matches,
             'added_cells': sorted(new.keys() - old.keys()),
             'removed_cells': sorted(old.keys() - new.keys()),
+            'changed_cases': contract_changes,
             'cells': rows, 'correctness_regressions': sum(bool(row['correctness_regressions']) for row in rows),
             'timing_suspects': sum(any(t['diagnostic_slowdown'] for t in row['timing'].values()) for row in rows)}
 
@@ -46,6 +56,7 @@ def render(result):
              f"- Cells compared: {len(result['cells'])}",
              f"- Added cells: {len(result['added_cells'])}",
              f"- Removed cells: {len(result['removed_cells'])}",
+             f"- Changed case definitions: {len(result['changed_cases'])}",
              f"- New correctness failures: {result['correctness_regressions']}",
              f"- Diagnostic timing suspects: {result['timing_suspects']}",
              f"- Target matches: {'yes' if result['target_matches'] else 'no'}",
@@ -62,6 +73,8 @@ def render(result):
         lines += ['', '## Added cells', ''] + [f'- `{cell}`' for cell in result['added_cells']]
     if result['removed_cells']:
         lines += ['', '## Removed cells', ''] + [f'- `{cell}`' for cell in result['removed_cells']]
+    if result['changed_cases']:
+        lines += ['', '## Changed case definitions', ''] + [f'- `{cell}`' for cell in result['changed_cases']]
     return '\n'.join(lines) + '\n'
 
 
@@ -83,7 +96,9 @@ def main():
         args.output_dir.mkdir(parents=True, exist_ok=True)
         (args.output_dir / 'regression.json').write_text(json.dumps(result, indent=2) + '\n')
         (args.output_dir / 'regression.md').write_text(render(result))
-    print(json.dumps({'correctness_regressions': result['correctness_regressions'],
+    print(json.dumps({'cases_compared': len(result['cells']),
+                      'changed_cases': len(result['changed_cases']),
+                      'correctness_regressions': result['correctness_regressions'],
                       'timing_suspects': result['timing_suspects']}))
     if result['correctness_regressions']:
         raise SystemExit(1)

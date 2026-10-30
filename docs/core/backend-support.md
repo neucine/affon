@@ -25,8 +25,10 @@ resource lifetime matters.
 The canonical operation vocabulary is exported by `affon:ops`. It includes:
 
 - arithmetic, comparisons, selection, and common activations
+- floating-point sine and cosine (`sin`, `cos`), with native F32/BF16 Metal kernels
 - reductions and softmax
 - dot products and matrix multiplication
+- affine packed-weight `quantized_matmul` on CPU and Metal; see [Quantized Inference](./quantized-inference.md) for its dtype/layout contract and current limits
 - reshape, transpose, slicing, casting, concatenation, and stacking
 - embedding, index selection, gather, and one-hot encoding
 - layer normalization and the documented loss functions
@@ -36,9 +38,12 @@ evaluated tensors for immediate calculations. Shape, dtype, and axis validation
 is shared across both uses.
 
 CPU is the reference backend and the broadest compatibility target. Metal and
-CUDA accelerate supported combinations, primarily `f32` model computation.
+CUDA accelerate supported combinations of `f32` and `bf16` model computation.
 Storage support for a dtype does not imply that every operation implements that
 dtype on every accelerator.
+Native BF16 execution also does not imply a fast matrix or reduction kernel.
+The sibling Compute repository's `docs/bf16-backend-audit.md` records current
+CUDA and Metal performance limitations.
 
 ## Compatibility rules
 

@@ -21,6 +21,11 @@ class CoverageMatrixTest(unittest.TestCase):
         self.assertEqual(report["summary"]["cells"], len(report["cells"]))
         self.assertEqual(len({row["id"] for row in report["cells"]}), len(report["cells"]))
         self.assertTrue(all(row["support"] == "unknown" for row in report["cells"]))
+        add = next(row for row in report['cells'] if row['id'] == 'metal/f32/add/small_dense')
+        self.assertEqual((add['device'], add['dtype'], add['operation'], add['operation_family']),
+                         ('metal', 'f32', 'add', 'arithmetic'))
+        self.assertEqual((add['regime'], add['scope'], add['support']),
+                         ('small_dense', 'operation', 'unknown'))
         for dimension in ("backend", "dtype", "family", "backend × dtype"):
             self.assertEqual(sum(group["candidate"] for group in report["summary"]["distribution"][dimension].values()),
                              len(report["cells"]))

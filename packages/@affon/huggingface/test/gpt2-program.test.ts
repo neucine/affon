@@ -63,3 +63,17 @@ test('caller-authored greedy generation preserves tokens, limits and EOS', () =>
   try { expect(generate_causal(model, ids, 6)).toEqual([...ids, eos]) }
   finally { delete model.config.eos_token_id }
 })
+
+test('GPT-2 adapter preserves BF16 checkpoint parameters', async () => {
+  const bf16 = `${directory}/bf16`
+  await run({cmd:'mkdir',args:['-p',bf16]})
+  fs.writeFileSync(`${bf16}/config.json`,fs.readFileSync(`${directory}/config.json`))
+  const loaded=checkpoint.load(`${directory}/model.safetensors`) as Record<string,Tensor>
+  const converted=Object.fromEntries(Object.entries(loaded).map(([name,value])=>[name,source.tensor(value.to_array(),{dtype:'bf16'})]))
+  checkpoint.save(converted,`${bf16}/model.safetensors`)
+  const native=load_gpt2(bf16)
+  expect(native.forward(3).inspect().parameters.every(value=>value.spec.dtype==='bf16')).toBe(true)
+  const logits=execute_causal(native,[1,2,3]).logits as number[][][]
+  expect(logits[0][0].every(Number.isFinite)).toBe(true)
+  for(const value of [...Object.values(loaded),...Object.values(converted)]) value.dispose()
+})

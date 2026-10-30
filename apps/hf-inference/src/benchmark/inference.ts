@@ -8,11 +8,11 @@ import {
 } from '../../../../packages/@affon/huggingface/src/index.ts'
 import { TEXT_MODEL, IMAGE_MODEL } from '../inference/models.ts'
 import { rank_classes } from '../inference/classification.ts'
-import { CausalProgramRuntime, execute_vit } from '../inference/program-runtime.ts'
+import { CausalProgramRuntime, VitProgramRuntime } from '../inference/program-runtime.ts'
 import type { Device } from 'affon:compute'
 
 const device = getEnv('AFFON_DEVICE') ?? 'cpu'
-if (device !== 'cpu' && device !== 'metal') throw Error('Use cpu or metal')
+if (device !== 'cpu' && device !== 'metal' && device !== 'cuda') throw Error('Use cpu, metal, or cuda')
 const family = getEnv('AFFON_BENCH_FAMILY') ?? 'vit'
 if (family !== 'vit' && family !== 'gpt2') throw Error('Use vit or gpt2')
 const count = Number(getEnv('AFFON_BENCH_ITERATIONS') ?? 5)
@@ -69,8 +69,11 @@ const cache_validation_ms = Date.now() - start
 const observations: Record<string, number[]> = {}
 let first_run: Record<string, number> = {}
 let output: unknown
+let reference_logits: number[] | undefined
+let reference_pixels: unknown
 let model_load_ms = 0,
-  processor_load_ms = 0
+  processor_load_ms = 0,
+  runtime_setup_ms = 0
 let workload: unknown
 function record(values: Record<string, number>, index: number) {
   if (index === -1) first_run = values
@@ -87,6 +90,9 @@ if (family === 'vit') {
   processor_load_ms = processor.ms
   const loaded = measure(() => load_model(directory, { task: 'image-classification' }))
   model_load_ms = loaded.ms
+  const preparedRuntime = measure(() => new VitProgramRuntime(loaded.value, device as Device))
+  runtime_setup_ms = preparedRuntime.ms
+  const runtime = preparedRuntime.value
   memory('after_load')
   // Fixed input construction is excluded; native resize/normalize is measured.
   const rgb = Array.from({ length: 256 }, (_, y) =>
@@ -99,18 +105,23 @@ if (family === 'vit') {
     width: 320,
     height: 256,
     batch: 1,
+    runtime_residency: 'initialized and compiled once before warmup; input imported during preprocessing',
   }
   function iteration(index: number) {
     const prepared = measure(() => {
       const pixels = processor.value.process(rgb)
-      pixels.to_array()
-      return pixels
+      const values = pixels.to_array()
+      if (index === -1) reference_pixels = values
+      try { return runtime.import(pixels) }
+      finally { pixels.dispose() }
     })
     const forward = measure(() => {
-      const result = execute_vit(loaded.value, prepared.value, device as Device)
+      const result = runtime.forward(prepared.value)
       try { return (result.output.to_array() as number[][])[0] }
       finally { result.dispose() }
     })
+    prepared.value.dispose()
+    if (index === -1) reference_logits = forward.value
     if (forward.value.some((x) => !Number.isFinite(x)))
       throw Error('Nonfinite output')
     const ranking = measure(() =>
@@ -126,6 +137,7 @@ if (family === 'vit') {
     }
   }
   for (let i = -1; i < count; i++) record(iteration(i), i)
+  runtime.dispose()
 } else {
   const processor = measure(() => load_processor(directory, { task: 'text-generation', device }))
   processor_load_ms = processor.ms
@@ -134,12 +146,16 @@ if (family === 'vit') {
   memory('after_load')
   const prompt = 'The future of computing is'
   const budget = 16
+  const preparedRuntime = measure(() => new CausalProgramRuntime(loaded.value, device as Device))
+  runtime_setup_ms = preparedRuntime.ms
+  const runtime = preparedRuntime.value
   workload = {
     prompt,
     prompt_tokens: processor.value.encode(prompt).length,
     max_new_tokens: budget,
     batch: 1,
     execution: 'full-prefix Program with one-token output window',
+    runtime_residency: 'one initialized runtime reused across warmup and measured runs',
   }
   function iteration() {
     // Batch the very short tokenizer operation above millisecond clock resolution.
@@ -148,9 +164,7 @@ if (family === 'vit') {
       for (let i = 0; i < 1000; i++) ids = processor.value.encode(prompt)
       return ids
     })
-    const runtime = new CausalProgramRuntime(loaded.value, device as Device)
     const generation = measure(() => runtime.generate(encoding.value, budget))
-    runtime.dispose()
     const decoding = measure(() => processor.value.decode(generation.value))
     const tokens = generation.value.length - encoding.value.length
     if (
@@ -167,6 +181,7 @@ if (family === 'vit') {
     }
   }
   for (let i = -1; i < count; i++) record(iteration(), i)
+  runtime.dispose()
 }
 const report = {
   format: 'affon-inference-benchmark/v1',
@@ -182,6 +197,7 @@ const report = {
   cache_validation_ms,
   processor_load_ms,
   model_load_ms,
+  runtime_setup_ms,
   warmup_runs: 1,
   measured_runs: count,
   workload,
@@ -190,6 +206,8 @@ const report = {
     Object.entries(observations).map(([name, values]) => [name, stats(values)]),
   ),
   output,
+  reference_logits,
+  input_fixture: family === 'vit' ? `${path}.input.json` : undefined,
   memory_samples,
   caveats: [
     'Readback completes GPU work before timing ends.',
@@ -198,5 +216,6 @@ const report = {
     'Tensor peaks are process-lifetime high-water marks, including loading.',
   ],
 }
+if (reference_pixels) fs.writeFileSync(`${path}.input.json`, JSON.stringify(reference_pixels))
 fs.writeFileSync(path, JSON.stringify(report, null, 2))
 console.log(`Saved ${path}`)

@@ -8,12 +8,21 @@ export type NumericalPolicy = "exact_only" | "backend_equivalent" | "approximate
 export type OptimizationGoal = "balanced" | "latency" | "throughput" | "memory"
 export type ExplanationLevel = "summary" | "detailed"
 export type ResidualPolicy = "automatic" | "retain" | "recompute"
+export type SearchLimits = Readonly<{
+  structuralStates?: number
+  structuralExpansions?: number
+  completeEvaluations?: number
+  physicalWork?: number
+  readyWork?: number
+}>
 export type CompileOptions = Readonly<{
+  denseInputs?: boolean
   optimizationLevel?: OptimizationLevel
   numericalPolicy?: NumericalPolicy
   optimizationGoal?: OptimizationGoal
   explanationLevel?: ExplanationLevel
   residualPolicy?: ResidualPolicy
+  searchLimits?: SearchLimits
 }>
 export type TelemetryOptions = Readonly<{
   backendTiming?: boolean
@@ -60,9 +69,16 @@ function normalizedCompileOptions(options: CompileOptions = {}): Required<Compil
     optimizationGoal: options.optimizationGoal ?? "balanced",
     explanationLevel: options.explanationLevel ?? "summary",
     residualPolicy: options.residualPolicy ?? "retain",
+    denseInputs: options.denseInputs ?? false,
+    searchLimits: Object.freeze({ ...options.searchLimits }),
   }
   for (const [name, values] of Object.entries(compileOptionValues) as [keyof Required<CompileOptions>, Set<string>][]) {
-    if (!values.has(result[name])) throw new TypeError(`unsupported ${name}: ${result[name]}`)
+    if (!values.has(result[name] as string)) throw new TypeError(`unsupported ${name}: ${result[name]}`)
+  }
+  if (typeof result.denseInputs !== "boolean") throw new TypeError("denseInputs must be boolean")
+  for (const [name, value] of Object.entries(result.searchLimits)) {
+    if (!["structuralStates", "structuralExpansions", "completeEvaluations", "physicalWork", "readyWork"].includes(name) ||
+        !Number.isSafeInteger(value) || value < 1) throw new TypeError(`invalid searchLimits.${name}`)
   }
   return Object.freeze(result)
 }
@@ -250,6 +266,9 @@ export const Tensor = Object.freeze({
   from(values: TensorData, options: TensorValueOptions = {}): Tensor {
     return defaultSession().tensor(values, options)
   },
+  fromBytes(bytes: ArrayBuffer, spec: TensorSpec): Tensor {
+    return defaultSession().fromBytes(bytes, spec)
+  },
   full(shape: readonly number[], value: number, options: TensorValueOptions = {}): Tensor {
     if (!Number.isFinite(value)) throw new TypeError("Tensor.full value must be finite")
     if (options.dtype === "i64" && !Number.isSafeInteger(value)) throw new TypeError("Tensor.full i64 value must be a safe integer")
@@ -299,6 +318,20 @@ function sameSpec(left: TensorSpec, right: TensorSpec): boolean {
 function scalarSpec(dtype: ProgramDType): TensorSpec { return freezeSpec(dtype, [1]) }
 
 function elementCount(shape: readonly number[]): number { return shape.reduce((product, size) => product * size, 1) }
+const MAX_ARRAY_TENSOR_ENTRIES = 262144
+
+function checkArrayTensorSize(value: TensorData, label: string): void {
+  const visit = (item: TensorData, remaining: number): number => {
+    if (!Array.isArray(item)) return 1
+    let count = 1
+    for (const child of item) {
+      count += visit(child, remaining - count)
+      if (count > remaining) throw new RangeError(`${label} exceeds ${MAX_ARRAY_TENSOR_ENTRIES} array entries; use Tensor.fromBytes or Session.fromBytes for evaluated inputs, or ProgramBuilder.full for a uniform constant`)
+    }
+    return count
+  }
+  visit(value, MAX_ARRAY_TENSOR_ENTRIES)
+}
 
 function freezeMetadata<T>(value: T): T {
   if (!value || typeof value !== "object" || Object.isFrozen(value)) return value
@@ -398,19 +431,42 @@ export class FormalTensor<S extends TensorSpec = TensorSpec> {
   [FORMAL_OPERATION](op: string, operands: readonly FormalTensor[], options: readonly unknown[]): FormalTensor {
     switch (op) {
       case "add": case "sub": case "mul": case "div": case "eq": case "lt": case "gt": case "matmul": case "dot": case "embedding": case "gather": return this.dispatchBinary(op, operands[1], options)
+      case "quantized_matmul": {
+        const config = options[0] as { bits: number; group_size: number }
+        if (!config || ![2, 4, 8].includes(config.bits)) throw new TypeError("quantized_matmul bits must be 2, 4, or 8")
+        if (!Number.isSafeInteger(config.group_size) || config.group_size <= 0) throw new TypeError("quantized_matmul group_size must be a positive integer")
+        if (operands.length !== 4 || operands.some(value => value.spec.shape.length !== 2)) throw new TypeError("quantized_matmul requires four rank-two tensors")
+        const [x, w, s, b] = operands.map(value => value.spec)
+        if ((x.dtype !== "f32" && x.dtype !== "bf16") || w.dtype !== "u32" || (s.dtype !== "f32" && s.dtype !== "bf16") || b.dtype !== s.dtype) throw new TypeError("quantized_matmul requires f32/bf16 input, u32 weights, and matching f32/bf16 scales and biases")
+        const [rows, inner] = x.shape
+        const outputs = w.shape[0]
+        const perWord = 32 / config.bits
+        if (!rows || !inner || !outputs || inner % perWord || inner % config.group_size ||
+            w.shape[1] !== inner / perWord || s.shape[0] !== outputs || s.shape[1] !== inner / config.group_size ||
+            b.shape[0] !== outputs || b.shape[1] !== inner / config.group_size) throw new TypeError("quantized_matmul packed or group dimensions do not match input features")
+        return this.owner[EMIT](op, operands, freezeSpec("f32", [rows, outputs]), { bits: config.bits, group_size: config.group_size })
+      }
       case "where": return this.#where(operands[1], operands[2])
+      case "scatter_add": return this.#scatter_add(operands[1], operands[2], options[0] as number)
+      case "topk_values": case "topk_indices": return this.#topk(op, options[0] as number, options[1] as number, options[2] as boolean, options[3] as boolean)
       case "stack": return this.#stack(operands, options[0] as number)
       case "one_hot": return this.#oneHot(options[0] as number)
       case "cross_entropy": return this.#cross_entropy(operands[1])
+      case "dense_cross_entropy": return this.#dense_cross_entropy(operands[1])
+      case "log_softmax_nll": return this.#dense_cross_entropy(operands[1], "log_softmax_nll")
       case "masked_fill": return this.#masked_fill(operands[1], options[0] as number)
       case "index_select": return this.#index_select(options[0] as number, operands[1])
       case "softmax": return this.#softmax(options[0] as number)
+      case "log_softmax": return this.#normalization("log_softmax", options[0] as number)
+      case "rms_norm": return this.#normalization("rms_norm", options[0] as number, options[1] as number | undefined)
       case "cast": return this.#cast(options[0] as ProgramDType)
       case "sum": return this.#sum(options[0] as number | undefined, options[1] as boolean | undefined)
       case "mean": return this.#mean(options[0] as number | undefined, options[1] as boolean | undefined)
       case "min": case "max": case "variance": case "std": case "argmin": case "argmax": return this.owner.reduction(op, this, options[0] as number | undefined, options[1] as boolean | undefined)
       case "reshape": return this.#reshape(options[0] as readonly number[], options[1] as readonly string[] | undefined)
+      case "reduce_to_shape": return this.#reduce_to_shape(options[0] as readonly number[])
       case "transpose": return this.#transpose(options[0] as readonly number[] | undefined)
+      case "permute": return this.#permute(options[0] as readonly number[])
       case "slice": return this.#slice(options[0] as readonly SliceRange[])
       case "squeeze": return this.#squeeze(options[0] as number | undefined)
       case "unsqueeze": return this.#unsqueeze(options[0] as number, options[1] as string | undefined)
@@ -418,6 +474,10 @@ export class FormalTensor<S extends TensorSpec = TensorSpec> {
       case "neg": return this.#neg(); case "abs": return this.#abs(); case "exp": return this.#exp(); case "log": return this.#log(); case "sign": return this.#sign()
       case "clamp": return this.#clamp(options[0] as number, options[1] as number)
       case "sqrt": return this.#sqrt(); case "relu": return this.#relu(); case "sigmoid": return this.#sigmoid(); case "silu": return this.#silu()
+      case "sin": case "cos": {
+        if (this.spec.dtype === "i64" || this.spec.dtype === "u32") throw new TypeError(`${op} requires a floating-point tensor`)
+        return this.owner[EMIT](op, [this], this.spec)
+      }
       case "tanh": return this.#tanh(); case "erf": return this.#erf(); case "gelu": return this.#gelu(); case "contiguous": return this.#contiguous()
       default: throw new TypeError(`unsupported formal operation: ${op}`)
     }
@@ -467,6 +527,13 @@ export class FormalTensor<S extends TensorSpec = TensorSpec> {
     if (!Number.isInteger(normalized) || normalized < 0 || normalized >= this.spec.shape.length) throw new TypeError("softmax axis is out of range")
     return this.owner[EMIT]("softmax", [this], this.spec, { axis: normalized })
   }
+  #normalization(op: "log_softmax" | "rms_norm", axis: number, epsilon = 1e-5): FormalTensor {
+    const normalized = axis < 0 ? this.spec.shape.length + axis : axis
+    if (!Number.isInteger(normalized) || normalized < 0 || normalized >= this.spec.shape.length ||
+        (op === "rms_norm" && (!Number.isFinite(epsilon) || epsilon <= 0))) throw new TypeError(`invalid ${op} options`)
+    if (this.spec.dtype !== "f32" && this.spec.dtype !== "bf16" && this.spec.dtype !== "f64") throw new TypeError(`${op} requires floating-point values`)
+    return this.owner[EMIT](op, [this], this.spec, op === "rms_norm" ? { axis: normalized, epsilon } : { axis: normalized })
+  }
   #sum(axis?: number, keep_dims = false): FormalTensor { return this.owner.reduction("sum", this, axis, keep_dims) }
   #mean(axis?: number, keep_dims = false): FormalTensor { return this.owner.reduction("mean", this, axis, keep_dims) }
   #reshape(shape: readonly number[], axes?: readonly string[]): FormalTensor {
@@ -474,12 +541,24 @@ export class FormalTensor<S extends TensorSpec = TensorSpec> {
     if (elementCount(result.shape) !== elementCount(this.spec.shape)) throw new TypeError("reshape must preserve element count")
     return this.owner[EMIT]("reshape", [this], result, { shape: [...shape] })
   }
+  #reduce_to_shape(shape: readonly number[]): FormalTensor {
+    if (this.spec.dtype !== "f32" && this.spec.dtype !== "i64") throw new TypeError("reduce_to_shape requires f32 or i64 input")
+    if (!Array.isArray(shape) || shape.length > this.spec.shape.length || shape.some((size, index) =>
+      !Number.isSafeInteger(size) || size < 1 || (size !== 1 && size !== this.spec.shape[this.spec.shape.length - shape.length + index])))
+      throw new TypeError("reduce_to_shape target must be broadcast-compatible with input")
+    return this.owner[EMIT]("reduce_to_shape", [this], freezeSpec(this.spec.dtype, shape), { shape: [...shape] })
+  }
   #contiguous(): FormalTensor { return this.owner[EMIT]("contiguous", [this], this.spec) }
   #transpose(permutation?: readonly number[]): FormalTensor {
     const order = permutation ?? [...this.spec.shape.keys()].reverse()
     if (order.length !== this.spec.shape.length) throw new TypeError("transpose permutation must match tensor rank")
     if ([...order].sort((a, b) => a - b).some((axis, index) => axis !== index)) throw new TypeError("transpose permutation must contain every axis exactly once")
     return this.owner[EMIT]("transpose", [this], freezeSpec(this.spec.dtype, order.map(index => this.spec.shape[index]), this.spec.axes && order.map(index => this.spec.axes![index])), { permutation: [...order] })
+  }
+  #permute(axes: readonly number[]): FormalTensor {
+    if (!Array.isArray(axes) || axes.length !== this.spec.shape.length ||
+        [...axes].sort((a, b) => a - b).some((axis, index) => axis !== index)) throw new TypeError("permute axes must contain every axis exactly once")
+    return this.owner[EMIT]("permute", [this], freezeSpec(this.spec.dtype, axes.map(axis => this.spec.shape[axis]), this.spec.axes && axes.map(axis => this.spec.axes![axis])), { axes: [...axes] })
   }
   #cast(dtype: ProgramDType): FormalTensor { return this.owner[EMIT]("cast", [this], freezeSpec(dtype, this.spec.shape, this.spec.axes), { dtype }) }
   #slice(ranges: readonly SliceRange[]): FormalTensor {
@@ -540,6 +619,17 @@ export class FormalTensor<S extends TensorSpec = TensorSpec> {
     if (shape.length !== result.shape.length || shape.some((size, index) => size !== result.shape[index])) throw new TypeError("where condition must broadcast to its values")
     return this.owner[EMIT]("where", [this, onTrue, onFalse], result)
   }
+  #scatter_add(indices: FormalTensor, updates: FormalTensor, axis: number): FormalTensor {
+    const rank = this.spec.shape.length
+    const normalized = axis < 0 ? rank + axis : axis
+    if (!Number.isInteger(normalized) || normalized < 0 || normalized >= rank) throw new TypeError("scatter_add axis is out of range")
+    if (indices.spec.dtype !== "i64" || updates.spec.dtype !== this.spec.dtype || indices.spec.shape.length !== rank ||
+        updates.spec.shape.length !== rank || indices.spec.shape.some((size, index) => size !== updates.spec.shape[index]))
+      throw new TypeError("scatter_add requires i64 indices and matching update shape and dtype")
+    for (let index = 0; index < rank; index++) if (index !== normalized && this.spec.shape[index] !== indices.spec.shape[index])
+      throw new TypeError("scatter_add index shape must match base outside the selected axis")
+    return this.owner[EMIT]("scatter_add", [this, indices, updates], this.spec, { axis: normalized })
+  }
   #stack(values: readonly FormalTensor[], axis: number): FormalTensor {
     if (values.some(value => !sameSpec(value.spec, this.spec))) throw new TypeError("stack requires identical tensor specs")
     const normalized = axis < 0 ? this.spec.shape.length + axis + 1 : axis
@@ -562,12 +652,31 @@ export class FormalTensor<S extends TensorSpec = TensorSpec> {
     const rows = labelShape.reduce((product, value) => product * value, 1)
     return this.owner[EMIT]("cross_entropy", [this.#reshape([rows, classes]), labels.#reshape([rows])], result, { reduction: "mean", class_axis: 1 })
   }
+  #dense_cross_entropy(targets: FormalTensor, op = "dense_cross_entropy"): FormalTensor {
+    if (this.spec.dtype !== "f32" && this.spec.dtype !== "bf16") throw new TypeError("dense_cross_entropy requires floating logits")
+    if (!sameSpec(this.spec, targets.spec) || ![2, 3].includes(this.spec.shape.length)) throw new TypeError("dense_cross_entropy targets must match two- or three-dimensional logits")
+    if (this.spec.shape.length === 2) return this.owner[EMIT](op, [this, targets], freezeSpec(this.spec.dtype, [1]), { class_axis: 1 })
+    const [batches, classes, spatial] = this.spec.shape
+    const flatten = (value: FormalTensor) => value.#transpose([0, 2, 1]).#contiguous().#reshape([batches * spatial, classes])
+    return this.owner[EMIT](op, [flatten(this), flatten(targets)], freezeSpec(this.spec.dtype, [1]), { class_axis: 1 })
+  }
   #index_select(axis: number, indices: FormalTensor): FormalTensor {
     const normalized = axis < 0 ? this.spec.shape.length + axis : axis
     if (indices.spec.dtype !== "i64" || indices.spec.shape.length !== 1 || !Number.isInteger(normalized) || normalized < 0 || normalized >= this.spec.shape.length) throw new TypeError("invalid index_select operands")
     const shape = [...this.spec.shape]
     shape[normalized] = indices.spec.shape[0]
     return this.owner[EMIT]("index_select", [this, indices], freezeSpec(this.spec.dtype, shape, this.spec.axes), { axis: normalized })
+  }
+  #topk(op: "topk_values" | "topk_indices", k: number, axis: number, largest: boolean, sorted: boolean): FormalTensor {
+    const normalized = axis < 0 ? this.spec.shape.length + axis : axis
+    if ((this.spec.dtype !== "f32" && this.spec.dtype !== "bf16") || ![2, 3].includes(this.spec.shape.length) ||
+        !Number.isSafeInteger(normalized) || normalized < 0 || normalized >= this.spec.shape.length ||
+        !Number.isSafeInteger(k) || k < 1 || k > this.spec.shape[normalized] ||
+        typeof largest !== "boolean" || typeof sorted !== "boolean") throw new TypeError("invalid topk options or input")
+    const shape = [...this.spec.shape]
+    shape[normalized] = k
+    return this.owner[EMIT](op, [this], freezeSpec(op === "topk_indices" ? "i64" : this.spec.dtype, shape),
+                            { k, axis: normalized, largest, sorted })
   }
 }
 
@@ -646,9 +755,7 @@ export class ProgramBuilder {
 
   /** Used by composite operations that need explicit padding. */
   zeroLike(reference: FormalTensor, shape: readonly number[]): FormalTensor {
-    const zeros = (dimensions: readonly number[]): TensorData =>
-      dimensions.length === 0 ? 0 : Array.from({ length: dimensions[0] }, () => zeros(dimensions.slice(1)))
-    return this.constant(`composite_zero_${this.nodeList.length}`, zeros(shape), Tensor.spec(reference.spec.dtype, shape, { axes: reference.spec.axes }))
+    return this.full(`composite_zero_${this.nodeList.length}`, 0, Tensor.spec(reference.spec.dtype, shape, { axes: reference.spec.axes }))
   }
 
   private recordComponent(component: Omit<ProgramComponentInspection, "id">): void {
@@ -685,6 +792,7 @@ export class ProgramBuilder {
   private constantAtPath(name: string, value: ProgramValue, spec: TensorSpec, path: ProgramPath): FormalTensor {
     assertQualifiedName(name, "constant")
     if (this.names.has(name)) throw new TypeError(`duplicate formal name: ${name}`)
+    checkArrayTensorSize(value, "constant array")
     const snapshot = snapshotTensorData(value, { label: "constant", finite: true, integer: spec.dtype === "i64", unsigned: spec.dtype === "u32" })
     const scalarShorthand = typeof snapshot.data === "number" && elementCount(spec.shape) === 1
     if (!scalarShorthand && (snapshot.shape.length !== spec.shape.length || snapshot.shape.some((size, index) => size !== spec.shape[index]))) {
@@ -698,6 +806,19 @@ export class ProgramBuilder {
 
   constant(name: string, value: ProgramValue, spec: TensorSpec): FormalTensor {
     return this.constantAtPath(name, value, spec, EMPTY_PROGRAM_PATH)
+  }
+
+  /** A uniform tensor, encoded as one scalar until native program construction. */
+  full(name: string, value: number, spec: TensorSpec): FormalTensor {
+    if (typeof value !== "number" || !Number.isFinite(value)) throw new TypeError("fill value must be finite")
+    if (spec.dtype === "i64" && !Number.isSafeInteger(value)) throw new TypeError("i64 fill value must be a safe integer")
+    if (spec.dtype === "u32" && (!Number.isSafeInteger(value) || value < 0 || value > 0xffffffff)) throw new TypeError("u32 fill value must be a u32 integer")
+    assertQualifiedName(name, "constant")
+    if (this.names.has(name)) throw new TypeError(`duplicate formal name: ${name}`)
+    const node = Object.freeze({ id: this.nodeList.length, kind: "constant" as const, path: EMPTY_PROGRAM_PATH, role: "constant" as const, name, provenance: `${this.programName}.${name}`, spec, value })
+    this.nodeList.push(node)
+    this.names.set(name, node)
+    return new FormalTensor(this, node.id, spec, "constant", name)
   }
 
   [EMIT](op: string, operands: readonly FormalTensor[], spec: TensorSpec, options?: Readonly<Record<string, unknown>>, path: ProgramPath = EMPTY_PROGRAM_PATH): FormalTensor {
@@ -1533,10 +1654,22 @@ export class Session {
   tensor(values: TensorData, options: { dtype?: ProgramDType; axes?: readonly string[] } = {}): Tensor {
     return this[SESSION_TENSOR](values, options)
   }
+  fromBytes(bytes: ArrayBuffer, spec: TensorSpec): Tensor {
+    if (this.#disposed) throw new Error("Session has been disposed")
+    if (!(bytes instanceof ArrayBuffer)) throw new TypeError("fromBytes requires an ArrayBuffer")
+    const checked = freezeSpec(spec.dtype, spec.shape, spec.axes)
+    const size = { bf16: 2, f32: 4, f64: 8, u32: 4, i64: 8 }[checked.dtype]
+    if (bytes.byteLength !== elementCount(checked.shape) * size) throw new TypeError("buffer byte length does not match TensorSpec")
+    const value = native.sessionTensorBytes(this.#native, bytes, checked.dtype, checked.shape)
+    if (checked.axes) Object.defineProperty(value, "axes", { value: checked.axes, enumerable: true })
+    this.adopt(value)
+    return value as Tensor
+  }
   [SESSION_TENSOR](values: TensorData, options: TensorValueOptions = {}, requestedShape?: readonly number[]): Tensor {
     if (this.#disposed) throw new Error("Session has been disposed")
     const dtype = options.dtype ?? "f32"
     if (dtype !== "bf16" && dtype !== "f32" && dtype !== "f64" && dtype !== "u32" && dtype !== "i64") throw new TypeError(`unsupported Tensor dtype: ${dtype}`)
+    checkArrayTensorSize(values, "array tensor")
     const snapshot = snapshotTensorData(values, { label: "Tensor", integer: dtype === "i64", unsigned: dtype === "u32" })
     const shape = requestedShape ?? snapshot.shape
     if (options.axes && (options.axes.length !== shape.length || options.axes.some(axis => typeof axis !== "string" || axis.length === 0))) {
@@ -1642,14 +1775,14 @@ export class Session {
       if (tensorOwners.has(tensor)) return
       const nativeDispose = tensor.dispose
       if (typeof nativeDispose !== "function") throw new TypeError("Session can only adopt a Tensor")
-      const dispose = () => {
-        if (disposedTensors.has(tensor)) return
-        disposedTensors.add(tensor)
-        tensorOwners.delete(tensor)
-        nativeDispose.call(tensor)
+      const dispose = function (this: object) {
+        if (disposedTensors.has(this)) return
+        disposedTensors.add(this)
+        tensorOwners.delete(this)
+        nativeDispose.call(this)
       }
       Object.defineProperties(tensor, {
-        disposed: { get: () => disposedTensors.has(tensor), enumerable: true },
+        disposed: { get: function (this: object) { return disposedTensors.has(this) }, enumerable: true },
         dispose: { value: dispose },
         [Symbol.dispose]: { value: dispose },
       })

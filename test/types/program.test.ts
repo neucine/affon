@@ -66,6 +66,7 @@ assertType<IsExact<"default" extends keyof typeof optimModule ? true : false, fa
 
 const image = Tensor.f32([32, 784], { axes: ["batch", "feature"] })
 const defaultValue = Tensor.from([1, 2, 3])
+const defaultBytes = Tensor.fromBytes(new Float32Array([1, 2, 3]).buffer, Tensor.f32([3]))
 const defaultZeros = Tensor.zeros([2, 3], { dtype: "f64" })
 const defaultOnes = Tensor.ones([2, 3])
 const defaultFull = Tensor.full([2, 3], 4)
@@ -77,6 +78,9 @@ const classifier = program("classifier", p => {
   const value = p.argument("image", image)
   return linear({ out_features: 10 })({ x: value }, "projection")
 })
+const filled = program("filled", p => p.full("padding", 0, Tensor.f32([2, 3])))
+void defaultBytes
+void filled
 const classifierInspection = classifier.inspect()
 const schemaVersion: 1 = classifierInspection.schema_version
 const inspectionKind: ProgramInspectionKind = classifierInspection.kind
@@ -88,7 +92,7 @@ void inspectedNode
 void inspectedComponent
 const publicTelemetryOptions: TelemetryOptions = { backendTiming: true }
 const publicSessionOptions: SessionOptions = { device: "cpu", determinism: "strict", telemetry: publicTelemetryOptions }
-const publicCompileOptions: CompileOptions = { optimizationLevel: "none", numericalPolicy: "exact_only", optimizationGoal: "memory", explanationLevel: "detailed", residualPolicy: "retain" }
+const publicCompileOptions: CompileOptions = { optimizationLevel: "none", numericalPolicy: "exact_only", optimizationGoal: "memory", explanationLevel: "detailed", residualPolicy: "retain", searchLimits: { completeEvaluations: 4 } }
 const controlledSession = new Session(publicSessionOptions)
 const controlledExecutable = controlledSession.compile(classifier, publicCompileOptions)
 const explanation: CompilationExplanation = controlledExecutable.explain()

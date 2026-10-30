@@ -1,25 +1,14 @@
 # Numerical and timing parity
 
-This directory is the permanent parity test facility. The layout separates
-contracts, execution, references, and reports:
+A case list describes what to check. `run.py` saves numerical and timing
+results; `regression.py` compares two runs. The [case and result definitions](SCHEMA.md)
+explain every dimension and internal term. The [results index](../../benchmarks/results/PARITY-INDEX.md)
+links saved runs and the report.
 
-| Location | Purpose |
-| --- | --- |
-| `catalogs/*.json` | Named, rerunnable cell batches |
-| `catalogs/generators/*.py` | Catalog generators; write into `catalogs/` and the master coverage policy |
-| `workers/*.ts` | Affon numerical and timing workers |
-| `fixtures/*.py` | Independent numerical fixture formulas |
-| `reference/probe-capabilities.py` | Numerical capability probes and catalog validation |
-| `reference/benchmark-cells-pytorch.py` | Matched PyTorch operator and Program correctness and timing |
-| `run.py`, `promote.py`, `report.py`, `index.py` | Batch execution, reviewed promotion, batch report, and artifact index |
-| `test_*.py` | Facility and retained evidence regression tests |
-
-[The artifact index](../../benchmarks/results/PARITY-INDEX.md) lists every
-catalog and retained batch, plus the current aggregate summaries and HTML
-report. Regenerate it with `python3 test/parity/index.py`. Historical evidence
-keeps its recorded path and hash. The old `tools/probe-capabilities.py` and
-`tools/benchmark-cells-pytorch.py` commands remain compatibility entry points;
-new development belongs in `reference/`.
+- `catalogs/`: named case lists and their generators.
+- `workers/`: Affon execution; `reference/` and `fixtures/`: independent Python and PyTorch checks.
+- `run.py`: run cases; `regression.py`: compare runs; `report.py`: render one run.
+- `promote.py`: add reviewed passing results to the aggregate coverage report.
 
 ## Run a batch
 
@@ -34,29 +23,29 @@ python3 test/parity/run.py \
   --iterations 10 --samples 5 --rounds 3
 ```
 
-The runner checks every catalog cell against the candidate matrix. It saves a
-copy of the catalog, binary and catalog hashes, a numerical capability report,
-raw operator and composed Program timings, an `outcomes.json` containing only
-verified links, a per-cell `manifest.json`, and a readable `report.md`. Run
+The runner checks the cases named in the catalog. It saves a catalog copy,
+raw numerical and timing results, a `manifest.json` summarizing every check,
+and a readable `report.md`. Historical filenames such as `capability.json` and
+`outcomes.json` are defined in [the schema](SCHEMA.md). Run
 `python3 test/parity/report.py PATH/manifest.json --output PATH/report.md` to
 regenerate a report without using the GPU.
 
-Every case receives a numerical probe. Cases that pass it receive both matched
+Every case receives an independent numerical check. Cases that pass it receive both matched
 PyTorch comparisons, each with an independent correctness check and repeated
 timings. An incorrect comparison keeps its raw timed report in the matching
 `*_failures` directory. A case that fails to compile or fails the numerical
-probe is marked `probe_not_correct` for both timings; it cannot produce a valid
+numerical check is marked `probe_not_correct` for both timings; it cannot produce a valid
 matched benchmark until that failure is resolved. The manifest records every
-status, including benchmark errors, so the batch denominator is explicit.
+check status, including timing errors, so the case count is explicit.
 Passing timing ratios are diagnostic, and no batch run accepts a regression
 baseline automatically.
 
 The runner refuses to overwrite an output directory. Keep each run's raw
-artifacts, then review it before importing links into the current coverage
-ledger and regenerating the whole-matrix HTML report.
-For a complete batch of new cells, promote the validated evidence with
+results. Add reviewed passing checks to the aggregate coverage report when
+that broader tracking is needed.
+For a complete batch of new cells, add the reviewed results with
 `python3 test/parity/promote.py PATH/TO/BATCH`. The promotion command rejects
-incomplete batches and existing ledger cells. Then regenerate both current
+incomplete batches and cells already recorded in the aggregate. Then regenerate both current
 timing summaries, the HTML report, and `python3 test/parity/index.py`.
 For a reviewed replacement of existing cells, pass `--archive PATH` to retain
 the prior aggregate operator and Program reports before their links change.
@@ -103,10 +92,10 @@ accepted by this comparison.
 python3 -m unittest discover -s test/parity -p 'test_*.py'
 ```
 
-Add new cells to `benchmarks/coverage-policy.json`, the master
-`benchmarks/capability-probes.json`, and a named catalog in `catalogs/`. Extend
-the Affon workers and the independent Python/PyTorch references together when
-adding an operation. Each named catalog can be rerun with the same command.
+Add a named JSON case list in `catalogs/` to run new cases. Extend the Affon
+workers and independent Python/PyTorch checks together when adding an
+operation. To include those cases in the aggregate coverage report, also add
+them to the planning files described in [the schema](SCHEMA.md).
 
 Catalog contracts, past failures, and reviewed reruns are documented in
 [catalog notes](catalogs/README.md). The [artifact index](../../benchmarks/results/PARITY-INDEX.md)

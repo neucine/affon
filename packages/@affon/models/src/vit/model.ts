@@ -1,6 +1,6 @@
 import { add, cat, contiguous, div, erf, matmul, mean, mul, reshape, slice, softmax, sqrt, sub, transpose } from 'affon:ops'
 import { Tensor, program, type FormalTensor } from 'affon:compute'
-import { positive_dimensions, parameter_checks } from '../shared/parameters.ts'
+import { f32_parameter, positive_dimensions, parameter_checks } from '../shared/parameters.ts'
 import type { ModelTensor } from '../shared/parameters.ts'
 
 export interface ViTConfig { width: number; innerWidth: number; heads: number; layers: number; imageSize: number; patchSize: number; epsilon: number }
@@ -48,7 +48,7 @@ export function create_vit(config: ViTConfig, weights: ViTWeights) {
   })
   const source = program('vit', p => {
     const pixels = p.argument('pixels', Tensor.f32([1, 3, imageSize, imageSize]))
-    const parameter = (name: string, shape: readonly number[]) => p.parameter(name, Tensor.f32(shape))
+    const parameter = (name: string, shape: readonly number[]) => f32_parameter(p, name, shape, values[name])
     const affine = (name: string, shape: readonly number[]) => ({
       weight: parameter(`${name}_weight`, shape),
       bias: parameter(`${name}_bias`, shape.length === 1 ? shape : [shape[shape.length - 1]]),

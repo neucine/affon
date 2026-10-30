@@ -11,6 +11,8 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from case import contract_hash, normalize
 
 
 def load(name, path):
@@ -45,12 +47,8 @@ def run(args):
     catalog_bytes = args.catalog.read_bytes()
     source_catalog_sha256 = hashlib.sha256(catalog_bytes).hexdigest()
     catalog = json.loads(catalog_bytes)
-    matrix = load("coverage_matrix", "coverage-matrix.py")
     probes = load("capability_probes", "probe-capabilities.py")
-    policy = json.loads((ROOT / "benchmarks/coverage-policy.json").read_text())
-    diagnostics = json.loads((ROOT / "benchmarks/workload-coverage.json").read_text())
-    known = {row["id"] for row in matrix.build(policy, diagnostics)["cells"]}
-    cases = probes.validate_catalog(catalog, known)
+    cases = probes.validate_catalog(catalog)
     selected = set(getattr(args, "cell", ()) or ())
     if selected:
         missing = selected - {case["id"] for case in cases}
@@ -61,6 +59,9 @@ def run(args):
         catalog_bytes = (json.dumps(catalog, indent=2) + "\n").encode()
     if not cases:
         raise ValueError("empty batch catalog")
+    axes = {case['id']: normalize(case) for case in cases}
+    if any(value['scope'] != 'operation' for value in axes.values()):
+        raise ValueError('this runner accepts operation cases; Program and model piece runners need their own contracts')
     output = args.output_dir.resolve()
     if output.exists():
         raise FileExistsError(f"choose a fresh output directory: {output}")
@@ -79,7 +80,10 @@ def run(args):
     importer = load("coverage_importer", "import-coverage-evidence.py")
     outcomes = importer.import_probe(probe_path, set(expected_ids))
     benchmark = load("cell_benchmark", "benchmark-cells-pytorch.py")
-    rows = {row["id"]: {"id": row["id"], "probe_status": row["status"],
+    case_by_id = {case['id']: case for case in cases}
+    rows = {row["id"]: {"id": row["id"], "axes": axes[row["id"]],
+                        "case_sha256": contract_hash(case_by_id[row['id']]),
+                        "probe_status": row["status"],
                         "probe_artifact": "capability.json",
                         **({"probe_maximum_error": row["maximum_error"],
                             "probe_tolerance": row["tolerance"]}

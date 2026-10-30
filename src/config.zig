@@ -1,3 +1,7 @@
+const c = struct {
+    extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
+    extern "c" fn unsetenv(name: [*:0]const u8) c_int;
+};
 const std = @import("std");
 const zig_libs = @import("zig_libs");
 const compute = @import("compute");
@@ -158,19 +162,16 @@ test "Config defaults are correct before runtime detection" {
 }
 
 test "loadFromEnv reads schema-backed values" {
-    const c = @cImport({
-        @cInclude("stdlib.h");
-    });
     const old_device = cfg.getenv("AFFON_DEVICE");
     const old_trace = cfg.getenv("AFFON_NATIVE_STACK_TRACE");
     defer {
         if (old_device) |value| {
-            _ = c.setenv("AFFON_DEVICE", value.ptr, 1);
+            _ = c.setenv("AFFON_DEVICE", @ptrCast(value.ptr), 1);
         } else {
             _ = c.unsetenv("AFFON_DEVICE");
         }
         if (old_trace) |value| {
-            _ = c.setenv("AFFON_NATIVE_STACK_TRACE", value.ptr, 1);
+            _ = c.setenv("AFFON_NATIVE_STACK_TRACE", @ptrCast(value.ptr), 1);
         } else {
             _ = c.unsetenv("AFFON_NATIVE_STACK_TRACE");
         }

@@ -32,9 +32,11 @@ def is_outer_axis(case):
     return '/outer_axis' in case['id']
 
 
-def validate_catalog(catalog, known_ids):
+def validate_catalog(catalog, known_ids=None):
     if catalog.get("schema_version") != 1 or catalog.get("suite") != "affon_capability_probes":
         raise ValueError("invalid capability probe catalog")
+    if known_ids is None:
+        known_ids = {case.get('id') for case in catalog.get('cases', [])}
     seen = set()
     for case in catalog.get("cases", []):
         case_id = case.get("id")
@@ -477,14 +479,7 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--backend", choices=["cpu", "metal", "cuda"])
     args = parser.parse_args()
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("coverage_matrix", ROOT / "tools/coverage-matrix.py")
-    matrix = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(matrix)
-    policy = json.loads((ROOT / "benchmarks/coverage-policy.json").read_text())
-    diagnostics = json.loads((ROOT / "benchmarks/workload-coverage.json").read_text())
-    known_ids = {cell["id"] for cell in matrix.build(policy, diagnostics)["cells"]}
-    cases = validate_catalog(json.loads(args.catalog.read_text()), known_ids)
+    cases = validate_catalog(json.loads(args.catalog.read_text()))
     if args.backend:
         cases = [case for case in cases if case["id"].startswith(args.backend + "/")]
     if not args.binary.is_file():

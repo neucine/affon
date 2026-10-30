@@ -16,12 +16,22 @@ declare module "affon:compute" {
   export type OptimizationGoal = "balanced" | "latency" | "throughput" | "memory";
   export type ExplanationLevel = "summary" | "detailed";
   export type ResidualPolicy = "automatic" | "retain" | "recompute";
+  export type SearchLimits = Readonly<{
+    structuralStates?: number;
+    structuralExpansions?: number;
+    completeEvaluations?: number;
+    physicalWork?: number;
+    readyWork?: number;
+  }>;
   export type CompileOptions = Readonly<{
+    /** Specialize all inputs (including parameters/state) to dense, zero-offset storage; incompatible views are rejected at run time. */
+    denseInputs?: boolean;
     optimizationLevel?: OptimizationLevel;
     numericalPolicy?: NumericalPolicy;
     optimizationGoal?: OptimizationGoal;
     explanationLevel?: ExplanationLevel;
     residualPolicy?: ResidualPolicy;
+    searchLimits?: SearchLimits;
   }>;
   export type TelemetryOptions = Readonly<{ backendTiming?: boolean; hardwareMetrics?: boolean }>;
   export type SessionOptions = Readonly<{
@@ -135,6 +145,8 @@ declare module "affon:compute" {
     i64(shape: readonly number[], options?: { axes?: readonly string[] }): TensorSpec;
     /** Create an evaluated tensor from scalar or rectangular nested-array data. */
     from(values: TensorData, options?: TensorValueOptions): Tensor;
+    /** Copy row-major native-endian numeric bytes directly into an evaluated tensor. */
+    fromBytes(bytes: ArrayBuffer, spec: TensorSpec): Tensor;
     /** Create an evaluated tensor filled with one scalar value. */
     full(shape: readonly number[], value: number, options?: TensorValueOptions): Tensor;
     /** Create a zero-filled evaluated tensor. */
@@ -229,6 +241,8 @@ declare module "affon:compute" {
     state(name: string, spec: TensorSpec, options?: { initializer?: Initializer }): FormalTensor;
     /** Embed immutable validated data in the Program graph. */
     constant(name: string, value: TensorData, spec: TensorSpec): FormalTensor;
+    /** Embed a uniformly filled tensor without constructing a JavaScript array. */
+    full(name: string, value: number, spec: TensorSpec): FormalTensor;
   }
 
   /**
@@ -313,6 +327,8 @@ declare module "affon:compute" {
     readonly disposed: boolean;
     /** Create an evaluated tensor owned by this Session. */
     tensor(values: TensorData, options?: { dtype?: ProgramDType; axes?: readonly string[] }): Tensor;
+    /** Copy row-major native-endian numeric bytes directly into this Session. */
+    fromBytes(bytes: ArrayBuffer, spec: TensorSpec): Tensor;
     /** Compile a Program, returning the cached executable for repeated compilation of the same Program. */
     compile<Out extends FormalTensor | readonly FormalTensor[]>(source: Program<Record<string, FormalTensor>, Out>, options?: CompileOptions): Executable<Out>;
     /** Materialize Program parameters and model state using deterministic initialization. */

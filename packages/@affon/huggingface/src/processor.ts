@@ -36,6 +36,16 @@ export function load_processor(
     return createHFTokenizerFromFile(`${directory}/tokenizer.json`)
   if (config.model_type === 'llama' && options.task === 'text-generation')
     return load_smollm2_processor(directory)
+  if (config.model_type === 'apertus' && options.task === 'text-generation') {
+    const tokenizerConfig = JSON.parse(fs.readFileSync(`${directory}/tokenizer_config.json`))
+    if (tokenizerConfig.add_bos_token !== true || tokenizerConfig.add_eos_token !== false
+      || tokenizerConfig.bos_token !== '<s>' || tokenizerConfig.eos_token !== '</s>')
+      throw Error('Unsupported Apertus tokenizer configuration')
+    const tokenizer = createHFTokenizerFromFile(`${directory}/tokenizer.json`, { specialTokens: { bos: '<s>', eos: '</s>', pad: '<pad>', unk: '<unk>' } })
+    if (tokenizer.specialTokenIds.bos !== 1 || tokenizer.specialTokenIds.eos !== 2 || tokenizer.specialTokenIds.pad !== 3)
+      throw Error('Unexpected Apertus special token IDs')
+    return { ...tokenizer, encode: (text: string, opts?: {addBos?:boolean;addEos?:boolean}) => tokenizer.encode(text,{...opts,addBos:opts?.addBos??true}) }
+  }
   if (config.model_type === 'bert' && options.task === 'feature-extraction')
     return load_bert_processor(directory)
   if (config.model_type === 'vit' && options.task === 'image-classification') {

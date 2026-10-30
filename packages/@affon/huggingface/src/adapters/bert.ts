@@ -2,7 +2,7 @@ import { create_bert, type BertWeights } from '../../../models/src/bert/index.ts
 import fs from 'std:fs'
 import { prepare_encoder_checkpoint } from './encoder-checkpoint.ts'
 
-/** Load an f32 absolute-position BERT base encoder with its pooler.
+/** Load an absolute-position BERT base encoder with its pooler and BF16/f32 parameters.
  * @param directory Prepared local HF artifact directory.
  * @returns Device-neutral shape-specialized Programs and a checkpoint parameter initializer.
  */

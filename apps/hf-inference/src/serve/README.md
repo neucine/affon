@@ -31,8 +31,8 @@ Invalid model inputs return 400 and HTTP bodies over 16 MiB return 413.
 Requests that observe active inference return 429. Synchronous inference blocks
 the event loop, so later requests can wait until it completes, including health
 checks. There is no worker isolation or guaranteed immediate busy response.
-Generation is greedy and executes explicit full-prefix Programs with one-token
-output windows. No KV cache is claimed.
+Generation is greedy. GPT-2 and SmolLM2 execute full-prefix Programs with
+one-token output windows; Apertus uses fixed-capacity KV caching.
 
 ### Image classification
 
@@ -139,6 +139,27 @@ curl http://127.0.0.1:8765/api/generate -H 'Content-Type: application/json' \
 
 The tiny model is experimental: factual accuracy and reasoning remain limited.
 
+### Apertus 8B on CUDA
+
+To serve the pinned BF16 Apertus checkpoint as the only model on the RTX 3090,
+use a CUDA build and its verified local Hub cache:
+
+```sh
+AFFON_APERTUS=1 AFFON_TEXT_ONLY=1 AFFON_DEVICE=cuda AFFON_HF_OFFLINE=1 \
+  AFFON_HF_CACHE="$PWD/artifacts/hf-cache" \
+  ./zig-out/bin/affon apps/hf-inference/src/serve/server.ts
+```
+
+The text model list labels it **Apertus 8B**. Startup initializes the CUDA
+parameters and compiles a 320-token fixed-capacity decode Program plus the
+default prompt's prefill Program before reporting ready. Generation reuses
+the prepared decode Program; a different prompt length compiles its own prefill.
+On the RTX 3090, the first one-token request after ready took 3.15 seconds
+through the local SSH tunnel; before startup preparation, the first request
+took about 46 seconds because it initialized the CUDA parameters on demand.
+Keep the server bound to
+`127.0.0.1`; an SSH port forward can expose it locally on another machine.
+
 For a single larger model, choose `AFFON_SMOLLM2=360M` or `1.7B`. Loading all
 sizes uses substantially more memory. On a memory-constrained machine use
 text-only serving with one size:
@@ -159,8 +180,13 @@ The browser renders a new decoded text snapshot after each generated token.
 Native HTTP responses remain buffered: `POST /api/generate/start` accepts the
 same JSON input as `/api/generate` and returns a session `id`. Repeated
 `POST /api/generate/next` requests with `{id}` each compute exactly one token,
-returning the normal result fields plus `done`. The browser stops on EOS or the
-token budget. Full-prefix decoding preserves byte-level Unicode boundaries.
+returning the normal result fields plus `done` and, on completion, a
+`stop_reason` (`eos`, `sentence`, or `limit`). Apertus is a base completion model:
+its browser stream stops at the first completed sentence after at least three
+generated tokens if EOS has not arrived. Set `stop_at_sentence: false` in the
+start request to allow longer continuations. The buffered `/api/generate`
+endpoint retains EOS-or-budget behavior. Full-prefix decoding preserves
+byte-level Unicode boundaries.
 
 Only one generation session may own the model at a time. `POST
 /api/generate/cancel` releases it; idle sessions expire after 90 seconds.

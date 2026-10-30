@@ -114,7 +114,7 @@ general Node compatibility.
 - Program compilation lowers authored structure to a Session-bound executable
 - unsupported canonical Program lowering surfaces an explicit error; it never silently changes execution models
 - Metal acceleration is partial and operation-dependent
-- CUDA supports the documented Program path for selected `f32` computation, indexing, losses, and optimizer updates, with cuBLAS matmul; verify the exact Program and shape on the target device
+- CUDA supports the documented Program path for selected `f32` and `bf16` computation, indexing, losses, and optimizer updates. Standard BF16 matrix layouts use cuBLAS; irregular layouts and several BF16 reductions still use scalar GPU kernels. Verify the exact Program and shape on the target device
 - package APIs evolve through the first-party package and app workflow
 
 Use the linked docs as the source of truth for exact supported behavior and edge

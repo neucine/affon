@@ -1,6 +1,6 @@
 import { add, cat, contiguous, div, embedding, index_select, masked_fill, matmul, mean, mul, neg, reshape, silu, slice, softmax, sqrt, transpose } from 'affon:ops'
 import { Tensor, program, type FormalTensor } from 'affon:compute'
-import { parameter_checks, positive_dimensions } from '../shared/parameters.ts'
+import { f32_parameter, parameter_checks, positive_dimensions } from '../shared/parameters.ts'
 import type { ModelTensor } from '../shared/parameters.ts'
 
 export interface LlamaConfig {
@@ -31,7 +31,7 @@ export function create_llama(config: LlamaConfig, weights: LlamaWeights) {
   weights.blocks.forEach((block, index) => {
     for (const [part, value] of Object.entries(block) as [string, ModelTensor][]) parameterValues[`block_${index}_${part}`] = value
   })
-  const parameter = (p: any, name: string, shape: readonly number[]) => p.parameter(name, Tensor.f32(shape)) as FormalTensor
+  const parameter = (p: any, name: string, shape: readonly number[]) => f32_parameter(p, name, shape, parameterValues[name])
 
   function forward(length: number, outputStart = 0) {
     positive_dimensions(length)

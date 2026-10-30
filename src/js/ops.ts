@@ -32,6 +32,14 @@ function immediate(name: string, values: readonly EvaluatedTensor[], author: (ar
   const source = program(identifier, p => author(specs.map((value, index) => p.argument(`input_${index}`, value))))
   return session.compile(source).run(Object.fromEntries(values.map((value, index) => [`input_${index}`, value]))) as EvaluatedTensor
 }
+function immediatePair(name: string, value: EvaluatedTensor, author: (arg: FormalTensor) => readonly [FormalTensor, FormalTensor]): readonly [EvaluatedTensor, EvaluatedTensor] {
+  const { session, specs } = evaluated([value])
+  const identifier = `immediate_${name}`.replace(/[^A-Za-z0-9_]/g, '_')
+  const source = program(identifier, p => author(p.argument('input_0', specs[0])))
+  const executable = session.compile(source)
+  try { return executable.run({ input_0: value }) as readonly [EvaluatedTensor, EvaluatedTensor] }
+  finally { executable.dispose() }
+}
 function unary<T extends AnyTensor>(name: string, value: T, formal: (value: FormalTensor) => FormalTensor): Same<T> {
   return (value instanceof FormalTensor ? formal(value) : immediate(name, [value], args => formal(args[0]))) as Same<T>
 }
@@ -49,6 +57,26 @@ export const lt = <T extends AnyTensor>(a: T, b: T): Same<T> => binary('lt', a, 
 export const gt = <T extends AnyTensor>(a: T, b: T): Same<T> => binary('gt', a, b, (x, y) => $formalOperation('gt', [x, y]))
 export const gt_scalar = <T extends AnyTensor>(x: T, threshold: number): Same<T> => unary(`gt_scalar_${threshold}`, x, value => $formalOperation('gt', [value, $formalScalarLike(value, threshold)]))
 export const matmul = <T extends AnyTensor>(a: T, b: T): Same<T> => binary('matmul', a, b, (x, y) => $formalOperation('matmul', [x, y]))
+export const reduce_to_shape = <T extends AnyTensor>(x: T, shape: readonly number[]): Same<T> => unary(`reduce_to_shape_${shape}`, x, value => $formalOperation('reduce_to_shape', [value], [shape]))
+export function topk<T extends AnyTensor>(x: T, k: number, axis = -1, largest = true, sorted = true): readonly [Same<T>, Same<T>] {
+  const author = (value: FormalTensor): readonly [FormalTensor, FormalTensor] => [
+    $formalOperation('topk_values', [value], [k, axis, largest, sorted]),
+    $formalOperation('topk_indices', [value], [k, axis, largest, sorted]),
+  ]
+  return (x instanceof FormalTensor ? author(x) : immediatePair(`topk_${k}_${axis}`, x, author)) as readonly [Same<T>, Same<T>]
+}
+
+/** Affine weight-only multiplication with native packed-weight execution. */
+export function quantized_matmul<T extends AnyTensor>(
+  input: T, packed: T, scales: T, biases: T,
+  options: Readonly<{ bits: 2 | 4 | 8; group_size: number }>,
+): Same<T> {
+  const values = [input, packed, scales, biases]
+  const formal = input instanceof FormalTensor
+  if (values.some(value => (value instanceof FormalTensor) !== formal)) throw new TypeError('quantized_matmul cannot mix formal and evaluated tensors')
+  const author = (args: FormalTensor[]) => $formalOperation('quantized_matmul', args, [options])
+  return (formal ? author(values as FormalTensor[]) : immediate('quantized_matmul', values as EvaluatedTensor[], author)) as Same<T>
+}
 export const dot = <T extends AnyTensor>(a: T, b: T): Same<T> => binary('dot', a, b, (x, y) => $formalOperation('dot', [x, y]))
 export const neg = <T extends AnyTensor>(x: T): Same<T> => unary('neg', x, value => $formalOperation('neg', [value]))
 export const abs = <T extends AnyTensor>(x: T): Same<T> => unary('abs', x, value => $formalOperation('abs', [value]))
@@ -62,9 +90,13 @@ export const relu = <T extends AnyTensor>(x: T): Same<T> => unary('relu', x, val
 export const sigmoid = <T extends AnyTensor>(x: T): Same<T> => unary('sigmoid', x, value => $formalOperation('sigmoid', [value]))
 export const silu = <T extends AnyTensor>(x: T): Same<T> => unary('silu', x, value => $formalOperation('silu', [value]))
 export const tanh = <T extends AnyTensor>(x: T): Same<T> => unary('tanh', x, value => $formalOperation('tanh', [value]))
+export const sin = <T extends AnyTensor>(x: T): Same<T> => unary('sin', x, value => $formalOperation('sin', [value]))
+export const cos = <T extends AnyTensor>(x: T): Same<T> => unary('cos', x, value => $formalOperation('cos', [value]))
 export const erf = <T extends AnyTensor>(x: T): Same<T> => unary('erf', x, value => $formalOperation('erf', [value]))
 export const gelu = <T extends AnyTensor>(x: T): Same<T> => unary('gelu', x, value => $formalOperation('gelu', [value]))
 export const softmax = <T extends AnyTensor>(x: T, axis: number): Same<T> => unary(`softmax_${axis}`, x, value => $formalOperation('softmax', [value], [axis]))
+export const log_softmax = <T extends AnyTensor>(x: T, axis: number): Same<T> => unary(`log_softmax_${axis}`, x, value => $formalOperation('log_softmax', [value], [axis]))
+export const rms_norm = <T extends AnyTensor>(x: T, axis: number, epsilon = 1e-5): Same<T> => unary(`rms_norm_${axis}_${epsilon}`, x, value => $formalOperation('rms_norm', [value], [axis, epsilon]))
 export const sum = <T extends AnyTensor>(x: T, axis?: number, keep_dims = false): Same<T> => unary(`sum_${axis}_${keep_dims}`, x, value => $formalOperation('sum', [value], [axis, keep_dims]))
 export const mean = <T extends AnyTensor>(x: T, axis?: number, keep_dims = false): Same<T> => unary(`mean_${axis}_${keep_dims}`, x, value => $formalOperation('mean', [value], [axis, keep_dims]))
 export const min = <T extends AnyTensor>(x: T, axis?: number, keep_dims = false): Same<T> => unary(`min_${axis}_${keep_dims}`, x, value => $formalOperation('min', [value], [axis, keep_dims]))
@@ -76,6 +108,7 @@ export const argmax = <T extends AnyTensor>(x: T, axis?: number, keep_dims = fal
 export const reshape = <T extends AnyTensor>(x: T, shape: readonly number[], axes?: readonly string[]): Same<T> => unary(`reshape_${shape}`, x, value => $formalOperation('reshape', [value], [shape, axes]))
 export const contiguous = <T extends AnyTensor>(x: T): Same<T> => unary('contiguous', x, value => $formalOperation('contiguous', [value]))
 export const transpose = <T extends AnyTensor>(x: T, permutation?: readonly number[]): Same<T> => unary(`transpose_${permutation}`, x, value => $formalOperation('transpose', [value], [permutation]))
+export const permute = <T extends AnyTensor>(x: T, axes: readonly number[]): Same<T> => unary(`permute_${axes}`, x, value => $formalOperation('permute', [value], [axes]))
 export const cast = <T extends AnyTensor>(x: T, dtype: ProgramDType): Same<T> => unary(`cast_${dtype}`, x, value => $formalOperation('cast', [value], [dtype]))
 export const slice = <T extends AnyTensor>(x: T, ranges: readonly SliceRange[]): Same<T> => unary(`slice_${JSON.stringify(ranges)}`, x, value => $formalOperation('slice', [value], [ranges]))
 export const squeeze = <T extends AnyTensor>(x: T, axis?: number): Same<T> => unary(`squeeze_${axis}`, x, value => $formalOperation('squeeze', [value], [axis]))
@@ -87,6 +120,8 @@ export const index_select = <T extends AnyTensor>(x: T, axis: number, indices: T
 export const gather = <T extends AnyTensor>(x: T, axis: number, indices: T): Same<T> => binary(`gather_${axis}`, x, indices, (left, right) => $formalOperation('gather', [left, right], [axis]))
 export const one_hot = <T extends AnyTensor>(indices: T, classes: number): Same<T> => unary(`one_hot_${classes}`, indices, value => $formalOperation('one_hot', [value], [classes]))
 export const cross_entropy = <T extends AnyTensor>(logits: T, labels: T): Same<T> => binary('cross_entropy', logits, labels, (scores, targets) => $formalOperation('cross_entropy', [scores, targets]))
+export const dense_cross_entropy = <T extends AnyTensor>(logits: T, targets: T): Same<T> => binary('dense_cross_entropy', logits, targets, (scores, probabilities) => $formalOperation('dense_cross_entropy', [scores, probabilities]))
+export const log_softmax_nll = <T extends AnyTensor>(logits: T, targets: T): Same<T> => binary('log_softmax_nll', logits, targets, (scores, probabilities) => $formalOperation('log_softmax_nll', [scores, probabilities]))
 
 export const mean_squared_error = <T extends AnyTensor>(prediction: T, target: T): Same<T> => binary('mean_squared_error', prediction, target, (left, right) => {
   const difference = $formalOperation('sub', [left, right])
@@ -134,4 +169,12 @@ export function where<T extends AnyTensor>(condition: T, on_true: T, on_false: T
   return (formal
     ? $formalOperation('where', [condition, on_true, on_false] as readonly FormalTensor[])
     : immediate('where', [condition, on_true, on_false] as readonly EvaluatedTensor[], args => $formalOperation('where', args))) as Same<T>
+}
+
+export function scatter_add<T extends AnyTensor>(base: T, indices: T, updates: T, axis: number): Same<T> {
+  const formal = base instanceof FormalTensor
+  if ([indices, updates].some(value => (value instanceof FormalTensor) !== formal)) throw new TypeError('scatter_add cannot mix formal and evaluated tensors')
+  return (formal
+    ? $formalOperation('scatter_add', [base, indices, updates] as readonly FormalTensor[], [axis])
+    : immediate(`scatter_add_${axis}`, [base, indices, updates] as readonly EvaluatedTensor[], args => $formalOperation('scatter_add', args, [axis]))) as Same<T>
 }

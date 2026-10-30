@@ -3,22 +3,22 @@ import { Session } from 'affon:compute'
 import { create_bert } from '../../src/bert/model.ts'
 import type { Tensor } from 'affon:compute'
 
-test('runs BERT entirely through Program and Session', () => {
+for (const dtype of ['f32', 'bf16'] as const) test(`runs BERT ${dtype} parameters through Program and Session`, () => {
   const source = new Session({ device: 'cpu' })
   const value = (shape: number[], fill = 0.1): Tensor => {
     const data = (dimensions: number[]): any => dimensions.length
       ? Array.from({ length: dimensions[0] }, () => data(dimensions.slice(1)))
       : fill
-    return source.tensor(data(shape)) as Tensor
+    return source.tensor(data(shape), { dtype }) as Tensor
   }
   const affine = (input: number, output: number) => ({ weight: value([input, output]), bias: value([output], 0) })
   const norm = () => ({ weight: value([4], 1), bias: value([4], 0) })
   const projection = () => ({ weight: source.tensor(Array.from({ length: 4 }, (_, row) =>
-    Array.from({ length: 4 }, (_, column) => row === column ? 1 : 0))), bias: value([4], 0) })
+    Array.from({ length: 4 }, (_, column) => row === column ? 1 : 0)), { dtype }), bias: value([4], 0) })
   const block = () => ({ query: projection(), key: projection(), value: projection(), attentionOutput: projection(), attentionNorm: norm(), feedForwardNorm: norm(), expand: affine(4, 8), contract: affine(8, 4) })
   const config = { width: 4, innerWidth: 8, heads: 2, layers: 1, contextLength: 4, vocabSize: 7, typeVocabSize: 2, epsilon: 1e-5 }
   const tokenEmbedding = source.tensor(Array.from({ length: 7 }, (_, row) =>
-    Array.from({ length: 4 }, (_, column) => column === row % 4 ? 1 : 0)))
+    Array.from({ length: 4 }, (_, column) => column === row % 4 ? 1 : 0)), { dtype })
   const model = create_bert(config, { tokenEmbedding, positionEmbedding: value([4, 4]), typeEmbedding: value([2, 4]), embeddingNorm: norm(), pooler: affine(4, 4), blocks: [block()] } as any)
 
   const runtime = new Session({ device: 'cpu' })

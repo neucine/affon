@@ -153,6 +153,23 @@ function splitHFText(text: string, preTokenizer: HFPreTokenizerSpec | null | und
       return (text.match(/\p{N}|[^\p{N}]+/gu) ?? []).flatMap(part =>
         splitHFByteLevel(part, byte.add_prefix_space, byte.use_regex))
     }
+    if (pretokenizers[0]?.type === 'Split') {
+      if (pretokenizers.length !== 2 || pretokenizers[0].behavior !== 'Isolated'
+        || pretokenizers[0].invert === true || !pretokenizers[0].pattern?.Regex
+        || pretokenizers[1].type !== 'ByteLevel' || pretokenizers[1].use_regex !== false)
+        throw new TypeError('Unsupported Split pre_tokenizer sequence')
+      const pattern = new RegExp(pretokenizers[0].pattern.Regex, 'gu')
+      const parts: string[] = []
+      let start = 0
+      for (const match of text.matchAll(pattern)) {
+        if (match.index > start) parts.push(text.slice(start, match.index))
+        if (match[0]) parts.push(match[0])
+        start = match.index + match[0].length
+      }
+      if (start < text.length) parts.push(text.slice(start))
+      const byte = pretokenizers[1]
+      return parts.flatMap(part => splitHFByteLevel(part, byte.add_prefix_space, false))
+    }
     let sawByteLevel = false
     let byteLevelAddPrefixSpace: boolean | undefined
     let byteLevelUseRegex: boolean | undefined

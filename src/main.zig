@@ -42,7 +42,7 @@ pub fn main(init: std.process.Init) !void {
     defer _ = gpa.deinit();
     // DebugAllocator maps large tensors individually, even with safety disabled.
     // Keep diagnostics in safe builds; release serving uses libc buffer reuse.
-    const allocator = if (builtin.mode == .Debug or builtin.mode == .ReleaseSafe) gpa.allocator() else std.heap.c_allocator;
+    const allocator = if (builtin.mode == .debug or builtin.mode == .safe) gpa.allocator() else std.heap.c_allocator;
 
     try affon.memory.init(allocator);
     defer {

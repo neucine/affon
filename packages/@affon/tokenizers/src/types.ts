@@ -24,6 +24,9 @@ export interface TextDecodeOpts {
 
 export interface HFPreTokenizerSpec {
   type?: string
+  pattern?: { Regex?: string }
+  behavior?: string
+  invert?: boolean
   individual_digits?: boolean
   add_prefix_space?: boolean
   /** Whether ByteLevel applies GPT-2 token boundaries before byte encoding. Defaults to true. */

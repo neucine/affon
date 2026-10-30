@@ -3,11 +3,14 @@
 import argparse
 import json
 import re
+import sys
 from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPUTE = ROOT.parent / "compute"
+sys.path.insert(0, str(ROOT / 'test/parity'))
+from case import operation_family
 
 
 def enum_names(source, name):
@@ -106,7 +109,11 @@ def make_row(case_id, group, outcomes, policy, related, backend, dtype, op, vari
         raise ValueError(f"{case_id}: supported needs correctness evidence")
     if support in {"unsupported", "not_applicable"} and evidence:
         raise ValueError(f"{case_id}: excluded cell cannot carry performance evidence")
-    return {"id": case_id, "family": group, "variant": variant, "support": support,
+    return {"id": case_id, "device": backend, "dtype": dtype,
+                 "operation": op, "operation_family": operation_family(op, group),
+                 "family": operation_family(op, group), "regime": case_id.split('/')[3],
+                 "variant_name": '/'.join(case_id.split('/')[4:]) or None,
+                 "scope": "operation", "variant": variant, "support": support,
                  "reason": outcome.get("reason"),
                  "evidence": {kind: evidence.get(kind, "missing") for kind in policy["required_evidence"]},
                  "related_diagnostics": related.get((backend, dtype, op), []) + related.get((backend, dtype, group), [])}

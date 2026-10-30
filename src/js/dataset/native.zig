@@ -235,7 +235,7 @@ fn js_readNative(ctx: ?*qjs.c.JSContext, _: qjs.c.JSValueConst, argc: c_int, arg
 
     const df = csv.parseCSV(data_alloc, path) catch |err| {
         var buf: [256]u8 = undefined;
-        const msg = std.fmt.bufPrintZ(&buf, "read(): {s}", .{@errorName(err)}) catch "read(): parse error";
+        const msg = std.mem.printSentinel(&buf, "read(): {s}", .{@errorName(err)}, 0) catch "read(): parse error";
         return errors.jsClassifiedNativeError(ctx, msg, err, null);
     };
     const ds = Dataset.init(df) catch {
@@ -587,7 +587,7 @@ fn schemaToJS(ctx: ?*qjs.c.JSContext, schema: *pipeline.SchemaResult) qjs.c.JSVa
         for (entry.indices, 0..) |idx, i| {
             if (qjs.c.JS_DefinePropertyValueUint32(ctx, arr, @intCast(i), qjs.c.JS_NewInt64(ctx, @intCast(idx)), qjs.c.JS_PROP_C_W_E) < 0) return qjs.exceptionValue();
         }
-        const entry_name = bridgeStringAlloc().dupeZ(u8, entry.name) catch return qjs.exceptionValue();
+        const entry_name = bridgeStringAlloc().dupeSentinel(u8, entry.name, 0) catch return qjs.exceptionValue();
         defer bridgeStringAlloc().free(entry_name);
         qjs.setProperty(ctx, obj, entry_name, arr) catch return qjs.exceptionValue();
     }

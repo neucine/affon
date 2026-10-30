@@ -3,13 +3,13 @@ import { Session } from 'affon:compute'
 import type { Tensor } from 'affon:compute'
 import { create_vit } from '../../src/vit/model.ts'
 
-test('runs ViT patch extraction and encoder through one Program', () => {
+for (const dtype of ['f32', 'bf16'] as const) test(`runs ViT ${dtype} parameters through Program and Session`, () => {
   const source = new Session({ device: 'cpu' })
   const value = (shape: number[], fill = 0.1): Tensor => {
     const data = (dimensions: number[]): any => dimensions.length
       ? Array.from({ length: dimensions[0] }, () => data(dimensions.slice(1)))
       : fill
-    return source.tensor(data(shape)) as Tensor
+    return source.tensor(data(shape), { dtype }) as Tensor
   }
   const affine = (input: number, output: number) => ({ weight: value([input, output]), bias: value([output], 0) })
   const norm = () => ({ weight: value([4], 1), bias: value([4], 0) })

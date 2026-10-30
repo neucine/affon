@@ -2,7 +2,7 @@ import { create_vit, type ViTWeights } from '../../../models/src/vit/index.ts'
 import fs from 'std:fs'
 import { prepare_encoder_checkpoint } from './encoder-checkpoint.ts'
 
-/** Load an f32 fixed-size RGB ViT classifier.
+/** Load a fixed-size RGB ViT classifier with BF16/f32 parameters.
  * @param directory Prepared local HF artifact directory.
  * @returns A device-neutral Program definition and checkpoint parameter initializer.
  * @remarks Strict hidden-state parity remains unresolved for the audited checkpoint.

@@ -28,13 +28,14 @@ declare module "affon:checkpoint" {
    * @category Persistence
    * @semantics
    * Reads a serialized checkpoint file and returns the named tensor mapping.
-   * Supports F32, F64, I64, and BF16 SafeTensors entries (BF16 widens to f32). Optional `__metadata__`
+   * Supports BF16, F32, F64, U32, and I64 SafeTensors entries. BF16 retains two-byte storage.
+   * Optional `__metadata__`
    * string mappings are ignored; malformed entries and other dtypes are rejected.
    */
   export function load(path: string, options?: { names?: readonly string[] }): LoadedCheckpoint
 
   /** Read validated SafeTensors metadata without allocating tensor payloads. Dtypes are storage dtypes. */
-  export function inspect(path: string): Record<string, { dtype: "F32" | "F64" | "I64" | "BF16"; shape: number[] }>
+  export function inspect(path: string): Record<string, { dtype: "BF16" | "F32" | "F64" | "U32" | "I64"; shape: number[] }>
 
   /**
    * @summary Legacy in-place restore hook.

@@ -9,6 +9,10 @@ declare module "affon:ops" {
   import type { FormalTensor, ProgramDType, SliceRange, Tensor } from "affon:compute"
   type AnyTensor = Tensor | FormalTensor
   type Same<T extends AnyTensor> = T extends FormalTensor ? FormalTensor : Tensor
+  /** Elementwise sine in radians. Floating tensors; native CPU and Metal. */
+  export function sin<T extends AnyTensor>(x: T): Same<T>
+  /** Elementwise cosine in radians. Floating tensors; native CPU and Metal. */
+  export function cos<T extends AnyTensor>(x: T): Same<T>
   /** Elementwise addition with NumPy-style broadcasting. */
   export function add<T extends AnyTensor>(a: T, b: T): Same<T>
   /** Elementwise subtraction with NumPy-style broadcasting. */
@@ -27,6 +31,25 @@ declare module "affon:ops" {
   export function gt_scalar<T extends AnyTensor>(x: T, threshold: number): Same<T>
   /** Batched matrix multiplication over the final two dimensions. */
   export function matmul<T extends AnyTensor>(a: T, b: T): Same<T>
+  /** Select k values and their i64 source indices along an axis of a rank-two f32 or BF16 tensor. */
+  export function topk<T extends AnyTensor>(x: T, k: number, axis?: number, largest?: boolean, sorted?: boolean): readonly [Same<T>, Same<T>]
+  /**
+   * Affine weight-only quantized matrix multiplication with native CPU and Metal kernels.
+   * Decodes unsigned values from U32 words, least significant bits first,
+   * along K. Does not allocate a floating-point weight matrix.
+   * Supports formal and evaluated tensors. CPU uses a scalar reference; Metal decodes inside a fused GPU kernel. CUDA is currently unsupported.
+   * @category linear algebra
+   * @shape input [M,K], packed [N,K*bits/32], scales/biases [N,K/group_size] -> [M,N]
+   * @formula y[m,n] = sum_k input[m,k] * (scales[n,k/group_size] * q[n,k] + biases[n,k/group_size])
+   * @param input Nonempty rank-two f32 or bf16 tensor.
+   * @param packed Rank-two u32 tensor in the same Session.
+   * @param scales Rank-two f32 or bf16 tensor in the same Session.
+   * @param biases Affine quantization offsets with the same dtype and shape as scales; these are not linear layer output biases.
+   * @param options Explicit bit width and positive integral group_size. K must divide into complete words and groups.
+   * @returns A formal f32 result or a new evaluated f32 tensor in the input Session. Decoding and accumulation use f32 arithmetic; backend rounding may differ.
+   * @example const y = quantized_matmul(x, weight, scales, biases, { bits: 8, group_size: 64 })
+   */
+  export function quantized_matmul<T extends AnyTensor>(input: T, packed: T, scales: T, biases: T, options: Readonly<{ bits: 2 | 4 | 8; group_size: number }>): Same<T>
   /** Inner product of two one-dimensional tensors. */
   export function dot<T extends AnyTensor>(a: T, b: T): Same<T>
   /** Elementwise arithmetic negation. */
@@ -59,6 +82,8 @@ declare module "affon:ops" {
   export function gelu<T extends AnyTensor>(x: T): Same<T>
   /** Normalize exponentials along one axis. */
   export function softmax<T extends AnyTensor>(x: T, axis: number): Same<T>
+  export function log_softmax<T extends AnyTensor>(x: T, axis: number): Same<T>
+  export function rms_norm<T extends AnyTensor>(x: T, axis: number, epsilon?: number): Same<T>
   /** Sum all values or reduce one axis, optionally retaining a size-one dimension. */
   export function sum<T extends AnyTensor>(x: T, axis?: number, keep_dims?: boolean): Same<T>
   /** Average all values or reduce one axis, optionally retaining a size-one dimension. */
@@ -75,6 +100,7 @@ declare module "affon:ops" {
   export function contiguous<T extends AnyTensor>(x: T): Same<T>
   /** Permute dimensions; omitting permutation reverses their order. */
   export function transpose<T extends AnyTensor>(x: T, permutation?: readonly number[]): Same<T>
+  export function permute<T extends AnyTensor>(x: T, axes: readonly number[]): Same<T>
   /** Convert tensor elements to another supported dtype. */
   export function cast<T extends AnyTensor>(x: T, dtype: ProgramDType): Same<T>
   /** Slice every dimension with explicit half-open ranges. */

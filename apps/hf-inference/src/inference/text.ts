@@ -1,4 +1,5 @@
 import type { InferenceModels } from './models.ts'
+import { APERTUS_MODEL } from './models.ts'
 import { CausalProgramRuntime, type CausalProgramDefinition } from './program-runtime.ts'
 
 // Keep one read-only runtime per loaded model for the lifetime of the model
@@ -19,6 +20,15 @@ export function dispose_text_runtimes(models: InferenceModels) {
   if (!entries) return
   runtimes.delete(models)
   for (const runtime of entries.values()) runtime.dispose()
+}
+
+/** Load CUDA parameters and compile Apertus's reusable decode before serving. */
+export function prepare_text_models(models: InferenceModels) {
+  const selected = models.texts.apertus
+  if (!selected) return
+  const runtime = text_runtime(models, selected.model)
+  const defaultPromptLength = selected.processor.encode('The future of computing is').length
+  runtime.prepareFixedCache(320, [defaultPromptLength])
 }
 
 /** Tokenize, generate greedily, and decode a passage using the loaded text model. */
@@ -44,7 +54,7 @@ function prepare_text(
     const completion = processor.decode(output.slice(ids.length), {skipSpecialTokens: chat})
     return {
       model: modelId,
-      text: chat ? completion : processor.decode(output),
+      text: chat ? completion : processor.decode(output, {skipSpecialTokens: modelId === APERTUS_MODEL.id}),
       completion,
       truncated: output.length - ids.length === max_new_tokens && output[output.length - 1] !== model.config.eos_token_id,
       prompt_tokens: ids.length,
@@ -63,7 +73,8 @@ export function generate_text(models: InferenceModels, prompt: string, budget: n
 
 /** One explicit Program execution per call. Decode the complete prefix to preserve UTF-8
  * token boundaries; callers replace their displayed text with each snapshot. */
-export function create_text_generation(models: InferenceModels, prompt: string, budget: number, key?: string) {
+export function create_text_generation(models: InferenceModels, prompt: string, budget: number,
+  key?: string, stop_at_sentence = false) {
   const {model, ids, result} = prepare_text(models, prompt, budget, key)
   const runtime = text_runtime(models, model)
   const generation = runtime.createGeneration(ids, budget)
@@ -77,10 +88,17 @@ export function create_text_generation(models: InferenceModels, prompt: string, 
         const step = generation.next()
         done = step.done
         const snapshot = result(step.ids)
+        // A base completion model can finish a sentence without producing EOS.
+        // The playground may stop there while retaining the token budget as a ceiling.
+        const emittedEos = step.ids.at(-1) === model.config.eos_token_id
+        const sentenceDone = stop_at_sentence && !emittedEos && snapshot.generated_tokens >= 3
+          && /[.!?。！？]["'”’）)\]]*\s*$/u.test(snapshot.completion)
+        done = done || sentenceDone
         // A byte-level tokenizer may end mid-codepoint before the next token.
         if (!done) snapshot.text = snapshot.text.replace(/\uFFFD+$/, '')
         if (done) generation.close()
-        return {...snapshot, done}
+        return {...snapshot, truncated: sentenceDone ? false : snapshot.truncated, done,
+          stop_reason: emittedEos ? 'eos' : sentenceDone ? 'sentence' : step.done ? 'limit' : undefined}
       } catch (error) { close(); throw error }
     },
   }

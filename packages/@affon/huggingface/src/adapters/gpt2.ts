@@ -13,7 +13,7 @@ type Config = {
   tie_word_embeddings?: boolean;
 }
 
-/** Load a tied-head f32 GPT-2 Program definition and checkpoint parameters.
+/** Load a tied-head GPT-2 Program definition and BF16/f32 checkpoint parameters.
  * @param directory Prepared local HF artifact directory.
  * @returns Device-neutral shape-specialized Programs and a parameter initializer.
  */
@@ -39,7 +39,7 @@ export function load_gpt2(directory: string) {
     expected.add(name)
     const info = source.catalog[name]
     if (!info || !['F32', 'BF16'].includes(info.dtype) || JSON.stringify(info.shape) !== JSON.stringify(shape)) {
-      throw new Error(`Expected f32 ${name} with shape ${JSON.stringify(shape)}`)
+      throw new Error(`Expected f32 or BF16 ${name} with shape ${JSON.stringify(shape)}`)
     }
     weights[name] = source.read(name)
   }

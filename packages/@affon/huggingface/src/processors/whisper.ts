@@ -1,6 +1,6 @@
 import fs from 'std:fs'
 import native from 'affon:compute/native'
-import { Session, type Device } from 'affon:compute'
+import { Session, Tensor, type Device } from 'affon:compute'
 import { resample_audio } from './shared/audio.ts'
 
 /** Whisper tiny English: 30-second padded, centered Slaney log-Mel features. */
@@ -22,7 +22,9 @@ export function load_whisper_processor(directory: string, device: Device = 'cpu'
     process(samples: Float32Array, sampling_rate: number, profile?: (timings: Record<string, number>) => void) {
       const started = Date.now(), wave = resample_audio(samples, sampling_rate)
       if (wave.length < 400) throw Error('Whisper requires at least 25 ms of audio')
-      const inputStart = Date.now(), signal = cpu.tensor(Array.from(wave)) as any
+      const inputStart = Date.now()
+      const bytes = wave.buffer.slice(wave.byteOffset, wave.byteOffset + wave.byteLength) as ArrayBuffer
+      const signal = cpu.fromBytes(bytes, Tensor.f32([wave.length])) as any
       const input_ms = Date.now() - inputStart
       const fftStart = Date.now(), spectrum = native.stftPower(signal, windowTensor, 160, 480000, 3000)
       const fft_ms = Date.now() - fftStart

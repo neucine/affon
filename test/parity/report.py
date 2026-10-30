@@ -18,17 +18,17 @@ def render(manifest):
              f"Catalog SHA-256: `{manifest['catalog_sha256']}`  ",
              f"Binary SHA-256: `{manifest['binary_sha256']}`  ",
              f"Timing: {manifest['iterations']} iterations × {manifest['samples']} samples × {manifest['rounds']} rounds",
-             "", "## Coverage", "",
-             f"- Candidate cells: {len(cells)}",
-             f"- Numerical capability passed: {probe['correct']}",
-             f"- Operator parity and timing passed: {operator['passed']}",
-             f"- Program parity and timing passed: {program['passed']}",
-             f"- Probe failures or incorrect: {len(cells) - probe['correct']}",
-             f"- Operator incorrect or error: {operator['incorrect'] + operator['error']}",
-             f"- Program incorrect or error: {program['incorrect'] + program['error']}",
-             "", "## Cells", "",
-             "| Cell | Probe | Operator parity | Affon / peer ms | Program parity | Affon / peer ms |",
-             "| --- | --- | --- | --- | --- | --- |"]
+             "", "## Checks", "",
+             f"- Cases run: {len(cells)}",
+             f"- Numerical check passed: {probe['correct']}",
+             f"- Operator check and timing passed: {operator['passed']}",
+             f"- Program check and timing passed: {program['passed']}",
+             f"- Numerical failures: {len(cells) - probe['correct']}",
+             f"- Operator failures: {operator['incorrect'] + operator['error']}",
+             f"- Program failures: {program['incorrect'] + program['error']}",
+             "", "## Cases", "",
+             "| Case | Family | Shape | Layout | Numerical | Operator | Affon / PyTorch ms | Program | Affon / PyTorch ms |",
+             "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
     for row in cells:
         cell = row["id"].replace("|", "\\|")
         def status(kind):
@@ -38,9 +38,11 @@ def render(manifest):
         def timing(kind):
             a, b = row.get(kind + "_affon_ms"), row.get(kind + "_peer_ms")
             return f"{a:.4g} / {b:.4g}" if a is not None and b is not None else "—"
-        lines.append(f"| `{cell}` | {row['probe_status']} | {status('operator_peer')} | {timing('operator_peer')} | {status('program_peer')} | {timing('program_peer')} |")
-    lines.extend(["", "Each probe result is retained in [capability.json](capability.json).",
-                  "Timing ratios are diagnostic; only reports with passing numerical parity are eligible for coverage links.", ""])
+        axes = row.get('axes', {})
+        shape = ' × '.join(map(str, axes.get('shape', []))) or '—'
+        lines.append(f"| `{cell}` | {axes.get('operation_family', '—')} | {shape} | {axes.get('layout', '—')} | {row['probe_status']} | {status('operator_peer')} | {timing('operator_peer')} | {status('program_peer')} | {timing('program_peer')} |")
+    lines.extend(["", "Numerical results are in [capability.json](capability.json).",
+                  "Timing changes are diagnostic. The saved files contain the raw checks, including failures.", ""])
     return "\n".join(lines)
 
 

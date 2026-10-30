@@ -2,7 +2,7 @@
 
 Experimental Hugging Face integration for native Affon inference. This package
 owns HF configuration interpretation, weight mapping, model/task dispatch, and
-processor integration. Native GPT-2, Llama, BERT, and ViT Program definitions are
+processor integration. Native GPT-2, Llama, Apertus, BERT, and ViT Program definitions are
 owned by `@affon/models`. These adapters map HF configuration and checkpoint tensors into
 the model constructors; processors and checkpoint validation remain here.
 
@@ -63,8 +63,9 @@ incremental SHA-256; curl is no longer required. Cache maintenance still uses
 256 shards, and 20 MiB per JSON artifact. Single `model.safetensors` and indexed
 `model.safetensors.index.json` snapshots are supported. Flat shard filenames,
 index ownership, completeness, and duplicate tensor names are checked. Adapters
-inspect metadata first and load one source tensor at a time; execution remains
-f32, so BF16 storage does not halve resident model memory. Checksums detect subsequent cache
+inspect metadata first and load one source tensor at a time. BF16 parameters retain
+their storage dtype; GPT-2, Llama, BERT, and ViT cast them inside their f32 graphs,
+while Apertus has a BF16 forward path. Checksums detect subsequent cache
 corruption; they are computed locally, not publisher signatures. Private/gated
 repositories, branch/tag resolution, resumable downloads, timeouts/retries, and Windows portability remain future work. No tokens are read or sent.
 
@@ -98,19 +99,21 @@ weight loading. Inputs retain their domain-specific shapes.
 | --- | --- | --- | --- |
 | `text-generation` | `gpt2` | `forward(length, outputStart?)` | Tied head, `gelu_new`; Program inputs are IDs, positions, and causal mask |
 | `text-generation` | `llama` | `forward(length, outputStart?)` | Tied head, SiLU, full unscaled RoPE, GQA; Program inputs are IDs and causal mask |
+| `text-generation` | `apertus` | `forward(length, outputStart?)`, `prefill(length, capacity)`, `decode(capacity)` | BF16 weights, untied head, Q/K norm, Llama 3 RoPE scaling, xIELU; fixed-capacity KV cache with one compiled decode Program per generation |
 | `feature-extraction` | `bert` | `forward(batch, length)` | Absolute positions, GELU, base encoder with pooler |
 | `image-classification` | `vit` | Fixed `forward` Program | Fixed-size RGB, biased QKV, GELU, classifier |
 
-Explicit `load_gpt2`, `load_bert`, and `load_vit` loaders are also exported.
+Explicit `load_gpt2`, `load_apertus`, `load_bert`, and `load_vit` loaders are also exported.
+See [Apertus 8B integration status](../../../docs/ml/apertus-8b.md) for validation and memory limits.
 `load_bert_processor` applies templates and padding; `process_rgb_image` handles
 the supported ViT RGB8 resize/rescale/normalize pipeline. GPT-2 tokenization
 uses `@affon/tokenizers`.
 
 ## Artifacts and compatibility
 
-Requires `config.json` and one `model.safetensors` (f32, or BF16 widened to f32), plus the appropriate
-processor files, either downloaded directly or already local. Shards, pickle
-conversion, reduced-precision execution, custom Python execution, and a universal
+Requires `config.json` and SafeTensors weights (f32 or BF16), plus the appropriate
+processor files, either downloaded directly or already local. Pickle
+conversion, custom Python execution, and a universal
 `pipeline` API are not supported. Weight names and shapes are checked strictly.
 Stored GPT-2 causal-mask buffers are accepted only after validating their full
 contents; ViT scalar sizes and omitted preprocessing defaults are handled.
@@ -294,8 +297,8 @@ not validated. No KV cache is claimed; current application generation executes
 the full prefix with a one-token output window. No quantized execution is provided.
 
 The original ~269 MB BF16 checkpoint downloads through the existing Hub path.
-`checkpoint.load` widens BF16 values exactly to f32 on CPU before device placement;
-weights therefore occupy ~538 MB in f32, excluding temporary buffers and caches.
+`checkpoint.load` retains BF16 values; parameter storage occupies about 269 MB,
+excluding f32 operation temporaries and caches.
 A runtime containing BF16 checkpoint loading is required. Python is unnecessary
 for downloading or inference.
 

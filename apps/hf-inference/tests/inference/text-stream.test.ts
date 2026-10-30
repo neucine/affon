@@ -7,6 +7,8 @@ import { create_handler } from '../../src/serve/http/routes.ts'
 import type { InferenceModels } from '../../src/inference/models.ts'
 import type { PlaygroundConfig } from '../../src/serve/config.ts'
 import { load_llama } from '../../../../packages/@affon/huggingface/src/adapters/llama.ts'
+import { load_apertus } from '../../../../packages/@affon/huggingface/src/adapters/apertus.ts'
+import { APERTUS_MODEL } from '../../src/inference/models.ts'
 
 function fixture() {
   let fail = false, nonfinite = false
@@ -100,6 +102,30 @@ test('incremental real Llama decoding matches buffered greedy generation', () =>
   dispose_text_runtimes(models)
 })
 
+test('Apertus generation reuses one fixed-capacity decode Program', () => {
+  const base=load_apertus('packages/@affon/huggingface/test/fixtures/apertus')
+  let decodeCalls=0
+  const model={...base,config:{...base.config,eos_token_id:-1},decode(capacity:number){decodeCalls++;return base.decode(capacity)}}
+  const ids=[1,7,9], budget=4
+  const fullRuntime=new CausalProgramRuntime(model,'cpu')
+  const expected=[...ids]
+  try {
+    for(let i=0;i<budget;i++) {
+      const result=fullRuntime.forward(expected,expected.length-1)
+      try {
+        const row=(result.logits.to_array() as number[][][])[0][0]
+        expected.push(row.indexOf(Math.max(...row)))
+      } finally { result.logits.dispose();result.hidden_states.forEach(value=>value.dispose()) }
+    }
+  } finally { fullRuntime.dispose() }
+  const cachedRuntime=new CausalProgramRuntime(model,'cpu')
+  try {
+    cachedRuntime.prepareFixedCache(7,[ids.length])
+    expect(cachedRuntime.generate(ids,budget)).toEqual(expected)
+    expect(decodeCalls).toBe(1)
+  } finally { cachedRuntime.dispose() }
+})
+
 test('HTTP generation reserves the model until finish/cancel and recovers after errors', async () => {
   const f = fixture()
   const handler = create_handler({port:8766,origin:'http://127.0.0.1:8766',device:'cpu'} as PlaygroundConfig, f.models)
@@ -120,5 +146,35 @@ test('HTTP generation reserves the model until finish/cancel and recovers after 
   const fourth = (await start()).json as {id:string}
   expect(typeof fourth.id).toBe('string')
   await request('/api/generate/cancel',fourth)
+  dispose_text_runtimes(f.models)
+})
+
+test('Apertus streamed UI generation stops at a completed sentence before its token limit', async () => {
+  const f = fixture()
+  const entry = f.models.texts.smollm2
+  entry.id = APERTUS_MODEL.id
+  entry.model.config.eos_token_id = -1
+  entry.processor.decode = (ids: number[]) => {
+    const count = ids.filter(id => id >= 2).length
+    return count >= 3 ? 'The answer is ready.' : 'The answer is ready'
+  }
+  const handler = create_handler({port:8766,origin:'http://127.0.0.1:8766',device:'cpu'} as PlaygroundConfig, f.models)
+  const request = (path:string, value:unknown) => handler({method:'POST',url:path,
+    headers:{host:'127.0.0.1:8766','content-type':'application/json'},json:<T>()=>value as T,
+    text:()=>JSON.stringify(value),bytes:()=>new Uint8Array()} satisfies HttpServerRequest)
+  const start = await request('/api/generate/start',{prompt:'Hi',max_new_tokens:5})
+  const id = (start.json as {id:string}).id
+  let result: Record<string,unknown> = {}
+  for (let index=0; index<3; index++) result = (await request('/api/generate/next',{id})).json as Record<string,unknown>
+  expect(result.done).toBe(true)
+  expect(result.stop_reason).toBe('sentence')
+  expect(result.truncated).toBe(false)
+  expect(result.generated_tokens).toBe(3)
+  expect((await request('/api/generate/next',{id})).status).toBe(404)
+  const explicit = await request('/api/generate/start',{prompt:'Hi',max_new_tokens:5,stop_at_sentence:false})
+  const explicitId = (explicit.json as {id:string}).id
+  for (let index=0; index<5; index++) result = (await request('/api/generate/next',{id:explicitId})).json as Record<string,unknown>
+  expect(result.stop_reason).toBe('limit')
+  expect(result.truncated).toBe(true)
   dispose_text_runtimes(f.models)
 })

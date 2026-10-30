@@ -3,7 +3,7 @@ import { create_llama, type LlamaWeights } from '../../../models/src/llama/index
 import { prepare_encoder_checkpoint } from './encoder-checkpoint.ts'
 
 /** Load the tied-head, bias-free, unscaled-RoPE Llama variant used by SmolLM2.
- * BF16 checkpoint storage is widened to f32 by checkpoint.load; execution is f32.
+ * BF16 checkpoint storage stays BF16; the current Llama graph casts for f32 operations.
  */
 export function load_llama(directory: string) {
   const config = JSON.parse(fs.readFileSync(`${directory}/config.json`))
