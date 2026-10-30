@@ -1,0 +1,20 @@
+# Parity regression check
+
+Target: `Mac16,1/26.6.2/arm64`
+
+- Cells compared: 3
+- Added cells: 0
+- Removed cells: 0
+- Changed case definitions: 0
+- New correctness failures: 0
+- Diagnostic timing suspects: 0
+- Target matches: yes
+- Measurement protocol matches: yes
+
+Timing changes are diagnostic and do not fail this check. Timing is compared only when target and protocol match. No timing baseline is accepted by this comparison.
+
+| Cell | Correctness regression | Operator relative timing | Program relative timing |
+| --- | --- | ---: | ---: |
+| `metal/f32/cat/strided/r64_c127` | none | 0.18× | 0.18× |
+| `metal/f32/contiguous/strided/r64_c127` | none | 0.25× | 0.28× |
+| `metal/f32/stack/strided/r64_c127` | none | 0.17× | 0.20× |
