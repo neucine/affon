@@ -82,22 +82,28 @@ class PerformanceReportTest(unittest.TestCase):
 
     def test_saved_html_mounts_and_filters_from_file_url(self):
         html = ROOT / "benchmarks/results/performance-report.html"
+        results = ROOT / "benchmarks/results"
+        operator_count = len(json.loads((results / "cell-peer-current-summary-mac-2026-10-29.json").read_text())["cases"])
+        program_count = len(json.loads((results / "cell-program-peer-summary-mac-2026-10-29.json").read_text())["cases"])
+        outcomes = json.loads((results / "coverage-outcomes-current-mac-2026-10-29.json").read_text())
+        correctness_count = sum("correctness" in row.get("evidence", {}) for row in outcomes.values())
         script = r'''
 const fs=require('fs');
 const {JSDOM}=require(process.argv[2]);
+const operatorCount=Number(process.argv[3]), programCount=Number(process.argv[4]), correctnessCount=Number(process.argv[5]);
 const errors=[];
 const dom=new JSDOM(fs.readFileSync(process.argv[1],'utf8'),{runScripts:'dangerously',url:'file://' + process.argv[1],beforeParse(w){w.addEventListener('error',e=>errors.push(e.message))}});
 const d=dom.window.document;
 const comparisonRows=()=>d.querySelector('.operator-table').querySelectorAll('tbody tr').length;
 if(errors.length || comparisonRows()!==100 || d.querySelector('.program-table').querySelectorAll('tbody tr').length!==100 || d.querySelectorAll('.distribution article').length!==4 || d.querySelectorAll('.boundary-table tbody tr').length!==6) process.exit(1);
 const groups=[...d.querySelectorAll('.distribution article')].map(x=>x.textContent.replace(/\s+/g,''));
-if(!groups[0].includes('metal132401194811948') || !groups[0].includes('cuda2011244243') || !groups[1].includes('bf16650457845784') || !groups[1].includes('f32713964146413')) process.exit(14);
-if(!groups[3].includes('metal/bf16570056515651') || !d.body.textContent.includes('15251 GPU candidate cells')) process.exit(15);
+if(!groups[0].includes('metal13240') || !groups[0].includes('cuda2011') || !groups[1].includes('bf166504') || !groups[1].includes('f3271396')) process.exit(14);
+if(!groups[3].includes('metal/bf165700') || !d.body.textContent.includes('GPU candidate cells')) process.exit(15);
 const framework=d.querySelector('.framework');
-if(!framework || !framework.textContent.includes('17261 candidate cells') || !framework.textContent.includes('12197 operator comparisons') || !framework.textContent.includes('6 pairs')) process.exit(4);
+if(!framework || !framework.textContent.includes('17261 candidate cells') || !framework.textContent.includes(operatorCount+' operator comparisons') || !framework.textContent.includes('6 pairs')) process.exit(4);
 const phases=d.querySelector('.phases');
 if(!phases || !phases.textContent.includes('Foundation') || !phases.textContent.includes('Coverage expansion') || !phases.textContent.includes('Optimization')) process.exit(12);
-if(!d.querySelector('.metrics').textContent.includes('12197') || !d.querySelector('.evidence').textContent.includes('12198 of 17261 cells') || !d.querySelector('.evidence').textContent.includes('12192 of 17261 cells')) process.exit(13);
+if(!d.querySelector('.metrics').textContent.includes(String(operatorCount)) || !d.querySelector('.evidence').textContent.includes(correctnessCount+' of 17261 cells') || !d.querySelector('.evidence').textContent.includes(programCount+' of 17261 cells')) process.exit(13);
 const checklist=d.querySelector('.evidence');
 if(!checklist || !checklist.textContent.includes('Does Affon return the right answer?') || !checklist.textContent.includes('Is a regression reference ready?')) process.exit(5);
 if(!d.body.textContent.includes('matmul → add_bias') || !d.body.textContent.includes('Too variable')) process.exit(7);
@@ -136,7 +142,9 @@ if(errors.length) process.exit(24);
 '''
         jsdom = ROOT.parent / "weiv/node_modules/jsdom"
         if html.is_file() and jsdom.is_dir():
-            subprocess.run(["node", "-e", script, str(html), str(jsdom)], check=True, capture_output=True, text=True)
+            subprocess.run(["node", "-e", script, str(html), str(jsdom),
+                            str(operator_count), str(program_count), str(correctness_count)],
+                           check=True, capture_output=True, text=True)
 
 
 if __name__ == "__main__":
