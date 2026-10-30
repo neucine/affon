@@ -69,6 +69,13 @@ python3 test/parity/run.py \
 
 ## Compare any two runs
 
+For a kernel or runtime change, rerun every affected parity catalog with the
+same target and timing settings as its retained batch. Compare each rerun with
+`regression.py` and review correctness failures and timing suspects. When the
+batch is complete and reviewed, replace its linked aggregate evidence with
+`promote.py --archive PATH`, then regenerate both current timing summaries,
+the HTML report, and the parity index. Keep the old raw evidence in the archive.
+
 `regression.py` is independent of the batch runner. It compares the shared
 cell IDs in any two retained manifests, reports added and removed cells, and
 exits nonzero if a previously passing numerical probe, operator comparison,
