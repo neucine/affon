@@ -26,12 +26,15 @@ describe("Program optimization", () => {
     const summary = session.compile(source, { optimizationLevel: "safe", explanationLevel: "summary" })
     const reference = session.compile(source, { optimizationLevel: "none", explanationLevel: "detailed" })
     const optimized = session.compile(source, { optimizationLevel: "safe", explanationLevel: "detailed" })
+    const bounded = session.compile(source, { searchLimits: { completeEvaluations: 4, structuralStates: 2 } })
     expect(reference === optimized).toBe(false)
     expect(summary === optimized).toBe(false)
     expect(session.compile(source, { optimizationLevel: "safe", explanationLevel: "detailed" }) === optimized).toBe(true)
     const summaryExplanation = summary.explain() as any
     const detailedExplanation = optimized.explain() as any
-    expect(detailedExplanation.schema_version).toBe(1)
+    expect(detailedExplanation.schema_version).toBe(2)
+    expect((bounded.explain() as any).executable.selection.search_limits.complete_evaluations).toBe(4)
+    expect((bounded.explain() as any).executable.selection.search_limits.structural_states).toBe(2)
     expect(detailedExplanation.executable.optimizations.length >= summaryExplanation.executable.optimizations.length).toBe(true)
 
     const left = session.tensor([1, 2])

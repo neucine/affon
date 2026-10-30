@@ -1,48 +1,47 @@
-# Tests
+# Runtime tests
 
-`test/types/` contains the Bun TypeScript contract tests and is checked with:
+Tests live with the public feature they exercise. Numerical comparisons and
+performance evidence live under `test/parity/`.
 
-```sh
-bun x tsc -p test/types/tsconfig.json --noEmit
-```
+| Directory | Purpose |
+| --- | --- |
+| `test/e2e/program/authoring/` | Program construction, composition, inspection, and export contracts |
+| `test/e2e/program/execution/` | Session, Executable, Tensor, state, and ownership behavior |
+| `test/e2e/program/operations/` | Public operation behavior, shapes, dtypes, and invalid inputs |
+| `test/e2e/program/training/` | Gradients, layers, optimizer transitions, and complete training workflows |
+| `test/e2e/dataset/` | Dataset loading, transformation, and tokenization |
+| `test/e2e/checkpoint/` | Checkpoint and safetensors behavior |
+| `test/e2e/cli/` | Subprocess checks for commands, exits, and package resolution |
+| `test/types/` | Compile-time public TypeScript contracts |
+| `test/parity/` | Independent numerical comparisons, peer timings, catalogs, and coverage reporting |
+| `test/support/` | Helpers shared by more than one e2e feature |
 
-`test/e2e/program/` follows the public Program paradigm: Program authoring and
-execution, operations shared by formal and evaluated tensors, and
-neural-network authoring. Dataset and checkpoint integration stay in their own
-focused directories. Package and application tests live beside their owners.
+Package and application tests stay beside their owners. The e2e coverage
+inventory is in [e2e/COVERAGE.md](e2e/COVERAGE.md).
 
-The Program boundary is organized by responsibility:
+## Add a test
 
-- `contracts.test.ts` locks down the runtime export and value contracts.
-- `authoring.test.ts` covers composition, inspection, and transforms.
-- `lifecycle.test.ts` covers Session, Tensor, and Executable ownership.
-- `optimization.test.ts` covers loss callables, explicit parameter updates,
-  optimizer descriptors, accumulation, and schedules.
-- `execution.test.ts` covers initialized state, validation, and lowering.
-- `tensor-construction.test.ts` covers evaluated Tensor factories and their
-  default Session behavior.
-- `operation-parity.test.ts` proves one operation vocabulary works for formal
-  and evaluated tensors.
-- `operation-coverage.test.ts` exercises the supported operation families and
-  metrics.
-- `operation-contracts.test.ts` isolates representation, shape, dtype, and
-  authoring failures.
-- `neural-network.test.ts` covers reusable `affon:nn` layer callables.
-- `test/types/program.test.ts` locks down the compile-time public surface and
-  verifies removed compatibility modules remain unavailable.
+- Place it beside the behavior's existing tests. Use a `*.test.ts` name that
+  identifies the feature or workflow.
+- Keep valid behavior and its related invalid inputs close together. Use a
+  separate file when a case matrix becomes large enough to obscure the behavior.
+- Use a table for variations of one behavior; use separate named tests for
+  different failures, lifecycle stages, or state transitions.
+- Assert observable values, state changes, ownership, or diagnostics. Shape and
+  finite-value assertions alone rarely establish a workflow contract.
+- Dispose Session-owned values and clean temporary files. Add a helper to
+  `test/support/` only when at least two files need the same setup or cleanup.
+- Update the coverage inventory when a public workflow or failure path changes.
 
-Run the canonical runtime suites with:
+## Run tests
 
 ```sh
 zig build install
 ./tools/test-runtime.sh
-```
-
-Run only the Program API boundary with:
-
-```sh
 ./zig-out/bin/affon test test/e2e/program
+bun x tsc -p test/types/tsconfig.json --noEmit
 ```
 
-Backend coverage is exercised through the same Program suites by selecting the
-desired runtime device.
+`tools/test-runtime.sh` runs the Program, dataset, checkpoint, package, app,
+and CLI process suites. The Affon runner discovers `*.test.ts` recursively,
+so adding a test inside a feature directory needs no runner edit.

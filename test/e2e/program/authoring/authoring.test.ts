@@ -1,10 +1,35 @@
 import { add, cross_entropy, mean, reshape } from "affon:ops"
 import { describe, expect, test } from "std:test"
-import { Tensor, gradient, optimize, program } from "affon:compute"
+import { Session, Tensor, gradient, optimize, program } from "affon:compute"
 import { linear } from "affon:nn"
 import { adam } from "affon:optim"
 
 describe("Program authoring and transforms", () => {
+  test("reuses a child and Session after a rejected composition", () => {
+    const child = program("reusable_child", p => add(
+      p.argument("left", Tensor.f32([2])),
+      p.argument("right", Tensor.f32([2])),
+    ))
+    expect(() => program("invalid_parent", p => child({
+      left: p.argument("left", Tensor.f32([2])),
+      right: p.argument("right", Tensor.f32([3])),
+    }, "child"))).toThrow("TensorSpec")
+
+    const parent = program("valid_parent", p => child({
+      left: p.argument("left", Tensor.f32([2])),
+      right: p.argument("right", Tensor.f32([2])),
+    }, "child"))
+    const session = new Session({ device: "cpu" })
+    const left = session.tensor([1, 2])
+    const right = session.tensor([3, 4])
+    const executable = session.compile(parent)
+    const first = executable.run({ left, right })
+    const second = executable.run({ left, right })
+    expect(first.to_array()).toEqual([4, 6])
+    expect(second.to_array()).toEqual([4, 6])
+    first.dispose(); second.dispose(); left.dispose(); right.dispose(); session.dispose()
+  })
+
   test("authors, composes, transforms, and inspects one symbolic pipeline", () => {
     const imageSpec = Tensor.f32([2, 4], { axes: ["batch", "feature"] })
     const model = program("classifier", p => {

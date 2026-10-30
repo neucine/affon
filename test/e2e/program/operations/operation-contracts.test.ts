@@ -3,6 +3,19 @@ import { Session, Tensor, program } from 'affon:compute'
 import { describe, expect, test } from 'std:test'
 
 describe('Operation contracts', () => {
+  test('a rejected evaluated matmul leaves operands reusable for a valid operation', () => {
+    const session = new Session({ device: 'cpu' })
+    const left = session.tensor([[1, 2], [3, 4]])
+    const wrong = session.tensor([[1, 2, 3]])
+    const identity = session.tensor([[1, 0], [0, 1]])
+    expect(() => matmul(left, wrong)).toThrow()
+    const first = matmul(left, identity)
+    const second = matmul(left, identity)
+    expect(first.to_array()).toEqual([[1, 2], [3, 4]])
+    expect(second.to_array()).toEqual(first.to_array())
+    first.dispose(); second.dispose(); identity.dispose(); wrong.dispose(); left.dispose(); session.dispose()
+  })
+
   test('rejects mixed representations, Sessions, and removed builder operations', () => {
     const left = new Session()
     const right = new Session()

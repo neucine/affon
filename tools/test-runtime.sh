@@ -19,3 +19,4 @@ export RUNTIME_PACKAGE_PATH="${RUNTIME_PACKAGE_PATH:-$ROOT/packages}"
   "$ROOT/packages/@affon/onnx/test" \
   "$ROOT/apps/hf-inference/tests"
 "$AFFON_BIN" test "$ROOT/apps/decoder-lm/test"
+bash "$ROOT/test/e2e/cli/process.sh" "$AFFON_BIN"

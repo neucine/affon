@@ -249,7 +249,7 @@ export interface DecoderLMWorkflowHooks {
 }
 
 function optimizerStateKindForConfig(config: DecoderLMWorkflowTrainingConfig): string {
-  return (config.optimizer?.kind ?? 'adam') === 'adamw' ? 'AdamW' : 'Adam'
+  return config.optimizer?.kind ?? 'adam'
 }
 
 export function loadDecoderLMWorkflowConfig(path: string): DecoderLMWorkflowConfig {

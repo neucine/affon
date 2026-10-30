@@ -81,4 +81,42 @@ describe("Program public surface and values", () => {
     session.dispose()
   })
 
+  test("bounds JavaScript array tensors and accepts direct numeric bytes", () => {
+    const session = new Session({ device: "cpu" })
+    expect(() => session.tensor(new Array(262145).fill(0))).toThrow("Tensor.fromBytes")
+    expect(() => program("oversized_constant", p => p.constant("values", new Array(262145).fill(0), Tensor.f32([262145])))).toThrow("ProgramBuilder.full")
+    const bytes = new Float32Array([1.25, -2.5, 3.75, 0]).buffer
+    const value = session.fromBytes(bytes, Tensor.f32([2, 2]))
+    expect(value.to_array()).toEqual([[1.25, -2.5], [3.75, 0]])
+    expect(() => session.fromBytes(bytes, Tensor.f32([5]))).toThrow("byte length")
+    value.dispose()
+    session.dispose()
+  })
+
+  test("compiles uniform shaped constants without nested arrays", () => {
+    const source = program("filled_constant", p => p.full("values", 2.5, Tensor.f32([2, 3])))
+    expect(source.inspect().nodes.find(node => node.role === "constant")?.value).toBe(2.5)
+    const session = new Session({ device: "cpu" })
+    const output = session.compile(source).run({}) as any
+    expect(output.to_array()).toEqual([[2.5, 2.5, 2.5], [2.5, 2.5, 2.5]])
+    output.dispose()
+    session.dispose()
+    const comparison = program("filled_vs_array", p => [
+      p.full("filled", 0, Tensor.f32([64, 64])),
+      p.constant("array", Array.from({ length: 64 }, () => Array(64).fill(0)), Tensor.f32([64, 64])),
+    ])
+    const paritySession = new Session({ device: "cpu" })
+    const [filled, fromArray] = paritySession.compile(comparison).run({}) as any
+    expect(filled.to_array()).toEqual(fromArray.to_array())
+    filled.dispose()
+    fromArray.dispose()
+    paritySession.dispose()
+    const empty = program("empty_fill", p => p.full("empty", 0, Tensor.f32([0])))
+    const emptySession = new Session({ device: "cpu" })
+    const emptyOutput = emptySession.compile(empty).run({}) as any
+    expect(emptyOutput.to_array()).toEqual([])
+    emptyOutput.dispose()
+    emptySession.dispose()
+  })
+
 })

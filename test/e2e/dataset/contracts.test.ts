@@ -113,6 +113,11 @@ describe('dataset contracts', () => {
     }))
     expect(err).toBeInstanceOf(Error)
     expect(err.message).toContain('readDelimited() requires at least 2 delimited fields per row')
+    const valid = dataset.text.readDelimited('test/e2e/dataset/fixtures/labeled-lines.tsv', {
+      delimiter: '\t',
+      columns: ['text', 'label'],
+    })
+    expect([...valid.loader({ batchSize: 2 })].map(batch => batch.length)).toEqual([2, 1])
   })
 
   test('readDelimited requires columns', () => {
