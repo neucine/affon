@@ -43,6 +43,7 @@ def run(args):
     if not args.binary.is_file():
         raise FileNotFoundError(args.binary)
     catalog_bytes = args.catalog.read_bytes()
+    source_catalog_sha256 = hashlib.sha256(catalog_bytes).hexdigest()
     catalog = json.loads(catalog_bytes)
     matrix = load("coverage_matrix", "coverage-matrix.py")
     probes = load("capability_probes", "probe-capabilities.py")
@@ -50,6 +51,14 @@ def run(args):
     diagnostics = json.loads((ROOT / "benchmarks/workload-coverage.json").read_text())
     known = {row["id"] for row in matrix.build(policy, diagnostics)["cells"]}
     cases = probes.validate_catalog(catalog, known)
+    selected = set(getattr(args, "cell", ()) or ())
+    if selected:
+        missing = selected - {case["id"] for case in cases}
+        if missing:
+            raise ValueError(f"cells absent from catalog: {sorted(missing)}")
+        cases = [case for case in cases if case["id"] in selected]
+        catalog = {**catalog, "cases": cases}
+        catalog_bytes = (json.dumps(catalog, indent=2) + "\n").encode()
     if not cases:
         raise ValueError("empty batch catalog")
     output = args.output_dir.resolve()
@@ -118,6 +127,7 @@ def run(args):
     (output / "outcomes.json").write_text(json.dumps(outcomes, indent=2) + "\n")
     summary = {"schema_version": 1, "suite": "affon_coverage_batch_run",
                "catalog_sha256": hashlib.sha256(catalog_bytes).hexdigest(),
+               "source_catalog_sha256": source_catalog_sha256,
                "binary_sha256": probe["binary_sha256"], "target": target,
                "iterations": args.iterations, "samples": args.samples, "rounds": args.rounds,
                "cells": [rows[cell] for cell in expected_ids]}
@@ -134,6 +144,8 @@ def run(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--catalog", type=Path, required=True)
+    parser.add_argument("--cell", action="append", default=[],
+                        help="run only this exact catalog cell; repeat for a small selection")
     parser.add_argument("--binary", type=Path, default=ROOT / "zig-out/bin/affon")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--iterations", type=int, default=10)

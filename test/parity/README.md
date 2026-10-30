@@ -61,6 +61,42 @@ timing summaries, the HTML report, and `python3 test/parity/index.py`.
 For a reviewed replacement of existing cells, pass `--archive PATH` to retain
 the prior aggregate operator and Program reports before their links change.
 
+## Run a small set
+
+The 12-cell `catalogs/metal-regression-smoke.json` suite spans f32/BF16
+arithmetic, matmul, reduction, normalization, indexing, scatter, loss, top-k,
+and quantized matmul on Metal. Regenerate it with
+`python3 test/parity/catalogs/generators/generate-metal-regression-smoke.py`.
+Run the full suite or repeat `--cell CELL_ID` to select exact cells from any
+catalog. The batch snapshots only selected cells and records the source and
+selected catalog hashes.
+
+```sh
+python3 test/parity/run.py \
+  --catalog test/parity/catalogs/metal-regression-smoke.json \
+  --output-dir benchmarks/results/parity-metal-smoke-YYYYMMDD \
+  --iterations 10 --samples 5 --rounds 3
+```
+
+## Compare any two runs
+
+`regression.py` is independent of the batch runner. It compares the shared
+cell IDs in any two retained manifests, reports added and removed cells, and
+exits nonzero if a previously passing numerical probe, operator comparison,
+or Program comparison now fails. It writes machine-readable JSON and Markdown:
+
+```sh
+python3 test/parity/regression.py \
+  benchmarks/results/PREVIOUS-BATCH \
+  benchmarks/results/CURRENT-BATCH \
+  --output-dir benchmarks/results/REGRESSION-COMPARISON
+```
+
+The comparison accepts a batch directory or `manifest.json` on either side.
+It reports timing changes only when target and measurement protocol match;
+timing signals are diagnostic and do not fail the check. No timing baseline is
+accepted by this comparison.
+
 ## Validate the facility
 
 ```sh
