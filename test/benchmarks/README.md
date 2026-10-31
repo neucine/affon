@@ -1,5 +1,10 @@
 # Performance coverage and model onboarding
 
+Focused quantized matrix multiplication investigations live in
+[`quantized/`](quantized/README.md). Broad operator and Program comparisons use
+the [parity facility](../parity/README.md); retained evidence is indexed in
+[`results/`](results/README.md).
+
 The [workload coverage facility](WORKLOAD-COVERAGE.md) generates a matrix from
 the canonical operation and dtype vocabulary, then maps existing diagnostics
 to it. Run `python3 tools/coverage-matrix.py` for the candidate matrix and

@@ -128,7 +128,7 @@ are not claimed separately.
 
 Three complementary measurements are saved:
 
-- `test/benchmarks/profile-quantized.ts`: synchronous `Executable.run`, then host
+- `test/benchmarks/quantized/profile-quantized.ts`: synchronous `Executable.run`, then host
   readback, then disposal, each timed separately. Native GPU timestamps are
   collected for these calls. The remaining run time includes validation,
   allocation, bridge/runtime work, driver encoding, queue/wait latency, and
@@ -231,7 +231,7 @@ python3 tools/profile-quantized-timestamps.py --engine affon \
   --executable zig-out/bin/affon --output /tmp/affon-gpu.json
 python3 tools/profile-quantized-timestamps.py --engine mlx \
   --executable /tmp/affon-mlx-bench/bin/python --output /tmp/mlx-gpu.json
-./zig-out/bin/affon test/benchmarks/profile-quantized.ts
+./zig-out/bin/affon test/benchmarks/quantized/profile-quantized.ts
 ```
 
 The timestamp profiler compiles a temporary dylib with xcrun/Clang and uses

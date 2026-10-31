@@ -224,7 +224,7 @@ audio quality and latency remain adapter/application validation tasks.
 
 ## Benchmark protocol
 
-`test/benchmarks/quantized-matmul.ts` constructs resident synthetic 8-bit weights for
+`test/benchmarks/quantized/quantized-matmul.ts` constructs resident synthetic 8-bit weights for
 N=2048, K=1024, group_size=64, and M=1 or 8. It compiles once, warms three runs,
 and measures five samples of ten runs on CPU and Metal. Each run includes
 output readback as a completion boundary, output allocation, and JS invocation
@@ -235,7 +235,7 @@ measurements.
 
 ```sh
 zig build install -Doptimize=ReleaseFast
-./zig-out/bin/affon test/benchmarks/quantized-matmul.ts
+./zig-out/bin/affon test/benchmarks/quantized/quantized-matmul.ts
 ```
 
 Initial measurements on Apple M4 (10 CPU cores, 16 GB), macOS 26.6.2,
@@ -281,7 +281,7 @@ clearly; full dequantization should require an explicit caller choice.
 These measurements predate the profiling changes. See [Quantized inference profiling](./quantized-profiling.md) for the current matched GPU/host breakdown and benchmark results.
 
 The repeatable harness is `tools/benchmark-quantized-mlx.py`, using
-`test/benchmarks/quantized-metal.ts`. It compares resident synthetic weights with
+`test/benchmarks/quantized/quantized-metal.ts`. It compares resident synthetic weights with
 identical packing and values, N=2048, K=1024, group_size=64, 4/8 bits,
 F32 inputs, BF16 parameters, and F32 outputs. Affon uses Zig 0.16.0 ReleaseFast;
 MLX is 0.32.4 on Python 3.13. Affon and MLX run sequentially. Input generation,
