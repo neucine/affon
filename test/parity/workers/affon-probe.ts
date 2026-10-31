@@ -138,7 +138,7 @@ try {
         case 'argmin_axis': return argmin(a, reductionAxis)
         case 'argmax_axis': return argmax(a, reductionAxis)
         case 'sum_all': return sum(a)
-        case 'mean_all': return mean(a)
+        case 'mean_all': return mean(id.includes('/rank1/') ? reshape(a, [shape[1]]) : a)
         case 'min_all': return min(a)
         case 'max_all': return max(a)
         case 'variance_all': return variance(a)
