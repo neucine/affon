@@ -8,13 +8,38 @@ from pathlib import Path
 import numpy as np
 import torch
 from transformers import AutoModelForCausalLM, StaticCache
+from transformers.cache_utils import StaticLayer
 
 PROMPT = [1, 1784, 8961, 1307, 32265, 1395]
 
 
-def generate(model, steps, cache_kind, cache_capacity, selection):
+class FunctionalStaticLayer(StaticLayer):
+    """Match Affon's padded prefill and full-cache `where` decode update."""
+
+    def update(self, key_states, value_states, *args, **kwargs):
+        first = not self.is_initialized
+        if first:
+            self.lazy_initialization(key_states, value_states)
+        length = key_states.shape[-2]
+        if first:
+            self.keys = torch.cat((key_states, self.keys[:, :, length:]), dim=2)
+            self.values = torch.cat((value_states, self.values[:, :, length:]), dim=2)
+        else:
+            positions = torch.arange(self.max_cache_len, device=self.device)
+            mask = (positions == self.cumulative_length).view(1, 1, -1, 1)
+            self.keys = torch.where(mask, key_states, self.keys)
+            self.values = torch.where(mask, value_states, self.values)
+        self.cumulative_length.add_(length)
+        return self.keys, self.values
+
+
+def generate(model, steps, cache_kind, cache_capacity, selection, cache_update):
     token = torch.tensor([PROMPT], dtype=torch.long, device="cuda")
     past = StaticCache(config=model.config, max_cache_len=cache_capacity) if cache_kind == "static" else None
+    if cache_update == "functional":
+        if any(type(layer) is not StaticLayer for layer in past.layers):
+            raise ValueError("functional cache requires ordinary static layers")
+        past.layers = [FunctionalStaticLayer(max_cache_len=cache_capacity) for _ in past.layers]
     ids = list(PROMPT)
     times = []
     with torch.inference_mode():
@@ -52,11 +77,14 @@ def main():
     parser.add_argument("--cache", choices=["dynamic", "static"], default="static")
     parser.add_argument("--cache-capacity", type=int, default=320)
     parser.add_argument("--selection", choices=["gpu-id", "cpu-full"], default="cpu-full")
+    parser.add_argument("--cache-update", choices=["inplace", "functional"], default="functional")
     args = parser.parse_args()
     if args.steps < 2 or args.runs < 1:
         raise ValueError("need at least two generated steps and one run")
     if args.cache == "static" and args.cache_capacity < len(PROMPT) + args.steps:
         raise ValueError("static cache must hold prompt and generated tokens")
+    if args.cache == "dynamic" and args.cache_update == "functional":
+        raise ValueError("functional cache updates require a static cache")
     if not torch.cuda.is_available():
         raise RuntimeError("PyTorch CUDA required")
     if not args.checkpoint.is_dir():
@@ -64,13 +92,15 @@ def main():
     model = AutoModelForCausalLM.from_pretrained(
         args.checkpoint, dtype=torch.bfloat16, device_map="cuda",
         local_files_only=True, attn_implementation=args.attention).eval()
-    runs = [generate(model, args.steps, args.cache, args.cache_capacity, args.selection)
+    runs = [generate(model, args.steps, args.cache, args.cache_capacity, args.selection,
+                     args.cache_update)
             for _ in range(args.runs)]
     report = {"suite": "apertus_pytorch_cached_decode", "torch": torch.__version__,
               "device": torch.cuda.get_device_name(), "dtype": "bf16",
               "attention": args.attention,
               "cache": args.cache, "cache_capacity": args.cache_capacity if args.cache == "static" else None,
               "selection": args.selection,
+              "cache_update": args.cache_update if args.cache == "static" else None,
               "checkpoint": str(args.checkpoint), "prompt": PROMPT, "runs": runs}
     args.output.write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps({"output": runs[0]["output"],

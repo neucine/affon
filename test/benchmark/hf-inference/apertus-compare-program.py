@@ -58,7 +58,7 @@ def main():
     report = {"suite": "apertus_program_peer", "output_ids_match": True,
               "timing_scope": "resident model, cached greedy step with synchronized logits selection",
               "cache_protocol": {"affon": f"fixed capacity {affon[0]['capacity']}, functional full-cache update",
-                                 "pytorch": (f"static capacity {pytorch['cache_capacity']}, in-place update"
+                                 "pytorch": (f"static capacity {pytorch['cache_capacity']}, {pytorch.get('cache_update', 'inplace')} update"
                                              if pytorch.get("cache") == "static" else "dynamic cache")},
               "selection_protocol": {"affon": "full BF16 logit row to CPU, JavaScript argmax",
                                      "pytorch": pytorch.get("selection", "gpu-id")},
