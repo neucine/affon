@@ -262,6 +262,34 @@ export function finite_argmax(row: readonly number[], expected: number, position
   return best
 }
 
+/** Select from the native byte row without constructing nested JavaScript numbers. */
+export function finite_argmax_bytes(bytes: ArrayBuffer, dtype: 'bf16' | 'f32', expected: number, position: number) {
+  if (bytes.byteLength !== expected * (dtype === 'bf16' ? 2 : 4))
+    throw new ModelOutputError(`Invalid model logits at token position ${position}`)
+  let best = 0
+  if (dtype === 'bf16') {
+    const row = new Uint16Array(bytes)
+    let bestKey = -1
+    for (let index = 0; index < expected; index++) {
+      const bits = row[index]
+      if ((bits & 0x7f80) === 0x7f80) throw new NonFiniteLogitsError(position, index)
+      // BF16 has the same ordering as f32 after sign folding. Normalize signed zero.
+      const normalized = (bits & 0x7fff) === 0 ? 0 : bits
+      const key = (normalized & 0x8000) ? (~normalized & 0xffff) : (normalized ^ 0x8000)
+      if (key > bestKey) { best = index; bestKey = key }
+    }
+  } else {
+    const row = new Float32Array(bytes)
+    let bestValue = -Infinity
+    for (let index = 0; index < expected; index++) {
+      const value = row[index]
+      if (!Number.isFinite(value)) throw new NonFiniteLogitsError(position, index)
+      if (value > bestValue) { best = index; bestValue = value }
+    }
+  }
+  return best
+}
+
 export class CausalProgramRuntime {
   readonly session: Session
   readonly state: ExecutionState
@@ -365,8 +393,11 @@ export class CausalProgramRuntime {
           hiddenStates = result.hidden_states
         }
         try {
-          const row = (logits.to_array() as number[][][])[0][0]
-          const best = finite_argmax(row, this.model.config.vocab_size, output.length)
+          if (logits.shape.length !== 3 || logits.shape[0] !== 1 || logits.shape[1] !== 1 || logits.shape[2] !== this.model.config.vocab_size)
+            throw new ModelOutputError(`Invalid model logits at token position ${output.length}`)
+          const best = logits.dtype === 'bf16' || logits.dtype === 'f32'
+            ? finite_argmax_bytes(logits.to_bytes(), logits.dtype, this.model.config.vocab_size, output.length)
+            : finite_argmax((logits.to_array() as number[][][])[0][0], this.model.config.vocab_size, output.length)
           output.push(best)
           if (cached) { release(); caches = nextCaches; nextCaches = [] }
           done = best === this.model.config.eos_token_id || output.length - ids.length === budget

@@ -3,6 +3,7 @@ import { generate_text, dispose_text_runtimes } from '../../src/inference/text.t
 import type { InferenceModels } from '../../src/inference/models.ts'
 import { Tensor, program } from 'affon:compute'
 import { contiguous, div, embedding, reshape, slice } from 'affon:ops'
+import { finite_argmax_bytes } from '../../src/inference/program-runtime.ts'
 function fixture() {
   let chatCalls = 0, programCalls = 0, truncate = false
   const processor = { encode: () => [5], encode_chat: () => {chatCalls++; return [1,5]}, decode: (ids: number[], opts?: {skipSpecialTokens?: boolean}) => (opts?.skipSpecialTokens ? ids.filter(id => id !== 2) : ids).join(',') }
@@ -43,6 +44,14 @@ test('non-finite logits fail rather than silently selecting token zero', () => {
   })
   expect(() => generate_text(f.models, 'Hi', 1)).toThrow('Non-finite model logit')
   dispose_text_runtimes(f.models)
+})
+test('byte logit selection keeps first-max ties, signed-zero ties and finite checks', () => {
+  expect(finite_argmax_bytes(new Uint16Array([0xc000, 0x8000, 0, 0x3f80, 0x3f80]).buffer, 'bf16', 5, 4)).toBe(3)
+  expect(finite_argmax_bytes(new Uint16Array([0x8000, 0]).buffer, 'bf16', 2, 4)).toBe(0)
+  expect(finite_argmax_bytes(new Float32Array([-2, 1, 1]).buffer, 'f32', 3, 4)).toBe(1)
+  expect(() => finite_argmax_bytes(new Uint16Array([0x3f80, 0x7fc0]).buffer, 'bf16', 2, 4)).toThrow('vocabulary index 1')
+  expect(() => finite_argmax_bytes(new Float32Array([0, Infinity]).buffer, 'f32', 2, 4)).toThrow('vocabulary index 1')
+  expect(() => finite_argmax_bytes(new Uint16Array([0]).buffer, 'bf16', 2, 4)).toThrow('Invalid model logits')
 })
 test('selected text model uses chat formatting and returns only decoded assistant text', () => {
   const f = fixture()

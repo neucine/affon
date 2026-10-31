@@ -26,10 +26,14 @@ def affon_result(path):
     source = path.read_bytes()
     result = json.loads(source)
     runs = []
-    for step_ms in result["optimized_step_ms"]:
+    source_runs = ([{"step_ms": step_ms, "output": result["output"]}
+                    for step_ms in result["optimized_step_ms"]]
+                   if "optimized_step_ms" in result else result["runs"]["byte_selection_and_row_softmax"])
+    for source_run in source_runs:
+        step_ms = source_run["step_ms"]
         times = step_ms[1:]
         runs.append({"source_sha256": hashlib.sha256(source).hexdigest(),
-                     "prompt": result["prompt"], "output": result["output"],
+                     "prompt": result["prompt"], "output": source_run["output"],
                      "capacity": result["cache_capacity"], "step_ms": step_ms,
                      "cached_tokens_per_second": len(times) * 1000 / sum(times),
                      "median_cached_step_ms": statistics.median(times)})
@@ -60,7 +64,7 @@ def main():
               "cache_protocol": {"affon": f"fixed capacity {affon[0]['capacity']}, functional full-cache update",
                                  "pytorch": (f"static capacity {pytorch['cache_capacity']}, {pytorch.get('cache_update', 'inplace')} update"
                                              if pytorch.get("cache") == "static" else "dynamic cache")},
-              "selection_protocol": {"affon": "full BF16 logit row to CPU, JavaScript argmax",
+              "selection_protocol": {"affon": "full BF16 byte row to CPU, JavaScript argmax",
                                      "pytorch": pytorch.get("selection", "gpu-id")},
               "prompt": affon[0]["prompt"], "output": outputs[0],
               "affon": affon, "pytorch_sdpa": pytorch,

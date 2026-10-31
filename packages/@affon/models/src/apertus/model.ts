@@ -135,10 +135,13 @@ export function create_apertus(config: ApertusConfig, weights: ApertusWeights) {
         }
         const groupSize = heads / kvHeads
         const groupedQ = reshape(qRot, [1, kvHeads, groupSize, length, headWidth])
-        const groupedK = reshape(attentionK, [1, kvHeads, 1, mode === 'decode' ? capacity : length, headWidth])
-        const groupedV = reshape(attentionV, [1, kvHeads, 1, mode === 'decode' ? capacity : length, headWidth])
+        const attentionLength = mode === 'decode' ? capacity : length
+        const groupedK = reshape(attentionK, [1, kvHeads, 1, attentionLength, headWidth])
+        const groupedV = reshape(attentionV, [1, kvHeads, 1, attentionLength, headWidth])
         const scores = masked_fill(mul(matmul(groupedQ, transpose(groupedK, [0, 1, 2, 4, 3])), scale), mask, computeDType === 'bf16' ? -1e30 : -3.4028234663852886e38)
-        const probabilities = computeDType === 'bf16' ? cast(softmax(cast(scores, 'f32'), 4), 'bf16') : softmax(scores, 4)
+        const scoreRows = reshape(scores, [heads * length, attentionLength])
+        const probabilityRows = computeDType === 'bf16' ? cast(softmax(cast(scoreRows, 'f32'), 1), 'bf16') : softmax(scoreRows, 1)
+        const probabilities = reshape(probabilityRows, [1, kvHeads, groupSize, length, attentionLength])
         const groupedOutput = matmul(probabilities, groupedV)
         const attended = reshape(contiguous(transpose(reshape(groupedOutput, [1, heads, length, headWidth]), [0, 2, 1, 3])), [1, length, width])
         x = add(x, matmul(attended, matrix('attentionOutput', width, width)))

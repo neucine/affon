@@ -50,8 +50,12 @@ def generate(model, steps, cache_kind, cache_capacity, selection, cache_update):
                            cache_position=(torch.arange(len(PROMPT), device="cuda") if len(ids) == len(PROMPT)
                                            else torch.tensor([len(ids) - 1], device="cuda")) if cache_kind == "static" else None,
                            return_dict=True)
-            if selection == "cpu-full":
-                row = result.logits[0, -1].float().cpu().numpy()
+            if selection in ("cpu-full", "cpu-bf16"):
+                if selection == "cpu-bf16":
+                    bits = result.logits[0, -1].view(torch.uint16).cpu().numpy()
+                    row = (bits.astype(np.uint32) << 16).view(np.float32)
+                else:
+                    row = result.logits[0, -1].float().cpu().numpy()
                 if not bool(np.isfinite(row).all()):
                     raise ValueError("nonfinite logits")
                 next_id = int(row.argmax())
@@ -76,7 +80,7 @@ def main():
     parser.add_argument("--attention", choices=["sdpa", "eager"], default="sdpa")
     parser.add_argument("--cache", choices=["dynamic", "static"], default="static")
     parser.add_argument("--cache-capacity", type=int, default=320)
-    parser.add_argument("--selection", choices=["gpu-id", "cpu-full"], default="cpu-full")
+    parser.add_argument("--selection", choices=["gpu-id", "cpu-full", "cpu-bf16"], default="cpu-bf16")
     parser.add_argument("--cache-update", choices=["inplace", "functional"], default="functional")
     args = parser.parse_args()
     if args.steps < 2 or args.runs < 1:
