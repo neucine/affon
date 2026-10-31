@@ -2,9 +2,9 @@
 import fs from 'std:fs'
 import telemetry from 'std:telemetry'
 import { getEnv } from 'std:process'
-import { load_model, load_processor, snapshot_download } from '../../../../packages/@affon/huggingface/src/index.ts'
-import { TEXT_MODEL } from '../inference/models.ts'
-import { CausalProgramRuntime } from '../inference/program-runtime.ts'
+import { load_model, load_processor, snapshot_download } from '../../../packages/@affon/huggingface/src/index.ts'
+import { TEXT_MODEL } from '../../../apps/hf-inference/src/inference/models.ts'
+import { CausalProgramRuntime } from '../../../apps/hf-inference/src/inference/program-runtime.ts'
 import type { Device } from 'affon:compute'
 
 const device = getEnv('AFFON_DEVICE') ?? 'cpu'

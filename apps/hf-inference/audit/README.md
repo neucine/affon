@@ -270,7 +270,7 @@ Run one model per process, with a warmup and two measured 16-token requests:
 AFFON_DEVICE=metal AFFON_SMOLLM2_SIZE=360M \
   AFFON_HF_CACHE=/tmp/affon-hub-cache AFFON_BENCH_REPORT=/tmp/smollm360-metal.json \
   /usr/bin/time -l /tmp/affon-smollm-release/bin/affon \
-  apps/hf-inference/src/benchmark/smollm2.ts
+  test/benchmark/hf-inference/smollm2.ts
 ```
 
 Repeat with `1.7B`. On Linux use `AFFON_DEVICE=cuda`, a CUDA-enabled Affon build,
@@ -309,7 +309,7 @@ benchmark throughput; the timings do not establish a guaranteed response time.
 ### Native telemetry profiling
 
 The SmolLM2 benchmark now uses the shared benchmark helper
-`src/benchmark/telemetry.ts` to wrap load, warmup, and measured prefill/decode
+`test/benchmark/hf-inference/telemetry.ts` to wrap load, warmup, and measured prefill/decode
 phases with `std:telemetry.trace`. The report includes a `profiles` array with
 native counter deltas and memory gauge snapshots for each phase. Host elapsed
 milliseconds remain useful for throughput; they are not GPU timestamps.
@@ -317,7 +317,7 @@ milliseconds remain useful for throughput; they are not GPU timestamps.
 ```sh
 AFFON_DEVICE=metal AFFON_METAL_COMMAND_TIMING=1 AFFON_SMOLLM2_SIZE=135M \
   AFFON_BENCH_REPORT=/tmp/smollm-profile.json \
-  /tmp/affon-smollm-release/bin/affon apps/hf-inference/src/benchmark/smollm2.ts
+  /tmp/affon-smollm-release/bin/affon test/benchmark/hf-inference/smollm2.ts
 ```
 
 The native `compute.execution.metal_command_*` counters separate preparation,

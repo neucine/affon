@@ -1,6 +1,6 @@
 import { test, expect } from 'std:test'
 import telemetry, {type MetricSnapshot} from 'std:telemetry'
-import { create_phase_profiler, metric_changes } from '../src/benchmark/telemetry.ts'
+import { create_phase_profiler, metric_changes } from '../../../test/benchmark/hf-inference/telemetry.ts'
 const metric = (name:string, value:number, kind:MetricSnapshot['kind']='counter'):MetricSnapshot => ({id:0,scope:'compute.execution',name,value,kind,unit:'count',count:0,sum:0,min:0,max:0})
 test('profile distinguishes counter deltas, gauge snapshots and unavailable GPU timing', () => {
   const before = [metric('metal_command_count',10),metric('metal_command_gpu_valid_count',10),metric('peak_bytes',100,'gauge')]

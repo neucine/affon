@@ -1,5 +1,9 @@
 # Native inference benchmarks
 
+This directory contains the Python harness, runnable Affon TypeScript programs,
+and benchmark telemetry helper. Application inference code remains under
+`apps/hf-inference/src/inference/`.
+
 Run from the repository root with a ReleaseFast Affon build and verified cached
 DistilGPT-2/ViT snapshots:
 
@@ -47,7 +51,7 @@ for each machine and compare it to later runs with
 `tools/compare-model-performance.py --kind self`.
 
 The Python harness only starts native Affon processes and collects OS metadata.
-All loading, processing and inference run in `apps/hf-inference/src/benchmark/inference.ts`.
+All loading, processing and inference run in `test/benchmark/hf-inference/inference.ts`.
 There are four fresh processes, run sequentially: GPT-2 CPU, GPT-2 Metal,
 ViT CPU, ViT Metal. Each loads one model, performs one warmup, then measures
 five iterations by default. Missing snapshots fail rather than download.
@@ -58,7 +62,7 @@ To run one benchmark without Python:
 AFFON_DEVICE=metal AFFON_BENCH_FAMILY=vit \
 AFFON_HF_CACHE=/tmp/affon-hub-cache AFFON_AUDIT_BUILD=ReleaseFast \
 AFFON_BENCH_REPORT=/tmp/vit-metal-benchmark.json \
-/tmp/affon-hf-release/bin/affon apps/hf-inference/src/benchmark/inference.ts
+/tmp/affon-hf-release/bin/affon test/benchmark/hf-inference/inference.ts
 ```
 
 ## Measurements

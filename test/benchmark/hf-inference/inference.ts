@@ -5,10 +5,10 @@ import {
   snapshot_download,
   load_model,
   load_processor,
-} from '../../../../packages/@affon/huggingface/src/index.ts'
-import { TEXT_MODEL, IMAGE_MODEL } from '../inference/models.ts'
-import { rank_classes } from '../inference/classification.ts'
-import { CausalProgramRuntime, VitProgramRuntime } from '../inference/program-runtime.ts'
+} from '../../../packages/@affon/huggingface/src/index.ts'
+import { TEXT_MODEL, IMAGE_MODEL } from '../../../apps/hf-inference/src/inference/models.ts'
+import { rank_classes } from '../../../apps/hf-inference/src/inference/classification.ts'
+import { CausalProgramRuntime, VitProgramRuntime } from '../../../apps/hf-inference/src/inference/program-runtime.ts'
 import type { Device } from 'affon:compute'
 
 const device = getEnv('AFFON_DEVICE') ?? 'cpu'

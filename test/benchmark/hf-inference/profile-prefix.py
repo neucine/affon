@@ -14,14 +14,14 @@ parser.add_argument('--output', required=True)
 args = parser.parse_args()
 repo = Path(__file__).resolve().parents[3]
 identifier = uuid.uuid4().hex
-runner = repo / f'apps/hf-inference/src/benchmark/profile-prefix-{identifier}.ts'
+runner = repo / f'test/benchmark/hf-inference/profile-prefix-{identifier}.ts'
 output = Path(args.output).resolve()
 output.parent.mkdir(parents=True, exist_ok=True)
 try:
     runner.write_text("""import fs from 'std:fs'
 import { getEnv } from 'std:process'
-import { load_gpt2 } from '../../../../packages/@affon/huggingface/src/index.ts'
-import { CausalProgramRuntime } from '../inference/program-runtime.ts'
+import { load_gpt2 } from '../../../packages/@affon/huggingface/src/index.ts'
+import { CausalProgramRuntime } from '../../../apps/hf-inference/src/inference/program-runtime.ts'
 const model = load_gpt2(getEnv('PROFILE_MODEL')!)
 const runtime = new CausalProgramRuntime(model, 'metal')
 const ids = Array.from({length: 128}, () => 464)

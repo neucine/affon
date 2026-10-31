@@ -4,7 +4,6 @@
 src/
   inference/   # Model loading, text generation, image classification
   serve/       # HTTP routes, configuration, native server entry point
-  benchmark/   # Native inference measurement entry point
 public/        # Browser HTML, CSS, JavaScript
 tests/         # Inference/HTTP tests and reference fixtures
 audit/         # Parity tooling, Python oracle scripts, reports

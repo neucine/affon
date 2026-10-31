@@ -48,7 +48,7 @@ for family in args.families:
         report = output / f'{name}.json'
         env = {**os.environ, 'AFFON_DEVICE': device, 'AFFON_BENCH_FAMILY': family, 'AFFON_BENCH_REPORT': str(report),
                'AFFON_HF_CACHE': str(Path(args.cache).resolve()), 'AFFON_BENCH_ITERATIONS': str(args.iterations), 'AFFON_AUDIT_BUILD': args.build_profile}
-        command = [str(executable), 'apps/hf-inference/src/benchmark/inference.ts']
+        command = [str(executable), 'test/benchmark/hf-inference/inference.ts']
         if platform.system() == 'Darwin': command = ['/usr/bin/time', '-l', *command]
         print(f'Running {name}', flush=True)
         start = time.monotonic()

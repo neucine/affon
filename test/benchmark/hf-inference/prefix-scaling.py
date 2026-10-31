@@ -28,7 +28,7 @@ if not args.summarize_only:
     for device in ['cpu', 'metal']:
         print('Starting', device, flush=True)
         start = time.monotonic()
-        command = [str(binary), 'apps/hf-inference/src/benchmark/prefix-scaling.ts']
+        command = [str(binary), 'test/benchmark/hf-inference/prefix-scaling.ts']
         if platform.system() == 'Darwin': command = ['/usr/bin/time', '-l', *command]
         with (out / f'{device}.log').open('w') as log:
             result = subprocess.run(command, cwd=repo, env={**os.environ, 'AFFON_DEVICE': device,

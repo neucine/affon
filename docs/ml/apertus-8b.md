@@ -39,7 +39,7 @@ For context, the same checkpoint in PyTorch 2.11.0+cu128 and Transformers 5.16.1
 
 ### CUDA decode profile
 
-Nsight Systems 2023.4.4 traced `apps/hf-inference/src/benchmark/apertus-profile.ts` on the RTX 3090 using the same checkpoint, a six-token prompt, fixed KV capacity 320, and 16 generated tokens. The first step was prefill (`3.067` seconds); the following 15 cached steps took `0.319`–`0.336` seconds each. The kernel totals below exclude prefill, segmented at the first decode matmul in the CUDA trace. They are accumulated device kernel durations, so they do not include host scheduling or gaps between kernels.
+Nsight Systems 2023.4.4 traced `test/benchmark/hf-inference/apertus-profile.ts` on the RTX 3090 using the same checkpoint, a six-token prompt, fixed KV capacity 320, and 16 generated tokens. The first step was prefill (`3.067` seconds); the following 15 cached steps took `0.319`–`0.336` seconds each. The kernel totals below exclude prefill, segmented at the first decode matmul in the CUDA trace. They are accumulated device kernel durations, so they do not include host scheduling or gaps between kernels.
 
 | Decode kernel | 15-step GPU time | Approximate time/token |
 | --- | ---: | ---: |

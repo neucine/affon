@@ -1,7 +1,7 @@
 // Standalone fixed-cache probe for Nsight Systems on the CUDA host.
 import { getEnv } from 'std:process'
-import { load_apertus } from '../../../../packages/@affon/huggingface/src/adapters/apertus.ts'
-import { CausalProgramRuntime } from '../inference/program-runtime.ts'
+import { load_apertus } from '../../../packages/@affon/huggingface/src/adapters/apertus.ts'
+import { CausalProgramRuntime } from '../../../apps/hf-inference/src/inference/program-runtime.ts'
 
 const checkpoint = getEnv('AFFON_APERTUS_CHECKPOINT')
 if (!checkpoint) throw Error('Set AFFON_APERTUS_CHECKPOINT to the verified snapshot directory')
