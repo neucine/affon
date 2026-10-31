@@ -78,7 +78,6 @@ export function create_apertus(config: ApertusConfig, weights: ApertusWeights) {
       const oneF32 = p.constant('one_f32', 1, Tensor.f32([1]))
       const epsilonF32 = p.constant('epsilon_f32', config.epsilon, Tensor.f32([1]))
       const scale = scalar('attention_scale', 1 / Math.sqrt(headWidth))
-      const repeatIds = p.constant('repeat_ids', Array.from({ length: heads }, (_, i) => Math.floor(i / (heads / kvHeads))), Tensor.i64([heads]))
       const { factor, lowFreqFactor, highFreqFactor, originalContext } = config.ropeScaling
       const angles = Array.from({ length: mode === 'decode' ? capacity : length }, (_, token) => Array.from({ length: headWidth }, (_, j) => {
           const inverse = 1 / Math.pow(config.ropeTheta, (2 * (j % (headWidth / 2))) / headWidth)
@@ -106,7 +105,6 @@ export function create_apertus(config: ApertusConfig, weights: ApertusWeights) {
         const second = contiguous(slice(x, [{ start: 0, stop: 1 }, { start: 0, stop: length }, { start: 0, stop: count }, { start: headWidth / 2, stop: headWidth }]))
         return add(mul(x, cosine), mul(cat([neg(second), first], 3), sine))
       }
-      const expand = (x: FormalTensor) => index_select(x, 1, repeatIds)
       const softplus = (x: FormalTensor) => add(where(gt(x, zero), x, zero), log(add(one, exp(neg(abs(x))))))
       const embed = parameter(p, 'token_embedding', [vocabSize, width])
       let x = reshape(embedding(embed, ids), [1, length, width])
@@ -135,9 +133,14 @@ export function create_apertus(config: ApertusConfig, weights: ApertusWeights) {
           attentionV = where(insertMask!, currentV, pastV)
           caches.push(attentionK, attentionV)
         }
-        const scores = masked_fill(mul(matmul(qRot, transpose(expand(attentionK), [0, 1, 3, 2])), scale), mask, computeDType === 'bf16' ? -1e30 : -3.4028234663852886e38)
-        const probabilities = computeDType === 'bf16' ? cast(softmax(cast(scores, 'f32'), 3), 'bf16') : softmax(scores, 3)
-        const attended = reshape(contiguous(transpose(matmul(probabilities, expand(attentionV)), [0, 2, 1, 3])), [1, length, width])
+        const groupSize = heads / kvHeads
+        const groupedQ = reshape(qRot, [1, kvHeads, groupSize, length, headWidth])
+        const groupedK = reshape(attentionK, [1, kvHeads, 1, mode === 'decode' ? capacity : length, headWidth])
+        const groupedV = reshape(attentionV, [1, kvHeads, 1, mode === 'decode' ? capacity : length, headWidth])
+        const scores = masked_fill(mul(matmul(groupedQ, transpose(groupedK, [0, 1, 2, 4, 3])), scale), mask, computeDType === 'bf16' ? -1e30 : -3.4028234663852886e38)
+        const probabilities = computeDType === 'bf16' ? cast(softmax(cast(scores, 'f32'), 4), 'bf16') : softmax(scores, 4)
+        const groupedOutput = matmul(probabilities, groupedV)
+        const attended = reshape(contiguous(transpose(reshape(groupedOutput, [1, heads, length, headWidth]), [0, 2, 1, 3])), [1, length, width])
         x = add(x, matmul(attended, matrix('attentionOutput', width, width)))
         const mlpInput = norm(x, w('feedForwardNorm', [width]), 2)
         const up = matmul(mlpInput, matrix('up', innerWidth, width))

@@ -1,0 +1,22 @@
+{
+  "suite": "apertus_grouped_attention_decode",
+  "device": "RTX 3090",
+  "checkpoint": "swiss-ai/Apertus-8B-2509, revision 3162c99675aa588097cecd4a24b9aa1f712af477",
+  "prompt": [1, 1784, 8961, 1307, 32265, 1395],
+  "cache_capacity": 320,
+  "generated_tokens": 16,
+  "cached_steps": 15,
+  "change": "reshape query heads into KV groups and broadcast K/V in batched matmul, eliminating two index_select head expansions per layer",
+  "baseline_cached_tokens_per_second": [10.17, 10.66],
+  "optimized_cached_tokens_per_second": [14.17, 14.24],
+  "optimized_step_ms": [
+    [2328.619875, 109.494618, 67.412454, 67.104762, 67.154698, 67.121545, 67.121914, 67.103682, 67.041874, 67.246511, 67.148575, 67.138242, 67.229989, 67.143887, 67.219937, 75.921666],
+    [2296.526867, 103.955924, 67.318545, 67.268797, 67.091135, 67.005259, 67.289450, 67.086385, 66.890773, 67.161343, 67.03104, 67.239727, 67.159009, 67.19181, 67.346607, 76.353224]
+  ],
+  "generated_ids_equal_to_baseline": true,
+  "full_prefix_bf16_logits_sha256": "c88a7ba1d0f7e28513414c1887d4b5f118a825364f6a6e052edac8e1ec077395",
+  "first_cached_bf16_logits_sha256": "381a29c7cd72d9f42ce76e4728bfa94ecbf0fa61fe2a745ca56b2fbc24bf6046",
+  "both_logit_rows_byte_equal_to_baseline": true,
+  "reference_tests": "4/4 Apertus fixture tests passed on local macOS; includes f32/BF16 full-prefix and fixed-cache decode parity against PyTorch fixtures",
+  "limitations": "CUDA timing used an isolated parity snapshot with uncommitted cuBLAS edits, not current Compute main. Baseline rates are from the previous full-program comparison, while paired recent baseline median cached step was 88.30 ms versus optimized steady steps near 67.16 ms."
+}
