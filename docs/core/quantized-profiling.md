@@ -10,7 +10,7 @@ comparison. The same native command-buffer timestamp interposer measures both
 engines. Full QMM is evaluated; construction, compilation and host conversion
 are excluded. Each child checks output values against an independent formula
 before warmup. Raw samples, ordering and binary/source hashes are saved in
-`test/benchmarks/results/quantized-matched-v4-m4.json`.
+`test/benchmark/results/quantized-matched-v4-m4.json`.
 
 | Engine | Median of round medians, ms | Round median range, ms | Relative MAD |
 | --- | --- | --- | --- |
@@ -81,7 +81,7 @@ compute core tests and the non-Metal FFI stub syntax check pass.
 ```sh
 python3 tools/benchmark-quantized-matched.py \
   --before /tmp/affon-qmm-v3 --rounds 5 --warmup-ms 2000 --samples 500 \
-  --output test/benchmarks/results/quantized-matched-v4-m4.json
+  --output test/benchmark/results/quantized-matched-v4-m4.json
 python3 tools/test-quantized-checkpoint.py /path/to/model.safetensors --matrix
 ```
 
@@ -128,7 +128,7 @@ are not claimed separately.
 
 Three complementary measurements are saved:
 
-- `test/benchmarks/quantized/profile-quantized.ts`: synchronous `Executable.run`, then host
+- `test/benchmark/quantized/profile-quantized.ts`: synchronous `Executable.run`, then host
   readback, then disposal, each timed separately. Native GPU timestamps are
   collected for these calls. The remaining run time includes validation,
   allocation, bridge/runtime work, driver encoding, queue/wait latency, and
@@ -226,12 +226,12 @@ There is no claim of competitive full-model TTS latency or audio quality.
 zig build install -Doptimize=ReleaseFast
 # Environment prepared earlier in /tmp/affon-mlx-bench:
 /tmp/affon-mlx-bench/bin/python tools/benchmark-quantized-mlx.py \
-  --output test/benchmarks/results/quantized-metal-profiled-vs-mlx-m4.json
+  --output test/benchmark/results/quantized-metal-profiled-vs-mlx-m4.json
 python3 tools/profile-quantized-timestamps.py --engine affon \
   --executable zig-out/bin/affon --output /tmp/affon-gpu.json
 python3 tools/profile-quantized-timestamps.py --engine mlx \
   --executable /tmp/affon-mlx-bench/bin/python --output /tmp/mlx-gpu.json
-./zig-out/bin/affon test/benchmarks/quantized/profile-quantized.ts
+./zig-out/bin/affon test/benchmark/quantized/profile-quantized.ts
 ```
 
 The timestamp profiler compiles a temporary dylib with xcrun/Clang and uses
@@ -240,7 +240,7 @@ Framecept, the checkpoint, or the system Metal framework. Benchmark dependencies
 are MLX 0.32.4 and NumPy 2.5.4 in an isolated temporary venv. The pre-change
 executable was retained at `/tmp/affon-quantized-before-profile` for controls.
 
-Artifacts under `test/benchmarks/results/`:
+Artifacts under `test/benchmark/results/`:
 
 - `quantized-host-phases-profile.json`: stage samples and native GPU observations.
 - `quantized-timestamps-before-profile.json`, `quantized-timestamps-affon-profile.json`,

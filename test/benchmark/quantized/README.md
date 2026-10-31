@@ -2,7 +2,7 @@
 
 These Affon scripts reproduce focused CPU and Metal measurements. They are
 diagnostic programs, separate from the parity catalogs and retained batch
-reports in `test/parity/` and `test/benchmarks/results/`.
+reports in `test/parity/` and `test/benchmark/results/`.
 
 | Script | Purpose |
 | --- | --- |
@@ -11,4 +11,4 @@ reports in `test/parity/` and `test/benchmarks/results/`.
 | `profile-quantized.ts` | Execution, readback, and disposal timing phases. |
 | `trace-quantized-metal.ts` | Detailed Metal timing samples for tracing. |
 
-Run them with `./zig-out/bin/affon test/benchmarks/quantized/<script>.ts`.
+Run them with `./zig-out/bin/affon test/benchmark/quantized/<script>.ts`.

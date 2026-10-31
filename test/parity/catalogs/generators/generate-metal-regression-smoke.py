@@ -24,7 +24,7 @@ IDS = (
 
 
 def main():
-    master = json.loads((ROOT / 'test/benchmarks/capability-probes.json').read_text())
+    master = json.loads((ROOT / 'test/benchmark/capability-probes.json').read_text())
     cases = {case['id']: case for case in master['cases']}
     missing = set(IDS) - cases.keys()
     if missing:

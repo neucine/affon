@@ -17,9 +17,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--affon', type=Path, default=root / 'zig-out/bin/affon')
     parser.add_argument('--affon-telemetry',choices=['on','off'],default='off')
-    parser.add_argument('--output', type=Path, default=root / 'test/benchmarks/results/quantized-metal-profiled-vs-mlx-m4.json')
+    parser.add_argument('--output', type=Path, default=root / 'test/benchmark/results/quantized-metal-profiled-vs-mlx-m4.json')
     args = parser.parse_args()
-    proc = subprocess.run([str(args.affon.resolve()), str(root / 'test/benchmarks/quantized/quantized-metal.ts')],
+    proc = subprocess.run([str(args.affon.resolve()), str(root / 'test/benchmark/quantized/quantized-metal.ts')],
                           text=True, capture_output=True, check=True,env=dict(os.environ,AFFON_QMM_TELEMETRY=args.affon_telemetry))
     affon = [json.loads(line) for line in proc.stdout.splitlines() if line.startswith('{')]
     assert len(affon) == 8, proc.stdout + proc.stderr

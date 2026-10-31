@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[4]
 
 
 def main():
-    master = json.loads((ROOT / 'test/benchmarks/capability-probes.json').read_text())
+    master = json.loads((ROOT / 'test/benchmark/capability-probes.json').read_text())
     known = {case['id']: case for case in master['cases']}
     ids = [f'metal/f32/{op}/{regime}' for op in ('variance_all', 'std_all')
            for regime in ('long_axis', 'strided/r64_c127')]

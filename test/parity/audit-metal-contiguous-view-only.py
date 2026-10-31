@@ -5,9 +5,9 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-LEDGER = ROOT / 'test/benchmarks/results/coverage-outcomes-current-mac-2026-10-29.json'
-PROBE = ROOT / 'test/benchmarks/results/parity-metal-remaining-runnable-audit-25-2026-10-31/capability.json'
-REPORT = ROOT / 'test/benchmarks/results/parity-metal-contiguous-view-only-audit-2026-10-31.json'
+LEDGER = ROOT / 'test/benchmark/results/coverage-outcomes-current-mac-2026-10-29.json'
+PROBE = ROOT / 'test/benchmark/results/parity-metal-remaining-runnable-audit-25-2026-10-31/capability.json'
+REPORT = ROOT / 'test/benchmark/results/parity-metal-contiguous-view-only-audit-2026-10-31.json'
 DEVICE = ROOT.parent / 'compute/src/backend/metal/device.zig'
 SHADER = ROOT.parent / 'compute/src/backend/metal/ffi.m'
 

@@ -5,8 +5,8 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-LEDGER = ROOT / 'test/benchmarks/results/coverage-outcomes-current-mac-2026-10-29.json'
-REPORT = ROOT / 'test/benchmarks/results/parity-metal-contract-exclusions-38-2026-10-31.json'
+LEDGER = ROOT / 'test/benchmark/results/coverage-outcomes-current-mac-2026-10-29.json'
+REPORT = ROOT / 'test/benchmark/results/parity-metal-contract-exclusions-38-2026-10-31.json'
 ABSTRACT = ROOT.parent / 'compute/src/program/abstract_eval.zig'
 SCHEMA = ROOT.parent / 'compute/src/program/schema.zig'
 

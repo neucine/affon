@@ -2,7 +2,7 @@
 
 A case list describes what to check. `run.py` saves numerical and timing
 results; `regression.py` compares two runs. The [case and result definitions](SCHEMA.md)
-explain every dimension and internal term. The [results index](../benchmarks/results/PARITY-INDEX.md)
+explain every dimension and internal term. The [results index](../benchmark/results/PARITY-INDEX.md)
 links saved runs and the report.
 
 - `catalogs/`: named case lists and their generators.
@@ -19,7 +19,7 @@ install PyTorch for that device. Use a fresh output directory for every run:
 zig build -Doptimize=ReleaseFast
 python3 test/parity/run.py \
   --catalog test/parity/catalogs/cuda-first-256.json \
-  --output-dir test/benchmarks/results/cuda-parity-run-YYYYMMDD \
+  --output-dir test/benchmark/results/cuda-parity-run-YYYYMMDD \
   --iterations 10 --samples 5 --rounds 3
 ```
 
@@ -63,7 +63,7 @@ selected catalog hashes.
 ```sh
 python3 test/parity/run.py \
   --catalog test/parity/catalogs/metal-regression-smoke.json \
-  --output-dir test/benchmarks/results/parity-metal-smoke-YYYYMMDD \
+  --output-dir test/benchmark/results/parity-metal-smoke-YYYYMMDD \
   --iterations 10 --samples 5 --rounds 3
 ```
 
@@ -83,9 +83,9 @@ or Program comparison now fails. It writes machine-readable JSON and Markdown:
 
 ```sh
 python3 test/parity/regression.py \
-  test/benchmarks/results/PREVIOUS-BATCH \
-  test/benchmarks/results/CURRENT-BATCH \
-  --output-dir test/benchmarks/results/REGRESSION-COMPARISON
+  test/benchmark/results/PREVIOUS-BATCH \
+  test/benchmark/results/CURRENT-BATCH \
+  --output-dir test/benchmark/results/REGRESSION-COMPARISON
 ```
 
 The comparison accepts a batch directory or `manifest.json` on either side.
@@ -105,5 +105,5 @@ operation. To include those cases in the aggregate coverage report, also add
 them to the planning files described in [the schema](SCHEMA.md).
 
 Catalog contracts, past failures, and reviewed reruns are documented in
-[catalog notes](catalogs/README.md). The [artifact index](../benchmarks/results/PARITY-INDEX.md)
+[catalog notes](catalogs/README.md). The [artifact index](../benchmark/results/PARITY-INDEX.md)
 links every catalog, generator, retained batch, and current report.

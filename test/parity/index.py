@@ -5,7 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 PARITY = ROOT / 'test/parity'
-RESULTS = ROOT / 'test/benchmarks/results'
+RESULTS = ROOT / 'test/benchmark/results'
 
 
 def catalog_rows():

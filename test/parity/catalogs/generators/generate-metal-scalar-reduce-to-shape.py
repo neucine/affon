@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[4]
 
 
 def main():
-    path = ROOT / 'test/benchmarks/capability-probes.json'
+    path = ROOT / 'test/benchmark/capability-probes.json'
     master = json.loads(path.read_text())
     case = {'id': 'metal/f32/reduce_to_shape/scalar', 'op': 'reduce_to_shape',
             'dtype': 'f32', 'shape': [3, 5], 'target_shape': []}

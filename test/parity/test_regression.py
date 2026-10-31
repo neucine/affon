@@ -67,7 +67,7 @@ class RegressionTest(unittest.TestCase):
 
     def test_curated_catalog_has_declared_complete_cells(self):
         catalog = json.loads((ROOT / 'test/parity/catalogs/metal-regression-smoke.json').read_text())
-        outcomes = json.loads((ROOT / 'test/benchmarks/results/coverage-outcomes-current-mac-2026-10-29.json').read_text())
+        outcomes = json.loads((ROOT / 'test/benchmark/results/coverage-outcomes-current-mac-2026-10-29.json').read_text())
         cells = catalog['cases']
         self.assertEqual(len(cells), 12)
         self.assertEqual(len({case['id'] for case in cells}), 12)

@@ -743,7 +743,7 @@ CUDA, rerun it into a fresh directory:
 zig build -Doptimize=ReleaseFast
 python3 test/parity/run.py \
   --catalog test/parity/catalogs/cuda-first-256.json \
-  --output-dir test/benchmarks/results/cuda-rerun-YYYYMMDD \
+  --output-dir test/benchmark/results/cuda-rerun-YYYYMMDD \
   --iterations 10 --samples 5 --rounds 3
 ```
 
