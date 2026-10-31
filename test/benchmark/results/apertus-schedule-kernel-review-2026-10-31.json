@@ -1,0 +1,46 @@
+{
+  "suite": "apertus_matched_decode_schedule_kernel_review",
+  "device": "RTX 3090",
+  "checkpoint_revision": "3162c99675aa588097cecd4a24b9aa1f712af477",
+  "prompt": [1, 1784, 8961, 1307, 32265, 1395],
+  "generated_tokens": 16,
+  "peer_protocol": "fixed 320-position cache, functional full-cache update, full BF16 logit row copied to CPU, CPU argmax, eager attention for PyTorch",
+  "affon": {
+    "trace_sha256": "84951bdb177807440e70c18be83b518ac1c7e32685c960b36ba5e569f3467e57",
+    "binary_sha256": "a7016a051fc45cdb985aa05b4c27060cb979a41c6f1087266ecdf1a49ed78bca",
+    "kernels_per_cached_step": 6705,
+    "median_gpu_kernel_ms": 35.361,
+    "median_first_to_last_kernel_ms": 40.157,
+    "median_between_kernel_ms": 4.795,
+    "median_cuda_launch_api_ms": 23.760,
+    "median_cuda_launch_api_calls": 6704,
+    "phase_profile_steady_step_medians_ms": {
+      "total": 65.284,
+      "program_run": 51.323,
+      "full_logit_readback": 1.884,
+      "javascript_argmax": 6.229,
+      "old_cache_release": 5.295,
+      "other": 0.526
+    }
+  },
+  "pytorch_functional_eager": {
+    "trace_sha256": "d0e83b7fbf21058719300ab059da9e739f0181d288d66a51bb521c103d112d2c",
+    "kernels_per_cached_step": 2559,
+    "median_gpu_kernel_ms": 23.904,
+    "median_first_to_last_kernel_ms": 26.370,
+    "median_between_kernel_ms": 2.469,
+    "median_cuda_launch_api_ms": 4.908,
+    "median_cuda_launch_api_calls": 2558
+  },
+  "kernel_families_per_step_ms": {
+    "affon_main_bf16_gemm": 13.658,
+    "pytorch_main_bf16_gemm": 13.726,
+    "affon_reduce_all8_f32_parallel": 3.791,
+    "pytorch_reduce_kernel": 0.377,
+    "affon_softmax8_f32": 0.862,
+    "pytorch_softmax_warp_forward": 0.112
+  },
+  "change_from_previous_affon_trace": "Grouped attention removed exactly 64 index-select kernels per cached step, from 6769 to 6705; kernel time fell from 43.96 to 35.36 ms. Nsight spans are affected by tracing overhead and are not serving latency.",
+  "method": "Nsight Systems CUDA SQLite activity; the final 15 cached windows each had an identical kernel-name sequence. Per-step kernel work sums kernel durations; between-kernel time is first-to-last span minus union of kernel intervals. CUDA launch API time is CPU call duration and overlaps GPU work. Affon host phase medians come from a separate run with temporary timers around executable.run, logits.to_array, finite_argmax, and old-cache disposal, using cached steps 3 through 15.",
+  "limitations": "Affon uses an isolated CUDA snapshot with cuBLAS edits outside committed Compute main. Instrumented phase timings and Nsight timings come from separate runs; do not add them together. Kernel names are different between frameworks and do not establish one-to-one operator equivalence."
+}
