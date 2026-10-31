@@ -209,7 +209,7 @@ unreachable PC reports blocked evidence without inventing CUDA results.
 
 `test/benchmark/model-coverage.json`, `tools/model-coverage.py`,
 `tools/compare-model-performance.py`, and `tools/normalize-model-performance.py`
-are initial registry, gate, and adapter pieces. `apps/hf-inference/benchmarks`
+are initial registry, gate, and adapter pieces. `apps/hf-inference/benchmark`
 contains model runners and peer prototypes. `../compute/benchmarks` has
 operator evidence schemas, repeatability work, and baseline examples. None of
 these yet implements the complete contract above, and current Metal model peer

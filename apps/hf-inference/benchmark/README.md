@@ -4,7 +4,7 @@ Run from the repository root with a ReleaseFast Affon build and verified cached
 DistilGPT-2/ViT snapshots:
 
 ```sh
-python3 apps/hf-inference/benchmarks/run.py \
+python3 apps/hf-inference/benchmark/run.py \
   --affon /tmp/affon-hf-release/bin/affon \
   --cache /tmp/affon-hub-cache \
   --output /tmp/affon-bench-results \
@@ -15,7 +15,7 @@ To run the matched PyTorch peer gate on a stable Apple machine, use a Python
 environment with PyTorch and Transformers plus the same offline cache:
 
 ```sh
-python3 apps/hf-inference/benchmarks/run.py \
+python3 apps/hf-inference/benchmark/run.py \
   --affon /tmp/affon-hf-release/bin/affon \
   --cache /tmp/affon-hub-cache --output /tmp/affon-model-gate \
   --build-profile ReleaseFast --iterations 5 --devices metal \
