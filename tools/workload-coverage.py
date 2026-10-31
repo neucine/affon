@@ -49,7 +49,7 @@ def inventory(manifest):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--manifest", type=Path, default=ROOT / "benchmarks/workload-coverage.json")
+    parser.add_argument("--manifest", type=Path, default=ROOT / "test/benchmarks/workload-coverage.json")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     result = inventory(json.loads(args.manifest.read_text()))

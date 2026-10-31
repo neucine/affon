@@ -172,8 +172,8 @@ def main():
     spec = importlib.util.spec_from_file_location("coverage_matrix", ROOT / "tools/coverage-matrix.py")
     matrix = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(matrix)
-    policy = json.loads((ROOT / "benchmarks/coverage-policy.json").read_text())
-    diagnostics = json.loads((ROOT / "benchmarks/workload-coverage.json").read_text())
+    policy = json.loads((ROOT / "test/benchmarks/coverage-policy.json").read_text())
+    diagnostics = json.loads((ROOT / "test/benchmarks/workload-coverage.json").read_text())
     known_ids = {row["id"] for row in matrix.build(policy, diagnostics)["cells"]}
     outcomes = {}
     for path in args.probe:

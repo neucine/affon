@@ -7,8 +7,8 @@ ROOT = Path(__file__).resolve().parents[4]
 
 
 def main():
-    master_path = ROOT / 'benchmarks/capability-probes.json'
-    policy_path = ROOT / 'benchmarks/coverage-policy.json'
+    master_path = ROOT / 'test/benchmarks/capability-probes.json'
+    policy_path = ROOT / 'test/benchmarks/coverage-policy.json'
     master = json.loads(master_path.read_text())
     policy = json.loads(policy_path.read_text())
     known = {case['id'] for case in master['cases']}

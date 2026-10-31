@@ -39,7 +39,7 @@ def operation_family(operation, regime_group=None):
 
 
 def families():
-    policy = json.loads((ROOT / 'benchmarks/coverage-policy.json').read_text())
+    policy = json.loads((ROOT / 'test/benchmarks/coverage-policy.json').read_text())
     return {operation: operation_family(operation, group)
             for operation, group in policy['op_regime'].items()}
 

@@ -13,10 +13,10 @@ def main():
     spec = importlib.util.spec_from_file_location('coverage_matrix', ROOT / 'tools/coverage-matrix.py')
     matrix = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(matrix)
-    policy = json.loads((ROOT / 'benchmarks/coverage-policy.json').read_text())
-    diagnostics = json.loads((ROOT / 'benchmarks/workload-coverage.json').read_text())
-    outcomes = json.loads((ROOT / 'benchmarks/results/coverage-outcomes-current-mac-2026-10-29.json').read_text())
-    master_path = ROOT / 'benchmarks/capability-probes.json'
+    policy = json.loads((ROOT / 'test/benchmarks/coverage-policy.json').read_text())
+    diagnostics = json.loads((ROOT / 'test/benchmarks/workload-coverage.json').read_text())
+    outcomes = json.loads((ROOT / 'test/benchmarks/results/coverage-outcomes-current-mac-2026-10-29.json').read_text())
+    master_path = ROOT / 'test/benchmarks/capability-probes.json'
     master = json.loads(master_path.read_text())
     by_id = {case['id']: case for case in master['cases']}
     output = Path(__file__).resolve().parent.parent / 'metal-unknown-canonical-audit.json'

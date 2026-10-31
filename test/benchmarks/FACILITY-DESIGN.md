@@ -207,7 +207,7 @@ unreachable PC reports blocked evidence without inventing CUDA results.
 
 ## Current repository mapping
 
-`benchmarks/model-coverage.json`, `tools/model-coverage.py`,
+`test/benchmarks/model-coverage.json`, `tools/model-coverage.py`,
 `tools/compare-model-performance.py`, and `tools/normalize-model-performance.py`
 are initial registry, gate, and adapter pieces. `apps/hf-inference/benchmarks`
 contains model runners and peer prototypes. `../compute/benchmarks` has

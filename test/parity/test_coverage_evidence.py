@@ -168,7 +168,7 @@ class CoverageEvidenceTest(unittest.TestCase):
 
     def test_historical_report_remains_diagnostic(self):
         with self.assertRaisesRegex(ValueError, "diagnostic only"):
-            evidence.import_benchmark(ROOT / "benchmarks/results/model-gpt2-metal-m4-2026-10-18.json", {})
+            evidence.import_benchmark(ROOT / "test/benchmarks/results/model-gpt2-metal-m4-2026-10-18.json", {})
 
 
 if __name__ == "__main__":

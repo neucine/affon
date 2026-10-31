@@ -15,8 +15,8 @@ class CapabilityProbeTest(unittest.TestCase):
     def test_cuda_batch_catalog_matches_retained_probe(self):
         path = ROOT / "test/parity/catalogs/cuda-first-256.json"
         batch = json.loads(path.read_text())
-        full = json.loads((ROOT / "benchmarks/capability-probes.json").read_text())
-        report = json.loads((ROOT / "benchmarks/results/coverage-capability-cuda-first-2026-10-31.json").read_text())
+        full = json.loads((ROOT / "test/benchmarks/capability-probes.json").read_text())
+        report = json.loads((ROOT / "test/benchmarks/results/coverage-capability-cuda-first-2026-10-31.json").read_text())
         self.assertEqual(len(batch["cases"]), 256)
         self.assertEqual([case["id"] for case in batch["cases"]],
                          [case["id"] for case in report["cases"]])
@@ -25,7 +25,7 @@ class CapabilityProbeTest(unittest.TestCase):
         self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), report["catalog_sha256"])
 
     def test_catalog_cells_are_unique_and_reference_formula_is_independent(self):
-        catalog = json.loads((ROOT / "benchmarks/capability-probes.json").read_text())
+        catalog = json.loads((ROOT / "test/benchmarks/capability-probes.json").read_text())
         cases = probes.validate_catalog(catalog, {case["id"] for case in catalog["cases"]})
         self.assertGreaterEqual(len(cases), 8227)
         dot = next(case for case in cases if case["id"] == "metal/f32/dot/dot_or_vector/n2")

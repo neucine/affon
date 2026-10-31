@@ -35,4 +35,4 @@ A check status is an **outcome**, not a case dimension. Run outcomes include pas
 
 ## Internal coverage inputs
 
-`benchmarks/coverage-policy.json` expands the operation vocabulary into planned cells. It defines what to cover, not what passed. `benchmarks/capability-probes.json` is the historical master case list. `coverage-outcomes-current-*.json` links reviewed raw results into the coverage report with file hashes. These inputs are needed for aggregate reporting; a named case list is sufficient to run parity checks.
+`test/benchmarks/coverage-policy.json` expands the operation vocabulary into planned cells. It defines what to cover, not what passed. `test/benchmarks/capability-probes.json` is the historical master case list. `coverage-outcomes-current-*.json` links reviewed raw results into the coverage report with file hashes. These inputs are needed for aggregate reporting; a named case list is sufficient to run parity checks.

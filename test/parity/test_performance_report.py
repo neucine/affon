@@ -36,7 +36,7 @@ class PerformanceReportTest(unittest.TestCase):
                 report.validate_measured_links(matrix, cases, {cases[0]["id"]: other}, "operator_peer")
 
     def test_summary_must_match_raw_rounds(self):
-        base = ROOT / "benchmarks/results"
+        base = ROOT / "test/benchmarks/results"
         summary = json.loads((base / "cell-peer-current-summary-mac-2026-10-29.json").read_text())
         raw = base / "cell-peer-current-mac-2026-10-29"
         report.validate_summary(summary, raw, "operator_peer")
@@ -45,7 +45,7 @@ class PerformanceReportTest(unittest.TestCase):
             report.validate_summary(summary, raw, "operator_peer")
 
     def test_gpu_sessions_show_between_session_drift(self):
-        paths = [ROOT / f"benchmarks/results/cell-gpu-variability-session-{name}-mac-2026-10-29.json"
+        paths = [ROOT / f"test/benchmarks/results/cell-gpu-variability-session-{name}-mac-2026-10-29.json"
                  for name in ("a", "b")]
         profiles = [json.loads(path.read_text()) for path in paths]
         matrix = {"suite": "affon_coverage_matrix", "summary": {"cells": 0,
@@ -81,8 +81,8 @@ class PerformanceReportTest(unittest.TestCase):
             self.assertEqual(result["evidence"][3]["label"], "Is a regression reference ready?")
 
     def test_saved_html_mounts_and_filters_from_file_url(self):
-        html = ROOT / "benchmarks/results/performance-report.html"
-        results = ROOT / "benchmarks/results"
+        html = ROOT / "test/benchmarks/results/performance-report.html"
+        results = ROOT / "test/benchmarks/results"
         operator_count = len(json.loads((results / "cell-peer-current-summary-mac-2026-10-29.json").read_text())["cases"])
         program_count = len(json.loads((results / "cell-program-peer-summary-mac-2026-10-29.json").read_text())["cases"])
         outcomes = json.loads((results / "coverage-outcomes-current-mac-2026-10-29.json").read_text())

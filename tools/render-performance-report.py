@@ -224,7 +224,7 @@ def render(payload, output, weiv=WEIV):
         raise FileNotFoundError(f"Weiv CLI missing: {weiv}")
     with tempfile.TemporaryDirectory(prefix="affon-weiv-report-") as folder:
         build = Path(folder)
-        subprocess.run([str(weiv), "compile", str(ROOT / "benchmarks/report/App.weiv"), str(build)], check=True)
+        subprocess.run([str(weiv), "compile", str(ROOT / "test/benchmarks/report/App.weiv"), str(build)], check=True)
         bundle = build / "report.mjs"
         subprocess.run(["bun", "build", str(build / "main.mjs"), "--target", "browser", "--format", "iife", "--outfile", str(bundle)],
                        check=True, capture_output=True, text=True)
@@ -243,33 +243,33 @@ def render(payload, output, weiv=WEIV):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--outcomes", type=Path,
-                        default=ROOT / "benchmarks/results/coverage-outcomes-current-mac-2026-10-29.json",
+                        default=ROOT / "test/benchmarks/results/coverage-outcomes-current-mac-2026-10-29.json",
                         help="Coverage outcomes JSON; matrix is generated from current policy")
-    parser.add_argument("--summary", type=Path, default=ROOT / "benchmarks/results/cell-peer-current-summary-mac-2026-10-29.json")
-    parser.add_argument("--raw-dir", type=Path, default=ROOT / "benchmarks/results/cell-peer-current-mac-2026-10-29")
-    parser.add_argument("--program-summary", type=Path, default=ROOT / "benchmarks/results/cell-program-peer-summary-mac-2026-10-29.json")
-    parser.add_argument("--program-raw-dir", type=Path, default=ROOT / "benchmarks/results/cell-program-peer-mac-2026-10-29")
+    parser.add_argument("--summary", type=Path, default=ROOT / "test/benchmarks/results/cell-peer-current-summary-mac-2026-10-29.json")
+    parser.add_argument("--raw-dir", type=Path, default=ROOT / "test/benchmarks/results/cell-peer-current-mac-2026-10-29")
+    parser.add_argument("--program-summary", type=Path, default=ROOT / "test/benchmarks/results/cell-program-peer-summary-mac-2026-10-29.json")
+    parser.add_argument("--program-raw-dir", type=Path, default=ROOT / "test/benchmarks/results/cell-program-peer-mac-2026-10-29")
     parser.add_argument("--baseline-calibrations", type=Path, action="append", default=[
-        ROOT / "benchmarks/results/cell-baseline-calibration-mac-2026-10-29",
-        ROOT / "benchmarks/results/cell-baseline-calibration-long-mac-2026-10-29",
-        ROOT / "benchmarks/results/cell-baseline-phase-mac-2026-10-29",
-        ROOT / "benchmarks/results/cell-baseline-session-a-mac-2026-10-29",
-        ROOT / "benchmarks/results/cell-baseline-session-b-mac-2026-10-29"])
+        ROOT / "test/benchmarks/results/cell-baseline-calibration-mac-2026-10-29",
+        ROOT / "test/benchmarks/results/cell-baseline-calibration-long-mac-2026-10-29",
+        ROOT / "test/benchmarks/results/cell-baseline-phase-mac-2026-10-29",
+        ROOT / "test/benchmarks/results/cell-baseline-session-a-mac-2026-10-29",
+        ROOT / "test/benchmarks/results/cell-baseline-session-b-mac-2026-10-29"])
     parser.add_argument("--baseline-evaluations", type=Path,
-                        default=ROOT / "benchmarks/results/cell-baseline-evaluations-mac-2026-10-29")
+                        default=ROOT / "test/benchmarks/results/cell-baseline-evaluations-mac-2026-10-29")
     parser.add_argument("--gpu-variability", type=Path, action="append", default=None,
                         help="Session JSON; repeat for each comparable session")
     parser.add_argument("--gpu-investigation", type=Path, action="append", default=None)
     parser.add_argument("--paired-gpu", type=Path,
-                        default=ROOT / "benchmarks/results/paired-gpu-diagnostic-mac-2026-10-30.json")
-    parser.add_argument("--boundaries", type=Path, default=ROOT / "benchmarks/results/dispatch-boundaries-mac-2026-10-29.json")
-    parser.add_argument("--output", type=Path, default=ROOT / "benchmarks/results/performance-report.html")
+                        default=ROOT / "test/benchmarks/results/paired-gpu-diagnostic-mac-2026-10-30.json")
+    parser.add_argument("--boundaries", type=Path, default=ROOT / "test/benchmarks/results/dispatch-boundaries-mac-2026-10-29.json")
+    parser.add_argument("--output", type=Path, default=ROOT / "test/benchmarks/results/performance-report.html")
     args = parser.parse_args()
     spec = importlib.util.spec_from_file_location("coverage_matrix", ROOT / "tools/coverage-matrix.py")
     matrix_module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(matrix_module)
-    policy = json.loads((ROOT / "benchmarks/coverage-policy.json").read_text())
-    diagnostics = json.loads((ROOT / "benchmarks/workload-coverage.json").read_text())
+    policy = json.loads((ROOT / "test/benchmarks/coverage-policy.json").read_text())
+    diagnostics = json.loads((ROOT / "test/benchmarks/workload-coverage.json").read_text())
     outcomes = json.loads(args.outcomes.read_text())
     validate_evidence_artifacts(outcomes)
     matrix = matrix_module.build(policy, diagnostics, outcomes)
@@ -281,12 +281,12 @@ def main():
     validate_summary(summary, args.raw_dir, "operator_peer")
     if program_summary is not None:
         validate_summary(program_summary, args.program_raw_dir, "program_peer")
-    gpu_paths = args.gpu_variability or [ROOT / "benchmarks/results/cell-gpu-variability-session-a-mac-2026-10-29.json",
-                                          ROOT / "benchmarks/results/cell-gpu-variability-session-b-mac-2026-10-29.json"]
+    gpu_paths = args.gpu_variability or [ROOT / "test/benchmarks/results/cell-gpu-variability-session-a-mac-2026-10-29.json",
+                                          ROOT / "test/benchmarks/results/cell-gpu-variability-session-b-mac-2026-10-29.json"]
     gpu_profiles = [json.loads(path.read_text()) for path in gpu_paths] if all(path.is_file() for path in gpu_paths) else None
     if args.gpu_variability and gpu_profiles is None:
         raise FileNotFoundError("explicit GPU variability session missing")
-    investigation_paths = args.gpu_investigation or [ROOT / f"benchmarks/results/cell-gpu-variability-investigation-{index}-mac-2026-10-29.json"
+    investigation_paths = args.gpu_investigation or [ROOT / f"test/benchmarks/results/cell-gpu-variability-investigation-{index}-mac-2026-10-29.json"
                                                     for index in (1, 2, 3)]
     investigations = [json.loads(path.read_text()) for path in investigation_paths] if all(path.is_file() for path in investigation_paths) else None
     if args.gpu_investigation and investigations is None:

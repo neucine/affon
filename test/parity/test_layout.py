@@ -23,7 +23,7 @@ class ParityLayoutTest(unittest.TestCase):
         spec = importlib.util.spec_from_file_location('parity_index', PARITY / 'index.py')
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        index = (ROOT / 'benchmarks/results/PARITY-INDEX.md').read_text()
+        index = (ROOT / 'test/benchmarks/results/PARITY-INDEX.md').read_text()
         self.assertEqual(index, module.render())
         self.assertEqual(len(module.catalog_rows()), len(list((PARITY / 'catalogs').glob('*.json'))))
         for batch, count, complete in module.batch_rows():

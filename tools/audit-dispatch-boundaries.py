@@ -58,7 +58,7 @@ def audit(manifest, binary, run_one):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--manifest", type=Path, default=ROOT / "benchmarks/dispatch-boundaries.json")
+    parser.add_argument("--manifest", type=Path, default=ROOT / "test/benchmarks/dispatch-boundaries.json")
     parser.add_argument("--binary", type=Path, default=ROOT / "zig-out/bin/affon")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()

@@ -12,8 +12,8 @@ spec.loader.exec_module(matrix)
 
 class CoverageMatrixTest(unittest.TestCase):
     def setUp(self):
-        self.policy = json.loads((ROOT / "benchmarks/coverage-policy.json").read_text())
-        self.diagnostics = json.loads((ROOT / "benchmarks/workload-coverage.json").read_text())
+        self.policy = json.loads((ROOT / "test/benchmarks/coverage-policy.json").read_text())
+        self.diagnostics = json.loads((ROOT / "test/benchmarks/workload-coverage.json").read_text())
 
     def test_canonical_vocabulary_is_exhaustively_expanded(self):
         report = matrix.build(self.policy, self.diagnostics)

@@ -113,7 +113,7 @@ def evaluate(reg, evidence_dir, target_group):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--registry", type=Path, default=Path(__file__).resolve().parents[1] / "benchmarks/model-coverage.json")
+    p.add_argument("--registry", type=Path, default=Path(__file__).resolve().parents[1] / "test/benchmarks/model-coverage.json")
     p.add_argument("--evidence-dir", type=Path, required=True)
     p.add_argument("--target-group", choices=["mac", "cuda-pc"], required=True)
     p.add_argument("--output", type=Path)

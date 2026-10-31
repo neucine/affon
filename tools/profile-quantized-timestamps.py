@@ -28,7 +28,7 @@ def main():
         subprocess.run(['xcrun','clang','-dynamiclib','-O2','-fobjc-arc','-framework','Foundation','-framework','Metal',
                         str(root/'tools/metal-command-timestamps.m'),'-o',str(lib)],check=True)
         env=dict(os.environ,AFFON_GPU_PROFILE_PATH=str(data),DYLD_INSERT_LIBRARIES=str(lib),AFFON_QMM_WARMUP_MS=str(args.warmup_ms),AFFON_QMM_SAMPLES=str(args.samples),AFFON_QMM_M128_ONLY='1' if args.m128_only else '0')
-        script=root/('benchmarks/trace-quantized-metal.ts' if args.engine=='affon' else 'tools/trace-mlx-quantized.py')
+        script=root/('test/benchmarks/trace-quantized-metal.ts' if args.engine=='affon' else 'tools/trace-mlx-quantized.py')
         subprocess.run([str(args.executable.absolute()),str(script)],env=env,check=True)
         events=sorted((json.loads(line) for line in data.read_text().splitlines()),key=lambda e:e['commit_ns'])
         groups=[]

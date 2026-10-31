@@ -20,7 +20,7 @@ def main():
     p.add_argument('--output', type=Path, required=True)
     p.add_argument('--mlx-slice-inside', action='store_true', help='Diagnostic: reproduce the old compiled scalar-slice benchmark')
     args = p.parse_args()
-    script = root / ('benchmarks/trace-quantized-metal.ts' if args.engine == 'affon' else 'tools/trace-mlx-quantized.py')
+    script = root / ('test/benchmarks/trace-quantized-metal.ts' if args.engine == 'affon' else 'tools/trace-mlx-quantized.py')
     with tempfile.TemporaryDirectory(prefix='affon-gpu-profile-') as folder:
         directory = Path(folder)
         trace, toc, data = (directory / name for name in ['capture.trace', 'toc.xml', 'gpu.xml'])

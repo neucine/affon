@@ -224,7 +224,7 @@ audio quality and latency remain adapter/application validation tasks.
 
 ## Benchmark protocol
 
-`benchmarks/quantized-matmul.ts` constructs resident synthetic 8-bit weights for
+`test/benchmarks/quantized-matmul.ts` constructs resident synthetic 8-bit weights for
 N=2048, K=1024, group_size=64, and M=1 or 8. It compiles once, warms three runs,
 and measures five samples of ten runs on CPU and Metal. Each run includes
 output readback as a completion boundary, output allocation, and JS invocation
@@ -235,7 +235,7 @@ measurements.
 
 ```sh
 zig build install -Doptimize=ReleaseFast
-./zig-out/bin/affon benchmarks/quantized-matmul.ts
+./zig-out/bin/affon test/benchmarks/quantized-matmul.ts
 ```
 
 Initial measurements on Apple M4 (10 CPU cores, 16 GB), macOS 26.6.2,
@@ -249,7 +249,7 @@ Zig 0.16.0 ReleaseFast, with synchronization/readback included:
 These are baseline measurements, not an MLX comparison. The serial K loop and
 small output grid limit the current Metal kernel, especially at M=1. Full
 samples and source revisions are saved in
-`benchmarks/results/quantized-matmul-m4-baseline.json`.
+`test/benchmarks/results/quantized-matmul-m4-baseline.json`.
 
 Before claiming competitive performance, compare against resident dense F32
 matmul and MLX quantized_matmul at M=1/8/32/128, actual model projection sizes,
@@ -281,7 +281,7 @@ clearly; full dequantization should require an explicit caller choice.
 These measurements predate the profiling changes. See [Quantized inference profiling](./quantized-profiling.md) for the current matched GPU/host breakdown and benchmark results.
 
 The repeatable harness is `tools/benchmark-quantized-mlx.py`, using
-`benchmarks/quantized-metal.ts`. It compares resident synthetic weights with
+`test/benchmarks/quantized-metal.ts`. It compares resident synthetic weights with
 identical packing and values, N=2048, K=1024, group_size=64, 4/8 bits,
 F32 inputs, BF16 parameters, and F32 outputs. Affon uses Zig 0.16.0 ReleaseFast;
 MLX is 0.32.4 on Python 3.13. Affon and MLX run sequentially. Input generation,
@@ -320,7 +320,7 @@ fewer warmups/iterations and lacked GPU timing; treat that as a historical
 baseline, not a controlled speedup experiment. The current matched comparison
 shows MLX ahead by about 1.5–4.0× on scalar completion across these sizes.
 Full samples, candidate IDs, explanations, environment, and 4-bit results are
-saved in `benchmarks/results/quantized-metal-vs-mlx-m4.json`.
+saved in `test/benchmarks/results/quantized-metal-vs-mlx-m4.json`.
 
 ```sh
 python3 -m venv /tmp/affon-mlx-bench

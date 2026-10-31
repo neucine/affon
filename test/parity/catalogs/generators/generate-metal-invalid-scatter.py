@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[4]
 
 
 def main():
-    path = ROOT / 'benchmarks/capability-probes.json'
+    path = ROOT / 'test/benchmarks/capability-probes.json'
     master = json.loads(path.read_text())
     known = {row['id'] for row in master['cases']}
     cases = []

@@ -120,8 +120,8 @@ def make_row(case_id, group, outcomes, policy, related, backend, dtype, op, vari
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--policy", type=Path, default=ROOT / "benchmarks/coverage-policy.json")
-    parser.add_argument("--diagnostics", type=Path, default=ROOT / "benchmarks/workload-coverage.json")
+    parser.add_argument("--policy", type=Path, default=ROOT / "test/benchmarks/coverage-policy.json")
+    parser.add_argument("--diagnostics", type=Path, default=ROOT / "test/benchmarks/workload-coverage.json")
     parser.add_argument("--outcomes", type=Path, help="Reviewed per-cell capability and evidence decisions")
     parser.add_argument("--backend", choices=["cpu", "metal", "cuda"])
     parser.add_argument("--dtype", choices=["bf16", "f32", "f64", "u32", "i64"])

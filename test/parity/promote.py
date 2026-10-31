@@ -7,7 +7,7 @@ from pathlib import Path
 import shutil
 
 ROOT = Path(__file__).resolve().parents[2]
-RESULTS = ROOT / 'benchmarks/results'
+RESULTS = ROOT / 'test/benchmarks/results'
 
 
 def importer():

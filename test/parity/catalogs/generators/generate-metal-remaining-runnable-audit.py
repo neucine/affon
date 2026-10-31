@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[4]
 
 
 def main():
-    master_path = ROOT / 'benchmarks/capability-probes.json'
+    master_path = ROOT / 'test/benchmarks/capability-probes.json'
     master = json.loads(master_path.read_text())
     known = {case['id']: case for case in master['cases']}
     ids = ['metal/bf16/contiguous/view_only', 'metal/f32/contiguous/view_only']

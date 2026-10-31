@@ -7,8 +7,8 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
-LEDGER = ROOT / 'benchmarks/results/coverage-outcomes-current-mac-2026-10-29.json'
-REPORT = ROOT / 'benchmarks/results/parity-metal-invalid-boundaries-2026-10-31.json'
+LEDGER = ROOT / 'test/benchmarks/results/coverage-outcomes-current-mac-2026-10-29.json'
+REPORT = ROOT / 'test/benchmarks/results/parity-metal-invalid-boundaries-2026-10-31.json'
 WORKER = ROOT / 'test/parity/invalid-index-boundary.ts'
 AFFON = ROOT / 'zig-out/bin/affon'
 PROGRAM = ROOT / 'src/js/compute/program.ts'
@@ -73,7 +73,7 @@ def main():
                                 for path in (WORKER, PROGRAM, METAL)},
               'peer_engine': 'pytorch', 'peer_version': torch.__version__,
               'affon': affon, 'peer': peer, 'decisions': decisions,
-              'f32_scatter_parity_run': str((ROOT / 'benchmarks/results/parity-metal-invalid-scatter-2-2026-10-31').resolve())}
+              'f32_scatter_parity_run': str((ROOT / 'test/benchmarks/results/parity-metal-invalid-scatter-2-2026-10-31').resolve())}
     LEDGER.write_text(json.dumps(ledger, indent=2) + '\n')
     REPORT.write_text(json.dumps(report, indent=2) + '\n')
     print(f'{len(decisions)} unsupported boundaries in {REPORT}')

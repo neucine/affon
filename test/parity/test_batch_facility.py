@@ -20,8 +20,8 @@ def load(name):
 
 class BatchFacilityTest(unittest.TestCase):
     def test_contiguous_view_only_audit_tracks_materializing_path(self):
-        audit = json.loads((ROOT / 'benchmarks/results/parity-metal-contiguous-view-only-audit-2026-10-31.json').read_text())
-        ledger = json.loads((ROOT / 'benchmarks/results/coverage-outcomes-current-mac-2026-10-29.json').read_text())
+        audit = json.loads((ROOT / 'test/benchmarks/results/parity-metal-contiguous-view-only-audit-2026-10-31.json').read_text())
+        ledger = json.loads((ROOT / 'test/benchmarks/results/coverage-outcomes-current-mac-2026-10-29.json').read_text())
         self.assertEqual(len(audit['decisions']), 2)
         for cell, decision in audit['decisions'].items():
             self.assertEqual(ledger[cell], decision)
@@ -32,8 +32,8 @@ class BatchFacilityTest(unittest.TestCase):
         self.assertEqual(hashlib.sha256(probe.read_bytes()).hexdigest(), audit['probe_sha256'])
 
     def test_stat_boundary_review_retains_failures_and_complete_rerun(self):
-        original = ROOT / 'benchmarks/results/parity-metal-stat-boundaries-256-2026-10-31'
-        reviewed = ROOT / 'benchmarks/results/parity-metal-stat-peer-reviewed-4-2026-10-31'
+        original = ROOT / 'test/benchmarks/results/parity-metal-stat-boundaries-256-2026-10-31'
+        reviewed = ROOT / 'test/benchmarks/results/parity-metal-stat-peer-reviewed-4-2026-10-31'
         rows = json.loads((original / 'manifest.json').read_text())['cells']
         failed = {row['id'] for row in rows if row['operator_peer'] != 'passed' or
                   row['program_peer'] != 'passed'}
@@ -50,14 +50,14 @@ class BatchFacilityTest(unittest.TestCase):
                 self.assertTrue(report['correctness']['passed'])
                 self.assertEqual(len(report['affon_samples_ms']), 6)
                 self.assertEqual(len(report['peer_samples_ms']), 6)
-        ledger = json.loads((ROOT / 'benchmarks/results/coverage-outcomes-current-mac-2026-10-29.json').read_text())
+        ledger = json.loads((ROOT / 'test/benchmarks/results/coverage-outcomes-current-mac-2026-10-29.json').read_text())
         self.assertTrue(all(ledger[cell]['support'] == 'supported' for cell in failed))
 
     def test_scalar_reduce_and_invalid_scatter_keep_parity_and_boundaries(self):
-        ledger = json.loads((ROOT / 'benchmarks/results/coverage-outcomes-current-mac-2026-10-29.json').read_text())
+        ledger = json.loads((ROOT / 'test/benchmarks/results/coverage-outcomes-current-mac-2026-10-29.json').read_text())
         for name, passing in (('parity-metal-scalar-reduce-to-shape-2026-10-31', 1),
                               ('parity-metal-invalid-scatter-2-2026-10-31', 1)):
-            root = ROOT / 'benchmarks/results' / name
+            root = ROOT / 'test/benchmarks/results' / name
             rows = json.loads((root / 'manifest.json').read_text())['cells']
             self.assertEqual(sum(row['probe_status'] == 'correct' for row in rows), passing)
             for row in rows:
@@ -71,7 +71,7 @@ class BatchFacilityTest(unittest.TestCase):
                     self.assertTrue(report['correctness']['passed'])
                     self.assertEqual(len(report['affon_samples_ms']), 15)
                     self.assertEqual(len(report['peer_samples_ms']), 15)
-        audit = json.loads((ROOT / 'benchmarks/results/parity-metal-invalid-boundaries-2026-10-31.json').read_text())
+        audit = json.loads((ROOT / 'test/benchmarks/results/parity-metal-invalid-boundaries-2026-10-31.json').read_text())
         self.assertEqual(len(audit['decisions']), 3)
         for cell, decision in audit['decisions'].items():
             self.assertEqual(ledger[cell], decision)
@@ -81,7 +81,7 @@ class BatchFacilityTest(unittest.TestCase):
             self.assertEqual(hashlib.sha256(Path(path).read_bytes()).hexdigest(), digest)
 
     def test_remaining_runnable_audit_retains_failures_and_selected_paths(self):
-        root = ROOT / 'benchmarks/results/parity-metal-remaining-runnable-audit-25-2026-10-31'
+        root = ROOT / 'test/benchmarks/results/parity-metal-remaining-runnable-audit-25-2026-10-31'
         catalog = ROOT / 'test/parity/catalogs/metal-remaining-runnable-audit-25.json'
         manifest = json.loads((root / 'manifest.json').read_text())
         self.assertEqual(hashlib.sha256(catalog.read_bytes()).hexdigest(), manifest['catalog_sha256'])
@@ -89,7 +89,7 @@ class BatchFacilityTest(unittest.TestCase):
         failed = [row for row in manifest['cells'] if row['probe_status'] != 'correct']
         self.assertEqual(len(failed), 4)
         self.assertTrue(all('/variance_all/' in row['id'] or '/std_all/' in row['id'] for row in failed))
-        ledger = json.loads((ROOT / 'benchmarks/results/coverage-outcomes-current-mac-2026-10-29.json').read_text())
+        ledger = json.loads((ROOT / 'test/benchmarks/results/coverage-outcomes-current-mac-2026-10-29.json').read_text())
         probes = {row['id']: row for row in json.loads((root / 'capability.json').read_text())['cases']}
         for row in manifest['cells']:
             cell = row['id']
@@ -115,7 +115,7 @@ class BatchFacilityTest(unittest.TestCase):
                     self.assertIn('stride_2', json.loads((root / row['operator_peer_artifact']).read_text())['contract']['layout'])
 
     def test_corrected_variance_std_retains_complete_parity(self):
-        root = ROOT / 'benchmarks/results/parity-metal-variance-std-chunked-4-2026-10-31'
+        root = ROOT / 'test/benchmarks/results/parity-metal-variance-std-chunked-4-2026-10-31'
         manifest = json.loads((root / 'manifest.json').read_text())
         self.assertEqual(len(manifest['cells']), 4)
         for row in manifest['cells']:
@@ -128,7 +128,7 @@ class BatchFacilityTest(unittest.TestCase):
                 self.assertEqual(len(report['peer_samples_ms']), 15)
 
     def test_ragged_dot_and_contract_exclusions_are_reviewed(self):
-        root = ROOT / 'benchmarks/results/parity-metal-ragged-dot-2-2026-10-31'
+        root = ROOT / 'test/benchmarks/results/parity-metal-ragged-dot-2-2026-10-31'
         manifest = json.loads((root / 'manifest.json').read_text())
         catalog = ROOT / 'test/parity/catalogs/metal-ragged-dot-2.json'
         self.assertEqual(hashlib.sha256(catalog.read_bytes()).hexdigest(), manifest['catalog_sha256'])
@@ -141,9 +141,9 @@ class BatchFacilityTest(unittest.TestCase):
                 self.assertTrue(report['correctness']['passed'])
                 self.assertEqual(len(report['affon_samples_ms']), 15)
                 self.assertEqual(len(report['peer_samples_ms']), 15)
-        audit = json.loads((ROOT / 'benchmarks/results/parity-metal-contract-exclusions-38-2026-10-31.json').read_text())
+        audit = json.loads((ROOT / 'test/benchmarks/results/parity-metal-contract-exclusions-38-2026-10-31.json').read_text())
         self.assertEqual(len(audit['cells']), 38)
-        ledger = json.loads((ROOT / 'benchmarks/results/coverage-outcomes-current-mac-2026-10-29.json').read_text())
+        ledger = json.loads((ROOT / 'test/benchmarks/results/coverage-outcomes-current-mac-2026-10-29.json').read_text())
         for row in audit['cells']:
             self.assertEqual(ledger[row['id']], {key: row[key] for key in ('support', 'reason')})
         for path, digest in audit['source_sha256'].items():
@@ -152,7 +152,7 @@ class BatchFacilityTest(unittest.TestCase):
             self.assertIn(contract['statement'], Path(contract['source']).read_text())
 
     def test_batched_index_selection_retains_numeric_and_timing_parity(self):
-        root = ROOT / 'benchmarks/results/parity-metal-batched-index-select-130-2026-10-31'
+        root = ROOT / 'test/benchmarks/results/parity-metal-batched-index-select-130-2026-10-31'
         catalog = ROOT / 'test/parity/catalogs/metal-batched-index-select-130.json'
         manifest = json.loads((root / 'manifest.json').read_text())
         self.assertEqual(hashlib.sha256(catalog.read_bytes()).hexdigest(), manifest['catalog_sha256'])
@@ -170,7 +170,7 @@ class BatchFacilityTest(unittest.TestCase):
                     self.assertEqual(len(report['peer_samples_ms']), 15)
 
     def test_batched_scatter_retains_numeric_and_timing_parity(self):
-        root = ROOT / 'benchmarks/results/parity-metal-batched-scatter-130-2026-10-31'
+        root = ROOT / 'test/benchmarks/results/parity-metal-batched-scatter-130-2026-10-31'
         catalog = ROOT / 'test/parity/catalogs/metal-batched-scatter-130.json'
         manifest = json.loads((root / 'manifest.json').read_text())
         self.assertEqual(hashlib.sha256(catalog.read_bytes()).hexdigest(), manifest['catalog_sha256'])
@@ -188,7 +188,7 @@ class BatchFacilityTest(unittest.TestCase):
                     self.assertEqual(len(report['peer_samples_ms']), 15)
 
     def test_batched_topk_retains_values_indices_and_timing(self):
-        root = ROOT / 'benchmarks/results/parity-metal-batched-topk-130-2026-10-31'
+        root = ROOT / 'test/benchmarks/results/parity-metal-batched-topk-130-2026-10-31'
         catalog = ROOT / 'test/parity/catalogs/metal-batched-topk-130.json'
         manifest = json.loads((root / 'manifest.json').read_text())
         self.assertEqual(hashlib.sha256(catalog.read_bytes()).hexdigest(), manifest['catalog_sha256'])
@@ -207,7 +207,7 @@ class BatchFacilityTest(unittest.TestCase):
                     self.assertEqual(len(report['peer_samples_ms']), 15)
 
     def test_batched_dense_loss_retains_rank_three_numeric_and_timing_parity(self):
-        root = ROOT / 'benchmarks/results/parity-metal-batched-dense-loss-132-reviewed-2026-10-31'
+        root = ROOT / 'test/benchmarks/results/parity-metal-batched-dense-loss-132-reviewed-2026-10-31'
         catalog = ROOT / 'test/parity/catalogs/metal-batched-dense-loss-132.json'
         manifest = json.loads((root / 'manifest.json').read_text())
         self.assertEqual(hashlib.sha256(catalog.read_bytes()).hexdigest(), manifest['catalog_sha256'])
@@ -225,14 +225,14 @@ class BatchFacilityTest(unittest.TestCase):
                     self.assertEqual(len(report['peer_samples_ms']), 15)
 
     def test_canonical_gap_audit_retains_reruns_and_timing(self):
-        root = ROOT / 'benchmarks/results/parity-metal-unknown-canonical-audit-2026-10-31'
-        corrected = ROOT / 'benchmarks/results/parity-metal-unknown-canonical-topk-corrected-2026-10-31'
+        root = ROOT / 'test/benchmarks/results/parity-metal-unknown-canonical-audit-2026-10-31'
+        corrected = ROOT / 'test/benchmarks/results/parity-metal-unknown-canonical-topk-corrected-2026-10-31'
         rows = json.loads((root / 'manifest.json').read_text())['cells']
         rerun = json.loads((corrected / 'manifest.json').read_text())['cells']
         self.assertEqual((len(rows), len(rerun)), (36, 4))
         self.assertEqual({row['id'] for row in rows if row['probe_status'] != 'correct'},
                          {row['id'] for row in rerun})
-        ledger = json.loads((ROOT / 'benchmarks/results/coverage-outcomes-current-mac-2026-10-29.json').read_text())
+        ledger = json.loads((ROOT / 'test/benchmarks/results/coverage-outcomes-current-mac-2026-10-29.json').read_text())
         for batch, batch_rows in ((root, rows), (corrected, rerun)):
             for row in batch_rows:
                 if row['probe_status'] != 'correct':
@@ -246,11 +246,11 @@ class BatchFacilityTest(unittest.TestCase):
                     self.assertEqual(len(report['peer_samples_ms']), 15)
 
     def test_corrected_layer_norm_offset_contract_is_retained(self):
-        root = ROOT / "benchmarks/results/parity-metal-layer-norm-views-128-offset-corrected-2026-10-31"
+        root = ROOT / "test/benchmarks/results/parity-metal-layer-norm-views-128-offset-corrected-2026-10-31"
         manifest = json.loads((root / "manifest.json").read_text())
         self.assertEqual(len(manifest["cells"]), 128)
-        ledger = json.loads((ROOT / "benchmarks/results/coverage-outcomes-current-mac-2026-10-29.json").read_text())
-        archive = ROOT / "benchmarks/results/cell-peer-before-layer-norm-offset-correction-2026-10-31"
+        ledger = json.loads((ROOT / "test/benchmarks/results/coverage-outcomes-current-mac-2026-10-29.json").read_text())
+        archive = ROOT / "test/benchmarks/results/cell-peer-before-layer-norm-offset-correction-2026-10-31"
         self.assertEqual(len(list((archive / "operator_peer").glob("*.json"))), 128)
         self.assertEqual(len(list((archive / "program_peer").glob("*.json"))), 128)
         for row in manifest["cells"]:
@@ -266,7 +266,7 @@ class BatchFacilityTest(unittest.TestCase):
                              str((root / "capability.json").resolve()))
 
     def test_inner_reductions_retain_complete_parity_evidence(self):
-        root = ROOT / "benchmarks/results/parity-metal-inner-reductions-256-2026-10-31"
+        root = ROOT / "test/benchmarks/results/parity-metal-inner-reductions-256-2026-10-31"
         manifest = json.loads((root / "manifest.json").read_text())
         catalog = ROOT / "test/parity/catalogs/metal-inner-reductions-256.json"
         self.assertEqual(hashlib.sha256(catalog.read_bytes()).hexdigest(), manifest["catalog_sha256"])
@@ -284,7 +284,7 @@ class BatchFacilityTest(unittest.TestCase):
                         self.assertEqual(report["contract"]["layout"], "offset_1_1")
 
     def test_math_view_rerun_retains_exp_failures_and_complete_parity(self):
-        first = ROOT / "benchmarks/results/parity-metal-math-views-192-2026-10-31"
+        first = ROOT / "test/benchmarks/results/parity-metal-math-views-192-2026-10-31"
         original = json.loads((first / "manifest.json").read_text())
         failed = [row for row in original["cells"] if row["operator_peer"] != "passed" or row["program_peer"] != "passed"]
         self.assertEqual(len(failed), 5)
@@ -292,7 +292,7 @@ class BatchFacilityTest(unittest.TestCase):
         for row in failed:
             for kind in ("operator_peer", "program_peer"):
                 self.assertFalse(json.loads((first / row[kind + "_artifact"]).read_text())["correctness"]["passed"])
-        root = ROOT / "benchmarks/results/parity-metal-math-views-192-reviewed-2026-10-31"
+        root = ROOT / "test/benchmarks/results/parity-metal-math-views-192-reviewed-2026-10-31"
         manifest = json.loads((root / "manifest.json").read_text())
         catalog = ROOT / "test/parity/catalogs/metal-math-views-192.json"
         self.assertEqual(hashlib.sha256(catalog.read_bytes()).hexdigest(), manifest["catalog_sha256"])
@@ -308,7 +308,7 @@ class BatchFacilityTest(unittest.TestCase):
                     self.assertEqual(len(report["peer_samples_ms"]), 15)
 
     def test_transcendental_views_retain_complete_parity_evidence(self):
-        root = ROOT / "benchmarks/results/parity-metal-transcendental-views-256-2026-10-31"
+        root = ROOT / "test/benchmarks/results/parity-metal-transcendental-views-256-2026-10-31"
         manifest = json.loads((root / "manifest.json").read_text())
         catalog = ROOT / "test/parity/catalogs/metal-transcendental-views-256.json"
         self.assertEqual(hashlib.sha256(catalog.read_bytes()).hexdigest(), manifest["catalog_sha256"])
@@ -325,14 +325,14 @@ class BatchFacilityTest(unittest.TestCase):
                     self.assertEqual(len(report["peer_samples_ms"]), 15)
 
     def test_layer_norm_view_rerun_retains_failures_and_complete_parity(self):
-        first = ROOT / "benchmarks/results/parity-metal-layer-norm-views-128-2026-10-31"
+        first = ROOT / "test/benchmarks/results/parity-metal-layer-norm-views-128-2026-10-31"
         original = json.loads((first / "manifest.json").read_text())
         failed = [row for row in original["cells"] if row["operator_peer"] != "passed" or row["program_peer"] != "passed"]
         self.assertEqual(len(failed), 1)
         self.assertEqual(failed[0]["id"], "metal/f32/layer_norm/outer_axis/outer_offset_r3_c5")
         for kind in ("operator_peer", "program_peer"):
             self.assertFalse(json.loads((first / failed[0][kind + "_artifact"]).read_text())["correctness"]["passed"])
-        root = ROOT / "benchmarks/results/parity-metal-layer-norm-views-128-reviewed-2026-10-31"
+        root = ROOT / "test/benchmarks/results/parity-metal-layer-norm-views-128-reviewed-2026-10-31"
         manifest = json.loads((root / "manifest.json").read_text())
         catalog = ROOT / "test/parity/catalogs/metal-layer-norm-views-128.json"
         self.assertEqual(hashlib.sha256(catalog.read_bytes()).hexdigest(), manifest["catalog_sha256"])
@@ -348,7 +348,7 @@ class BatchFacilityTest(unittest.TestCase):
                     self.assertEqual(len(report["peer_samples_ms"]), 15)
 
     def test_cast_views_retain_numeric_dtype_and_timing_parity(self):
-        root = ROOT / "benchmarks/results/parity-metal-cast-views-128-2026-10-31"
+        root = ROOT / "test/benchmarks/results/parity-metal-cast-views-128-2026-10-31"
         manifest = json.loads((root / "manifest.json").read_text())
         catalog = ROOT / "test/parity/catalogs/metal-cast-views-128.json"
         self.assertEqual(hashlib.sha256(catalog.read_bytes()).hexdigest(), manifest["catalog_sha256"])
@@ -366,7 +366,7 @@ class BatchFacilityTest(unittest.TestCase):
                     self.assertEqual(len(report["peer_samples_ms"]), 15)
 
     def test_matmul_lhs_views_retain_complete_parity_evidence(self):
-        root = ROOT / "benchmarks/results/parity-metal-matmul-lhs-views-128-2026-10-31"
+        root = ROOT / "test/benchmarks/results/parity-metal-matmul-lhs-views-128-2026-10-31"
         manifest = json.loads((root / "manifest.json").read_text())
         catalog = ROOT / "test/parity/catalogs/metal-matmul-lhs-views-128.json"
         self.assertEqual(hashlib.sha256(catalog.read_bytes()).hexdigest(), manifest["catalog_sha256"])
@@ -389,7 +389,7 @@ class BatchFacilityTest(unittest.TestCase):
                                  ("view.slice", "metal.matmul.tiled")})
 
     def test_comparison_views_retain_complete_parity_evidence(self):
-        root = ROOT / "benchmarks/results/parity-metal-comparison-views-192-2026-10-31"
+        root = ROOT / "test/benchmarks/results/parity-metal-comparison-views-192-2026-10-31"
         manifest = json.loads((root / "manifest.json").read_text())
         catalog = ROOT / "test/parity/catalogs/metal-comparison-views-192.json"
         self.assertEqual(hashlib.sha256(catalog.read_bytes()).hexdigest(), manifest["catalog_sha256"])
@@ -406,7 +406,7 @@ class BatchFacilityTest(unittest.TestCase):
                     self.assertEqual(len(report["peer_samples_ms"]), 15)
 
     def test_dense_matmul_grid_retains_complete_parity_evidence(self):
-        root = ROOT / "benchmarks/results/parity-metal-matmul-dense-grid-128-2026-10-31"
+        root = ROOT / "test/benchmarks/results/parity-metal-matmul-dense-grid-128-2026-10-31"
         manifest = json.loads((root / "manifest.json").read_text())
         catalog = ROOT / "test/parity/catalogs/metal-matmul-dense-grid-128.json"
         self.assertEqual(hashlib.sha256(catalog.read_bytes()).hexdigest(), manifest["catalog_sha256"])
@@ -422,7 +422,7 @@ class BatchFacilityTest(unittest.TestCase):
                     self.assertEqual(len(report["peer_samples_ms"]), 15)
 
     def test_program_gap_rerun_retains_numeric_and_timing_parity(self):
-        root = ROOT / "benchmarks/results/parity-metal-program-gaps-13-reviewed-2026-10-31"
+        root = ROOT / "test/benchmarks/results/parity-metal-program-gaps-13-reviewed-2026-10-31"
         manifest = json.loads((root / "manifest.json").read_text())
         self.assertEqual(len(manifest["cells"]), 13)
         for row in manifest["cells"]:
@@ -439,7 +439,7 @@ class BatchFacilityTest(unittest.TestCase):
                                          [path["implementation_id"] for path in report["selected_path"]])
 
     def test_matmul_rhs_view_batch_retains_complete_parity_evidence(self):
-        root = ROOT / "benchmarks/results/parity-metal-matmul-rhs-views-128-2026-10-31"
+        root = ROOT / "test/benchmarks/results/parity-metal-matmul-rhs-views-128-2026-10-31"
         manifest = json.loads((root / "manifest.json").read_text())
         catalog = ROOT / "test/parity/catalogs/metal-matmul-rhs-views-128.json"
         self.assertEqual(hashlib.sha256(catalog.read_bytes()).hexdigest(), manifest["catalog_sha256"])
@@ -456,7 +456,7 @@ class BatchFacilityTest(unittest.TestCase):
                     self.assertEqual(len(report["peer_samples_ms"]), 15)
 
     def test_soft_loss_strided_batch_retains_complete_parity_evidence(self):
-        root = ROOT / "benchmarks/results/parity-metal-soft-loss-strided-128-2026-10-31"
+        root = ROOT / "test/benchmarks/results/parity-metal-soft-loss-strided-128-2026-10-31"
         manifest = json.loads((root / "manifest.json").read_text())
         catalog = ROOT / "test/parity/catalogs/metal-soft-loss-strided-128.json"
         self.assertEqual(hashlib.sha256(catalog.read_bytes()).hexdigest(), manifest["catalog_sha256"])
@@ -473,7 +473,7 @@ class BatchFacilityTest(unittest.TestCase):
                     self.assertEqual(len(report["peer_samples_ms"]), 15)
 
     def test_index_select_view_batch_retains_complete_parity_evidence(self):
-        root = ROOT / "benchmarks/results/parity-metal-index-select-views-128-2026-10-31"
+        root = ROOT / "test/benchmarks/results/parity-metal-index-select-views-128-2026-10-31"
         manifest = json.loads((root / "manifest.json").read_text())
         catalog = ROOT / "test/parity/catalogs/metal-index-select-views-128.json"
         self.assertEqual(hashlib.sha256(catalog.read_bytes()).hexdigest(), manifest["catalog_sha256"])
@@ -490,7 +490,7 @@ class BatchFacilityTest(unittest.TestCase):
                     self.assertEqual(len(report["peer_samples_ms"]), 15)
 
     def test_scatter_strided_batch_retains_complete_parity_evidence(self):
-        root = ROOT / "benchmarks/results/parity-metal-scatter-strided-128-2026-10-31"
+        root = ROOT / "test/benchmarks/results/parity-metal-scatter-strided-128-2026-10-31"
         manifest = json.loads((root / "manifest.json").read_text())
         catalog = ROOT / "test/parity/catalogs/metal-scatter-strided-128.json"
         self.assertEqual(hashlib.sha256(catalog.read_bytes()).hexdigest(), manifest["catalog_sha256"])
@@ -507,7 +507,7 @@ class BatchFacilityTest(unittest.TestCase):
                     self.assertEqual(len(report["peer_samples_ms"]), 15)
 
     def test_rms_norm_short_row_recheck_closes_timing_gap(self):
-        root = ROOT / "benchmarks/results/parity-metal-rms-norm-r8-c7-recheck-2026-10-31"
+        root = ROOT / "test/benchmarks/results/parity-metal-rms-norm-r8-c7-recheck-2026-10-31"
         manifest = json.loads((root / "manifest.json").read_text())
         self.assertEqual(len(manifest["cells"]), 1)
         row = manifest["cells"][0]
@@ -521,7 +521,7 @@ class BatchFacilityTest(unittest.TestCase):
             self.assertEqual(len(report["peer_samples_ms"]), 15)
 
     def test_rms_norm_view_batch_retains_complete_parity_evidence(self):
-        root = ROOT / "benchmarks/results/parity-metal-rms-norm-views-128-2026-10-31"
+        root = ROOT / "test/benchmarks/results/parity-metal-rms-norm-views-128-2026-10-31"
         manifest = json.loads((root / "manifest.json").read_text())
         catalog = ROOT / "test/parity/catalogs/metal-rms-norm-views-128.json"
         self.assertEqual(hashlib.sha256(catalog.read_bytes()).hexdigest(), manifest["catalog_sha256"])
@@ -538,7 +538,7 @@ class BatchFacilityTest(unittest.TestCase):
                     self.assertEqual(len(report["peer_samples_ms"]), 15)
 
     def test_topk_smallest_batch_checks_every_output_element(self):
-        root = ROOT / "benchmarks/results/parity-metal-topk-smallest-192-2026-10-31"
+        root = ROOT / "test/benchmarks/results/parity-metal-topk-smallest-192-2026-10-31"
         manifest = json.loads((root / "manifest.json").read_text())
         catalog = ROOT / "test/parity/catalogs/metal-topk-smallest-192.json"
         self.assertEqual(hashlib.sha256(catalog.read_bytes()).hexdigest(), manifest["catalog_sha256"])
@@ -566,7 +566,7 @@ class BatchFacilityTest(unittest.TestCase):
         self.assertNotEqual(fixture.output_hash(values), fixture.output_hash(changed))
 
     def test_topk_batch_retains_both_outputs_and_timings(self):
-        root = ROOT / "benchmarks/results/parity-metal-topk-192-2026-10-31"
+        root = ROOT / "test/benchmarks/results/parity-metal-topk-192-2026-10-31"
         manifest = json.loads((root / "manifest.json").read_text())
         catalog = ROOT / "test/parity/catalogs/metal-topk-192.json"
         self.assertEqual(hashlib.sha256(catalog.read_bytes()).hexdigest(), manifest["catalog_sha256"])
@@ -585,7 +585,7 @@ class BatchFacilityTest(unittest.TestCase):
                     self.assertEqual(len(report["peer_samples_ms"]), 15)
 
     def test_reviewed_binary_view_batch_retains_complete_parity_evidence(self):
-        root = ROOT / "benchmarks/results/parity-metal-binary-views-256-reviewed-2026-10-31"
+        root = ROOT / "test/benchmarks/results/parity-metal-binary-views-256-reviewed-2026-10-31"
         manifest = json.loads((root / "manifest.json").read_text())
         catalog = ROOT / "test/parity/catalogs/metal-binary-views-256.json"
         self.assertEqual(hashlib.sha256(catalog.read_bytes()).hexdigest(), manifest["catalog_sha256"])
@@ -602,7 +602,7 @@ class BatchFacilityTest(unittest.TestCase):
                     self.assertGreater(len(report["peer_samples_ms"]), 0)
 
     def test_binary_view_batch_retains_probe_failures_and_complete_passes(self):
-        root = ROOT / "benchmarks/results/parity-metal-binary-views-256-2026-10-31"
+        root = ROOT / "test/benchmarks/results/parity-metal-binary-views-256-2026-10-31"
         manifest = json.loads((root / "manifest.json").read_text())
         catalog = ROOT / "test/parity/catalogs/metal-binary-views-256.json"
         self.assertEqual(hashlib.sha256(catalog.read_bytes()).hexdigest(), manifest["catalog_sha256"])
@@ -626,7 +626,7 @@ class BatchFacilityTest(unittest.TestCase):
         self.assertEqual(failures, 64)
 
     def test_nonlinear_view_batch_retains_complete_parity_evidence(self):
-        root = ROOT / "benchmarks/results/parity-metal-nonlinear-views-256-2026-10-31"
+        root = ROOT / "test/benchmarks/results/parity-metal-nonlinear-views-256-2026-10-31"
         manifest = json.loads((root / "manifest.json").read_text())
         catalog = ROOT / "test/parity/catalogs/metal-nonlinear-views-256.json"
         self.assertEqual(hashlib.sha256(catalog.read_bytes()).hexdigest(), manifest["catalog_sha256"])
@@ -643,7 +643,7 @@ class BatchFacilityTest(unittest.TestCase):
                     self.assertGreater(len(report["peer_samples_ms"]), 0)
 
     def test_outer_stat_index_batch_retains_single_peer_failure(self):
-        root = ROOT / "benchmarks/results/parity-metal-outer-stat-index-128-2026-10-31"
+        root = ROOT / "test/benchmarks/results/parity-metal-outer-stat-index-128-2026-10-31"
         manifest = json.loads((root / "manifest.json").read_text())
         catalog = ROOT / "test/parity/catalogs/metal-outer-stat-index-128.json"
         self.assertEqual(hashlib.sha256(catalog.read_bytes()).hexdigest(), manifest["catalog_sha256"])
@@ -690,7 +690,7 @@ class BatchFacilityTest(unittest.TestCase):
         }
         for run_name, catalog_name in batches.items():
             with self.subTest(run=run_name):
-                root = ROOT / "benchmarks/results" / run_name
+                root = ROOT / "test/benchmarks/results" / run_name
                 manifest = json.loads((root / "manifest.json").read_text())
                 catalog = ROOT / "test/parity/catalogs" / catalog_name
                 self.assertEqual(hashlib.sha256(catalog.read_bytes()).hexdigest(), manifest["catalog_sha256"])
