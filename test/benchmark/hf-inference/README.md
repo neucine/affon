@@ -4,7 +4,7 @@ Run from the repository root with a ReleaseFast Affon build and verified cached
 DistilGPT-2/ViT snapshots:
 
 ```sh
-python3 apps/hf-inference/benchmark/run.py \
+python3 test/benchmark/hf-inference/run.py \
   --affon /tmp/affon-hf-release/bin/affon \
   --cache /tmp/affon-hub-cache \
   --output /tmp/affon-bench-results \
@@ -15,7 +15,7 @@ To run the matched PyTorch peer gate on a stable Apple machine, use a Python
 environment with PyTorch and Transformers plus the same offline cache:
 
 ```sh
-python3 apps/hf-inference/benchmark/run.py \
+python3 test/benchmark/hf-inference/run.py \
   --affon /tmp/affon-hf-release/bin/affon \
   --cache /tmp/affon-hub-cache --output /tmp/affon-model-gate \
   --build-profile ReleaseFast --iterations 5 --devices metal \
@@ -47,7 +47,7 @@ for each machine and compare it to later runs with
 `tools/compare-model-performance.py --kind self`.
 
 The Python harness only starts native Affon processes and collects OS metadata.
-All loading, processing and inference run in `src/benchmark/inference.ts`.
+All loading, processing and inference run in `apps/hf-inference/src/benchmark/inference.ts`.
 There are four fresh processes, run sequentially: GPT-2 CPU, GPT-2 Metal,
 ViT CPU, ViT Metal. Each loads one model, performs one warmup, then measures
 five iterations by default. Missing snapshots fail rather than download.

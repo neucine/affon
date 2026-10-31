@@ -8,7 +8,6 @@ src/
 public/        # Browser HTML, CSS, JavaScript
 tests/         # Inference/HTTP tests and reference fixtures
 audit/         # Parity tooling, Python oracle scripts, reports
-benchmark/     # Benchmark runner, methodology, reports
 onnx/          # Bounded static graph-import experiment, tests and reports
 ```
 
@@ -41,7 +40,7 @@ AFFON_DEVICE=metal AFFON_HF_CACHE="$PWD/apps/hf-inference/artifacts/hf-cache" \
 - [Serving and browser UI](src/serve/README.md)
 - [Core inference](src/inference/README.md)
 - [Audits and reference generation](audit/README.md)
-- [Performance benchmarks](benchmark/README.md)
+- [Performance benchmarks](../../test/benchmark/hf-inference/README.md)
 - [ONNX graph-import experiment](onnx/README.md)
 
 ```sh

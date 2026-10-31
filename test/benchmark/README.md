@@ -47,7 +47,7 @@ unmeasured case as such rather than as a pass.
 | --- | --- | --- |
 | Compute Program and physical selection | [`../../../compute/benchmarks/README.md`](../../../compute/benchmarks/README.md): 22 cases at two optimization levels; repeatability and regression comparators; selected PyTorch gates | Representative Programs do not cover every model operator, dtype, layout, or model shape |
 | Metal operator comparison | Compute's 64-case f32 PyTorch diagnostic; quantized matmul matched against MLX in [`../../docs/core/quantized-profiling.md`](../../docs/core/quantized-profiling.md) | The broad f32 comparison is diagnostic, not an accepted repeated gate; quantized coverage is narrow |
-| Native model path | [`../../apps/hf-inference/benchmark/README.md`](../../apps/hf-inference/benchmark/README.md): DistilGPT-2 and ViT; Whisper diagnostic scripts | No uniform peer parity or regression gate across model families |
+| Native model path | [`hf-inference/README.md`](hf-inference/README.md): DistilGPT-2 and ViT; Whisper diagnostic scripts | No uniform peer parity or regression gate across model families |
 | Serving path | [`../../apps/vision-serving/CPU-PERFORMANCE.md`](../../apps/vision-serving/CPU-PERFORMANCE.md): MobileNetV2 CPU graph and HTTP comparisons with ONNX Runtime | One model, target, and serving configuration |
 
 These are separate scopes and should not be combined into one speed ratio.
@@ -201,7 +201,7 @@ python3 tools/normalize-model-performance.py --source hf \
 ```
 
 GPT-2 and ViT now have a PyTorch peer runner through
-`apps/hf-inference/benchmark/run.py --pytorch-python`; see that benchmark's
+`test/benchmark/hf-inference/run.py --pytorch-python`; see that benchmark's
 README for its exact contract. Metal peer runs have been recorded on this
 laptop; CUDA remains unmeasured while the user's PC is unreachable. CI checks
 comparison and adapter logic; timed gates use this laptop for Metal and the PC
