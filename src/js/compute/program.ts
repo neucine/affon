@@ -40,6 +40,7 @@ export type TensorInitializerValue = TensorData | Readonly<{
   shape: readonly number[]
   dtype: ProgramDType
   to_array(): TensorData
+  to_bytes(): ArrayBuffer
 }>
 export type ProgramArguments = Readonly<Record<string, Tensor>>
 export type SliceRange = Readonly<{ start: number; stop: number; step?: number }>
@@ -114,6 +115,7 @@ export interface Tensor {
   readonly disposed: boolean
   item(): number
   to_array(): TensorData
+  to_bytes(): ArrayBuffer
   toString(): string
   repr(): string
   dispose(): void
@@ -319,6 +321,15 @@ function scalarSpec(dtype: ProgramDType): TensorSpec { return freezeSpec(dtype, 
 
 function elementCount(shape: readonly number[]): number { return shape.reduce((product, size) => product * size, 1) }
 const MAX_ARRAY_TENSOR_ENTRIES = 262144
+const LARGE_ARRAY_WARNING_ELEMENTS = 16384
+let warnedLargeArrayInput = false
+
+function warnLargeArrayInput(count: number): void {
+  if (count > LARGE_ARRAY_WARNING_ELEMENTS && !warnedLargeArrayInput) {
+    warnedLargeArrayInput = true
+    console.warn(`Large tensor arrays are slow to construct; use Tensor.fromBytes or Session.fromBytes above ${LARGE_ARRAY_WARNING_ELEMENTS} elements`)
+  }
+}
 
 function checkArrayTensorSize(value: TensorData, label: string): void {
   const visit = (item: TensorData, remaining: number): number => {
@@ -794,6 +805,7 @@ export class ProgramBuilder {
     if (this.names.has(name)) throw new TypeError(`duplicate formal name: ${name}`)
     checkArrayTensorSize(value, "constant array")
     const snapshot = snapshotTensorData(value, { label: "constant", finite: true, integer: spec.dtype === "i64", unsigned: spec.dtype === "u32" })
+    warnLargeArrayInput(elementCount(snapshot.shape))
     const scalarShorthand = typeof snapshot.data === "number" && elementCount(spec.shape) === 1
     if (!scalarShorthand && (snapshot.shape.length !== spec.shape.length || snapshot.shape.some((size, index) => size !== spec.shape[index]))) {
       throw new TypeError("constant value does not match its TensorSpec")
@@ -1671,6 +1683,7 @@ export class Session {
     if (dtype !== "bf16" && dtype !== "f32" && dtype !== "f64" && dtype !== "u32" && dtype !== "i64") throw new TypeError(`unsupported Tensor dtype: ${dtype}`)
     checkArrayTensorSize(values, "array tensor")
     const snapshot = snapshotTensorData(values, { label: "Tensor", integer: dtype === "i64", unsigned: dtype === "u32" })
+    warnLargeArrayInput(elementCount(snapshot.shape))
     const shape = requestedShape ?? snapshot.shape
     if (options.axes && (options.axes.length !== shape.length || options.axes.some(axis => typeof axis !== "string" || axis.length === 0))) {
       throw new TypeError("Tensor axes must contain one non-empty name per dimension")

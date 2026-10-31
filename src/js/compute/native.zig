@@ -8,6 +8,8 @@ const compat = @import("../../support/compat.zig");
 const abi = hao.js.abi;
 const allocator = std.heap.c_allocator;
 const tensor_type_id: u32 = 1;
+const large_array_warning_elements: usize = 16384;
+var warned_large_to_array = false;
 const session_type_id: u32 = 2;
 const executable_type_id: u32 = 3;
 
@@ -241,6 +243,7 @@ fn createTensorObjectOwned(ctx: abi.JSContext, value: *compute.Tensor, backend: 
         abi.jsSetProperty(ctx, result, "device", abi.jsString(ctx, device)) < 0 or
         abi.jsSetFunction(ctx, result, "item", jsItem, 0) < 0 or
         abi.jsSetFunction(ctx, result, "to_array", jsToArray, 0) < 0 or
+        abi.jsSetFunction(ctx, result, "to_bytes", jsToBytes, 0) < 0 or
         abi.jsSetFunction(ctx, result, "toString", jsToString, 0) < 0 or
         abi.jsSetFunction(ctx, result, "repr", jsToString, 0) < 0 or
         abi.jsSetFunction(ctx, result, "dispose", jsDisposeTensor, 0) < 0)
@@ -283,7 +286,56 @@ fn liveTensor(ctx: abi.JSContext, value: abi.JSValueConst) ?*compute.Tensor {
 fn jsToArray(ctx: abi.JSContext, this_value: abi.JSValueConst, _: c_int, _: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
     const value = liveTensor(ctx, this_value) orelse return typeError(ctx, "Tensor has been disposed");
     const spec = value.spec();
+    if (!warned_large_to_array and elementCount(spec.dimensions()) > large_array_warning_elements) {
+        warned_large_to_array = true;
+        std.log.warn("to_array() materializes a large nested number array; use to_bytes() for tensor data above {d} elements", .{large_array_warning_elements});
+    }
     return arrayValue(ctx, spec.dtype(), value.bytes(), spec.dimensions(), value.strides(), @intCast(value.offsetBytes() / spec.dtype().size()));
+}
+fn jsToBytes(ctx: abi.JSContext, this_value: abi.JSValueConst, _: c_int, _: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    const value = liveTensor(ctx, this_value) orelse return typeError(ctx, "Tensor has been disposed");
+    const dimensions = value.spec().dimensions();
+    const strides = value.strides();
+    const width = value.spec().dtype().size();
+    const count = elementCount(dimensions);
+    const source = value.bytes();
+    const offset = value.offsetBytes();
+    const length = std.math.mul(usize, count, width) catch return errorValue(ctx, "Tensor byte count overflow");
+    var expected_stride: usize = 1;
+    var dense = true;
+    for (0..dimensions.len) |reverse| {
+        const axis = dimensions.len - 1 - reverse;
+        if (dimensions[axis] > 1 and strides[axis] != @as(isize, @intCast(expected_stride))) dense = false;
+        expected_stride = std.math.mul(usize, expected_stride, dimensions[axis]) catch return errorValue(ctx, "Tensor element count overflow");
+    }
+    var temporary: ?[]u8 = null;
+    defer if (temporary) |bytes| allocator.free(bytes);
+    const contiguous = if (dense) blk: {
+        if (offset > source.len or length > source.len - offset) return errorValue(ctx, "Tensor storage bounds exceeded");
+        break :blk source[offset .. offset + length];
+    } else blk: {
+        const bytes = allocator.alloc(u8, length) catch return errorValue(ctx, "out of memory");
+        temporary = bytes;
+        for (0..count) |linear| {
+            var remainder = linear;
+            var element: isize = @intCast(offset / width);
+            for (0..dimensions.len) |reverse| {
+                const axis = dimensions.len - 1 - reverse;
+                const coordinate = remainder % dimensions[axis];
+                remainder /= dimensions[axis];
+                element += @as(isize, @intCast(coordinate)) * strides[axis];
+            }
+            if (element < 0) return errorValue(ctx, "Tensor storage bounds exceeded");
+            const byte_offset = std.math.mul(usize, @intCast(element), width) catch return errorValue(ctx, "Tensor storage bounds exceeded");
+            if (byte_offset > source.len or width > source.len - byte_offset) return errorValue(ctx, "Tensor storage bounds exceeded");
+            @memcpy(bytes[linear * width ..][0..width], source[byte_offset..][0..width]);
+        }
+        break :blk bytes;
+    };
+    const typed = abi.jsNewUint8ArrayCopy(ctx, if (contiguous.len == 0) null else contiguous.ptr, contiguous.len);
+    if (abi.jsIsException(typed)) return typed;
+    defer abi.jsFreeValue(ctx, typed);
+    return abi.jsGetProperty(ctx, typed, "buffer");
 }
 fn jsItem(ctx: abi.JSContext, this_value: abi.JSValueConst, _: c_int, _: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
     const value = liveTensor(ctx, this_value) orelse return typeError(ctx, "Tensor has been disposed");

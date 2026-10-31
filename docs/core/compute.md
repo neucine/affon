@@ -118,7 +118,7 @@ telemetry, and the rules for feeding measurements back into optimizer
 development.
 
 Evaluated tensors expose `shape`, `ndim`, `dtype`, `device`, optional `axes`,
-`item()`, `to_array()`, `toString()`, `repr()`, and `dispose()`.
+`item()`, `to_array()`, `to_bytes()`, `toString()`, `repr()`, and `dispose()`.
 
 For one-off computation, no explicit Program is required:
 
@@ -153,10 +153,14 @@ import { Session, Tensor } from "affon:compute"
 const session = new Session({ device: "metal" })
 const values = new Float32Array(1024 * 1024)
 const tensor = session.fromBytes(values.buffer, Tensor.f32([1024, 1024]))
+const resultBytes = tensor.to_bytes() // ArrayBuffer in row-major order
 ```
 
 `Tensor.fromBytes` uses the default Session. Both byte APIs copy into Session
-storage, so callers may reuse the buffer after the call. Program authors can
+storage, so callers may reuse the buffer after the call. `to_bytes()` returns a
+copy, including for strided views. Array input and `to_array()` warn above
+16,384 elements because constructing JavaScript number arrays is costly. Use
+`to_bytes()` for large readouts. Program authors can
 use `p.full("padding", 0, Tensor.f32([1024, 1024]))` for a uniform constant
 without constructing or serializing a large JavaScript array.
 

@@ -106,4 +106,4 @@ isolated device choice. The selected CUDA ordinal is fixed for the process.
 Linux CUDA execution needs a working NVIDIA driver (`nvidia-smi`), plus
 `libnvrtc.so.12` and `libcublas.so.12` on the dynamic loader path. CUDA is loaded
 at runtime, so CPU execution does not require these libraries. Device-to-host
-reads such as `item()` and `to_array()` synchronize the CUDA execution stream.
+reads such as `item()`, `to_array()`, and `to_bytes()` synchronize the CUDA execution stream.

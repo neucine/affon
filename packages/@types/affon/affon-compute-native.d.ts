@@ -6,6 +6,7 @@ declare module "affon:compute/native" {
     readonly device: "cpu" | "metal" | "cuda";
     item(): number;
     to_array(): unknown;
+    to_bytes(): ArrayBuffer;
     toString(): string;
     repr(): string;
     dispose(): void;
