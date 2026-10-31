@@ -16,9 +16,9 @@ try {
   let output = prompt
   try {
     while (!generation.done) {
-      const start = Date.now()
+      const start = performance.now()
       const result = generation.next()
-      steps.push(Date.now() - start)
+      steps.push(performance.now() - start)
       output = result.ids
     }
   } finally { generation.close() }
