@@ -40,6 +40,12 @@ check status, including timing errors, so the case count is explicit.
 Passing timing ratios are diagnostic, and no batch run accepts a regression
 baseline automatically.
 
+The timing summaries classify each independent round using its median Affon time
+divided by its median PyTorch time. `candidate_gap` means every round exceeds
+1.25; `mixed_rounds` means only some rounds exceed 1.25; `better_than_peer`
+means every round is below 1.0. Other results are `within_diagnostic_target`.
+These labels describe the measured target and do not replace numerical parity.
+
 The runner refuses to overwrite an output directory. Keep each run's raw
 results. Add reviewed passing checks to the aggregate coverage report when
 that broader tracking is needed.

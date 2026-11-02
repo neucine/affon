@@ -164,9 +164,11 @@ def data(matrix, summary, raw_directory, boundary_report=None, program_summary=N
                          "linked": counts.get("linked", 0), "missing": counts.get("missing", 0)})
     gaps = [row for row in cases if row["status"] == "candidate_gap"]
     mixed = [row for row in cases if row["status"] == "mixed_rounds"]
+    better = [row for row in cases if row["status"] == "better_than_peer"]
     insights = [
         {"title": "Consistent candidate gaps", "body": f"{len(gaps)} cells exceed the provisional ratio in every round. The largest absolute difference is {gaps[0]['id']} at {(gaps[0]['affon_ms'] - gaps[0]['peer_ms']) * 1000:.1f} µs per call." if gaps else "No cell exceeds the provisional ratio in every round."},
         {"title": "Mixed measurements", "body": f"{len(mixed)} cells cross the threshold between rounds. Repeat on a controlled target before treating these as optimization targets."},
+        {"title": "Consistently faster than PyTorch", "body": f"{len(better)} operator cells have Affon/PyTorch ratios below 1.0 in every round. These are diagnostic comparisons on the measured target."},
         {"title": "Checks still needed", "body": f"{totals['evidence']['program_peer'].get('missing', 0)} Program peer cells and {totals['evidence']['self_baseline'].get('missing', 0)} baseline cells remain missing. Timing phase splits are diagnostic because accelerator work may finish during readback."},
     ]
     unstable = [row for row in baseline_calibrations if row["status"] == "Too variable"]

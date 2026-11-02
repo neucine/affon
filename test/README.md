@@ -40,8 +40,11 @@ zig build install
 ./tools/test-runtime.sh
 ./zig-out/bin/affon test test/e2e/program
 bun x tsc -p test/types/tsconfig.json --noEmit
+bun x tsc -p test/e2e/program/operations/tsconfig.json --noEmit
 ```
 
 `tools/test-runtime.sh` runs the Program, dataset, checkpoint, package, app,
-and CLI process suites. The Affon runner discovers `*.test.ts` recursively,
-so adding a test inside a feature directory needs no runner edit.
+and CLI process suites. The Affon runner discovers `*.test.ts` recursively, so
+adding a test inside a feature directory needs no runner edit. See the
+[operation test guide](e2e/program/operations/README.md) for the current
+contract matrix.

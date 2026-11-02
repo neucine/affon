@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'std:test'
 import { Session, Tensor, program } from 'affon:compute'
-import { scatter_add } from 'affon:ops'
+import { add, argmax, reshape, scatter_add } from 'affon:ops'
 
 for (const device of ['cpu', 'metal'] as const) describe(`scatter_add ${device}`, () => {
   test('accumulates colliding indices through immediate and Program calls', () => {
@@ -41,4 +41,27 @@ for (const device of ['cpu', 'metal'] as const) describe(`scatter_add ${device}`
     expect(output.to_array()).toEqual([[[1, 5], [5, 4]], [[9, 6], [7, 13]]])
     output.dispose(); executable.dispose(); updates.dispose(); indices.dispose(); base.dispose(); session.dispose()
   })
+})
+
+test('metal reports invalid GPU-produced BF16 scatter indices and recovers', () => {
+  const source = program('gpu_scatter_bounds', p => {
+    const base = p.argument('base', Tensor.bf16([2, 2]))
+    return add(scatter_add(
+    base,
+    reshape(add(argmax(p.argument('scores', Tensor.f32([2, 2])), 1),
+      p.argument('offset', Tensor.i64([2]))), [2, 1]),
+    p.argument('updates', Tensor.bf16([2, 1])), 1,
+  ), base)
+  })
+  const session = new Session({ device: 'metal' })
+  const executable = session.compile(source)
+  const base = session.tensor([[1, 2], [3, 4]], { dtype: 'bf16' })
+  const scores = session.tensor([[1, 9], [8, 2]])
+  const updates = session.tensor([[5], [7]], { dtype: 'bf16' })
+  const invalidOffset = session.tensor([1, 0], { dtype: 'i64' })
+  const validOffset = session.tensor([0, 0], { dtype: 'i64' })
+  expect(() => executable.run({ base, scores, updates, offset: invalidOffset })).toThrow('InvalidCommand')
+  const recovered = executable.run({ base, scores, updates, offset: validOffset })
+  expect(recovered.to_array()).toEqual([[2, 9], [13, 8]])
+  recovered.dispose(); validOffset.dispose(); invalidOffset.dispose(); updates.dispose(); scores.dispose(); base.dispose(); executable.dispose(); session.dispose()
 })

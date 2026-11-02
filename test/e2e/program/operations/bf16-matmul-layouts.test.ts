@@ -1,7 +1,7 @@
 import { expect, test } from 'std:test'
 import { getEnv } from 'std:process'
-import { Session } from 'affon:compute'
-import { matmul, slice, transpose } from 'affon:ops'
+import { Session, Tensor, program } from 'affon:compute'
+import { add, matmul, slice, transpose } from 'affon:ops'
 
 test('BF16 matmul handles contiguous, transposed, broadcast, and sliced layouts', () => {
   const session = new Session({device: getEnv('AFFON_TEST_CUDA') === '1' ? 'cuda' : 'cpu'})
@@ -24,4 +24,21 @@ test('BF16 matmul handles contiguous, transposed, broadcast, and sliced layouts'
       rightPadded.dispose(); rightTransposed.dispose(); right.dispose(); left.dispose()
     }
   } finally { session.dispose() }
+})
+
+test('Metal tiled BF16 matmul consumes a transposed view inside a Program', () => {
+  const source = program('bf16_transposed_tiled_resident', p => {
+    const left = p.argument('left', Tensor.bf16([32, 64]))
+    const right = transpose(p.argument('right', Tensor.bf16([32, 64])), [1, 0])
+    const product = matmul(left, right)
+    return add(product, product)
+  })
+  const session = new Session({ device: 'metal' })
+  const executable = session.compile(source)
+  const values = Array.from({ length: 32 }, () => Array(64).fill(1))
+  const left = session.tensor(values, { dtype: 'bf16' })
+  const right = session.tensor(values, { dtype: 'bf16' })
+  const output = executable.run({ left, right })
+  expect(output.to_array()).toEqual(Array.from({ length: 32 }, () => Array(32).fill(128)))
+  output.dispose(); right.dispose(); left.dispose(); executable.dispose(); session.dispose()
 })

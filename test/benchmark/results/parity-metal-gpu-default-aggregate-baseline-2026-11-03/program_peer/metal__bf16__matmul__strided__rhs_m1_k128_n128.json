@@ -1,0 +1,387 @@
+{
+  "schema_version": 1,
+  "suite": "affon_cell_benchmark",
+  "cell_id": "metal/bf16/matmul/strided/rhs_m1_k128_n128",
+  "kind": "program_peer",
+  "target": "Mac16,1/26.6.2/arm64",
+  "affon_binary_sha256": "6e09730aae404f355f91c462cfd343d46c9352868f310ca2d844c85b9e02b8a3",
+  "peer_engine": "pytorch",
+  "peer_version": "2.10.0",
+  "selected_path": [
+    {
+      "implementation_id": "view.slice",
+      "implementation_version": 0,
+      "configuration_digest": 0,
+      "view_slice_ranges": [
+        {
+          "start": 0,
+          "stop": 128,
+          "step": 1
+        },
+        {
+          "start": 0,
+          "stop": 256,
+          "step": 2
+        }
+      ],
+      "view_permutation": []
+    },
+    {
+      "implementation_id": "metal.matmul.small",
+      "implementation_version": 1,
+      "configuration_digest": 290873116282709060
+    },
+    {
+      "implementation_id": "metal_primitive",
+      "implementation_version": 1,
+      "configuration_digest": 290873116282709060
+    }
+  ],
+  "contract": {
+    "shape": [
+      1,
+      128,
+      128
+    ],
+    "dtype": "bf16",
+    "layout": "stride_2_rhs_columns",
+    "input_shapes": [
+      [
+        1,
+        128
+      ],
+      [
+        128,
+        256
+      ]
+    ],
+    "output_shape": [
+      1,
+      128
+    ],
+    "output_dtype": "bf16",
+    "compile_options": {
+      "dense_inputs": false
+    },
+    "program": {
+      "id": "gpt2_dense_bias_v1",
+      "ops": [
+        "matmul",
+        "add_bias"
+      ],
+      "source": "packages/@affon/models/src/gpt2/model.ts:dense"
+    },
+    "extra_input_sha256": "1f03fb0e92bb5145721a26972d9c9814f74abb3f7fe161ada7fd483da8816ce3",
+    "timing_scope": "resident two-operation Program, synchronized full host materialization, output allocation and disposal included",
+    "optimization_level": "safe",
+    "input_sha256": "5cda2d84ea04f2810bc025e525c471ab4f741293f9a1537d3678bcd2b149b74b",
+    "iterations_per_sample": 10,
+    "warmup_calls": 20,
+    "affon_clock": "performance.now",
+    "peer_clock": "time.perf_counter_ns",
+    "rounds": 3
+  },
+  "correctness": {
+    "passed": true,
+    "max_abs_error": 0.0,
+    "tolerance": 972.8000000000001,
+    "checksum_error": 0.0,
+    "checksum_tolerance": 124518.40000000001,
+    "checked_elements": 5,
+    "total_elements": 128
+  },
+  "rounds": [
+    {
+      "round": 0,
+      "order": [
+        "affon",
+        "pytorch"
+      ],
+      "affon_samples_ms": [
+        0.44709999561309816,
+        0.3164999961853027,
+        0.35,
+        0.35549999475479127,
+        0.3093000054359436
+      ],
+      "peer_samples_ms": [
+        0.2237334,
+        0.2259709,
+        0.2358917,
+        0.21855,
+        0.2088833
+      ],
+      "affon_execution_ms": [
+        0.4441999912261963,
+        0.31349997520446776,
+        0.3459999918937683,
+        0.3524999856948853,
+        0.3062999963760376
+      ],
+      "affon_readback_ms": [
+        0.0019999980926513673,
+        0.0019999980926513673,
+        0.002599990367889404,
+        0.0020000219345092775,
+        0.0020000219345092775
+      ],
+      "peer_execution_ms": [
+        0.03135,
+        0.02945,
+        0.0293624,
+        0.0253833,
+        0.0252918
+      ],
+      "peer_readback_ms": [
+        0.192071,
+        0.1962958,
+        0.20630820000000002,
+        0.1929916,
+        0.1834126
+      ],
+      "max_abs_error": 0.0,
+      "output_hash_matches": true,
+      "checksum_error": 0.0,
+      "selected_path": [
+        {
+          "implementation_id": "view.slice",
+          "implementation_version": 0,
+          "configuration_digest": 0,
+          "view_slice_ranges": [
+            {
+              "start": 0,
+              "stop": 128,
+              "step": 1
+            },
+            {
+              "start": 0,
+              "stop": 256,
+              "step": 2
+            }
+          ],
+          "view_permutation": []
+        },
+        {
+          "implementation_id": "metal.matmul.small",
+          "implementation_version": 1,
+          "configuration_digest": 290873116282709060
+        },
+        {
+          "implementation_id": "metal_primitive",
+          "implementation_version": 1,
+          "configuration_digest": 290873116282709060
+        }
+      ]
+    },
+    {
+      "round": 1,
+      "order": [
+        "pytorch",
+        "affon"
+      ],
+      "affon_samples_ms": [
+        0.40679999589920046,
+        0.3195000052452087,
+        0.24830000400543212,
+        0.24960000514984132,
+        0.24259999990463257
+      ],
+      "peer_samples_ms": [
+        0.2230292,
+        0.2114875,
+        0.2087875,
+        0.20823329999999998,
+        0.2218
+      ],
+      "affon_execution_ms": [
+        0.4023999810218811,
+        0.3165000081062317,
+        0.24529998302459716,
+        0.24629998207092285,
+        0.23900001049041747
+      ],
+      "affon_readback_ms": [
+        0.0028000354766845705,
+        0.001999986171722412,
+        0.0019999980926513673,
+        0.0020999908447265625,
+        0.002200007438659668
+      ],
+      "peer_execution_ms": [
+        0.027520700000000002,
+        0.026916700000000002,
+        0.0254666,
+        0.027779,
+        0.0271083
+      ],
+      "peer_readback_ms": [
+        0.195275,
+        0.18437910000000002,
+        0.1831334,
+        0.1802707,
+        0.1944915
+      ],
+      "max_abs_error": 0.0,
+      "output_hash_matches": true,
+      "checksum_error": 0.0,
+      "selected_path": [
+        {
+          "implementation_id": "view.slice",
+          "implementation_version": 0,
+          "configuration_digest": 0,
+          "view_slice_ranges": [
+            {
+              "start": 0,
+              "stop": 128,
+              "step": 1
+            },
+            {
+              "start": 0,
+              "stop": 256,
+              "step": 2
+            }
+          ],
+          "view_permutation": []
+        },
+        {
+          "implementation_id": "metal.matmul.small",
+          "implementation_version": 1,
+          "configuration_digest": 290873116282709060
+        },
+        {
+          "implementation_id": "metal_primitive",
+          "implementation_version": 1,
+          "configuration_digest": 290873116282709060
+        }
+      ]
+    },
+    {
+      "round": 2,
+      "order": [
+        "affon",
+        "pytorch"
+      ],
+      "affon_samples_ms": [
+        0.2506999969482422,
+        0.2718999981880188,
+        0.2440000057220459,
+        0.24800000190734864,
+        0.24079999923706055
+      ],
+      "peer_samples_ms": [
+        0.19141670000000002,
+        0.1888417,
+        0.2160041,
+        0.20837920000000001,
+        0.203625
+      ],
+      "affon_execution_ms": [
+        0.24760000705718993,
+        0.2688000202178955,
+        0.2409000039100647,
+        0.24509998559951782,
+        0.23809999227523804
+      ],
+      "affon_readback_ms": [
+        0.0020999908447265625,
+        0.0018999934196472167,
+        0.002000010013580322,
+        0.0021000146865844727,
+        0.0017000079154968263
+      ],
+      "peer_execution_ms": [
+        0.0282332,
+        0.027283400000000003,
+        0.0359916,
+        0.030474900000000003,
+        0.0289125
+      ],
+      "peer_readback_ms": [
+        0.162879,
+        0.16135839999999999,
+        0.1797209,
+        0.1776583,
+        0.17448329999999998
+      ],
+      "max_abs_error": 0.0,
+      "output_hash_matches": true,
+      "checksum_error": 0.0,
+      "selected_path": [
+        {
+          "implementation_id": "view.slice",
+          "implementation_version": 0,
+          "configuration_digest": 0,
+          "view_slice_ranges": [
+            {
+              "start": 0,
+              "stop": 128,
+              "step": 1
+            },
+            {
+              "start": 0,
+              "stop": 256,
+              "step": 2
+            }
+          ],
+          "view_permutation": []
+        },
+        {
+          "implementation_id": "metal.matmul.small",
+          "implementation_version": 1,
+          "configuration_digest": 290873116282709060
+        },
+        {
+          "implementation_id": "metal_primitive",
+          "implementation_version": 1,
+          "configuration_digest": 290873116282709060
+        }
+      ]
+    }
+  ],
+  "affon_samples_ms": [
+    0.44709999561309816,
+    0.3164999961853027,
+    0.35,
+    0.35549999475479127,
+    0.3093000054359436,
+    0.40679999589920046,
+    0.3195000052452087,
+    0.24830000400543212,
+    0.24960000514984132,
+    0.24259999990463257,
+    0.2506999969482422,
+    0.2718999981880188,
+    0.2440000057220459,
+    0.24800000190734864,
+    0.24079999923706055
+  ],
+  "peer_samples_ms": [
+    0.2237334,
+    0.2259709,
+    0.2358917,
+    0.21855,
+    0.2088833,
+    0.2230292,
+    0.2114875,
+    0.2087875,
+    0.20823329999999998,
+    0.2218,
+    0.19141670000000002,
+    0.1888417,
+    0.2160041,
+    0.20837920000000001,
+    0.203625
+  ],
+  "phase_medians_ms": {
+    "affon_execution_ms": 0.2688000202178955,
+    "affon_readback_ms": 0.0020000219345092775,
+    "peer_execution_ms": 0.027779,
+    "peer_readback_ms": 0.1834126
+  },
+  "ratio_of_medians": 1.285655171998434,
+  "paired_round_ratios": [
+    1.5643618699756048,
+    1.1802116207806197,
+    1.2179251167948368
+  ]
+}

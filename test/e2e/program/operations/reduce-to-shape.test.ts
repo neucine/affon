@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'std:test'
 import { Session, Tensor, program } from 'affon:compute'
-import { reduce_to_shape } from 'affon:ops'
+import { add, reduce_to_shape } from 'affon:ops'
 
 for (const device of ['cpu', 'metal'] as const) describe(`reduce_to_shape ${device}`, () => {
   test('sums axes through immediate and Program calls', () => {
@@ -32,4 +32,20 @@ for (const device of ['cpu', 'metal'] as const) describe(`reduce_to_shape ${devi
     expect(output.to_array()).toBe(21)
     output.dispose(); executable.dispose(); input.dispose(); session.dispose()
   })
+})
+
+test('metal keeps a scalar reduction between GPU producer and consumer', () => {
+  const source = program('gpu_resident_scalar_reduction', p => {
+    const input = p.argument('input', Tensor.f32([33, 5]))
+    const reduced = reduce_to_shape(add(input, input), [1, 1])
+    return add(reduced, reduced)
+  })
+  const session = new Session({ device: 'metal' })
+  const executable = session.compile(source, { explanationLevel: 'detailed' })
+  const input = session.tensor(Array.from({ length: 33 }, (_, row) =>
+    Array.from({ length: 5 }, (_, col) => row * 5 + col)))
+  const output = executable.run({ input })
+  expect(output.to_array()).toEqual([[54120]])
+  expect(JSON.stringify(executable.explain())).toContain('metal.reduce_to_shape.scalar_parallel')
+  output.dispose(); input.dispose(); executable.dispose(); session.dispose()
 })

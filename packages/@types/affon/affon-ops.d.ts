@@ -31,8 +31,10 @@ declare module "affon:ops" {
   export function gt_scalar<T extends AnyTensor>(x: T, threshold: number): Same<T>
   /** Batched matrix multiplication over the final two dimensions. */
   export function matmul<T extends AnyTensor>(a: T, b: T): Same<T>
-  /** Select k values and their i64 source indices along an axis of a rank-two f32 or BF16 tensor. */
+  /** Select k values and their i64 source indices along an axis. */
   export function topk<T extends AnyTensor>(x: T, k: number, axis?: number, largest?: boolean, sorted?: boolean): readonly [Same<T>, Same<T>]
+  /** Sum broadcast dimensions back to a target shape. */
+  export function reduce_to_shape<T extends AnyTensor>(x: T, shape: readonly number[]): Same<T>
   /**
    * Affine weight-only quantized matrix multiplication with native CPU and Metal kernels.
    * Decodes unsigned values from U32 words, least significant bits first,
@@ -123,6 +125,10 @@ declare module "affon:ops" {
   export function one_hot<T extends AnyTensor>(indices: T, classes: number): Same<T>
   /** Return mean indexed cross-entropy for floating-point logits and i64 class labels. */
   export function cross_entropy<T extends AnyTensor>(logits: T, labels: T): Same<T>
+  /** Return mean cross-entropy for floating-point logits and dense target probabilities. */
+  export function dense_cross_entropy<T extends AnyTensor>(logits: T, targets: T): Same<T>
+  /** Return mean negative log likelihood for logits and dense target probabilities. */
+  export function log_softmax_nll<T extends AnyTensor>(logits: T, targets: T): Same<T>
   export function mean_squared_error<T extends AnyTensor>(prediction: T, target: T): Same<T>
   export function mean_absolute_error<T extends AnyTensor>(prediction: T, target: T): Same<T>
   export function binary_cross_entropy<T extends AnyTensor>(prediction: T, target: T): Same<T>
@@ -133,4 +139,6 @@ declare module "affon:ops" {
   export function stack<T extends AnyTensor>(values: readonly T[], axis?: number): Same<T>
   /** Select values elementwise using an i64 condition. */
   export function where<T extends AnyTensor>(condition: T, on_true: T, on_false: T): Same<T>
+  /** Accumulate updates at integer indices along one axis. */
+  export function scatter_add<T extends AnyTensor>(base: T, indices: T, updates: T, axis: number): Same<T>
 }

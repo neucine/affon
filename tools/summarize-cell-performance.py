@@ -34,7 +34,8 @@ def summarize(reports, ratio_limit, kind="operator_peer"):
         ratios = [a / b for a, b in paired]
         a_median, b_median = statistics.median(a for a, _ in paired), statistics.median(b for _, b in paired)
         status = "candidate_gap" if all(value > ratio_limit for value in ratios) else (
-            "mixed_rounds" if any(value > ratio_limit for value in ratios) else "within_diagnostic_target")
+            "mixed_rounds" if any(value > ratio_limit for value in ratios) else (
+                "better_than_peer" if all(value < 1.0 for value in ratios) else "within_diagnostic_target"))
         rows.append({"id": cell, "status": status, "affon_ms": a_median, "peer_ms": b_median,
                      "delta_ms": a_median - b_median, "ratio": a_median / b_median,
                      "round_ratios": ratios, "rounds": len(rounds)})

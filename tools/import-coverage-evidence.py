@@ -23,7 +23,9 @@ def artifact(path, contract):
 
 
 def import_probe(path, known_ids):
-    report = json.loads(path.read_text())
+    probe_bytes = path.read_bytes()
+    probe_sha256 = hashlib.sha256(probe_bytes).hexdigest()
+    report = json.loads(probe_bytes)
     if report.get("schema_version") != 1 or report.get("suite") != "affon_capability_probe_run":
         raise ValueError(f"{path}: invalid probe report")
     if not report.get("binary_sha256") or not report.get("catalog_sha256"):
@@ -44,7 +46,9 @@ def import_probe(path, known_ids):
                     **({"outputs": row["outputs"]} if row.get("outputs") else {}),
                     "compile_options": row.get("compile_options", {"dense_inputs": False}),
                     "binary_sha256": report["binary_sha256"], "catalog_sha256": report["catalog_sha256"]}
-        outcomes[cell] = {"support": "supported", "evidence": {"correctness": artifact(path, contract)},
+        outcomes[cell] = {"support": "supported", "evidence": {"correctness": {
+                              "artifact": str(path.resolve()), "sha256": probe_sha256,
+                              "contract": "sha256:" + digest(contract)}},
                           "probe_contract": contract}
     return outcomes
 

@@ -45,4 +45,35 @@ for (const device of ['cpu', 'metal'] as const) describe(`topk ${device}`, () =>
     expect(indices.to_array()).toEqual([[[1, 2], [0, 2]], [[1, 2], [2, 0]]])
     values.dispose(); indices.dispose(); executable.dispose(); input.dispose(); session.dispose()
   })
+
+  test('smallest sorted values honor a negative axis', () => {
+    const session = new Session({ device })
+    const input = session.tensor([[7, 2, 9, 4], [6, 1, 8, 3]])
+    const [selected, indices] = topk(input, 2, -1, false, true)
+    expect(selected.to_array()).toEqual([[2, 4], [1, 3]])
+    expect(indices.to_array()).toEqual([[1, 3], [1, 3]])
+    selected.dispose(); indices.dispose(); input.dispose(); session.dispose()
+  })
+
+  test('unsorted topk returns correct value-index pairs without assuming order', () => {
+    const session = new Session({ device })
+    const input = session.tensor([[7, 2, 9, 4]])
+    const [selected, indices] = topk(input, 3, 1, true, false)
+    const row = (selected.to_array() as number[][])[0]
+    const positions = (indices.to_array() as number[][])[0]
+    const pairs = row.map((value, index) => [value, positions[index]])
+      .sort((a, b) => a[1] - b[1])
+    expect(pairs).toEqual([[4, 3], [7, 0], [9, 2]].sort((a, b) => a[1] - b[1]))
+    selected.dispose(); indices.dispose(); input.dispose(); session.dispose()
+  })
+
+  test('rejects zero k then reuses the input for a valid selection', () => {
+    const session = new Session({ device })
+    const input = session.tensor([[3, 1, 2]])
+    expect(() => topk(input, 0, 1)).toThrow()
+    const [selected, indices] = topk(input, 1, 1)
+    expect(selected.to_array()).toEqual([[3]])
+    expect(indices.to_array()).toEqual([[0]])
+    selected.dispose(); indices.dispose(); input.dispose(); session.dispose()
+  })
 })

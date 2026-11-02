@@ -18,6 +18,8 @@ class CellSummaryTest(unittest.TestCase):
     def test_consistent_and_mixed_rounds_stay_distinct(self):
         self.assertEqual(summary.summarize([self.report([1.4, 1.5, 1.6])], 1.25)["cases"][0]["status"], "candidate_gap")
         self.assertEqual(summary.summarize([self.report([1.4, 0.9, 1.1])], 1.25)["cases"][0]["status"], "mixed_rounds")
+        self.assertEqual(summary.summarize([self.report([0.8, 0.9, 0.95])], 1.25)["cases"][0]["status"], "better_than_peer")
+        self.assertEqual(summary.summarize([self.report([0.8, 1.0, 1.1])], 1.25)["cases"][0]["status"], "within_diagnostic_target")
 
     def test_failed_correctness_rejected(self):
         report = self.report([1.4, 1.5])
