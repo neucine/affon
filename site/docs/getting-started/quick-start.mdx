@@ -1,0 +1,63 @@
+---
+title: Quick Start
+---
+
+Install the latest AFFON release:
+
+```bash
+curl -fsSL https://affon.ai/install.sh | bash
+```
+
+## First Program
+
+Create `hello.ts`:
+
+```ts
+import { Session, Tensor, program } from 'affon:compute'
+import { mul } from 'affon:ops'
+
+const square = program('square', p => {
+  const x = p.argument('x', Tensor.f32([4]))
+  return mul(x, x)
+})
+
+const session = new Session({ device: 'cpu' })
+const executable = session.compile(square)
+const x = session.tensor([1, 2, 3, 4])
+const y = executable.run({ x })
+
+console.log(y.to_array())
+
+y.dispose()
+x.dispose()
+executable.dispose()
+session.dispose()
+```
+
+Run it:
+
+```bash
+affon hello.ts
+```
+
+The example shows the canonical execution model: author a Program, compile it
+for a Session, then run it with named evaluated tensors.
+
+## Immediate computation
+
+For one-off value computation, call the same operation functions directly on
+evaluated tensors:
+
+```ts
+const y = mul(x, x)
+```
+
+The operands supply the Session. Immediate operations do not record gradients;
+use a Program for differentiation, optimization, inspection, composition, or
+repeated execution.
+
+Continue with:
+
+- [Compute Programs](/docs/core/compute/)
+- [Python to AFFON](/docs/getting-started/python-to-affon/)
+- [Machine Learning](/docs/ml/)
