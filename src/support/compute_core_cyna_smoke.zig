@@ -759,9 +759,14 @@ test "Affon submits a wrapping u32 Cyna graph" {
     try std.testing.expectEqualSlices(u32, &.{ std.math.maxInt(u32), 2, 3, 4, 1, 3, 5, 5, 4, 10 }, &output);
     try cyna.runDenseGraphWithGoalU32(std.testing.allocator, &inputs, &steps, &selected, &output, .memory);
     try std.testing.expectEqualSlices(u32, &.{ std.math.maxInt(u32), 2, 3, 4, 1, 3, 5, 5, 4, 10 }, &output);
+    try cyna.runDenseGraphResidentU32(std.testing.allocator, &inputs, &steps, &selected, &output);
+    try std.testing.expectEqualSlices(u32, &.{ std.math.maxInt(u32), 2, 3, 4, 1, 3, 5, 5, 4, 10 }, &output);
     output[0] = 91;
     try std.testing.expectError(error.InvalidShape,
         cyna.runDenseGraphU32(std.testing.allocator, &inputs, &steps, &selected, output[0..9]));
+    try std.testing.expectEqual(@as(u32, 91), output[0]);
+    try std.testing.expectError(error.InvalidShape,
+        cyna.runDenseGraphResidentU32(std.testing.allocator, &inputs, &steps, &selected, output[0..9]));
     try std.testing.expectEqual(@as(u32, 91), output[0]);
 }
 
