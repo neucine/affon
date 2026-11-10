@@ -67,6 +67,32 @@ test "Affon submits a precise f64 Cyna graph" {
     try std.testing.expectEqual(@as(f64, -1.0), output[0]);
 }
 
+test "Affon submits a wrapping u32 Cyna graph" {
+    const left = [_]u32{ std.math.maxInt(u32), 2, 3, 4 };
+    const identity = [_]u32{ 1, 0, 0, 1 };
+    const bias = [_]u32{ 2, 1 };
+    const inputs = [_]cyna.DenseInputU32{
+        .{ .shape = &.{ 2, 2 }, .values = &left },
+        .{ .shape = &.{ 2, 2 }, .values = &identity },
+        .{ .shape = &.{2}, .values = &bias },
+    };
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .matmul, .lhs = 0, .rhs = 1 },
+        .{ .operation = .add, .lhs = 3, .rhs = 2 },
+        .{ .operation = .sum_axis, .lhs = 4, .rhs = 1 },
+    };
+    const selected = [_]usize{ 3, 4, 5 };
+    var output = [_]u32{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    try cyna.runDenseGraphU32(std.testing.allocator, &inputs, &steps, &selected, &output);
+    try std.testing.expectEqualSlices(u32, &.{ std.math.maxInt(u32), 2, 3, 4, 1, 3, 5, 5, 4, 10 }, &output);
+    try cyna.runDenseGraphWithGoalU32(std.testing.allocator, &inputs, &steps, &selected, &output, .memory);
+    try std.testing.expectEqualSlices(u32, &.{ std.math.maxInt(u32), 2, 3, 4, 1, 3, 5, 5, 4, 10 }, &output);
+    output[0] = 91;
+    try std.testing.expectError(error.InvalidShape,
+        cyna.runDenseGraphU32(std.testing.allocator, &inputs, &steps, &selected, output[0..9]));
+    try std.testing.expectEqual(@as(u32, 91), output[0]);
+}
+
 test "Affon calls Cyna matmul bias GELU through the C ABI" {
     const lhs = [_]f32{ 1, 2, 3, 4 };
     const rhs = [_]f32{ 5, 6, 7, 8 };
