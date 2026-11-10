@@ -467,13 +467,20 @@ pub const DenseOperation = enum(c_int) {
     reshape = 47,
     permute = 48,
     slice = 49,
+    one_hot = 50,
+    index_select = 51,
+    embedding = 52,
+    gather = 53,
+    scatter_add = 54,
 };
 // rhs is a value ID for binary steps, an axis for reductions and softmax,
-// a DenseDType code for cast, or an axis for squeeze, unsqueeze, and swap_axes.
+// an index ID for indexed steps, a class count for one_hot, a DenseDType code
+// for cast, or an axis for squeeze, unsqueeze, and swap_axes.
 // Squeeze uses maxInt(usize) to remove all singleton axes. third is where's
-// false branch or the second axis for swap_axes.
+// false branch, the second axis for swap_axes, an indexed axis, or updates ID.
 // metadata is the target shape for reshape, axis order for permute, or
-// start/stop/positive-step triples for each slice axis.
+// start/stop/positive-step triples for each slice axis. Scatter add uses one
+// metadata value for its axis.
 pub const DenseStep = struct { operation: DenseOperation, lhs: usize, rhs: usize = 0, third: usize = 0, metadata: []const usize = &.{} };
 
 // Returns the number of flattened output dimensions written. Each selected

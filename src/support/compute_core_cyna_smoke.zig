@@ -190,6 +190,47 @@ test "Affon slices Cyna views with stepped ranges" {
             &inputs, &invalid, &.{1}, .baseline));
 }
 
+test "Affon runs Cyna indexed graph family" {
+    const table = [_]f32{ 1, 4, 2, 3, 0, 5 };
+    const row_indices = [_]i64{ 1, 0 };
+    const gather_indices = [_]i64{ 2, 0, 1, 1, 1, 0 };
+    const zeros = [6]f32{ 0, 0, 0, 0, 0, 0 };
+    const inputs = [_]cyna.DenseByteInput{
+        .{ .dtype = .f32, .shape = &.{ 2, 3 }, .bytes = std.mem.sliceAsBytes(&table) },
+        .{ .dtype = .i64, .shape = &.{2}, .bytes = std.mem.sliceAsBytes(&row_indices) },
+        .{ .dtype = .i64, .shape = &.{ 2, 3 }, .bytes = std.mem.sliceAsBytes(&gather_indices) },
+        .{ .dtype = .f32, .shape = &.{ 2, 3 }, .bytes = std.mem.sliceAsBytes(&zeros) },
+    };
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .embedding, .lhs = 0, .rhs = 1 },
+        .{ .operation = .index_select, .lhs = 0, .rhs = 1, .third = 0 },
+        .{ .operation = .gather, .lhs = 0, .rhs = 2, .third = 1 },
+        .{ .operation = .scatter_add, .lhs = 3, .rhs = 2, .third = 6, .metadata = &.{1} },
+        .{ .operation = .one_hot, .lhs = 1, .rhs = 2 },
+    };
+    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator,
+        &inputs, &steps, &.{ 4, 5, 6, 7, 8 }, .baseline);
+    defer result.deinit(std.testing.allocator);
+    try std.testing.expectEqualSlices(usize, &.{ 2, 2 }, result.shape(4));
+    try std.testing.expectEqual(cyna.DenseDType.f32, result.dtype(4));
+    const expected = [_][6]f32{
+        .{ 3, 0, 5, 1, 4, 2 },
+        .{ 3, 0, 5, 1, 4, 2 },
+        .{ 2, 1, 4, 0, 0, 3 },
+        .{ 1, 4, 2, 3, 0, 0 },
+    };
+    for (expected, 0..) |values, index| try std.testing.expectEqualSlices(u8,
+        std.mem.sliceAsBytes(&values), result.outputBytes(index));
+    const expected_hot = [_]f32{ 0, 1, 1, 0 };
+    try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&expected_hot), result.outputBytes(4));
+    const invalid = [_]cyna.DenseStep{
+        .{ .operation = .index_select, .lhs = 0, .rhs = 1, .third = 2 },
+    };
+    try std.testing.expectError(error.InvalidShape,
+        cyna.allocDenseGraphMultiBytes(std.testing.allocator,
+            &inputs, &invalid, &.{4}, .baseline));
+}
+
 test "Affon owns heterogeneous Cyna graph results" {
     const float_values = [_]f32{ 4, -1 };
     const integer_values = [_]i64{ 7, 9 };
