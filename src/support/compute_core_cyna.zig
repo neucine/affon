@@ -74,6 +74,17 @@ pub const DenseOperation = enum(c_int) {
     mean_all = 9,
     sum_axis = 10,
     mean_axis = 11,
+    sign = 12,
+    exp = 13,
+    log = 14,
+    sqrt = 15,
+    sigmoid = 16,
+    silu = 17,
+    tanh = 18,
+    erf = 19,
+    gelu = 20,
+    sin = 21,
+    cos = 22,
 };
 // rhs is a value ID for binary steps and an axis index for axis reductions.
 pub const DenseStep = struct { operation: DenseOperation, lhs: usize, rhs: usize = 0 };

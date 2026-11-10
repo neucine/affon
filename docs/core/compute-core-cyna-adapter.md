@@ -5,7 +5,8 @@ and GELU C ABI, the f32 quantized matmul C ABI, rank-two f32 reductions, and
 a synchronous shaped f32 graph ABI. The graph adapter accepts typed input
 shapes and steps, packs the C arrays, and supports selected outputs of
 different shapes. Its current operations are binary arithmetic, abs, neg,
-ReLU, matmul, and whole or axis sum and mean. The caller supplies a flat
+ReLU, sign, exp, log, sqrt, sigmoid, SiLU, tanh, erf, GELU, sin, cos, matmul,
+and whole or axis sum and mean. The caller supplies a flat
 output buffer with the total selected element count.
 The reduction adapter covers whole or axis sum, mean, min, max, population
 variance, and standard deviation. The quantized path accepts

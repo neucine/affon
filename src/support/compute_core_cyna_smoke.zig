@@ -91,3 +91,18 @@ test "Affon submits a shaped Cyna graph with mixed selected outputs" {
     try cyna.runDenseGraphF32(std.testing.allocator, &inputs, &no_steps, &input_selected, &identity);
     try std.testing.expectEqualSlices(f32, &.{ 7, 8, 9, 10, 11, 12, 1, 2, 3, 4, 5, 6 }, &identity);
 }
+
+test "Affon submits Cyna unary activation steps" {
+    const values = [_]f32{0};
+    const inputs = [_]cyna.DenseInput{.{ .shape = &.{1}, .values = &values }};
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .exp, .lhs = 0 },
+        .{ .operation = .sigmoid, .lhs = 0 },
+        .{ .operation = .sin, .lhs = 0 },
+        .{ .operation = .cos, .lhs = 0 },
+    };
+    const selected = [_]usize{ 1, 2, 3, 4 };
+    var output: [4]f32 = @splat(-1);
+    try cyna.runDenseGraphF32(std.testing.allocator, &inputs, &steps, &selected, &output);
+    try std.testing.expectEqualSlices(f32, &.{ 1, 0.5, 0, 1 }, &output);
+}
