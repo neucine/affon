@@ -472,6 +472,8 @@ pub const DenseOperation = enum(c_int) {
     embedding = 52,
     gather = 53,
     scatter_add = 54,
+    top_k_values = 55,
+    top_k_indices = 56,
 };
 // rhs is a value ID for binary steps, an axis for reductions and softmax,
 // an index ID for indexed steps, a class count for one_hot, a DenseDType code
@@ -480,7 +482,7 @@ pub const DenseOperation = enum(c_int) {
 // false branch, the second axis for swap_axes, an indexed axis, or updates ID.
 // metadata is the target shape for reshape, axis order for permute, or
 // start/stop/positive-step triples for each slice axis. Scatter add uses one
-// metadata value for its axis.
+// metadata value for its axis. Top-k uses axis, k, and a 0/1 largest flag.
 pub const DenseStep = struct { operation: DenseOperation, lhs: usize, rhs: usize = 0, third: usize = 0, metadata: []const usize = &.{} };
 
 // Returns the number of flattened output dimensions written. Each selected

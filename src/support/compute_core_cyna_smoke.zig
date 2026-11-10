@@ -231,6 +231,33 @@ test "Affon runs Cyna indexed graph family" {
             &inputs, &invalid, &.{4}, .baseline));
 }
 
+test "Affon receives paired Cyna top k graph results" {
+    const values = [_]f32{ 1, 4, 2, 3, 0, 5 };
+    const inputs = [_]cyna.DenseByteInput{
+        .{ .dtype = .f32, .shape = &.{ 2, 3 }, .bytes = std.mem.sliceAsBytes(&values) },
+    };
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .top_k_values, .lhs = 0, .metadata = &.{ 1, 2, 1 } },
+        .{ .operation = .top_k_indices, .lhs = 0, .metadata = &.{ 1, 2, 1 } },
+    };
+    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator,
+        &inputs, &steps, &.{ 1, 2 }, .baseline);
+    defer result.deinit(std.testing.allocator);
+    try std.testing.expectEqual(cyna.DenseDType.f32, result.dtype(0));
+    try std.testing.expectEqual(cyna.DenseDType.i64, result.dtype(1));
+    try std.testing.expectEqualSlices(usize, &.{ 2, 2 }, result.shape(1));
+    const expected_values = [_]f32{ 4, 2, 5, 3 };
+    const expected_indices = [_]i64{ 1, 2, 2, 0 };
+    try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&expected_values), result.outputBytes(0));
+    try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&expected_indices), result.outputBytes(1));
+    const invalid = [_]cyna.DenseStep{
+        .{ .operation = .top_k_values, .lhs = 0, .metadata = &.{ 1, 4, 1 } },
+    };
+    try std.testing.expectError(error.InvalidShape,
+        cyna.allocDenseGraphMultiBytes(std.testing.allocator,
+            &inputs, &invalid, &.{1}, .baseline));
+}
+
 test "Affon owns heterogeneous Cyna graph results" {
     const float_values = [_]f32{ 4, -1 };
     const integer_values = [_]i64{ 7, 9 };
