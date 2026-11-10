@@ -63,6 +63,19 @@ test "Affon submits a shaped signed i64 Cyna graph" {
         .{ .operation = .sum_axis, .lhs = 4, .rhs = 1 },
     };
     const selected = [_]usize{ 3, 4, 5 };
+    const owned = try cyna.allocDenseGraphI64(std.testing.allocator, &inputs, &steps, &selected, .memory);
+    defer owned.deinit(std.testing.allocator);
+    try std.testing.expectEqualSlices(usize, &.{ 2, 2 }, owned.shape(0));
+    try std.testing.expectEqualSlices(usize, &.{2}, owned.shape(2));
+    try std.testing.expectEqualSlices(i64, &.{ 19, 22, 43, 50 }, owned.output(0));
+    try std.testing.expectEqualSlices(i64, &.{ 71, 123 }, owned.output(2));
+    const bad_inputs = [_]cyna.DenseInputI64{
+        .{ .shape = &.{ 2, 2 }, .values = left[0..3] },
+        inputs[1],
+        inputs[2],
+    };
+    try std.testing.expectError(error.InvalidShape,
+        cyna.allocDenseGraphI64(std.testing.allocator, &bad_inputs, &steps, &selected, .baseline));
     var output = [_]i64{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
     try cyna.runDenseGraphI64(std.testing.allocator, &inputs, &steps, &selected, &output);
     try std.testing.expectEqualSlices(i64, &.{ 19, 22, 43, 50, 29, 42, 53, 70, 71, 123 }, &output);

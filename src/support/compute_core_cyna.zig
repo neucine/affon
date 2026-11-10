@@ -176,6 +176,42 @@ pub const DenseInputU32 = denseInput(u32);
 pub const DenseInputBf16Bits = denseInput(u16);
 pub const DenseInputShape = struct { shape: []const usize };
 pub const DenseDType = enum(c_int) { f32 = 1, f64 = 2, i64 = 3, u32 = 4, bf16 = 5 };
+
+pub fn DenseGraphResult(comptime T: type) type {
+    return struct {
+        values: []T,
+        ranks: []usize,
+        elements: []usize,
+        dimensions: []usize,
+
+        pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
+            allocator.free(self.values);
+            allocator.free(self.ranks);
+            allocator.free(self.elements);
+            allocator.free(self.dimensions);
+        }
+
+        pub fn shape(self: @This(), index: usize) []const usize {
+            std.debug.assert(index < self.ranks.len);
+            var offset: usize = 0;
+            for (self.ranks[0..index]) |rank| offset += rank;
+            return self.dimensions[offset..][0..self.ranks[index]];
+        }
+
+        pub fn output(self: @This(), index: usize) []const T {
+            std.debug.assert(index < self.elements.len);
+            var offset: usize = 0;
+            for (self.elements[0..index]) |count| offset += count;
+            return self.values[offset..][0..self.elements[index]];
+        }
+    };
+}
+
+pub const DenseGraphResultF32 = DenseGraphResult(f32);
+pub const DenseGraphResultF64 = DenseGraphResult(f64);
+pub const DenseGraphResultI64 = DenseGraphResult(i64);
+pub const DenseGraphResultU32 = DenseGraphResult(u32);
+pub const DenseGraphResultBf16Bits = DenseGraphResult(u16);
 pub const DenseOperation = enum(c_int) {
     add = 0,
     sub = 1,
@@ -518,6 +554,56 @@ pub fn runDenseGraphWithGoalBf16Bits(
     goal: DenseGoal,
 ) (Error || std.mem.Allocator.Error)!void {
     return runDenseGraphWithGoal(u16, allocator, inputs, steps, selected, output_bits, goal);
+}
+
+pub fn allocDenseGraphF32(allocator: std.mem.Allocator, inputs: []const DenseInput, steps: []const DenseStep, selected: []const usize, goal: DenseGoal) (Error || std.mem.Allocator.Error)!DenseGraphResultF32 {
+    return allocDenseGraph(f32, .f32, allocator, inputs, steps, selected, goal);
+}
+
+pub fn allocDenseGraphF64(allocator: std.mem.Allocator, inputs: []const DenseInputF64, steps: []const DenseStep, selected: []const usize, goal: DenseGoal) (Error || std.mem.Allocator.Error)!DenseGraphResultF64 {
+    return allocDenseGraph(f64, .f64, allocator, inputs, steps, selected, goal);
+}
+
+pub fn allocDenseGraphI64(allocator: std.mem.Allocator, inputs: []const DenseInputI64, steps: []const DenseStep, selected: []const usize, goal: DenseGoal) (Error || std.mem.Allocator.Error)!DenseGraphResultI64 {
+    return allocDenseGraph(i64, .i64, allocator, inputs, steps, selected, goal);
+}
+
+pub fn allocDenseGraphU32(allocator: std.mem.Allocator, inputs: []const DenseInputU32, steps: []const DenseStep, selected: []const usize, goal: DenseGoal) (Error || std.mem.Allocator.Error)!DenseGraphResultU32 {
+    return allocDenseGraph(u32, .u32, allocator, inputs, steps, selected, goal);
+}
+
+pub fn allocDenseGraphBf16Bits(allocator: std.mem.Allocator, inputs: []const DenseInputBf16Bits, steps: []const DenseStep, selected: []const usize, goal: DenseGoal) (Error || std.mem.Allocator.Error)!DenseGraphResultBf16Bits {
+    return allocDenseGraph(u16, .bf16, allocator, inputs, steps, selected, goal);
+}
+
+fn allocDenseGraph(
+    comptime T: type,
+    dtype: DenseDType,
+    allocator: std.mem.Allocator,
+    inputs: []const denseInput(T),
+    steps: []const DenseStep,
+    selected: []const usize,
+    goal: DenseGoal,
+) (Error || std.mem.Allocator.Error)!DenseGraphResult(T) {
+    const max_dimensions = std.math.mul(usize, selected.len, 8) catch return error.InvalidShape;
+    const shapes = try allocator.alloc(DenseInputShape, inputs.len);
+    defer allocator.free(shapes);
+    for (inputs, 0..) |input, index| shapes[index] = .{ .shape = input.shape };
+    const ranks = try allocator.alloc(usize, selected.len);
+    errdefer allocator.free(ranks);
+    const elements = try allocator.alloc(usize, selected.len);
+    errdefer allocator.free(elements);
+    const dimension_buffer = try allocator.alloc(usize, max_dimensions);
+    defer allocator.free(dimension_buffer);
+    const written = try inferDenseGraph(allocator, dtype, shapes, steps, selected, ranks, elements, dimension_buffer);
+    const dimensions = try allocator.dupe(usize, dimension_buffer[0..written]);
+    errdefer allocator.free(dimensions);
+    var total: usize = 0;
+    for (elements) |count| total = std.math.add(usize, total, count) catch return error.InvalidShape;
+    const values = try allocator.alloc(T, total);
+    errdefer allocator.free(values);
+    try runDenseGraphWithGoal(T, allocator, inputs, steps, selected, values, goal);
+    return .{ .values = values, .ranks = ranks, .elements = elements, .dimensions = dimensions };
 }
 
 fn runDenseGraphWithGoal(
