@@ -556,10 +556,16 @@ test "Affon runs Cyna dense min and max reductions" {
     try std.testing.expectEqualSlices(usize, &.{1}, owned.shape(0));
     try std.testing.expectEqualSlices(usize, &.{2}, owned.shape(2));
     try std.testing.expectEqualSlices(i64, &.{ -3, 9, -3, 2, 7, 9 }, owned.values);
+    var resident_i64: [6]i64 = @splat(0);
+    try cyna.runDenseGraphResidentI64(std.testing.allocator, &signed, &steps, &selected, &resident_i64);
+    try std.testing.expectEqualSlices(i64, owned.values, &resident_i64);
     const unsigned = [_]cyna.DenseInputU32{.{ .shape = &.{ 2, 2 }, .values = &.{ 7, 3, 2, 9 } }};
     const unsigned_result = try cyna.allocDenseGraphU32(std.testing.allocator, &unsigned, &steps, &selected, .baseline);
     defer unsigned_result.deinit(std.testing.allocator);
     try std.testing.expectEqualSlices(u32, &.{ 2, 9, 3, 2, 7, 9 }, unsigned_result.values);
+    var resident_u32: [6]u32 = @splat(0);
+    try cyna.runDenseGraphResidentU32(std.testing.allocator, &unsigned, &steps, &selected, &resident_u32);
+    try std.testing.expectEqualSlices(u32, unsigned_result.values, &resident_u32);
     const single = [_]cyna.DenseInput{.{ .shape = &.{ 2, 2 }, .values = &.{ 7, 3, 2, 9 } }};
     const single_result = try cyna.allocDenseGraphF32(std.testing.allocator, &single, &steps, &selected, .baseline);
     defer single_result.deinit(std.testing.allocator);
@@ -571,10 +577,16 @@ test "Affon runs Cyna dense min and max reductions" {
     const double_result = try cyna.allocDenseGraphF64(std.testing.allocator, &double, &steps, &selected, .baseline);
     defer double_result.deinit(std.testing.allocator);
     try std.testing.expectEqualSlices(f64, &.{ 2, 9, 3, 2, 7, 9 }, double_result.values);
+    var resident_f64: [6]f64 = @splat(0);
+    try cyna.runDenseGraphResidentF64(std.testing.allocator, &double, &steps, &selected, &resident_f64);
+    try std.testing.expectEqualSlices(f64, double_result.values, &resident_f64);
     const bits = [_]cyna.DenseInputBf16Bits{.{ .shape = &.{ 2, 2 }, .values = &.{ 0x40e0, 0x4040, 0x4000, 0x4110 } }};
     const bits_result = try cyna.allocDenseGraphBf16Bits(std.testing.allocator, &bits, &steps, &selected, .baseline);
     defer bits_result.deinit(std.testing.allocator);
     try std.testing.expectEqualSlices(u16, &.{ 0x4000, 0x4110, 0x4040, 0x4000, 0x40e0, 0x4110 }, bits_result.values);
+    var resident_bf16: [6]u16 = @splat(0);
+    try cyna.runDenseGraphResidentBf16Bits(std.testing.allocator, &bits, &steps, &selected, &resident_bf16);
+    try std.testing.expectEqualSlices(u16, bits_result.values, &resident_bf16);
 }
 
 test "Affon infers selected graph shapes for five Cyna dtypes" {
