@@ -855,6 +855,13 @@ test "Affon submits a shaped Cyna graph with mixed selected outputs" {
     var output = [_]f32{ -1, -1, -1, -1, -1, -1, -1 };
     try cyna.runDenseGraphF32(std.testing.allocator, &inputs, &steps, &selected, &output);
     try std.testing.expectEqualSlices(f32, &.{ 58, 64, 139, 154, 415, 61, 146.5 }, &output);
+    var resident_output: [7]f32 = @splat(-1);
+    try cyna.runDenseGraphResidentF32(std.testing.allocator, &inputs, &steps, &selected, &resident_output);
+    try std.testing.expectEqualSlices(f32, &output, &resident_output);
+    resident_output = @splat(-1);
+    try std.testing.expectError(error.InvalidShape,
+        cyna.runDenseGraphResidentF32(std.testing.allocator, &inputs, &steps, &selected, resident_output[0..6]));
+    try std.testing.expectEqualSlices(f32, &.{ -1, -1, -1, -1, -1, -1, -1 }, &resident_output);
 
     output = @splat(-1);
     const invalid = [_]cyna.DenseStep{.{ .operation = .matmul, .lhs = 0, .rhs = 2 }};
