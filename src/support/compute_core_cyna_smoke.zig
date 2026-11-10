@@ -62,6 +62,31 @@ test "Affon selects Cyna comparison branches" {
     }
 }
 
+test "Affon receives Cyna cast with mixed selected dtypes" {
+    const values = [_]f32{ 1.5, -2 };
+    const inputs = [_]cyna.DenseByteInput{
+        .{ .dtype = .f32, .shape = &.{2}, .bytes = std.mem.sliceAsBytes(&values) },
+    };
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .cast, .lhs = 0, .rhs = @intFromEnum(cyna.DenseDType.f64) },
+    };
+    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator,
+        &inputs, &steps, &.{ 0, 1 }, .baseline);
+    defer result.deinit(std.testing.allocator);
+    try std.testing.expectEqual(cyna.DenseDType.f32, result.dtype(0));
+    try std.testing.expectEqual(cyna.DenseDType.f64, result.dtype(1));
+    try std.testing.expectEqualSlices(usize, &.{2}, result.shape(1));
+    try std.testing.expectEqualSlices(u8, inputs[0].bytes, result.outputBytes(0));
+    for ([_]f64{ 1.5, -2 }, 0..) |value, index| {
+        try std.testing.expectEqual(value, std.mem.bytesToValue(f64,
+            result.outputBytes(1)[index * 8 ..][0..8]));
+    }
+    const bad = [_]cyna.DenseStep{.{ .operation = .cast, .lhs = 0, .rhs = 6 }};
+    try std.testing.expectError(error.InvalidShape,
+        cyna.allocDenseGraphMultiBytes(std.testing.allocator,
+            &inputs, &bad, &.{1}, .baseline));
+}
+
 test "Affon owns heterogeneous Cyna graph results" {
     const float_values = [_]f32{ 4, -1 };
     const integer_values = [_]i64{ 7, 9 };

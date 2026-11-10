@@ -412,8 +412,10 @@ pub const DenseOperation = enum(c_int) {
     lt = 38,
     gt = 39,
     where = 40,
+    cast = 41,
 };
-// rhs is a value ID for binary steps and an axis for axis reductions and softmax.
+// rhs is a value ID for binary steps, an axis for reductions and softmax,
+// or a DenseDType code for cast. third is the false branch for where.
 pub const DenseStep = struct { operation: DenseOperation, lhs: usize, rhs: usize = 0, third: usize = 0 };
 
 // Returns the number of flattened output dimensions written. Each selected
