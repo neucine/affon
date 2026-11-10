@@ -466,11 +466,14 @@ pub const DenseOperation = enum(c_int) {
     swap_axes = 46,
     reshape = 47,
     permute = 48,
+    slice = 49,
 };
 // rhs is a value ID for binary steps, an axis for reductions and softmax,
 // a DenseDType code for cast, or an axis for squeeze, unsqueeze, and swap_axes.
 // Squeeze uses maxInt(usize) to remove all singleton axes. third is where's
 // false branch or the second axis for swap_axes.
+// metadata is the target shape for reshape, axis order for permute, or
+// start/stop/positive-step triples for each slice axis.
 pub const DenseStep = struct { operation: DenseOperation, lhs: usize, rhs: usize = 0, third: usize = 0, metadata: []const usize = &.{} };
 
 // Returns the number of flattened output dimensions written. Each selected

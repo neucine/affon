@@ -166,6 +166,30 @@ test "Affon sends Cyna reshape and permutation metadata" {
             &inputs, &invalid, &.{1}, .baseline));
 }
 
+test "Affon slices Cyna views with stepped ranges" {
+    const values = [_]f32{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 };
+    const inputs = [_]cyna.DenseByteInput{
+        .{ .dtype = .f32, .shape = &.{ 3, 4 }, .bytes = std.mem.sliceAsBytes(&values) },
+    };
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .slice, .lhs = 0, .metadata = &.{ 1, 3, 1, 0, 4, 2 } },
+        .{ .operation = .contiguous, .lhs = 1 },
+    };
+    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator,
+        &inputs, &steps, &.{ 1, 2 }, .baseline);
+    defer result.deinit(std.testing.allocator);
+    try std.testing.expectEqualSlices(usize, &.{ 2, 2 }, result.shape(0));
+    const expected = [_]f32{ 4, 6, 8, 10 };
+    for (0..2) |index| try std.testing.expectEqualSlices(u8,
+        std.mem.sliceAsBytes(&expected), result.outputBytes(index));
+    const invalid = [_]cyna.DenseStep{
+        .{ .operation = .slice, .lhs = 0, .metadata = &.{ 1, 3, 1, 0, 4, 0 } },
+    };
+    try std.testing.expectError(error.InvalidShape,
+        cyna.allocDenseGraphMultiBytes(std.testing.allocator,
+            &inputs, &invalid, &.{1}, .baseline));
+}
+
 test "Affon owns heterogeneous Cyna graph results" {
     const float_values = [_]f32{ 4, -1 };
     const integer_values = [_]i64{ 7, 9 };
