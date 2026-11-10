@@ -479,6 +479,11 @@ pub const DenseOperation = enum(c_int) {
     stack = 59,
     masked_fill = 60,
     clamp = 61,
+    layer_norm = 62,
+    rms_norm = 63,
+    cross_entropy = 64,
+    log_softmax_nll = 65,
+    cross_entropy_indexed = 66,
 };
 // rhs is a value ID for binary steps, an axis for reductions and softmax,
 // an index ID for indexed steps, a class count for one_hot, a DenseDType code
@@ -490,6 +495,8 @@ pub const DenseOperation = enum(c_int) {
 // metadata value for its axis. Top-k uses axis, k, and a 0/1 largest flag.
 // Reduce-to-shape uses target dimensions; cat and stack use additional value IDs.
 // Masked fill and clamp store each f64 scalar as low and high 32-bit words.
+// Layer and RMS normalization use the same scalar encoding for epsilon;
+// loss steps use rhs for targets and third for class axis.
 pub const DenseStep = struct { operation: DenseOperation, lhs: usize, rhs: usize = 0, third: usize = 0, metadata: []const usize = &.{} };
 
 pub fn scalarMetadata(value: f64) [2]usize {

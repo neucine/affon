@@ -319,6 +319,45 @@ test "Affon sends Cyna masked fill and clamp scalars" {
             &inputs, &invalid, &.{2}, .baseline));
 }
 
+test "Affon runs Cyna normalization and loss graph" {
+    const logits = [_]f32{ 1, 2, 3, 4, 5, 6 };
+    const dense_targets = [_]f32{ 0, 0, 1, 1, 0, 0 };
+    const indexed_targets = [_]i64{ 2, 0 };
+    const inputs = [_]cyna.DenseByteInput{
+        .{ .dtype = .f32, .shape = &.{ 2, 3 }, .bytes = std.mem.sliceAsBytes(&logits) },
+        .{ .dtype = .f32, .shape = &.{ 2, 3 }, .bytes = std.mem.sliceAsBytes(&dense_targets) },
+        .{ .dtype = .i64, .shape = &.{2}, .bytes = std.mem.sliceAsBytes(&indexed_targets) },
+    };
+    const epsilon = cyna.scalarMetadata(0.00001);
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .layer_norm, .lhs = 0, .rhs = 1, .metadata = &epsilon },
+        .{ .operation = .rms_norm, .lhs = 0, .rhs = 1, .metadata = &epsilon },
+        .{ .operation = .cross_entropy, .lhs = 0, .rhs = 1, .third = 1 },
+        .{ .operation = .log_softmax_nll, .lhs = 0, .rhs = 1, .third = 1 },
+        .{ .operation = .cross_entropy_indexed, .lhs = 0, .rhs = 2, .third = 1 },
+    };
+    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator,
+        &inputs, &steps, &.{ 3, 4, 5, 6, 7 }, .baseline);
+    defer result.deinit(std.testing.allocator);
+    try std.testing.expectEqualSlices(usize, &.{ 2, 3 }, result.shape(0));
+    try std.testing.expectEqualSlices(usize, &.{1}, result.shape(4));
+    for (0..3) |index| {
+        const value = std.mem.bytesToValue(f32, result.outputBytes(index + 2)[0..4]);
+        try std.testing.expectApproxEqAbs(@as(f32, 1.407606), value, 0.00002);
+    }
+    const layer_first = std.mem.bytesToValue(f32, result.outputBytes(0)[0..4]);
+    const rms_first = std.mem.bytesToValue(f32, result.outputBytes(1)[0..4]);
+    try std.testing.expectApproxEqAbs(@as(f32, -1.2247356), layer_first, 0.00002);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.46290955), rms_first, 0.00002);
+    const zero_epsilon = cyna.scalarMetadata(0);
+    const invalid = [_]cyna.DenseStep{
+        .{ .operation = .layer_norm, .lhs = 0, .rhs = 1, .metadata = &zero_epsilon },
+    };
+    try std.testing.expectError(error.InvalidShape,
+        cyna.allocDenseGraphMultiBytes(std.testing.allocator,
+            &inputs, &invalid, &.{3}, .baseline));
+}
+
 test "Affon owns heterogeneous Cyna graph results" {
     const float_values = [_]f32{ 4, -1 };
     const integer_values = [_]i64{ 7, 9 };
