@@ -952,6 +952,17 @@ test "Affon submits Cyna unary activation steps" {
     var output: [4]f32 = @splat(-1);
     try cyna.runDenseGraphF32(std.testing.allocator, &inputs, &steps, &selected, &output);
     try std.testing.expectEqualSlices(f32, &.{ 1, 0.5, 0, 1 }, &output);
+    var floating_resident: [4]f32 = @splat(-1);
+    try cyna.runDenseGraphResidentF32(std.testing.allocator, &inputs, &steps, &selected, &floating_resident);
+    try std.testing.expectEqualSlices(f32, &output, &floating_resident);
+    const double_inputs = [_]cyna.DenseInputF64{.{ .shape = &.{1}, .values = &.{0} }};
+    var double_resident: [4]f64 = @splat(-1);
+    try cyna.runDenseGraphResidentF64(std.testing.allocator, &double_inputs, &steps, &selected, &double_resident);
+    try std.testing.expectEqualSlices(f64, &.{ 1, 0.5, 0, 1 }, &double_resident);
+    const bfloat_inputs = [_]cyna.DenseInputBf16Bits{.{ .shape = &.{1}, .values = &.{0} }};
+    var bfloat_resident: [4]u16 = @splat(0);
+    try cyna.runDenseGraphResidentBf16Bits(std.testing.allocator, &bfloat_inputs, &steps, &selected, &bfloat_resident);
+    try std.testing.expectEqualSlices(u16, &.{ 0x3f80, 0x3f00, 0, 0x3f80 }, &bfloat_resident);
     const resident_values = [_]f32{ -1, 0, 2 };
     const resident_inputs = [_]cyna.DenseInput{.{ .shape = &.{3}, .values = &resident_values }};
     const resident_steps = [_]cyna.DenseStep{
