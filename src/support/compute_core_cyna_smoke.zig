@@ -139,6 +139,33 @@ test "Affon swaps nonadjacent Cyna axes" {
             &inputs, &invalid, &.{1}, .baseline));
 }
 
+test "Affon sends Cyna reshape and permutation metadata" {
+    var values: [24]u32 = undefined;
+    for (&values, 0..) |*value, index| value.* = @intCast(index);
+    const inputs = [_]cyna.DenseByteInput{
+        .{ .dtype = .u32, .shape = &.{ 2, 3, 4 }, .bytes = std.mem.sliceAsBytes(&values) },
+    };
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .reshape, .lhs = 0, .metadata = &.{ 4, 6 } },
+        .{ .operation = .permute, .lhs = 1, .metadata = &.{ 1, 0 } },
+    };
+    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator,
+        &inputs, &steps, &.{2}, .baseline);
+    defer result.deinit(std.testing.allocator);
+    try std.testing.expectEqualSlices(usize, &.{ 6, 4 }, result.shape(0));
+    for (0..6) |row| for (0..4) |column| {
+        const offset = (row * 4 + column) * 4;
+        try std.testing.expectEqual(@as(u32, @intCast(column * 6 + row)),
+            std.mem.readInt(u32, result.outputBytes(0)[offset..][0..4], .little));
+    };
+    const invalid = [_]cyna.DenseStep{
+        .{ .operation = .reshape, .lhs = 0, .metadata = &.{ 5, 5 } },
+    };
+    try std.testing.expectError(error.InvalidShape,
+        cyna.allocDenseGraphMultiBytes(std.testing.allocator,
+            &inputs, &invalid, &.{1}, .baseline));
+}
+
 test "Affon owns heterogeneous Cyna graph results" {
     const float_values = [_]f32{ 4, -1 };
     const integer_values = [_]i64{ 7, 9 };

@@ -279,6 +279,52 @@ extern fn compute_core_run_dense_graph_multi3_bytes(
     output_byte_count: usize,
 ) c_int;
 
+extern fn compute_core_infer_dense_graph_multi_layout_typed(
+    input_dtypes: [*]const c_int,
+    input_ranks: [*]const usize,
+    input_count: usize,
+    dimensions: [*]const usize,
+    dimension_count: usize,
+    operations: [*]const c_int,
+    lhs_ids: [*]const usize,
+    rhs_ids: [*]const usize,
+    third_ids: [*]const usize,
+    metadata_offsets: [*]const usize,
+    metadata_values: [*]const usize,
+    metadata_count: usize,
+    instruction_count: usize,
+    output_ids: [*]const usize,
+    selected_count: usize,
+    output_ranks: [*]usize,
+    output_elements: [*]usize,
+    output_dimensions: [*]usize,
+    output_dimension_capacity: usize,
+    output_dtypes: [*]c_int,
+) c_int;
+
+extern fn compute_core_run_dense_graph_multi_layout_bytes(
+    goal: c_int,
+    input_dtypes: [*]const c_int,
+    input_bytes: [*]const u8,
+    input_byte_count: usize,
+    input_ranks: [*]const usize,
+    input_count: usize,
+    dimensions: [*]const usize,
+    dimension_count: usize,
+    operations: [*]const c_int,
+    lhs_ids: [*]const usize,
+    rhs_ids: [*]const usize,
+    third_ids: [*]const usize,
+    metadata_offsets: [*]const usize,
+    metadata_values: [*]const usize,
+    metadata_count: usize,
+    instruction_count: usize,
+    output_ids: [*]const usize,
+    selected_count: usize,
+    output_bytes: [*]u8,
+    output_byte_count: usize,
+) c_int;
+
 pub const DenseGoal = enum(c_int) { baseline = 0, memory = 1 };
 
 fn denseInput(comptime T: type) type {
@@ -418,12 +464,14 @@ pub const DenseOperation = enum(c_int) {
     squeeze = 44,
     unsqueeze = 45,
     swap_axes = 46,
+    reshape = 47,
+    permute = 48,
 };
 // rhs is a value ID for binary steps, an axis for reductions and softmax,
 // a DenseDType code for cast, or an axis for squeeze, unsqueeze, and swap_axes.
 // Squeeze uses maxInt(usize) to remove all singleton axes. third is where's
 // false branch or the second axis for swap_axes.
-pub const DenseStep = struct { operation: DenseOperation, lhs: usize, rhs: usize = 0, third: usize = 0 };
+pub const DenseStep = struct { operation: DenseOperation, lhs: usize, rhs: usize = 0, third: usize = 0, metadata: []const usize = &.{} };
 
 // Returns the number of flattened output dimensions written. Each selected
 // output has one rank and element count; a scalar has rank zero and one element.
@@ -570,6 +618,14 @@ pub fn allocDenseGraphMultiBytes(
     defer allocator.free(rhs_ids);
     const third_ids = try allocator.alloc(usize, steps.len);
     defer allocator.free(third_ids);
+    var metadata_count: usize = 0;
+    for (steps) |step| metadata_count = std.math.add(usize, metadata_count, step.metadata.len) catch return error.InvalidShape;
+    const metadata_offsets = try allocator.alloc(usize, steps.len + 1);
+    defer allocator.free(metadata_offsets);
+    const metadata_values = try allocator.alloc(usize, metadata_count);
+    defer allocator.free(metadata_values);
+    metadata_offsets[0] = 0;
+    var metadata_cursor: usize = 0;
     var dimension_cursor: usize = 0;
     var byte_cursor: usize = 0;
     for (inputs, 0..) |input, index| {
@@ -585,6 +641,9 @@ pub fn allocDenseGraphMultiBytes(
         lhs_ids[index] = step.lhs;
         rhs_ids[index] = step.rhs;
         third_ids[index] = step.third;
+        @memcpy(metadata_values[metadata_cursor..][0..step.metadata.len], step.metadata);
+        metadata_cursor += step.metadata.len;
+        metadata_offsets[index + 1] = metadata_cursor;
     }
     const max_output_dimensions = std.math.mul(usize, selected.len, 8) catch return error.InvalidShape;
     const ranks = try allocator.alloc(usize, selected.len);
@@ -595,9 +654,10 @@ pub fn allocDenseGraphMultiBytes(
     errdefer allocator.free(dtypes);
     const dimension_buffer = try allocator.alloc(usize, max_output_dimensions);
     defer allocator.free(dimension_buffer);
-    switch (compute_core_infer_dense_graph_multi3_typed(input_dtypes.ptr,
+    switch (compute_core_infer_dense_graph_multi_layout_typed(input_dtypes.ptr,
         input_ranks.ptr, inputs.len, input_dimensions.ptr, input_dimensions.len,
-        operations.ptr, lhs_ids.ptr, rhs_ids.ptr, third_ids.ptr, steps.len, selected.ptr,
+        operations.ptr, lhs_ids.ptr, rhs_ids.ptr, third_ids.ptr, metadata_offsets.ptr, metadata_values.ptr,
+        metadata_values.len, steps.len, selected.ptr,
         selected.len, ranks.ptr, elements.ptr, dimension_buffer.ptr,
         dimension_buffer.len, dtypes.ptr)) {
         0 => {}, 1 => return error.InvalidShape, else => return error.CoreFailure,
@@ -617,10 +677,11 @@ pub fn allocDenseGraphMultiBytes(
     }
     const bytes = try allocator.alloc(u8, total_bytes);
     errdefer allocator.free(bytes);
-    switch (compute_core_run_dense_graph_multi3_bytes(@backingInt(goal),
+    switch (compute_core_run_dense_graph_multi_layout_bytes(@backingInt(goal),
         input_dtypes.ptr, input_bytes.ptr, input_bytes.len, input_ranks.ptr,
         inputs.len, input_dimensions.ptr, input_dimensions.len, operations.ptr,
-        lhs_ids.ptr, rhs_ids.ptr, third_ids.ptr, steps.len, selected.ptr, selected.len,
+        lhs_ids.ptr, rhs_ids.ptr, third_ids.ptr, metadata_offsets.ptr, metadata_values.ptr,
+        metadata_values.len, steps.len, selected.ptr, selected.len,
         bytes.ptr, bytes.len)) {
         0 => {}, 1 => return error.InvalidShape, else => return error.CoreFailure,
     }
