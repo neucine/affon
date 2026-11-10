@@ -28,6 +28,15 @@ Runtime measurements are published through `std:telemetry`, alongside user
 spans and metrics. Backend timing and hardware metrics are independent.
 Unsupported metrics are reported as unavailable, never as measured zeroes.
 
+Nested `to_array()` conversion can dominate that readback span on large dense
+tensors even when the device copy is negligible. Dense innermost rows are now
+emitted with one `JS_NewArrayFrom` call per row instead of one QuickJS property
+store per element. On a `[128,512]` f32 CUDA tensor, `to_bytes()` stayed near
+0.05 ms while nested conversion fell from about 1.05 ms to 0.38 ms. Measure
+`to_bytes()` and `to_array()` separately before attributing a parity gap to the
+device copy. The retained split profile and reproduction script are in the
+[full readback batch](../../test/benchmark/results/parity-cuda-readback-full2-2026-11-10/README.md).
+
 Compilation options select one immutable executable variant:
 
 ```ts

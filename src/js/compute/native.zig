@@ -6,6 +6,7 @@ const config = @import("../../config.zig");
 const compat = @import("../../support/compat.zig");
 
 const abi = hao.js.abi;
+extern fn JS_NewArrayFrom(ctx: abi.JSContext, count: c_int, values: [*]const abi.JSValue) abi.JSValue;
 const allocator = std.heap.c_allocator;
 const tensor_type_id: u32 = 1;
 const large_array_warning_elements: usize = 16384;
@@ -269,6 +270,14 @@ fn scalarFromBytes(ctx: abi.JSContext, dtype: compute.DType, bytes: []const u8, 
 }
 fn arrayValue(ctx: abi.JSContext, dtype: compute.DType, bytes: []const u8, shape: []const usize, strides: []const isize, element: isize) abi.JSValue {
     if (shape.len == 0) return scalarFromBytes(ctx, dtype, bytes, @intCast(element));
+    if (shape.len == 1 and shape[0] <= std.math.maxInt(c_int)) {
+        const values = std.heap.c_allocator.alloc(abi.JSValue, shape[0]) catch return errorValue(ctx, "failed to create Tensor array");
+        defer std.heap.c_allocator.free(values);
+        for (0..shape[0]) |index| {
+            values[index] = scalarFromBytes(ctx, dtype, bytes, @intCast(element + @as(isize, @intCast(index)) * strides[0]));
+        }
+        return JS_NewArrayFrom(ctx, @intCast(shape[0]), values.ptr);
+    }
     const result = abi.jsNewArray(ctx);
     for (0..shape[0]) |index| {
         const child = arrayValue(ctx, dtype, bytes, shape[1..], strides[1..], element + @as(isize, @intCast(index)) * strides[0]);
