@@ -354,6 +354,10 @@ test "Affon runs Cyna normalization and loss graph" {
     const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator,
         &inputs, &steps, &.{ 3, 4, 5, 6, 7 }, .baseline);
     defer result.deinit(std.testing.allocator);
+    const resident = try cyna.allocDenseGraphResidentMultiBytes(std.testing.allocator,
+        &inputs, &steps, &.{ 3, 4, 5, 6, 7 }, .baseline);
+    defer resident.deinit(std.testing.allocator);
+    try std.testing.expectEqualSlices(u8, result.bytes, resident.bytes);
     try std.testing.expectEqualSlices(usize, &.{ 2, 3 }, result.shape(0));
     try std.testing.expectEqualSlices(usize, &.{1}, result.shape(4));
     for (0..3) |index| {
