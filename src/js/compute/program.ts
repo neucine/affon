@@ -1733,6 +1733,35 @@ export class Executable<Out extends FormalTensor | readonly FormalTensor[] = For
   [Symbol.dispose](): void { this.dispose() }
 }
 
+// CUDA accepts the original [batch, class, spatial] view directly. Match only
+// the flatten sequence authored by dense_cross_entropy and log_softmax_nll.
+function cudaDenseLossInspection(inspection: ProgramInspection): ProgramInspection {
+  if (inspection.kind !== "authored") return inspection
+  const nodes = inspection.nodes
+  const original = (id: number): ProgramNode | undefined => {
+    const reshape = nodes[id]
+    if (reshape?.op !== "reshape" || reshape.operands?.length !== 1) return
+    const contiguous = nodes[reshape.operands[0]]
+    if (contiguous?.op !== "contiguous" || contiguous.operands?.length !== 1) return
+    const transpose = nodes[contiguous.operands[0]]
+    if (transpose?.op !== "transpose" || transpose.operands?.length !== 1 ||
+        JSON.stringify(transpose.options?.permutation) !== "[0,2,1]") return
+    const input = nodes[transpose.operands[0]]
+    return input?.spec.shape.length === 3 ? input : undefined
+  }
+  let changed = false
+  const lowered = nodes.map(node => {
+    if ((node.op !== "dense_cross_entropy" && node.op !== "log_softmax_nll") ||
+        node.operands?.length !== 2 || node.options?.class_axis !== 1) return node
+    const logits = original(node.operands[0])
+    const targets = original(node.operands[1])
+    if (!logits || !targets || JSON.stringify(logits.spec.shape) !== JSON.stringify(targets.spec.shape)) return node
+    changed = true
+    return { ...node, operands: [logits.id, targets.id] }
+  })
+  return changed ? { ...inspection, nodes: lowered } : inspection
+}
+
 export class Session {
   readonly device: Device
   readonly determinism: "strict" | "allow_nondeterministic"
@@ -1836,7 +1865,11 @@ export class Session {
         optimizer: optimization.optimizer,
         parameters: optimization.parameters,
       }) as Executable<Out>
-    } else executable = new Executable(this, source, native.compileProgram(this.#native, JSON.stringify(source.inspect()), JSON.stringify(normalized))) as Executable<Out>
+    } else {
+      const inspection = source.inspect()
+      const lowered = this.device === "cuda" ? cudaDenseLossInspection(inspection) : inspection
+      executable = new Executable(this, source, native.compileProgram(this.#native, JSON.stringify(lowered), JSON.stringify(normalized))) as Executable<Out>
+    }
     variants.set(key, executable)
     return executable
   }

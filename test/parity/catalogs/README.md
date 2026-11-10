@@ -672,3 +672,29 @@ rejected first candidate exposed an offset-address bug; the final version fixes
 it and passes all 32 offset cases. The final candidate and baseline each pass all
 197 numerical, operator, and Program checks. All 132 changed cells improve in
 both execution-phase medians; the previous current reports are archived.
+
+## CUDA medium-axis reduction dispatch, 2026-11-10
+
+The [354-cell catalog](cuda-reduce-axis-threshold-354.json) covers every
+reviewed CUDA case whose dispatch changes when the cooperative reduction
+threshold moves from 64 to 32 elements: bf16 axis and all reductions, plus
+rank-two f32 axis sum, mean, min, max, argmin, and argmax. F32 variance and
+standard deviation retain the 64-element threshold. An earlier 404-cell
+numerical probe exposed tolerance failures for two outer-axis strided f32
+statistics cases; its [capability record](../../benchmark/results/cuda-reduce-axis-threshold-404-rejected-2026-11-10/capability.json)
+is retained.
+
+The corrected [candidate](../../benchmark/results/cuda-reduce-axis-threshold-354-candidate-2026-11-10/report.md)
+and matched [control](../../benchmark/results/cuda-reduce-axis-threshold-354-control-2026-11-10/report.md)
+each pass all 354 numerical, operator, and Program checks on the RTX 3090
+with the same 10/5/3 protocol. The candidate's [audit](../../benchmark/results/cuda-reduce-axis-threshold-354-candidate-2026-11-10/AUDIT.json)
+binds the exact catalog and binary. The [regression](../../benchmark/results/regression-cuda-reduce-axis-threshold-354-2026-11-10/regression.md)
+finds zero changed cases and zero correctness regressions. Its sole timing
+suspect is PyTorch timing drift: Affon's Program median for that cell fell to
+0.56× control. Across all 354 cases, the largest Affon median ratio is below
+1.0 in both operator and Program measurements.
+
+After promotion, reviewed CUDA `candidate_gap` counts fell from 1,801 to
+1,638 for operators and from 2,139 to 1,919 for Programs. The 354 previous
+ledger entries and reports are retained in
+`archive-cuda-reduce-axis-before-threshold-2026-11-10`.
