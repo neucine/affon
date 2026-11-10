@@ -87,6 +87,32 @@ test "Affon receives Cyna cast with mixed selected dtypes" {
             &inputs, &bad, &.{1}, .baseline));
 }
 
+test "Affon follows Cyna transpose and shape views" {
+    const values = [_]f32{ 1, 2, 3, 4, 5, 6 };
+    const inputs = [_]cyna.DenseByteInput{
+        .{ .dtype = .f32, .shape = &.{ 2, 3 }, .bytes = std.mem.sliceAsBytes(&values) },
+    };
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .transpose, .lhs = 0 },
+        .{ .operation = .contiguous, .lhs = 1 },
+        .{ .operation = .unsqueeze, .lhs = 2, .rhs = 1 },
+        .{ .operation = .squeeze, .lhs = 3, .rhs = 1 },
+    };
+    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator,
+        &inputs, &steps, &.{ 1, 2, 3, 4 }, .baseline);
+    defer result.deinit(std.testing.allocator);
+    try std.testing.expectEqualSlices(usize, &.{ 3, 1, 2 }, result.shape(2));
+    const expected = [_]f32{ 1, 4, 2, 5, 3, 6 };
+    for (0..4) |output_index| {
+        try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&expected),
+            result.outputBytes(output_index));
+    }
+    const invalid = [_]cyna.DenseStep{.{ .operation = .unsqueeze, .lhs = 0, .rhs = 3 }};
+    try std.testing.expectError(error.InvalidShape,
+        cyna.allocDenseGraphMultiBytes(std.testing.allocator,
+            &inputs, &invalid, &.{1}, .baseline));
+}
+
 test "Affon owns heterogeneous Cyna graph results" {
     const float_values = [_]f32{ 4, -1 };
     const integer_values = [_]i64{ 7, 9 };
