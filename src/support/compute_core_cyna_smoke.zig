@@ -151,3 +151,22 @@ test "Affon submits rank-zero Cyna graph inputs" {
         cyna.runDenseGraphF32(std.testing.allocator, &inputs, &steps, &selected, output[0..1]));
     try std.testing.expectEqualSlices(f32, &.{ -1, -1 }, &output);
 }
+
+test "Affon selects the Cyna memory graph goal" {
+    const first = [_]f32{ 1, 2 };
+    const second = [_]f32{ 3, 4 };
+    const bias = [_]f32{ 5, 6 };
+    const inputs = [_]cyna.DenseInput{
+        .{ .shape = &.{2}, .values = &first },
+        .{ .shape = &.{2}, .values = &second },
+        .{ .shape = &.{2}, .values = &bias },
+    };
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .mul, .lhs = 0, .rhs = 1 },
+        .{ .operation = .add, .lhs = 3, .rhs = 2 },
+    };
+    const selected = [_]usize{4};
+    var output = [_]f32{ -1, -1 };
+    try cyna.runDenseGraphWithGoalF32(std.testing.allocator, &inputs, &steps, &selected, &output, .memory);
+    try std.testing.expectEqualSlices(f32, &.{ 8, 14 }, &output);
+}

@@ -43,7 +43,8 @@ extern fn compute_core_run_reduce_f32(
     axis: c_int,
 ) c_int;
 
-extern fn compute_core_run_dense_graph_f32(
+extern fn compute_core_run_dense_graph_with_goal_f32(
+    goal: c_int,
     input_values: [*]const f32,
     input_value_count: usize,
     input_ranks: [*]const usize,
@@ -59,6 +60,8 @@ extern fn compute_core_run_dense_graph_f32(
     output: [*]f32,
     output_value_count: usize,
 ) c_int;
+
+pub const DenseGoal = enum(c_int) { baseline = 0, memory = 1 };
 
 pub const DenseInput = struct { shape: []const usize, values: []const f32 };
 pub const DenseOperation = enum(c_int) {
@@ -219,6 +222,17 @@ pub fn runDenseGraphF32(
     selected: []const usize,
     output: []f32,
 ) (Error || std.mem.Allocator.Error)!void {
+    return runDenseGraphWithGoalF32(allocator, inputs, steps, selected, output, .baseline);
+}
+
+pub fn runDenseGraphWithGoalF32(
+    allocator: std.mem.Allocator,
+    inputs: []const DenseInput,
+    steps: []const DenseStep,
+    selected: []const usize,
+    output: []f32,
+    goal: DenseGoal,
+) (Error || std.mem.Allocator.Error)!void {
     if (inputs.len == 0 or selected.len == 0 or
         steps.len > std.math.maxInt(usize) - inputs.len) return error.InvalidShape;
     var dimension_count: usize = 0;
@@ -273,7 +287,8 @@ pub fn runDenseGraphF32(
         lhs_ids[index] = step.lhs;
         rhs_ids[index] = step.rhs;
     }
-    switch (compute_core_run_dense_graph_f32(
+    switch (compute_core_run_dense_graph_with_goal_f32(
+        @backingInt(goal),
         values.ptr,
         values.len,
         ranks.ptr,
