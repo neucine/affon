@@ -258,6 +258,38 @@ test "Affon receives paired Cyna top k graph results" {
             &inputs, &invalid, &.{1}, .baseline));
 }
 
+test "Affon composes Cyna cat stack and reduce to shape" {
+    const first = [_]f32{ 1, 2 };
+    const second = [_]f32{ 3, 4 };
+    const inputs = [_]cyna.DenseByteInput{
+        .{ .dtype = .f32, .shape = &.{ 2, 1 }, .bytes = std.mem.sliceAsBytes(&first) },
+        .{ .dtype = .f32, .shape = &.{ 2, 1 }, .bytes = std.mem.sliceAsBytes(&second) },
+    };
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .cat, .lhs = 0, .rhs = 1, .metadata = &.{1} },
+        .{ .operation = .stack, .lhs = 0, .rhs = 0, .metadata = &.{1} },
+        .{ .operation = .reduce_to_shape, .lhs = 2, .metadata = &.{ 1, 2 } },
+    };
+    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator,
+        &inputs, &steps, &.{ 2, 3, 4 }, .baseline);
+    defer result.deinit(std.testing.allocator);
+    try std.testing.expectEqualSlices(usize, &.{ 2, 2 }, result.shape(0));
+    try std.testing.expectEqualSlices(usize, &.{ 2, 2, 1 }, result.shape(1));
+    try std.testing.expectEqualSlices(usize, &.{ 1, 2 }, result.shape(2));
+    const expected_cat = [_]f32{ 1, 3, 2, 4 };
+    const expected_stack = [_]f32{ 1, 2, 3, 4 };
+    const expected_reduced = [_]f32{ 3, 7 };
+    try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&expected_cat), result.outputBytes(0));
+    try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&expected_stack), result.outputBytes(1));
+    try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&expected_reduced), result.outputBytes(2));
+    const invalid = [_]cyna.DenseStep{
+        .{ .operation = .cat, .lhs = 0, .rhs = 1, .metadata = &.{2} },
+    };
+    try std.testing.expectError(error.InvalidShape,
+        cyna.allocDenseGraphMultiBytes(std.testing.allocator,
+            &inputs, &invalid, &.{2}, .baseline));
+}
+
 test "Affon owns heterogeneous Cyna graph results" {
     const float_values = [_]f32{ 4, -1 };
     const integer_values = [_]i64{ 7, 9 };
