@@ -1,6 +1,24 @@
 const std = @import("std");
 const cyna = @import("compute_core_cyna.zig");
 
+test "Affon runs Cyna i64 argmin and argmax with first-index ties" {
+    const inputs = [_]cyna.DenseInputI64{.{ .shape = &.{ 2, 2 }, .values = &.{ 7, -3, 7, -3 } }};
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .argmin_all, .lhs = 0 },
+        .{ .operation = .argmax_all, .lhs = 0 },
+        .{ .operation = .argmin_axis, .lhs = 0, .rhs = 0 },
+        .{ .operation = .argmax_axis, .lhs = 0, .rhs = 1 },
+    };
+    const result = try cyna.allocDenseGraphI64(std.testing.allocator, &inputs, &steps, &.{ 1, 2, 3, 4 }, .baseline);
+    defer result.deinit(std.testing.allocator);
+    try std.testing.expectEqualSlices(i64, &.{ 1, 0, 0, 0, 0, 0 }, result.values);
+    try std.testing.expectEqualSlices(usize, &.{1}, result.shape(0));
+    try std.testing.expectEqualSlices(usize, &.{2}, result.shape(2));
+    const float_inputs = [_]cyna.DenseInput{.{ .shape = &.{ 2, 2 }, .values = &.{ 7, -3, 7, -3 } }};
+    try std.testing.expectError(error.InvalidShape,
+        cyna.allocDenseGraphF32(std.testing.allocator, &float_inputs, &steps, &.{1}, .baseline));
+}
+
 test "Affon runs Cyna dense min and max reductions" {
     const steps = [_]cyna.DenseStep{
         .{ .operation = .min_all, .lhs = 0 },
