@@ -201,6 +201,44 @@ extern fn compute_core_run_dense_graph_bytes(
     output_byte_count: usize,
 ) c_int;
 
+extern fn compute_core_infer_dense_graph_multi_typed(
+    input_dtypes: [*]const c_int,
+    input_ranks: [*]const usize,
+    input_count: usize,
+    dimensions: [*]const usize,
+    dimension_count: usize,
+    operations: [*]const c_int,
+    lhs_ids: [*]const usize,
+    rhs_ids: [*]const usize,
+    instruction_count: usize,
+    output_ids: [*]const usize,
+    selected_count: usize,
+    output_ranks: [*]usize,
+    output_elements: [*]usize,
+    output_dimensions: [*]usize,
+    output_dimension_capacity: usize,
+    output_dtypes: [*]c_int,
+) c_int;
+
+extern fn compute_core_run_dense_graph_multi_bytes(
+    goal: c_int,
+    input_dtypes: [*]const c_int,
+    input_bytes: [*]const u8,
+    input_byte_count: usize,
+    input_ranks: [*]const usize,
+    input_count: usize,
+    dimensions: [*]const usize,
+    dimension_count: usize,
+    operations: [*]const c_int,
+    lhs_ids: [*]const usize,
+    rhs_ids: [*]const usize,
+    instruction_count: usize,
+    output_ids: [*]const usize,
+    selected_count: usize,
+    output_bytes: [*]u8,
+    output_byte_count: usize,
+) c_int;
+
 pub const DenseGoal = enum(c_int) { baseline = 0, memory = 1 };
 
 fn denseInput(comptime T: type) type {
@@ -214,6 +252,7 @@ pub const DenseInputU32 = denseInput(u32);
 pub const DenseInputBf16Bits = denseInput(u16);
 pub const DenseInputShape = struct { shape: []const usize };
 pub const DenseDType = enum(c_int) { f32 = 1, f64 = 2, i64 = 3, u32 = 4, bf16 = 5 };
+pub const DenseByteInput = struct { dtype: DenseDType, shape: []const usize, bytes: []const u8 };
 
 fn denseDTypeWidth(dtype: DenseDType) usize {
     return switch (dtype) { .f64, .i64 => 8, .f32, .u32 => 4, .bf16 => 2 };
@@ -438,6 +477,97 @@ pub fn allocDenseGraphBytes(
     const bytes = try allocator.alloc(u8, total_bytes);
     errdefer allocator.free(bytes);
     try runDenseGraphBytes(allocator, dtype, inputs, input_bytes, steps, selected, bytes, goal);
+    return .{ .bytes = bytes, .ranks = ranks, .elements = elements,
+        .dimensions = dimensions, .dtypes = dtypes };
+}
+
+pub fn allocDenseGraphMultiBytes(
+    allocator: std.mem.Allocator, inputs: []const DenseByteInput,
+    steps: []const DenseStep, selected: []const usize, goal: DenseGoal,
+) (Error || std.mem.Allocator.Error)!DenseGraphBytesResult {
+    if (inputs.len == 0 or selected.len == 0 or
+        steps.len > std.math.maxInt(usize) - inputs.len) return error.InvalidShape;
+    var dimension_count: usize = 0;
+    var input_byte_count: usize = 0;
+    for (inputs) |input| {
+        if (input.shape.len > 8) return error.InvalidShape;
+        dimension_count = std.math.add(usize, dimension_count, input.shape.len) catch return error.InvalidShape;
+        var elements: usize = 1;
+        for (input.shape) |dimension| {
+            if (dimension == 0) return error.InvalidShape;
+            elements = std.math.mul(usize, elements, dimension) catch return error.InvalidShape;
+        }
+        const size = std.math.mul(usize, elements, denseDTypeWidth(input.dtype)) catch return error.InvalidShape;
+        if (size != input.bytes.len) return error.InvalidShape;
+        input_byte_count = std.math.add(usize, input_byte_count, size) catch return error.InvalidShape;
+    }
+    const input_ranks = try allocator.alloc(usize, inputs.len);
+    defer allocator.free(input_ranks);
+    const input_dimensions = try allocator.alloc(usize, dimension_count);
+    defer allocator.free(input_dimensions);
+    const input_dtypes = try allocator.alloc(c_int, inputs.len);
+    defer allocator.free(input_dtypes);
+    const input_bytes = try allocator.alloc(u8, input_byte_count);
+    defer allocator.free(input_bytes);
+    const operations = try allocator.alloc(c_int, steps.len);
+    defer allocator.free(operations);
+    const lhs_ids = try allocator.alloc(usize, steps.len);
+    defer allocator.free(lhs_ids);
+    const rhs_ids = try allocator.alloc(usize, steps.len);
+    defer allocator.free(rhs_ids);
+    var dimension_cursor: usize = 0;
+    var byte_cursor: usize = 0;
+    for (inputs, 0..) |input, index| {
+        input_ranks[index] = input.shape.len;
+        input_dtypes[index] = @backingInt(input.dtype);
+        @memcpy(input_dimensions[dimension_cursor..][0..input.shape.len], input.shape);
+        @memcpy(input_bytes[byte_cursor..][0..input.bytes.len], input.bytes);
+        dimension_cursor += input.shape.len;
+        byte_cursor += input.bytes.len;
+    }
+    for (steps, 0..) |step, index| {
+        operations[index] = @backingInt(step.operation);
+        lhs_ids[index] = step.lhs;
+        rhs_ids[index] = step.rhs;
+    }
+    const max_output_dimensions = std.math.mul(usize, selected.len, 8) catch return error.InvalidShape;
+    const ranks = try allocator.alloc(usize, selected.len);
+    errdefer allocator.free(ranks);
+    const elements = try allocator.alloc(usize, selected.len);
+    errdefer allocator.free(elements);
+    const dtypes = try allocator.alloc(c_int, selected.len);
+    errdefer allocator.free(dtypes);
+    const dimension_buffer = try allocator.alloc(usize, max_output_dimensions);
+    defer allocator.free(dimension_buffer);
+    switch (compute_core_infer_dense_graph_multi_typed(input_dtypes.ptr,
+        input_ranks.ptr, inputs.len, input_dimensions.ptr, input_dimensions.len,
+        operations.ptr, lhs_ids.ptr, rhs_ids.ptr, steps.len, selected.ptr,
+        selected.len, ranks.ptr, elements.ptr, dimension_buffer.ptr,
+        dimension_buffer.len, dtypes.ptr)) {
+        0 => {}, 1 => return error.InvalidShape, else => return error.CoreFailure,
+    }
+    var written: usize = 0;
+    for (ranks) |rank| written = std.math.add(usize, written, rank) catch return error.CoreFailure;
+    const dimensions = try allocator.dupe(usize, dimension_buffer[0..written]);
+    errdefer allocator.free(dimensions);
+    var total_bytes: usize = 0;
+    for (elements, dtypes) |count, code| {
+        const output_dtype: DenseDType = switch (code) {
+            1 => .f32, 2 => .f64, 3 => .i64, 4 => .u32, 5 => .bf16,
+            else => return error.CoreFailure,
+        };
+        const size = std.math.mul(usize, count, denseDTypeWidth(output_dtype)) catch return error.InvalidShape;
+        total_bytes = std.math.add(usize, total_bytes, size) catch return error.InvalidShape;
+    }
+    const bytes = try allocator.alloc(u8, total_bytes);
+    errdefer allocator.free(bytes);
+    switch (compute_core_run_dense_graph_multi_bytes(@backingInt(goal),
+        input_dtypes.ptr, input_bytes.ptr, input_bytes.len, input_ranks.ptr,
+        inputs.len, input_dimensions.ptr, input_dimensions.len, operations.ptr,
+        lhs_ids.ptr, rhs_ids.ptr, steps.len, selected.ptr, selected.len,
+        bytes.ptr, bytes.len)) {
+        0 => {}, 1 => return error.InvalidShape, else => return error.CoreFailure,
+    }
     return .{ .bytes = bytes, .ranks = ranks, .elements = elements,
         .dimensions = dimensions, .dtypes = dtypes };
 }

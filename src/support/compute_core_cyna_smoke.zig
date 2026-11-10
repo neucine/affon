@@ -1,6 +1,34 @@
 const std = @import("std");
 const cyna = @import("compute_core_cyna.zig");
 
+test "Affon owns heterogeneous Cyna graph results" {
+    const float_values = [_]f32{ 4, -1 };
+    const integer_values = [_]i64{ 7, 9 };
+    const inputs = [_]cyna.DenseByteInput{
+        .{ .dtype = .f32, .shape = &.{2}, .bytes = std.mem.sliceAsBytes(&float_values) },
+        .{ .dtype = .i64, .shape = &.{2}, .bytes = std.mem.sliceAsBytes(&integer_values) },
+    };
+    const steps = [_]cyna.DenseStep{.{ .operation = .argmin_axis, .lhs = 0, .rhs = 0 }};
+    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs,
+        &steps, &.{ 0, 1, 2 }, .baseline);
+    defer result.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(usize, 32), result.bytes.len);
+    try std.testing.expectEqual(cyna.DenseDType.f32, result.dtype(0));
+    try std.testing.expectEqual(cyna.DenseDType.i64, result.dtype(1));
+    try std.testing.expectEqual(cyna.DenseDType.i64, result.dtype(2));
+    try std.testing.expectEqualSlices(usize, &.{2}, result.shape(0));
+    try std.testing.expectEqualSlices(usize, &.{}, result.shape(2));
+    try std.testing.expectEqualSlices(u8, inputs[0].bytes, result.outputBytes(0));
+    try std.testing.expectEqualSlices(u8, inputs[1].bytes, result.outputBytes(1));
+    try std.testing.expectEqualSlices(u8, &.{ 1, 0, 0, 0, 0, 0, 0, 0 }, result.outputBytes(2));
+    const invalid = [_]cyna.DenseByteInput{ inputs[0], .{
+        .dtype = .i64, .shape = &.{2}, .bytes = inputs[1].bytes[0..15],
+    } };
+    try std.testing.expectError(error.InvalidShape,
+        cyna.allocDenseGraphMultiBytes(std.testing.allocator, &invalid,
+            &steps, &.{ 0, 1, 2 }, .baseline));
+}
+
 test "Affon infers mixed dtype selected graph results" {
     const inputs = [_]cyna.DenseInputShape{.{ .shape = &.{ 2, 2 } }};
     const steps = [_]cyna.DenseStep{
