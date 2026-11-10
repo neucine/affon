@@ -922,6 +922,17 @@ test "Affon submits Cyna unary activation steps" {
     var output: [4]f32 = @splat(-1);
     try cyna.runDenseGraphF32(std.testing.allocator, &inputs, &steps, &selected, &output);
     try std.testing.expectEqualSlices(f32, &.{ 1, 0.5, 0, 1 }, &output);
+    const resident_values = [_]f32{ -1, 0, 2 };
+    const resident_inputs = [_]cyna.DenseInput{.{ .shape = &.{3}, .values = &resident_values }};
+    const resident_steps = [_]cyna.DenseStep{
+        .{ .operation = .abs, .lhs = 0 },
+        .{ .operation = .neg, .lhs = 0 },
+        .{ .operation = .relu, .lhs = 0 },
+        .{ .operation = .sign, .lhs = 0 },
+    };
+    var resident_output: [12]f32 = @splat(0);
+    try cyna.runDenseGraphResidentF32(std.testing.allocator, &resident_inputs, &resident_steps, &selected, &resident_output);
+    try std.testing.expectEqualSlices(f32, &.{ 1, 0, 2, 1, -0.0, -2, 0, 0, 2, -1, 0, 1 }, &resident_output);
 }
 
 test "Affon submits axis softmax and log softmax" {
