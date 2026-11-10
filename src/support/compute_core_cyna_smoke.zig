@@ -106,3 +106,27 @@ test "Affon submits Cyna unary activation steps" {
     try cyna.runDenseGraphF32(std.testing.allocator, &inputs, &steps, &selected, &output);
     try std.testing.expectEqualSlices(f32, &.{ 1, 0.5, 0, 1 }, &output);
 }
+
+test "Affon submits axis softmax and log softmax" {
+    const values = [_]f32{ 1, 2, 3, 4, 5, 6 };
+    const inputs = [_]cyna.DenseInput{.{ .shape = &.{ 2, 3 }, .values = &values }};
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .softmax, .lhs = 0, .rhs = 1 },
+        .{ .operation = .log_softmax, .lhs = 0, .rhs = 1 },
+    };
+    const selected = [_]usize{ 1, 2 };
+    var output: [12]f32 = @splat(0);
+    try cyna.runDenseGraphF32(std.testing.allocator, &inputs, &steps, &selected, &output);
+    const expected_softmax = [_]f32{ 0.09003057, 0.24472848, 0.66524094 };
+    const expected_log = [_]f32{ -2.407606, -1.407606, -0.407606 };
+    for (0..6) |index| {
+        try std.testing.expectApproxEqAbs(expected_softmax[index % 3], output[index], 0.00001);
+        try std.testing.expectApproxEqAbs(expected_log[index % 3], output[index + 6], 0.00001);
+    }
+    const bad_steps = [_]cyna.DenseStep{.{ .operation = .softmax, .lhs = 0, .rhs = 2 }};
+    var invalid_output: [6]f32 = @splat(-1);
+    const one_selected = [_]usize{1};
+    try std.testing.expectError(error.InvalidShape,
+        cyna.runDenseGraphF32(std.testing.allocator, &inputs, &bad_steps, &one_selected, &invalid_output));
+    try std.testing.expectEqualSlices(f32, &.{ -1, -1, -1, -1, -1, -1 }, &invalid_output);
+}

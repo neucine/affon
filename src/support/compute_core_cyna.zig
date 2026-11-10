@@ -85,8 +85,10 @@ pub const DenseOperation = enum(c_int) {
     gelu = 20,
     sin = 21,
     cos = 22,
+    softmax = 23,
+    log_softmax = 24,
 };
-// rhs is a value ID for binary steps and an axis index for axis reductions.
+// rhs is a value ID for binary steps and an axis for axis reductions and softmax.
 pub const DenseStep = struct { operation: DenseOperation, lhs: usize, rhs: usize = 0 };
 
 pub const Reduction = enum(c_int) { sum = 0, mean = 1, min = 2, max = 3, variance = 4, std = 5 };
