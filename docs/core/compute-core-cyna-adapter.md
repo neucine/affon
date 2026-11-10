@@ -1,7 +1,12 @@
 # Cyna compute core integration probe
 
 Affon has an isolated Zig adapter for the Cyna `compute-core` matmul, bias,
-and GELU C ABI, the f32 quantized matmul C ABI, and rank-two f32 reductions.
+and GELU C ABI, the f32 quantized matmul C ABI, rank-two f32 reductions, and
+a synchronous shaped f32 graph ABI. The graph adapter accepts typed input
+shapes and steps, packs the C arrays, and supports selected outputs of
+different shapes. Its current operations are binary arithmetic, abs, neg,
+ReLU, matmul, and whole or axis sum and mean. The caller supplies a flat
+output buffer with the total selected element count.
 The reduction adapter covers whole or axis sum, mean, min, max, population
 variance, and standard deviation. The quantized path accepts
 packed u32 weights with 2, 4, or 8 bits per weight and per-group f32 scales
@@ -13,7 +18,7 @@ Run `./test/check-compute-core-cyna.sh` on Apple AArch64 with sibling
 `compute-core` and an installed Cyna toolchain. The script builds the Cyna
 static library, links it into a Zig test, and checks Affon's reference outputs
 and invalid-shape behavior, including the selected Zig R01 quantized fixture
-and whole or axis reduction values.
+whole or axis reduction values, and a matmul followed by two reductions.
 
 Affon's public `affon:compute` Session still uses the Zig engine. The adapter
 is a consumer integration gate for synchronous CPU workloads; it does not

@@ -18,12 +18,9 @@ test "invalid Affon shape leaves caller output intact" {
     const rhs = [_]f32{ 5, 6, 7, 8 };
     const short_bias = [_]f32{-20};
     var output = [_]f32{ -1, -1, -1, -1 };
-    try std.testing.expectError(error.InvalidShape,
-        cyna.matmulBiasGeluF32(&lhs, &rhs, &short_bias, &output, 2, 2, 2));
+    try std.testing.expectError(error.InvalidShape, cyna.matmulBiasGeluF32(&lhs, &rhs, &short_bias, &output, 2, 2, 2));
     try std.testing.expectEqualSlices(f32, &.{ -1, -1, -1, -1 }, &output);
-    try std.testing.expectError(error.InvalidShape,
-        cyna.matmulBiasGeluF32(&lhs, &rhs, &[_]f32{ -20, -30 },
-            &output, std.math.maxInt(usize), 2, 2));
+    try std.testing.expectError(error.InvalidShape, cyna.matmulBiasGeluF32(&lhs, &rhs, &[_]f32{ -20, -30 }, &output, std.math.maxInt(usize), 2, 2));
     try std.testing.expectEqualSlices(f32, &.{ -1, -1, -1, -1 }, &output);
 }
 
@@ -37,12 +34,9 @@ test "Affon calls Cyna quantized matmul through the C ABI" {
     try std.testing.expectEqualSlices(f32, &.{ 36, 72, 108, 44, 88, 132 }, &output);
 
     output = @splat(-1);
-    try std.testing.expectError(error.InvalidShape,
-        cyna.quantizedMatmulF32(&activation, &weights, &scales, &biases, &output, 2, 8, 3, 3, 4));
-    try std.testing.expectError(error.InvalidShape,
-        cyna.quantizedMatmulF32(&activation, &weights, &scales, &biases, &output, 2, 8, 3, 8, 0));
-    try std.testing.expectError(error.InvalidShape,
-        cyna.quantizedMatmulF32(&activation, &weights, &scales, &biases, &output, std.math.maxInt(usize), 8, 3, 8, 4));
+    try std.testing.expectError(error.InvalidShape, cyna.quantizedMatmulF32(&activation, &weights, &scales, &biases, &output, 2, 8, 3, 3, 4));
+    try std.testing.expectError(error.InvalidShape, cyna.quantizedMatmulF32(&activation, &weights, &scales, &biases, &output, 2, 8, 3, 8, 0));
+    try std.testing.expectError(error.InvalidShape, cyna.quantizedMatmulF32(&activation, &weights, &scales, &biases, &output, std.math.maxInt(usize), 8, 3, 8, 4));
     try std.testing.expectEqualSlices(f32, &.{ -1, -1, -1, -1, -1, -1 }, &output);
 }
 
@@ -61,9 +55,39 @@ test "Affon calls Cyna rank-two reductions through the C ABI" {
     try std.testing.expectEqualSlices(f32, &.{ 2.25, 2.25, 2.25 }, &rows);
 
     whole[0] = -1;
-    try std.testing.expectError(error.InvalidShape,
-        cyna.reduceF32(.sum, input[0..5], &whole, 2, 3, .all));
-    try std.testing.expectError(error.InvalidShape,
-        cyna.reduceF32(.sum, &input, &whole, std.math.maxInt(usize), 3, .all));
+    try std.testing.expectError(error.InvalidShape, cyna.reduceF32(.sum, input[0..5], &whole, 2, 3, .all));
+    try std.testing.expectError(error.InvalidShape, cyna.reduceF32(.sum, &input, &whole, std.math.maxInt(usize), 3, .all));
     try std.testing.expectEqual(@as(f32, -1), whole[0]);
+}
+
+test "Affon submits a shaped Cyna graph with mixed selected outputs" {
+    const left = [_]f32{ 1, 2, 3, 4, 5, 6 };
+    const right = [_]f32{ 7, 8, 9, 10, 11, 12 };
+    const inputs = [_]cyna.DenseInput{
+        .{ .shape = &.{ 2, 3 }, .values = &left },
+        .{ .shape = &.{ 3, 2 }, .values = &right },
+    };
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .matmul, .lhs = 0, .rhs = 1 },
+        .{ .operation = .sum_all, .lhs = 2 },
+        .{ .operation = .mean_axis, .lhs = 2, .rhs = 1 },
+    };
+    const selected = [_]usize{ 2, 3, 4 };
+    var output = [_]f32{ -1, -1, -1, -1, -1, -1, -1 };
+    try cyna.runDenseGraphF32(std.testing.allocator, &inputs, &steps, &selected, &output);
+    try std.testing.expectEqualSlices(f32, &.{ 58, 64, 139, 154, 415, 61, 146.5 }, &output);
+
+    output = @splat(-1);
+    const invalid = [_]cyna.DenseStep{.{ .operation = .matmul, .lhs = 0, .rhs = 2 }};
+    try std.testing.expectError(error.InvalidShape, cyna.runDenseGraphF32(std.testing.allocator, &inputs, &invalid, &selected, &output));
+    try std.testing.expectEqualSlices(f32, &.{ -1, -1, -1, -1, -1, -1, -1 }, &output);
+
+    try std.testing.expectError(error.InvalidShape, cyna.runDenseGraphF32(std.testing.allocator, &inputs, &steps, &selected, output[0..6]));
+    try std.testing.expectEqualSlices(f32, &.{ -1, -1, -1, -1, -1, -1, -1 }, &output);
+
+    const no_steps = [_]cyna.DenseStep{};
+    const input_selected = [_]usize{ 1, 0 };
+    var identity: [12]f32 = @splat(0);
+    try cyna.runDenseGraphF32(std.testing.allocator, &inputs, &no_steps, &input_selected, &identity);
+    try std.testing.expectEqualSlices(f32, &.{ 7, 8, 9, 10, 11, 12, 1, 2, 3, 4, 5, 6 }, &identity);
 }
