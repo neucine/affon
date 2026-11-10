@@ -25,6 +25,8 @@ declare module "affon:compute/native" {
     compileProgram(session: NativeSession, program_json: string, options_json?: string): NativeExecutable;
     explainExecutable(executable: NativeExecutable): string;
     runExecutable(executable: NativeExecutable, inputs: readonly NativeTensor[]): NativeTensor[];
+    resetEvidenceCapture(session: NativeSession): void;
+    exportEvidenceCapture(session: NativeSession, executable: NativeExecutable): string;
     stftPower(signal: NativeTensor, window: NativeTensor, hop: number, paddedLength: number, frames: number): NativeTensor;
     filterbank(spectrum: NativeTensor, filters: NativeTensor): NativeTensor;
     saveNative(entries: readonly { name: string; value: NativeTensor }[], path: string): void;

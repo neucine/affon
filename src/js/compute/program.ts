@@ -1,4 +1,5 @@
 import native from "affon:compute/native"
+import telemetry from "std:telemetry"
 import type { LRSchedule, Optimizer } from "affon:optim"
 
 export type ProgramDType = "bf16" | "f32" | "f64" | "u32" | "i64"
@@ -8,6 +9,7 @@ export type NumericalPolicy = "exact_only" | "backend_equivalent" | "approximate
 export type OptimizationGoal = "balanced" | "latency" | "throughput" | "memory"
 export type ExplanationLevel = "summary" | "detailed"
 export type ResidualPolicy = "automatic" | "retain" | "recompute"
+export type ComputeTimingScope = "none" | "invocation" | "kernel"
 export type SearchLimits = Readonly<{
   structuralStates?: number
   structuralExpansions?: number
@@ -25,8 +27,23 @@ export type CompileOptions = Readonly<{
   searchLimits?: SearchLimits
 }>
 export type TelemetryOptions = Readonly<{
+  /** Per-invocation backend timing scope. Defaults from backendTiming or none. */
+  computeTiming?: ComputeTimingScope
+  /** Compatibility switch: true selects kernel timing, false selects none. */
   backendTiming?: boolean
   hardwareMetrics?: boolean
+  profilerMarkers?: boolean
+  bridgeTiming?: boolean
+  captureRecords?: number
+}>
+export type SessionTelemetry = Readonly<{
+  computeTiming: ComputeTimingScope
+  /** True only for the legacy per-kernel timing scope. */
+  backendTiming: boolean
+  hardwareMetrics: boolean
+  profilerMarkers: boolean
+  bridgeTiming: boolean
+  captureRecords: number | null
 }>
 export type SessionOptions = Readonly<{
   device?: Device
@@ -88,9 +105,22 @@ function normalizedSessionOptions(options: SessionOptions = {}): Readonly<Record
   const determinism = options.determinism ?? "strict"
   if (determinism !== "strict" && determinism !== "allow_nondeterministic") throw new TypeError(`unsupported determinism: ${determinism}`)
   if (options.telemetry === false) return Object.freeze({ determinism, telemetry: null })
+  const requestedTiming = options.telemetry?.computeTiming
+  if (requestedTiming !== undefined && !["none", "invocation", "kernel"].includes(requestedTiming))
+    throw new TypeError(`unsupported computeTiming: ${requestedTiming}`)
+  const legacyTiming = options.telemetry?.backendTiming
+  if (legacyTiming !== undefined && typeof legacyTiming !== "boolean") throw new TypeError("backendTiming must be boolean")
+  if (legacyTiming !== undefined && requestedTiming !== undefined &&
+      requestedTiming !== (legacyTiming ? "kernel" : "none"))
+    throw new TypeError("computeTiming conflicts with backendTiming")
+  const computeTiming = requestedTiming ?? (legacyTiming === true ? "kernel" : "none")
   return Object.freeze({ determinism, telemetry: Object.freeze({
-    backendTiming: options.telemetry?.backendTiming ?? false,
+    computeTiming,
+    backendTiming: computeTiming === "kernel",
     hardwareMetrics: options.telemetry?.hardwareMetrics ?? false,
+    profilerMarkers: options.telemetry?.profilerMarkers ?? false,
+    bridgeTiming: options.telemetry?.bridgeTiming ?? false,
+    captureRecords: options.telemetry?.captureRecords ?? null,
   }) })
 }
 
@@ -238,6 +268,9 @@ function freezeSpec(dtype: ProgramDType, shape: readonly number[], axes?: readon
 let defaultSessionValue: Session | undefined
 const SESSION_TENSOR = Symbol("affon.compute.session_tensor")
 const SESSION_FULL = Symbol("affon.compute.session_full")
+const SESSION_EVIDENCE_DIRECT = Symbol("affon.compute.session_evidence_direct")
+const SESSION_OPTIMIZER_EVIDENCE = Symbol("affon.compute.session_optimizer_evidence")
+const EXECUTABLE_EVIDENCE = Symbol("affon.compute.executable_evidence")
 
 function defaultSession(): Session {
   if (!defaultSessionValue) defaultSessionValue = new Session({ device: native.defaultDevice() })
@@ -1533,7 +1566,15 @@ export class Executable<Out extends FormalTensor | readonly FormalTensor[] = For
   private readonly parameterFormals: readonly ProgramFormal[]
   private readonly stateFormals: readonly ProgramFormal[]
   private readonly inputFormals: readonly ProgramFormal[]
-  private readonly optimization?: { source: Executable; gradients: Executable; optimizer: Optimizer; parameters: readonly string[] }
+  private readonly argumentNameSet: ReadonlySet<string>
+  private readonly outputAxes: readonly (readonly string[] | undefined)[]
+  private readonly gradientProgram: boolean
+  private readonly optimization?: {
+    source: Executable
+    gradients: Executable
+    optimizer: Optimizer
+    parameters: readonly string[]
+  }
   #disposed = false
 
   constructor(session: Session, source: Program<Record<string, FormalTensor>, Out>, nativeExecutable: any, optimization?: { source: Executable; gradients: Executable; optimizer: Optimizer; parameters: readonly string[] }) {
@@ -1548,6 +1589,10 @@ export class Executable<Out extends FormalTensor | readonly FormalTensor[] = For
     const formalByProvenance = new Map([...inspection.arguments, ...inspection.parameters, ...inspection.state].map(value => [value.provenance, value]))
     this.inputFormals = Object.freeze(inspection.nodes.flatMap(node => node.provenance && formalByProvenance.has(node.provenance) ? [formalByProvenance.get(node.provenance)!] : []))
     this.argument_names = Object.freeze(inspection.arguments.map(value => value.name))
+    this.argumentNameSet = new Set(this.argument_names)
+    const nodeById = new Map(inspection.nodes.map(node => [node.id, node]))
+    this.outputAxes = Object.freeze(inspection.outputs.map(id => nodeById.get(id)?.spec.axes))
+    this.gradientProgram = inspection.kind === "gradient"
     this.argument_specs = inspection.arguments
     this.parameter_names = Object.freeze(inspection.parameters.map(value => value.name))
     this.state_names = Object.freeze(inspection.state.map(value => value.name))
@@ -1566,10 +1611,48 @@ export class Executable<Out extends FormalTensor | readonly FormalTensor[] = For
     })
     return freezeJson(JSON.parse(native.explainExecutable(this.nativeExecutable)))
   }
+  [EXECUTABLE_EVIDENCE](): Readonly<Record<string, unknown>> | null {
+    if (!this.optimization) return null
+    const session = this.optimization.source.session
+    const optimizerExecutable = session[SESSION_OPTIMIZER_EVIDENCE](this.program)
+    const componentEvidence = (phase: string, executable: Executable): Readonly<Record<string, unknown>> => {
+      try {
+        return session[SESSION_EVIDENCE_DIRECT](executable)
+      } catch (error) {
+        throw new Error(`${phase} evidence export failed: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+    return freezeJson({
+      schema_version: 1,
+      kind: "composite_optimization_evidence",
+      components: [
+        {
+          phase: "gradient",
+          executable_kind: "gradient",
+          evidence: componentEvidence("gradient", this.optimization.gradients),
+        },
+        ...(optimizerExecutable
+          ? [{
+              phase: "optimizer",
+              executable_kind: "optimizer",
+              evidence: componentEvidence("optimizer", optimizerExecutable),
+            }]
+          : []),
+      ],
+      unexecuted_components: [{
+        phase: "forward",
+        executable_kind: "source",
+        reason: "the optimization gradient executable produces the primal forward output",
+      }],
+      attribution: {
+        gradient: ["forward", "backward"],
+        shared_timing: true,
+      },
+    })
+  }
   private runNative(arguments_: ProgramArguments, state?: ExecutionState): any[] {
     if (!arguments_ || typeof arguments_ !== "object" || Array.isArray(arguments_)) throw new TypeError("Executable.run expects named arguments")
-    const expected = new Set(this.argument_names)
-    for (const name of Object.keys(arguments_)) if (!expected.has(name)) throw new TypeError(`unknown Program argument: ${name}`)
+    for (const name of Object.keys(arguments_)) if (!this.argumentNameSet.has(name)) throw new TypeError(`unknown Program argument: ${name}`)
     if ((this.parameterFormals.length > 0 || this.stateFormals.length > 0) && !state) throw new TypeError("Executable.run requires an ExecutionState")
     const inputs: unknown[] = []
     for (const formal of this.inputFormals) {
@@ -1593,11 +1676,9 @@ export class Executable<Out extends FormalTensor | readonly FormalTensor[] = For
     }
     const outputs = native.runExecutable(this.nativeExecutable, inputs as any)
     for (const output of outputs) this.session.adopt(output)
-    const inspection = this.program.inspect()
-    const outputNodes = inspection.outputs.map(id => inspection.nodes.find(node => node.id === id)!)
-    const offset = inspection.kind === "gradient" ? 1 : 0
-    for (let index = 0; index < outputNodes.length; index++) {
-      const axes = outputNodes[index]?.spec.axes
+    const offset = this.gradientProgram ? 1 : 0
+    for (let index = 0; index < this.outputAxes.length; index++) {
+      const axes = this.outputAxes[index]
       const output = outputs[index + offset]
       if (axes && output && !("axes" in output)) {
         Object.defineProperty(output, "axes", { value: Object.freeze([...axes]), enumerable: true })
@@ -1606,11 +1687,17 @@ export class Executable<Out extends FormalTensor | readonly FormalTensor[] = For
     return outputs
   }
   private runGradientWithPrimal(arguments_: ProgramArguments, state: ExecutionState): { primal: any; gradients: any[] } {
-    if (this.program.inspect().kind !== "gradient") throw new TypeError("gradient executable required")
+    if (!this.gradientProgram) throw new TypeError("gradient executable required")
     const outputs = this.runNative(arguments_, state)
     return { primal: outputs[0], gradients: outputs.slice(1) }
   }
   run(arguments_: ProgramArguments, state?: ExecutionState): EvaluatedProgramOutput<Out> {
+    if (this.session.telemetry && this.session.telemetry.bridgeTiming) {
+      return telemetry.trace("affon.executable.run", () => this.runCore(arguments_, state))
+    }
+    return this.runCore(arguments_, state)
+  }
+  private runCore(arguments_: ProgramArguments, state?: ExecutionState): EvaluatedProgramOutput<Out> {
     if (this.#disposed) throw new Error("Executable has been disposed")
     if (this.session.disposed) throw new Error("Session has been disposed")
     if (state && state.session !== this.session) throw new TypeError("ExecutionState belongs to a different Session")
@@ -1633,7 +1720,7 @@ export class Executable<Out extends FormalTensor | readonly FormalTensor[] = For
       }
     }
     const outputs = this.runNative(arguments_, state)
-    const gradient = this.program.inspect().kind === "gradient"
+    const gradient = this.gradientProgram
     const visible = gradient ? outputs.slice(1) : outputs
     if (gradient) outputs[0]?.dispose?.()
     return (visible.length === 1 ? visible[0] : Object.freeze(visible)) as EvaluatedProgramOutput<Out>
@@ -1649,9 +1736,10 @@ export class Executable<Out extends FormalTensor | readonly FormalTensor[] = For
 export class Session {
   readonly device: Device
   readonly determinism: "strict" | "allow_nondeterministic"
-  readonly telemetry: false | Required<TelemetryOptions>
+  readonly telemetry: false | SessionTelemetry
   readonly #cache = new Map<Program, Map<string, Executable<any>>>()
   readonly #optimizerExecutables = new Map<string, Executable<any>>()
+  readonly #optimizerEvidence = new WeakMap<Program, Executable<any>>()
   readonly #native: any
   #disposed = false
 
@@ -1676,6 +1764,24 @@ export class Session {
     if (checked.axes) Object.defineProperty(value, "axes", { value: checked.axes, enumerable: true })
     this.adopt(value)
     return value as Tensor
+  }
+  resetEvidence(): void {
+    if (this.#disposed) throw new Error("Session has been disposed")
+    if (!this.telemetry || this.telemetry.captureRecords === null) throw new Error("Runtime evidence capture is not enabled")
+    native.resetEvidenceCapture(this.#native)
+  }
+  runtimeEvidence(source: Executable): Readonly<Record<string, unknown>> {
+    if (this.#disposed) throw new Error("Session has been disposed")
+    if (!this.telemetry || this.telemetry.captureRecords === null) throw new Error("Runtime evidence capture is not enabled")
+    if (source.session !== this) throw new TypeError("Executable belongs to a different Session")
+    return source[EXECUTABLE_EVIDENCE]() ?? this[SESSION_EVIDENCE_DIRECT](source)
+  }
+  [SESSION_EVIDENCE_DIRECT](source: Executable): Readonly<Record<string, unknown>> {
+    const json = native.exportEvidenceCapture(this.#native, source.nativeExecutable)
+    return Object.freeze(JSON.parse(json))
+  }
+  [SESSION_OPTIMIZER_EVIDENCE](source: Program): Executable<any> | undefined {
+    return this.#optimizerEvidence.get(source)
   }
   [SESSION_TENSOR](values: TensorData, options: TensorValueOptions = {}, requestedShape?: readonly number[]): Tensor {
     if (this.#disposed) throw new Error("Session has been disposed")
@@ -1931,6 +2037,7 @@ export class Session {
     if (typeof previousStep !== "number" || !Number.isSafeInteger(previousStep) || previousStep < 0) throw new TypeError("ExecutionState optimizer step must be a non-negative integer")
     const step = previousStep + 1
     const executable = this.optimizerExecutable(parameters, optimizer)
+    this.#optimizerEvidence.set(source, executable)
     const args: Record<string, any> = {}
     const temporary: any[] = []
     const nextParameters: Array<{ key: string; old: any; next: any }> = []

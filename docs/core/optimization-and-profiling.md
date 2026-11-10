@@ -18,8 +18,9 @@ const session = new Session({
   device: "cuda",
   determinism: "strict",
   telemetry: {
-    backendTiming: true,
+    computeTiming: "invocation",
     hardwareMetrics: true,
+    bridgeTiming: true,
   },
 })
 ```
@@ -27,6 +28,30 @@ const session = new Session({
 Runtime measurements are published through `std:telemetry`, alongside user
 spans and metrics. Backend timing and hardware metrics are independent.
 Unsupported metrics are reported as unavailable, never as measured zeroes.
+
+`computeTiming` selects backend timing scope:
+
+- `"none"` records no backend timing samples. Invocation and kernel-count
+  evidence can still be requested independently through `hardwareMetrics`.
+- `"invocation"` records one deferred timing sample around all kernels launched
+  by an invocation. This is the default choice for model profiling.
+- `"kernel"` preserves the legacy event pair around every observed backend
+  kernel launch, including successful cuBLAS operations.
+
+`telemetry: { backendTiming: true }` remains compatible and selects
+`computeTiming: "kernel"`. New code should set `computeTiming` explicitly.
+Kernel counts are emitted once per invocation from backend launch accounting,
+so choosing invocation timing or hardware-only observation does not infer the
+count from retained timing samples. CUDA direct launches and successful
+cuBLAS submissions share that accounting path.
+
+`telemetry: { bridgeTiming: true }` adds opt-in spans around the Affon host
+bridge: Program run, input binding, Compute submission, output wrapping, and
+accelerator readback. Readback is split into device mapping/synchronization,
+native conversion or repacking, and JavaScript copy where those phases exist.
+The spans carry backend, dtype, element count, byte estimate, and Compute
+storage ID. Use them to account for host time that occurs outside the Compute
+execution span.
 
 Nested `to_array()` conversion can dominate that readback span on large dense
 tensors even when the device copy is negligible. Dense innermost rows are now
@@ -36,6 +61,31 @@ store per element. On a `[128,512]` f32 CUDA tensor, `to_bytes()` stayed near
 `to_bytes()` and `to_array()` separately before attributing a parity gap to the
 device copy. The retained split profile and reproduction script are in the
 [full readback batch](../../test/benchmark/results/parity-cuda-readback-full2-2026-11-10/README.md).
+
+On CUDA, `telemetry: { profilerMarkers: true }` adds NVTX ranges around each
+backend invocation. Each range names its run, executable, physical step, and
+invocation IDs for correlation with an Nsight Systems trace. The same option
+marks `item()`, `to_array()`, and `to_bytes()` readback with tensor and storage
+IDs. Invocation, execution, and readback ranges use independent start/end
+handles, so nested cuBLAS ranges cannot corrupt the Affon correlation stack.
+This is an opt-in diagnostic: it adds host overhead and does not time GPU
+completion. See the [observability gap audit](./observability-gaps.md) for the
+SQLite correlator, coverage checks, and remaining timeline limits.
+
+The SQLite correlator uses the exported CUDA runtime, kernel, copy, memset, and
+synchronization tables to partition device idle intervals. Its timeline output
+reports synchronization, other CUDA API time, and host delay separately, with
+the largest gaps linked to their preceding and following invocation IDs.
+`capture.json` includes this summary for the trace selected by the model profile.
+
+Compute identifiers are 64-bit values. JavaScript numbers cannot represent every
+such value exactly, so telemetry and runtime evidence also publish
+`compute.run_id_text`, `compute.executable_id_text`,
+`compute.invocation_id_text`, submission and invocation range `*_id_text`
+fields, `program_id_text`, and `executable_id_text` where applicable. Use those
+decimal strings as the authoritative identities. Numeric mirrors are convenient
+for display and ordering only; never use them to decide whether a large ID
+correlates with an Nsight or runtime-evidence row.
 
 Compilation options select one immutable executable variant:
 
@@ -142,11 +192,128 @@ const output = telemetry.trace("model.candidate", () =>
 const metrics = telemetry.metrics()
 ```
 
+For a selected run whose evidence must be joined to source instructions and
+physical implementation identity, opt into a bounded raw evidence buffer:
+
+```ts
+const session = new Session({
+  device: "cuda",
+  telemetry: {
+    computeTiming: "invocation",
+    bridgeTiming: true,
+    captureRecords: 65536,
+  },
+})
+const executable = session.compile(model)
+
+session.resetEvidence()
+const output = executable.run(inputs, state)
+const evidence = session.runtimeEvidence(executable)
+console.log(evidence.dropped_event_count)
+```
+
+`captureRecords` is a per-Session record limit, with a maximum of 4,194,304.
+`resetEvidence()` should immediately precede the selected run so that cost is
+paid only for the diagnosis. `runtimeEvidence()` returns Compute's aggregate
+form: observed invocation and timing evidence joined to each physical step,
+source instruction IDs, selected implementation, storage identity, shared
+timing groups, phase-local live and active memory peaks, synchronization count,
+and compiler-cost validations. Schema version 3 also reports
+`kernel_count_evidence`. `exact` permits the aggregate kernel count to be treated
+as the device-kernel total. `custom_dispatches_exact_library_fanout_unknown`
+means direct launches and library calls are exact, while a library call may fan
+out to multiple kernels. Check `dropped_event_count`; a nonzero value means the
+requested buffer was too small and the aggregate is incomplete.
+
+For an `optimize()` Program, `runtimeEvidence()` returns
+`kind: "composite_optimization_evidence"` with two selected-run components:
+
+- `gradient` owns the primal forward and backward execution;
+- `optimizer` is the actual native update executable.
+
+The gradient component's device time is shared by forward and backward nodes
+when one backend invocation covers both. The composite states this attribution
+instead of copying shared time into independent totals. It also marks the
+source forward executable as unexecuted because the gradient executable produced
+the primal result. The schema and count contract are checked by the training
+capture runner described below.
+
+The telemetry console uses a separate process-wide ring for HTTP trace export.
+It is enabled only when `RUNTIME_TELEMETRY_CONSOLE=1`. Its initial capacity comes
+from `RUNTIME_TELEMETRY_TRACE_RECORDS`; the default is 4,096 records and the
+maximum is 1,048,576. The previous fixed capacity of 512 could be exhausted
+before a warmed model step was collected, so a complete capture requires a
+capacity sized for the number of records produced between snapshots. The
+Apertus profile runner sets this through `--telemetry-records`, defaulting to
+16,384. If more than the ring capacity is written before a snapshot, the
+collector reports `missed: true`; increasing capacity does not guarantee
+complete evidence unless that flag is false.
+
 Compute execution spans are children of the active user trace. They contain
 events for executable steps, backend invocations, CUDA kernels or Metal command
 buffers, synchronization reasons, timing scopes, hardware-metric availability,
 and metric samples. Stable `compute.*` counters and gauges cover executions,
 invocations, backend time, synchronization, and storage.
+
+## Capture a representative training step
+
+Use the training observation runner when a training question requires more than
+an aggregate event stream:
+
+```sh
+python3 test/benchmark/training/profile-training.py \
+  --affon /path/to/affon \
+  --device cuda \
+  --output /tmp/affon-training-profile
+```
+
+The worker runs one warmup and one selected fixed-shape decoder
+forward/backward plus AdamW update. The Python orchestrator collects telemetry,
+invokes Nsight by default, exports SQLite, correlates kernel and API activity,
+and validates the composite identities, submission counts, kernel-count
+semantics, and selected outer trace. See
+[`test/benchmark/training/README.md`](../../test/benchmark/training/README.md)
+for backend, Nsight, and buffer controls.
+
+The validated CUDA r6 capture distinguishes the two evidence classes:
+490 custom launches, two cuBLAS calls, and an aggregate count of 492 in the
+gradient component, versus 493 Nsight kernels because the cuBLAS calls accounted
+for the library fan-out difference. The optimizer component has 320 custom
+launches and 320 kernels with no library calls, so its count is `exact`. The
+runner preserves the difference and requires the explicit unknown-fan-out
+marker; it does not force the aggregate to equal the profiler total.
+
+The selected outer training trace covered 33.065 ms of 41.569 ms wall time.
+The remaining 8.504 ms is explicit, unassigned time rather than measured zero.
+Use the capture to locate host submission, synchronization, and device gaps,
+then run a separate uninstrumented workload for throughput.
+
+## Capture deterministic inference
+
+Use the inference Program profile to validate a different operation mix without
+depending on a downloaded pretrained checkpoint:
+
+```sh
+python3 test/benchmark/hf-inference/profile-inference-program.py \
+  --affon /path/to/affon \
+  --device cuda \
+  --output /tmp/affon-inference-profile
+```
+
+The worker runs one warmup and one selected tiny GPT-2 Program with deterministic
+f32 weights. It exercises embedding, transformer blocks, layer normalization,
+GELU, masked attention, softmax, matmul, logit readback, and token selection.
+The runner verifies aggregate schema 3, kernel-count semantics, invocation and
+step identity, custom/library counts, phase coverage, external Nsight activity
+when available, and dropped telemetry.
+
+The CUDA r1 capture matched 67 invocations and 338 custom kernels across all
+three sources. All 713 device activities joined, with 5.368 ms of device gap
+showing 357.853 us CUDA API time and 5.010 ms host delay. The selected trace
+covered 7.496 ms of 7.985 ms wall time. On Metal the same Program passed with
+64 invocations and 64 exact kernels, no drops, and 2.226 ms of the 5.081 ms
+wall interval reported as unattributed. Metal currently validates internal
+telemetry and runtime evidence rather than an external device trace.
 
 Always compare like with like:
 

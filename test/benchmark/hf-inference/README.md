@@ -56,6 +56,102 @@ There are four fresh processes, run sequentially: GPT-2 CPU, GPT-2 Metal,
 ViT CPU, ViT Metal. Each loads one model, performs one warmup, then measures
 five iterations by default. Missing snapshots fail rather than download.
 
+## Joined Apertus decode profile
+
+`profile-apertus.py` captures one warmed, selected cached-decode step. It runs
+Affon with invocation-scoped backend timing, bridge timing, NVTX markers, and a
+bounded runtime evidence buffer. Kernel counts are recorded independently for
+every invocation. When Nsight Systems is available, it also records CUDA and
+NVTX activity, exports SQLite, and joins CUDA API calls, kernels, and copies to
+the matching Affon run, step, invocation, and readback ranges:
+
+```sh
+python3 test/benchmark/hf-inference/profile-apertus.py \
+  --affon /tmp/affon-apertus-release/bin/affon \
+  --checkpoint /path/to/verified/apertus/snapshot \
+  --output /tmp/apertus-profile
+```
+
+Pass `--nsys /path/to/nsys` when it is not on `PATH`, or use `--no-nsys` to
+capture only Affon telemetry and runtime evidence. `--workload` selects
+`decode` by default or `prefill`; prefill captures one warmed prefill execution
+with the same identity and counting checks. `--prompt`, `--capacity`, and
+`--budget` change the fixed-cache workload. Decode budget must cover prefill,
+one decode warmup, and the selected token; prefill only needs the selected
+prefill token. `--capture-records` bounds
+Compute's per-Session evidence buffer (default 262,144; maximum 4,194,304).
+`--telemetry-records` bounds the process-wide telemetry console ring (default
+16,384; maximum 1,048,576) by setting `RUNTIME_TELEMETRY_TRACE_RECORDS`. The
+console ring must cover every record produced between polls or the collector
+reports `missed: true`. The output directory contains:
+
+- `apertus-profile.json`: the selected step result, application metrics,
+  Compute's runtime-evidence aggregate, and the decode `Executable.explain()`.
+- `telemetry-traces.json`: the collected `std:telemetry` records and the
+  collector's `missed` flag.
+- `capture.json`: invocation details and completeness metadata.
+- With Nsight Systems: `apertus-profile.nsys-rep`, `profile.sqlite`, and
+  `compute-timeline.json`, including per-run and per-step activity, device gaps,
+  readbacks, memcpy bytes, and unmatched activity counts.
+
+The runner exits nonzero if telemetry missed records, runtime evidence dropped
+events, or any required span is absent. The required host evidence is
+`apertus.cached_decode.selected`, `affon.executable.run`, `affon.bridge.run`,
+`affon.bridge.readback`, `compute.execution`, `inference.generation.inputs`,
+`inference.generation.input_cleanup`, `inference.generation.selection`,
+`inference.generation.cache_release`, and `inference.generation.cleanup`.
+Inspect `dropped_event_count`, `missed`, `missing_spans`,
+`unmatched_device_activities`, and the per-step timing and memory fields before
+using the artifact to choose an optimization.
+
+`capture.json` also reports the direct-child generation phases inside the
+selected trace, their unioned coverage, and the remaining unattributed wall
+time. Nested bridge and readback spans are not added to that total, so this is a
+non-overlapping host time account rather than a sum of every recorded span.
+
+With Nsight enabled, the runner also verifies that the selected telemetry and
+external timeline name the same Compute run and executable, and that every
+invocation is assigned to the same physical step. Per-step invocation counts
+must match Compute's runtime-evidence aggregate. `capture.json` records this
+identity, the correlated invocation counts, and any mismatch count; a mismatch
+fails the capture.
+
+Compute IDs are 64-bit. JavaScript cannot represent every 64-bit integer
+exactly, so joins use the decimal `*_id_text` attributes and fields whenever
+they are present. This includes run, executable, invocation, submission, first
+invocation, last invocation, Program, and aggregate executable identities. The
+numeric forms are display mirrors and are not authoritative above
+`Number.MAX_SAFE_INTEGER`.
+
+This is an attribution measurement. NVTX ranges and per-invocation evidence add
+host and GPU overhead, so do not use its elapsed time as a throughput result.
+Measure throughput separately with observation disabled, using the same
+checkpoint, prompt, cache capacity, generated IDs, and build.
+
+## Deterministic inference Program profile
+
+`profile-inference-program.py` captures one warmed fixed-shape tiny GPT-2
+inference Program with deterministic f32 weights. It exercises embedding,
+normalization, GELU, masked attention, softmax, matmuls, logit readback, and
+token selection without requiring a pretrained checkpoint:
+
+```sh
+python3 test/benchmark/hf-inference/profile-inference-program.py \
+  --affon /tmp/affon-release/bin/affon \
+  --device cuda \
+  --output /tmp/affon-inference-profile
+```
+
+On CUDA the runner joins Affon telemetry, Compute schema-3 runtime evidence,
+and Nsight device/API activity. On Metal or with `--no-nsys`, it validates
+internal telemetry, executable and invocation identity, exact counts, dropped
+events, and selected trace phase coverage. The output contains
+`inference-profile.json`, `telemetry-traces.json`, `capture.json`, and, when
+enabled, the Nsight report, SQLite export, and correlated timeline.
+
+This is an accounting probe for a fixed transformer-like Program. It does not
+measure pretrained-model quality or throughput.
+
 To run one benchmark without Python:
 
 ```sh

@@ -33,7 +33,27 @@ declare module "affon:compute" {
     residualPolicy?: ResidualPolicy;
     searchLimits?: SearchLimits;
   }>;
-  export type TelemetryOptions = Readonly<{ backendTiming?: boolean; hardwareMetrics?: boolean }>;
+  export type ComputeTimingScope = "none" | "invocation" | "kernel";
+  export type TelemetryOptions = Readonly<{
+    /** Per-invocation backend timing scope. Defaults from backendTiming or none. */
+    computeTiming?: ComputeTimingScope;
+    /** Compatibility switch: true selects kernel timing, false selects none. */
+    backendTiming?: boolean;
+    hardwareMetrics?: boolean;
+    profilerMarkers?: boolean;
+    bridgeTiming?: boolean;
+    /** Retain this many raw Compute evidence records for Session.runtimeEvidence(). */
+    captureRecords?: number;
+  }>;
+  export type SessionTelemetry = Readonly<{
+    computeTiming: ComputeTimingScope;
+    /** True only for the legacy per-kernel timing scope. */
+    backendTiming: boolean;
+    hardwareMetrics: boolean;
+    profilerMarkers: boolean;
+    bridgeTiming: boolean;
+    captureRecords: number | null;
+  }>;
   export type SessionOptions = Readonly<{
     device?: Device;
     determinism?: "strict" | "allow_nondeterministic";
@@ -323,7 +343,7 @@ declare module "affon:compute" {
     /** Device used for all tensors and executions owned by this Session. */
     readonly device: Device;
     readonly determinism: "strict" | "allow_nondeterministic";
-    readonly telemetry: false | Required<TelemetryOptions>;
+    readonly telemetry: false | SessionTelemetry;
     readonly disposed: boolean;
     /** Create an evaluated tensor owned by this Session. */
     tensor(values: TensorData, options?: { dtype?: ProgramDType; axes?: readonly string[] }): Tensor;
@@ -331,6 +351,10 @@ declare module "affon:compute" {
     fromBytes(bytes: ArrayBuffer, spec: TensorSpec): Tensor;
     /** Compile a Program, returning the cached executable for repeated compilation of the same Program. */
     compile<Out extends FormalTensor | readonly FormalTensor[]>(source: Program<Record<string, FormalTensor>, Out>, options?: CompileOptions): Executable<Out>;
+    /** Clear retained raw Compute evidence before a selected profiling run. */
+    resetEvidence(): void;
+    /** Join retained Compute evidence with the supplied executable's frozen plan and source mappings. */
+    runtimeEvidence(source: Executable): Readonly<Record<string, unknown>>;
     /** Materialize Program parameters and model state using deterministic initialization. */
     initialize(source: Program, options?: { seed?: number; parameters?: Readonly<Record<string, TensorInitializerValue>>; model_state?: Readonly<Record<string, TensorInitializerValue>> }): ExecutionState;
     /** Return whether this Session owns the supplied Tensor, Executable, or ExecutionState. */

@@ -90,8 +90,10 @@ void schemaVersion
 void inspectionKind
 void inspectedNode
 void inspectedComponent
-const publicTelemetryOptions: TelemetryOptions = { backendTiming: true }
+const publicTelemetryOptions: TelemetryOptions = { backendTiming: true, computeTiming: "kernel" }
+const publicInvocationTelemetry: TelemetryOptions = { computeTiming: "invocation", hardwareMetrics: true }
 const publicSessionOptions: SessionOptions = { device: "cpu", determinism: "strict", telemetry: publicTelemetryOptions }
+const publicInvocationSessionOptions: SessionOptions = { device: "cuda", telemetry: publicInvocationTelemetry }
 const publicCompileOptions: CompileOptions = { optimizationLevel: "none", numericalPolicy: "exact_only", optimizationGoal: "memory", explanationLevel: "detailed", residualPolicy: "retain", searchLimits: { completeEvaluations: 4 } }
 const controlledSession = new Session(publicSessionOptions)
 const controlledExecutable = controlledSession.compile(classifier, publicCompileOptions)

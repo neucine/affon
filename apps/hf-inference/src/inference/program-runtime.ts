@@ -1,5 +1,6 @@
-import { program, Session, Tensor, type Device, type Executable, type ExecutionState, type Program, type TensorData } from 'affon:compute'
+import { program, Session, Tensor, type Device, type Executable, type ExecutionState, type Program, type SessionOptions, type TensorData } from 'affon:compute'
 import { where } from 'affon:ops'
+import telemetry from 'std:telemetry'
 import type { ModelTensor } from '../../../../packages/@affon/models/src/shared/parameters.ts'
 
 export interface ProgramDefinition {
@@ -297,10 +298,14 @@ export class CausalProgramRuntime {
   private readonly prefillExecutables = new Map<string, Executable>()
   private readonly decodeExecutables = new Map<number, Executable>()
 
-  constructor(readonly model: CausalProgramDefinition, device: Device) {
-    this.session = new Session({ device })
+  constructor(readonly model: CausalProgramDefinition, device: Device, options: Omit<SessionOptions, 'device'> = {}) {
+    this.session = new Session({ ...options, device })
     try { this.state = this.session.initialize(model.forward(1), { parameters: model.parameters }) }
     catch (error) { this.session.dispose(); throw error }
+  }
+
+  private traced<T>(name: string, operation: () => T): T {
+    return this.session.telemetry ? telemetry.trace(name, operation) : operation()
   }
 
   /** Prepare fixed-cache programs before reporting a serving model as ready. */
@@ -351,7 +356,13 @@ export class CausalProgramRuntime {
     const cacheCapacity = fixedCache ? Math.max(output.length + budget, this.preparedCapacity ?? 0) : output.length + budget
     let fixedDecodeSource: Program | undefined
     let decodeExecutable: Executable | undefined
-    const release = () => { for (const value of caches) value.dispose(); caches = [] }
+    const release = () => {
+      if (caches.length === 0) return
+      this.traced('inference.generation.cache_release', () => {
+        for (const value of caches) value.dispose()
+        caches = []
+      })
+    }
     return {
       get done() { return done },
       close() { done = true; release() },
@@ -365,15 +376,18 @@ export class CausalProgramRuntime {
             : fixedCache
               ? (this.decodeExecutables.has(cacheCapacity) ? undefined : (fixedDecodeSource ??= this.model.decode!(cacheCapacity)))
               : this.model.decode!(output.length - 1)
-          const inputs: Record<string, Tensor> = {
-            ids: this.session.tensor(first ? output : [output.at(-1)!], { dtype: 'i64' }),
-          }
-          if (first) inputs.mask = this.session.tensor([[Array.from({ length: output.length }, (_, row) => Array.from({ length: output.length }, (_, column) => column > row ? 1 : 0))]], { dtype: 'i64' })
-          else for (let index = 0; index < caches.length / 2; index++) {
-            inputs[`past_${index}_k`] = caches[index * 2]
-            inputs[`past_${index}_v`] = caches[index * 2 + 1]
-          }
-          if (!first && fixedCache) inputs.position = this.session.tensor([output.length - 1], { dtype: 'i64' })
+          const inputs = this.traced('inference.generation.inputs', () => {
+            const values: Record<string, Tensor> = {
+              ids: this.session.tensor(first ? output : [output.at(-1)!], { dtype: 'i64' }),
+            }
+            if (first) values.mask = this.session.tensor([[Array.from({ length: output.length }, (_, row) => Array.from({ length: output.length }, (_, column) => column > row ? 1 : 0))]], { dtype: 'i64' })
+            else for (let index = 0; index < caches.length / 2; index++) {
+              values[`past_${index}_k`] = caches[index * 2]
+              values[`past_${index}_v`] = caches[index * 2 + 1]
+            }
+            if (!first && fixedCache) values.position = this.session.tensor([output.length - 1], { dtype: 'i64' })
+            return values
+          })
           try {
             const executable = fixedCache && !first
               ? (decodeExecutable ??= this.decodeExecutables.get(cacheCapacity) ?? this.session.compile(source!))
@@ -383,9 +397,11 @@ export class CausalProgramRuntime {
             const values = executable.run(inputs, this.state) as Tensor[]
             ;[logits, ...nextCaches] = values
           } finally {
-            inputs.ids.dispose()
-            inputs.mask?.dispose()
-            inputs.position?.dispose()
+            this.traced('inference.generation.input_cleanup', () => {
+              inputs.ids.dispose()
+              inputs.mask?.dispose()
+              inputs.position?.dispose()
+            })
           }
         } else {
           const result = this.forward(output, output.length - 1)
@@ -395,18 +411,22 @@ export class CausalProgramRuntime {
         try {
           if (logits.shape.length !== 3 || logits.shape[0] !== 1 || logits.shape[1] !== 1 || logits.shape[2] !== this.model.config.vocab_size)
             throw new ModelOutputError(`Invalid model logits at token position ${output.length}`)
-          const best = logits.dtype === 'bf16' || logits.dtype === 'f32'
-            ? finite_argmax_bytes(logits.to_bytes(), logits.dtype, this.model.config.vocab_size, output.length)
-            : finite_argmax((logits.to_array() as number[][][])[0][0], this.model.config.vocab_size, output.length)
+          const best = this.traced('inference.generation.selection', () =>
+            logits.dtype === 'bf16' || logits.dtype === 'f32'
+              ? finite_argmax_bytes(logits.to_bytes(), logits.dtype, this.model.config.vocab_size, output.length)
+              : finite_argmax((logits.to_array() as number[][][])[0][0], this.model.config.vocab_size, output.length),
+          )
           output.push(best)
           if (cached) { release(); caches = nextCaches; nextCaches = [] }
           done = best === this.model.config.eos_token_id || output.length - ids.length === budget
           return { ids: Array.from(output), done }
         } finally {
-          logits.dispose()
-          for (const hidden of hiddenStates) hidden.dispose()
-          for (const value of nextCaches) value.dispose()
-          if (done) release()
+          this.traced('inference.generation.cleanup', () => {
+            logits.dispose()
+            for (const hidden of hiddenStates) hidden.dispose()
+            for (const value of nextCaches) value.dispose()
+            if (done) release()
+          })
         }
       },
     }

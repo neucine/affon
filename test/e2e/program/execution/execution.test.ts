@@ -6,6 +6,40 @@ import { cross_entropy, linear } from "affon:nn"
 import { adam } from "affon:optim"
 
 describe("Program execution state and lowering", () => {
+  test("records opt-in bridge and readback phases without changing results", () => {
+    const session = new Session({
+      device: "cpu",
+      telemetry: { bridgeTiming: true, captureRecords: 4096 },
+    })
+    const source = program("observed_add", p => add(
+      p.argument("left", Tensor.f32([2])),
+      p.argument("right", Tensor.f32([2])),
+    ))
+    const executable = session.compile(source)
+    const left = session.tensor([2, 3])
+    const right = session.tensor([4, 5])
+    session.resetEvidence()
+    const result = telemetry.trace("test.program_observation", () => executable.run({ left, right })) as any
+
+    expect(session.telemetry.bridgeTiming).toBe(true)
+    expect(result.to_array()).toEqual([6, 8])
+    expect(result.to_bytes().byteLength).toBe(8)
+    const evidence = session.runtimeEvidence(executable) as any
+    expect(evidence.schema_version).toBe(1)
+    expect(evidence.dropped_event_count).toBe(0)
+    expect(evidence.entries.length).toBe(1)
+    expect(evidence.entries[0].invocation_count).toBe(1)
+    expect(evidence.entries[0].kernel_count).toBe(1)
+    expect(evidence.phase_memory.length).toBe(5)
+    expect(evidence.phase_memory.every((phase: any) => phase.peak_live_bytes >= phase.live_bytes)).toBe(true)
+    expect(() => executable.run({ left })).toThrow("missing argument")
+
+    result.dispose()
+    left.dispose()
+    right.dispose()
+    session.dispose()
+  })
+
   test("executes, initializes, caches, validates ownership, and optimizes", () => {
     const identity = program("identity", p => p.argument("value", Tensor.f32([2])))
     const firstSession = new Session({ device: "cpu" })

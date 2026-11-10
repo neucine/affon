@@ -70,6 +70,46 @@ describe('decoder-lm Program model', () => {
     session.dispose()
   })
 
+  test('exports gradient and optimizer evidence from one training step', () => {
+    const model = DecoderModel(16, 8, { numLayers: 1, numHeads: 2, hiddenDim: 16, causal: true, positional: 'learned', maxSeqLen: 8, tieEmbeddings: true })
+    const modelProgram = program('decoder_lm', p => model({
+      token_ids: p.argument('token_ids', Tensor.i64([2, 3], { axes: ['batch', 'token'] })),
+    }, 'decoder'))
+    const step = optimize(modelProgram, cross_entropy(), adam({ learning_rate: 0.001 }))
+    const session = new Session({
+      device: 'cpu',
+      telemetry: { computeTiming: 'invocation', captureRecords: 100_000 },
+    })
+    const state = session.initialize(step, { seed: 7 })
+    const ids = session.tensor([[1, 2, 3], [4, 5, 6]], { dtype: 'i64' })
+    const labels = session.tensor([[2, 3, 4], [5, 6, 7]], { dtype: 'i64' })
+    const executable = session.compile(step)
+    const warmup = executable.run({ token_ids: ids, labels }, state)
+    warmup.dispose()
+
+    session.resetEvidence()
+    const value = executable.run({ token_ids: ids, labels }, state)
+    let evidence: any
+    try {
+      evidence = session.runtimeEvidence(executable)
+    } catch (error) {
+      throw new Error(`composite runtime evidence failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+    expect(evidence.kind).toBe('composite_optimization_evidence')
+    expect(evidence.components.map((component: any) => component.phase)).toEqual(['gradient', 'optimizer'])
+    for (const component of evidence.components) {
+      const report = component.evidence
+      expect(report.dropped_event_count).toBe(0)
+      expect(report.entries.some((entry: any) => entry.invocation_count > 0)).toBe(true)
+    }
+
+    value.dispose()
+    labels.dispose()
+    ids.dispose()
+    state.dispose()
+    session.dispose()
+  })
+
   test('validates dimensions, context, and generation options', () => {
     expect(() => DecoderModel(0, 8, { numLayers: 1, numHeads: 2, hiddenDim: 16, maxSeqLen: 8 })).toThrow()
     const model = DecoderModel(8, 4, { numLayers: 1, numHeads: 2, hiddenDim: 8, maxSeqLen: 3 })
