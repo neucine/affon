@@ -1,6 +1,40 @@
 const std = @import("std");
 const cyna = @import("compute_core_cyna.zig");
 
+test "Affon infers selected graph shapes for five Cyna dtypes" {
+    const inputs = [_]cyna.DenseInputShape{
+        .{ .shape = &.{ 2, 2 } },
+        .{ .shape = &.{ 2, 2 } },
+        .{ .shape = &.{2} },
+    };
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .matmul, .lhs = 0, .rhs = 1 },
+        .{ .operation = .add, .lhs = 3, .rhs = 2 },
+        .{ .operation = .sum_axis, .lhs = 4, .rhs = 1 },
+    };
+    const selected = [_]usize{ 3, 4, 5 };
+    inline for (.{ cyna.DenseDType.f32, .f64, .i64, .u32, .bf16 }) |dtype| {
+        var ranks = [_]usize{ 99, 99, 99 };
+        var elements = [_]usize{ 99, 99, 99 };
+        var dimensions = [_]usize{ 99, 99, 99, 99, 99 };
+        const written = try cyna.inferDenseGraph(std.testing.allocator, dtype,
+            &inputs, &steps, &selected, &ranks, &elements, &dimensions);
+        try std.testing.expectEqual(@as(usize, 5), written);
+        try std.testing.expectEqualSlices(usize, &.{ 2, 2, 1 }, &ranks);
+        try std.testing.expectEqualSlices(usize, &.{ 4, 4, 2 }, &elements);
+        try std.testing.expectEqualSlices(usize, &.{ 2, 2, 2, 2, 2 }, &dimensions);
+        ranks[0] = 99;
+        elements[0] = 99;
+        dimensions[0] = 99;
+        try std.testing.expectError(error.InvalidShape,
+            cyna.inferDenseGraph(std.testing.allocator, dtype, &inputs, &steps,
+                &selected, &ranks, &elements, dimensions[0..4]));
+        try std.testing.expectEqual(@as(usize, 99), ranks[0]);
+        try std.testing.expectEqual(@as(usize, 99), elements[0]);
+        try std.testing.expectEqual(@as(usize, 99), dimensions[0]);
+    }
+}
+
 test "Affon calls Cyna signed i64 matmul through the C ABI" {
     const lhs = [_]i64{ 1, -2, 3, 4 };
     const rhs = [_]i64{ 5, 6, 7, 8 };

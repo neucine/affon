@@ -145,6 +145,24 @@ extern fn compute_core_run_dense_graph_bf16(
     output_value_count: usize,
 ) c_int;
 
+extern fn compute_core_infer_dense_graph(
+    dtype: c_int,
+    input_ranks: [*]const usize,
+    input_count: usize,
+    dimensions: [*]const usize,
+    dimension_count: usize,
+    operations: [*]const c_int,
+    lhs_ids: [*]const usize,
+    rhs_ids: [*]const usize,
+    instruction_count: usize,
+    output_ids: [*]const usize,
+    selected_count: usize,
+    output_ranks: [*]usize,
+    output_elements: [*]usize,
+    output_dimensions: [*]usize,
+    output_dimension_capacity: usize,
+) c_int;
+
 pub const DenseGoal = enum(c_int) { baseline = 0, memory = 1 };
 
 fn denseInput(comptime T: type) type {
@@ -156,6 +174,8 @@ pub const DenseInputI64 = denseInput(i64);
 pub const DenseInputF64 = denseInput(f64);
 pub const DenseInputU32 = denseInput(u32);
 pub const DenseInputBf16Bits = denseInput(u16);
+pub const DenseInputShape = struct { shape: []const usize };
+pub const DenseDType = enum(c_int) { f32 = 1, f64 = 2, i64 = 3, u32 = 4, bf16 = 5 };
 pub const DenseOperation = enum(c_int) {
     add = 0,
     sub = 1,
@@ -185,6 +205,81 @@ pub const DenseOperation = enum(c_int) {
 };
 // rhs is a value ID for binary steps and an axis for axis reductions and softmax.
 pub const DenseStep = struct { operation: DenseOperation, lhs: usize, rhs: usize = 0 };
+
+// Returns the number of flattened output dimensions written. Each selected
+// output has one rank and element count; a scalar has rank zero and one element.
+pub fn inferDenseGraph(
+    allocator: std.mem.Allocator,
+    dtype: DenseDType,
+    inputs: []const DenseInputShape,
+    steps: []const DenseStep,
+    selected: []const usize,
+    output_ranks: []usize,
+    output_elements: []usize,
+    output_dimensions: []usize,
+) (Error || std.mem.Allocator.Error)!usize {
+    if (inputs.len == 0 or selected.len == 0 or
+        output_ranks.len != selected.len or output_elements.len != selected.len or
+        steps.len > std.math.maxInt(usize) - inputs.len) return error.InvalidShape;
+    var dimension_count: usize = 0;
+    for (inputs) |input| {
+        if (input.shape.len > 8) return error.InvalidShape;
+        dimension_count = std.math.add(usize, dimension_count, input.shape.len) catch return error.InvalidShape;
+        var elements: usize = 1;
+        for (input.shape) |dimension| {
+            if (dimension == 0) return error.InvalidShape;
+            elements = std.math.mul(usize, elements, dimension) catch return error.InvalidShape;
+        }
+    }
+    for (steps, 0..) |step, index| {
+        const available = inputs.len + index;
+        if (step.lhs >= available or
+            (switch (step.operation) {
+                .add, .sub, .mul, .div, .matmul => step.rhs >= available,
+                else => false,
+            })) return error.InvalidShape;
+        if (dtype == .i64 and switch (step.operation) {
+            .add, .sub, .mul, .div, .abs, .neg, .relu, .matmul, .sum_all, .sum_axis, .sign => false,
+            else => true,
+        }) return error.InvalidShape;
+        if (dtype == .u32 and @backingInt(step.operation) > 12) return error.InvalidShape;
+    }
+    for (selected) |id| if (id >= inputs.len + steps.len) return error.InvalidShape;
+    const ranks = try allocator.alloc(usize, inputs.len);
+    defer allocator.free(ranks);
+    const dimensions = try allocator.alloc(usize, dimension_count);
+    defer allocator.free(dimensions);
+    const operations = try allocator.alloc(c_int, steps.len);
+    defer allocator.free(operations);
+    const lhs_ids = try allocator.alloc(usize, steps.len);
+    defer allocator.free(lhs_ids);
+    const rhs_ids = try allocator.alloc(usize, steps.len);
+    defer allocator.free(rhs_ids);
+    var cursor: usize = 0;
+    for (inputs, 0..) |input, index| {
+        ranks[index] = input.shape.len;
+        @memcpy(dimensions[cursor..][0..input.shape.len], input.shape);
+        cursor += input.shape.len;
+    }
+    for (steps, 0..) |step, index| {
+        operations[index] = @backingInt(step.operation);
+        lhs_ids[index] = step.lhs;
+        rhs_ids[index] = step.rhs;
+    }
+    switch (compute_core_infer_dense_graph(@backingInt(dtype), ranks.ptr, ranks.len,
+        dimensions.ptr, dimensions.len, operations.ptr, lhs_ids.ptr, rhs_ids.ptr,
+        steps.len, selected.ptr, selected.len, output_ranks.ptr, output_elements.ptr,
+        output_dimensions.ptr, output_dimensions.len)) {
+        0 => {},
+        1 => return error.InvalidShape,
+        else => return error.CoreFailure,
+    }
+    var written: usize = 0;
+    for (output_ranks) |rank| {
+        written = std.math.add(usize, written, rank) catch return error.CoreFailure;
+    }
+    return written;
+}
 
 pub const Reduction = enum(c_int) { sum = 0, mean = 1, min = 2, max = 3, variance = 4, std = 5 };
 pub const ReductionAxis = enum(c_int) { all = -1, rows = 0, columns = 1 };
