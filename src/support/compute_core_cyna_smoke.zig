@@ -693,6 +693,15 @@ test "Affon submits a precise f64 Cyna graph" {
     try std.testing.expectError(error.InvalidShape,
         cyna.runDenseGraphResidentF64(std.testing.allocator, &inputs, &steps, &selected, resident_output[0..4]));
     try std.testing.expectEqual(@as(f64, -1.0), resident_output[0]);
+    const axis_steps = [_]cyna.DenseStep{
+        steps[0],
+        .{ .operation = .sum_axis, .lhs = 2, .rhs = 1 },
+        .{ .operation = .mean_axis, .lhs = 2, .rhs = 0 },
+    };
+    const axis_selected = [_]usize{ 2, 3, 4 };
+    var axis_output: [8]f64 = @splat(-1.0);
+    try cyna.runDenseGraphResidentF64(std.testing.allocator, &inputs, &axis_steps, &axis_selected, &axis_output);
+    try std.testing.expectEqualSlices(f64, &.{ 16777217.0, 1.0, 0.0, 2.0, 16777218.0, 2.0, 8388608.5, 1.5 }, &axis_output);
     output[0] = -1.0;
     try std.testing.expectError(error.InvalidShape,
         cyna.runDenseGraphF64(std.testing.allocator, &inputs, &steps, &selected, output[0..4]));
