@@ -113,6 +113,32 @@ test "Affon follows Cyna transpose and shape views" {
             &inputs, &invalid, &.{1}, .baseline));
 }
 
+test "Affon swaps nonadjacent Cyna axes" {
+    var values: [24]u32 = undefined;
+    for (&values, 0..) |*value, index| value.* = @intCast(index);
+    const inputs = [_]cyna.DenseByteInput{
+        .{ .dtype = .u32, .shape = &.{ 2, 3, 4 }, .bytes = std.mem.sliceAsBytes(&values) },
+    };
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .swap_axes, .lhs = 0, .rhs = 0, .third = 2 },
+    };
+    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator,
+        &inputs, &steps, &.{1}, .baseline);
+    defer result.deinit(std.testing.allocator);
+    try std.testing.expectEqualSlices(usize, &.{ 4, 3, 2 }, result.shape(0));
+    for (0..4) |outer| for (0..3) |middle| for (0..2) |inner| {
+        const offset = ((outer * 3 + middle) * 2 + inner) * 4;
+        try std.testing.expectEqual(@as(u32, @intCast((inner * 3 + middle) * 4 + outer)),
+            std.mem.readInt(u32, result.outputBytes(0)[offset..][0..4], .little));
+    };
+    const invalid = [_]cyna.DenseStep{
+        .{ .operation = .swap_axes, .lhs = 0, .rhs = 0, .third = 3 },
+    };
+    try std.testing.expectError(error.InvalidShape,
+        cyna.allocDenseGraphMultiBytes(std.testing.allocator,
+            &inputs, &invalid, &.{1}, .baseline));
+}
+
 test "Affon owns heterogeneous Cyna graph results" {
     const float_values = [_]f32{ 4, -1 };
     const integer_values = [_]i64{ 7, 9 };
