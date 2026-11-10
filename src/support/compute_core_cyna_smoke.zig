@@ -48,6 +48,10 @@ test "Affon selects Cyna comparison branches" {
     try std.testing.expectEqual(cyna.DenseDType.i64, result.dtype(0));
     try std.testing.expectEqual(cyna.DenseDType.f32, result.dtype(1));
     try std.testing.expectEqualSlices(usize, &.{3}, result.shape(1));
+    const memory_result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator,
+        &inputs, &steps, &.{ 2, 5 }, .memory);
+    defer memory_result.deinit(std.testing.allocator);
+    try std.testing.expectEqualSlices(u8, result.bytes, memory_result.bytes);
     for ([_]i64{ 1, 0, 0 }, 0..) |value, index| {
         try std.testing.expectEqual(value, std.mem.readInt(i64,
             result.outputBytes(0)[index * 8 ..][0..8], .little));
