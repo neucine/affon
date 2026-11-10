@@ -410,6 +410,29 @@ extern fn compute_core_run_dense_graph_multi_layout_bytes(
     output_byte_count: usize,
 ) c_int;
 
+extern fn compute_core_run_dense_graph_resident_multi_layout_bytes(
+    goal: c_int,
+    input_dtypes: [*]const c_int,
+    input_bytes: [*]const u8,
+    input_byte_count: usize,
+    input_ranks: [*]const usize,
+    input_count: usize,
+    dimensions: [*]const usize,
+    dimension_count: usize,
+    operations: [*]const c_int,
+    lhs_ids: [*]const usize,
+    rhs_ids: [*]const usize,
+    third_ids: [*]const usize,
+    metadata_offsets: [*]const usize,
+    metadata_values: [*]const usize,
+    metadata_count: usize,
+    instruction_count: usize,
+    output_ids: [*]const usize,
+    selected_count: usize,
+    output_bytes: [*]u8,
+    output_byte_count: usize,
+) c_int;
+
 pub const DenseGoal = enum(c_int) { baseline = 0, memory = 1 };
 
 fn denseInput(comptime T: type) type {
@@ -698,7 +721,8 @@ pub fn allocDenseGraphBytes(
         .dimensions = dimensions, .dtypes = dtypes };
 }
 
-pub fn allocDenseGraphMultiBytes(
+fn allocDenseGraphMultiBytesMode(
+    resident: bool,
     allocator: std.mem.Allocator, inputs: []const DenseByteInput,
     steps: []const DenseStep, selected: []const usize, goal: DenseGoal,
 ) (Error || std.mem.Allocator.Error)!DenseGraphBytesResult {
@@ -793,16 +817,36 @@ pub fn allocDenseGraphMultiBytes(
     }
     const bytes = try allocator.alloc(u8, total_bytes);
     errdefer allocator.free(bytes);
-    switch (compute_core_run_dense_graph_multi_layout_bytes(@backingInt(goal),
+    const status = if (resident) compute_core_run_dense_graph_resident_multi_layout_bytes(@backingInt(goal),
         input_dtypes.ptr, input_bytes.ptr, input_bytes.len, input_ranks.ptr,
         inputs.len, input_dimensions.ptr, input_dimensions.len, operations.ptr,
         lhs_ids.ptr, rhs_ids.ptr, third_ids.ptr, metadata_offsets.ptr, metadata_values.ptr,
         metadata_values.len, steps.len, selected.ptr, selected.len,
-        bytes.ptr, bytes.len)) {
+        bytes.ptr, bytes.len) else compute_core_run_dense_graph_multi_layout_bytes(@backingInt(goal),
+        input_dtypes.ptr, input_bytes.ptr, input_bytes.len, input_ranks.ptr,
+        inputs.len, input_dimensions.ptr, input_dimensions.len, operations.ptr,
+        lhs_ids.ptr, rhs_ids.ptr, third_ids.ptr, metadata_offsets.ptr, metadata_values.ptr,
+        metadata_values.len, steps.len, selected.ptr, selected.len,
+        bytes.ptr, bytes.len);
+    switch (status) {
         0 => {}, 1 => return error.InvalidShape, else => return error.CoreFailure,
     }
     return .{ .bytes = bytes, .ranks = ranks, .elements = elements,
         .dimensions = dimensions, .dtypes = dtypes };
+}
+
+pub fn allocDenseGraphMultiBytes(
+    allocator: std.mem.Allocator, inputs: []const DenseByteInput,
+    steps: []const DenseStep, selected: []const usize, goal: DenseGoal,
+) (Error || std.mem.Allocator.Error)!DenseGraphBytesResult {
+    return allocDenseGraphMultiBytesMode(false, allocator, inputs, steps, selected, goal);
+}
+
+pub fn allocDenseGraphResidentMultiBytes(
+    allocator: std.mem.Allocator, inputs: []const DenseByteInput,
+    steps: []const DenseStep, selected: []const usize, goal: DenseGoal,
+) (Error || std.mem.Allocator.Error)!DenseGraphBytesResult {
+    return allocDenseGraphMultiBytesMode(true, allocator, inputs, steps, selected, goal);
 }
 
 fn inferDenseGraphImpl(
