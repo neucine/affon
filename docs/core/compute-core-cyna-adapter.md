@@ -7,7 +7,8 @@ shapes and steps, packs the C arrays, and supports selected outputs of
 different shapes. Its current operations are binary arithmetic, abs, neg,
 ReLU, sign, exp, log, sqrt, sigmoid, SiLU, tanh, erf, GELU, sin, cos, matmul,
 whole or axis sum and mean, and axis softmax or log softmax. The caller supplies a flat
-output buffer with the total selected element count.
+output buffer with the total selected element count. Rank-zero inputs have an
+empty shape and one value.
 The reduction adapter covers whole or axis sum, mean, min, max, population
 variance, and standard deviation. The quantized path accepts
 packed u32 weights with 2, 4, or 8 bits per weight and per-group f32 scales

@@ -224,7 +224,7 @@ pub fn runDenseGraphF32(
     var dimension_count: usize = 0;
     var value_count: usize = 0;
     for (inputs) |input| {
-        if (input.shape.len == 0 or input.shape.len > 8) return error.InvalidShape;
+        if (input.shape.len > 8) return error.InvalidShape;
         dimension_count = std.math.add(usize, dimension_count, input.shape.len) catch return error.InvalidShape;
         var elements: usize = 1;
         for (input.shape) |dimension| {

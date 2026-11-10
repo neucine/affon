@@ -130,3 +130,24 @@ test "Affon submits axis softmax and log softmax" {
         cyna.runDenseGraphF32(std.testing.allocator, &inputs, &bad_steps, &one_selected, &invalid_output));
     try std.testing.expectEqualSlices(f32, &.{ -1, -1, -1, -1, -1, -1 }, &invalid_output);
 }
+
+test "Affon submits rank-zero Cyna graph inputs" {
+    const left = [_]f32{3};
+    const right = [_]f32{2};
+    const inputs = [_]cyna.DenseInput{
+        .{ .shape = &.{}, .values = &left },
+        .{ .shape = &.{}, .values = &right },
+    };
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .add, .lhs = 0, .rhs = 1 },
+        .{ .operation = .neg, .lhs = 2 },
+    };
+    const selected = [_]usize{ 2, 3 };
+    var output = [_]f32{ -1, -1 };
+    try cyna.runDenseGraphF32(std.testing.allocator, &inputs, &steps, &selected, &output);
+    try std.testing.expectEqualSlices(f32, &.{ 5, -5 }, &output);
+    output = @splat(-1);
+    try std.testing.expectError(error.InvalidShape,
+        cyna.runDenseGraphF32(std.testing.allocator, &inputs, &steps, &selected, output[0..1]));
+    try std.testing.expectEqualSlices(f32, &.{ -1, -1 }, &output);
+}
