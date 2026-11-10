@@ -45,3 +45,25 @@ test "Affon calls Cyna quantized matmul through the C ABI" {
         cyna.quantizedMatmulF32(&activation, &weights, &scales, &biases, &output, std.math.maxInt(usize), 8, 3, 8, 4));
     try std.testing.expectEqualSlices(f32, &.{ -1, -1, -1, -1, -1, -1 }, &output);
 }
+
+test "Affon calls Cyna rank-two reductions through the C ABI" {
+    const input = [_]f32{ 1, 2, 3, 4, 5, 6 };
+    var whole = [_]f32{-1};
+    try cyna.reduceF32(.sum, &input, &whole, 2, 3, .all);
+    try std.testing.expectEqual(@as(f32, 21), whole[0]);
+
+    var columns = [_]f32{ -1, -1 };
+    try cyna.reduceF32(.mean, &input, &columns, 2, 3, .columns);
+    try std.testing.expectEqualSlices(f32, &.{ 2, 5 }, &columns);
+
+    var rows = [_]f32{ -1, -1, -1 };
+    try cyna.reduceF32(.variance, &input, &rows, 2, 3, .rows);
+    try std.testing.expectEqualSlices(f32, &.{ 2.25, 2.25, 2.25 }, &rows);
+
+    whole[0] = -1;
+    try std.testing.expectError(error.InvalidShape,
+        cyna.reduceF32(.sum, input[0..5], &whole, 2, 3, .all));
+    try std.testing.expectError(error.InvalidShape,
+        cyna.reduceF32(.sum, &input, &whole, std.math.maxInt(usize), 3, .all));
+    try std.testing.expectEqual(@as(f32, -1), whole[0]);
+}

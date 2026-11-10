@@ -23,6 +23,15 @@ extern fn compute_core_run_quantized_matmul_f32(
     rows: usize, depth: usize, columns: usize, bits: usize, group_size: usize,
 ) c_int;
 
+extern fn compute_core_run_reduce_f32(
+    operation: c_int, input: [*]const f32, input_count: usize,
+    output: [*]f32, output_count: usize,
+    rows: usize, columns: usize, axis: c_int,
+) c_int;
+
+pub const Reduction = enum(c_int) { sum = 0, mean = 1, min = 2, max = 3, variance = 4, std = 5 };
+pub const ReductionAxis = enum(c_int) { all = -1, rows = 0, columns = 1 };
+
 pub const Error = error{ InvalidShape, CoreFailure };
 
 // First Affon consumer boundary for compute-core. The caller owns every slice.
@@ -73,6 +82,29 @@ pub fn quantizedMatmulF32(
         activation.ptr, activation.len, weights.ptr, weights.len,
         scales.ptr, scales.len, biases.ptr, biases.len, output.ptr, output.len,
         rows, depth, columns, bits, group_size,
+    )) {
+        0 => {},
+        1 => return error.InvalidShape,
+        else => return error.CoreFailure,
+    }
+}
+
+pub fn reduceF32(
+    operation: Reduction, input: []const f32, output: []f32,
+    rows: usize, columns: usize, axis: ReductionAxis,
+) Error!void {
+    if (rows == 0 or columns == 0) return error.InvalidShape;
+    const input_count = std.math.mul(usize, rows, columns) catch return error.InvalidShape;
+    const output_count: usize = switch (axis) {
+        .all => 1,
+        .rows => columns,
+        .columns => rows,
+    };
+    if (input.len != input_count or output.len != output_count) return error.InvalidShape;
+
+    switch (compute_core_run_reduce_f32(
+        @intFromEnum(operation), input.ptr, input.len,
+        output.ptr, output.len, rows, columns, @intFromEnum(axis),
     )) {
         0 => {},
         1 => return error.InvalidShape,
