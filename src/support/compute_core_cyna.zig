@@ -213,6 +213,23 @@ extern fn compute_core_run_dense_graph_bf16(
     output_value_count: usize,
 ) c_int;
 
+extern fn compute_core_run_dense_graph_resident_bf16(
+    input_bits: [*]const u16,
+    input_value_count: usize,
+    input_ranks: [*]const usize,
+    input_count: usize,
+    dimensions: [*]const usize,
+    dimension_count: usize,
+    operations: [*]const c_int,
+    lhs_ids: [*]const usize,
+    rhs_ids: [*]const usize,
+    instruction_count: usize,
+    output_ids: [*]const usize,
+    selected_count: usize,
+    output_bits: [*]u16,
+    output_value_count: usize,
+) c_int;
+
 extern fn compute_core_infer_dense_graph(
     dtype: c_int,
     input_ranks: [*]const usize,
@@ -1146,6 +1163,16 @@ pub fn runDenseGraphBf16Bits(
     return runDenseGraphWithGoal(u16, allocator, inputs, steps, selected, output_bits, .baseline);
 }
 
+pub fn runDenseGraphResidentBf16Bits(
+    allocator: std.mem.Allocator,
+    inputs: []const DenseInputBf16Bits,
+    steps: []const DenseStep,
+    selected: []const usize,
+    output_bits: []u16,
+) (Error || std.mem.Allocator.Error)!void {
+    return runDenseGraphWithGoalMode(u16, allocator, inputs, steps, selected, output_bits, .baseline, true);
+}
+
 pub fn runDenseGraphWithGoalBf16Bits(
     allocator: std.mem.Allocator,
     inputs: []const DenseInputBf16Bits,
@@ -1405,6 +1432,21 @@ fn runDenseGraphWithGoalMode(
         output.len,
     ) else if (T == u32) compute_core_run_dense_graph_u32(
         @backingInt(goal),
+        values.ptr,
+        values.len,
+        ranks.ptr,
+        ranks.len,
+        dimensions.ptr,
+        dimensions.len,
+        operations.ptr,
+        lhs_ids.ptr,
+        rhs_ids.ptr,
+        steps.len,
+        selected.ptr,
+        selected.len,
+        output.ptr,
+        output.len,
+    ) else if (T == u16 and resident) compute_core_run_dense_graph_resident_bf16(
         values.ptr,
         values.len,
         ranks.ptr,

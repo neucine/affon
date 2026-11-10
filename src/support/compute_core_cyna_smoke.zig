@@ -800,9 +800,14 @@ test "Affon submits exact bf16 bits through a Cyna graph" {
     try std.testing.expectEqualSlices(u16, &expected, &output);
     try cyna.runDenseGraphWithGoalBf16Bits(std.testing.allocator, &inputs, &steps, &selected, &output, .memory);
     try std.testing.expectEqualSlices(u16, &expected, &output);
+    try cyna.runDenseGraphResidentBf16Bits(std.testing.allocator, &inputs, &steps, &selected, &output);
+    try std.testing.expectEqualSlices(u16, &expected, &output);
     output[0] = 0xffff;
     try std.testing.expectError(error.InvalidShape,
         cyna.runDenseGraphBf16Bits(std.testing.allocator, &inputs, &steps, &selected, output[0..9]));
+    try std.testing.expectEqual(@as(u16, 0xffff), output[0]);
+    try std.testing.expectError(error.InvalidShape,
+        cyna.runDenseGraphResidentBf16Bits(std.testing.allocator, &inputs, &steps, &selected, output[0..9]));
     try std.testing.expectEqual(@as(u16, 0xffff), output[0]);
 }
 
