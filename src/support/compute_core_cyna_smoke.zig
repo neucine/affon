@@ -1,6 +1,44 @@
 const std = @import("std");
 const cyna = @import("compute_core_cyna.zig");
 
+test "Affon runs Cyna population statistics and integer mean" {
+    const statistics = [_]cyna.DenseStep{
+        .{ .operation = .variance_all, .lhs = 0 },
+        .{ .operation = .std_all, .lhs = 0 },
+        .{ .operation = .variance_axis, .lhs = 0, .rhs = 1 },
+        .{ .operation = .std_axis, .lhs = 0, .rhs = 1 },
+    };
+    const float_inputs = [_]cyna.DenseInput{.{ .shape = &.{ 2, 2 }, .values = &.{ 1, 2, 3, 4 } }};
+    const result = try cyna.allocDenseGraphF32(std.testing.allocator, &float_inputs, &statistics, &.{ 1, 2, 3, 4 }, .baseline);
+    defer result.deinit(std.testing.allocator);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.25), result.output(0)[0], 0.00001);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.118034), result.output(1)[0], 0.00001);
+    try std.testing.expectEqualSlices(f32, &.{ 0.25, 0.25 }, result.output(2));
+    try std.testing.expectEqualSlices(f32, &.{ 0.5, 0.5 }, result.output(3));
+    try std.testing.expectEqualSlices(usize, &.{2}, result.shape(2));
+    const integer_inputs = [_]cyna.DenseInputI64{.{ .shape = &.{ 2, 2 }, .values = &.{ 1, 2, 3, 4 } }};
+    const integer_steps = [_]cyna.DenseStep{
+        .{ .operation = .mean_all, .lhs = 0 },
+        .{ .operation = .mean_axis, .lhs = 0, .rhs = 1 },
+        .{ .operation = .variance_all, .lhs = 0 },
+    };
+    const integers = try cyna.allocDenseGraphI64(std.testing.allocator, &integer_inputs, &integer_steps, &.{ 1, 2, 3 }, .baseline);
+    defer integers.deinit(std.testing.allocator);
+    try std.testing.expectEqualSlices(i64, &.{ 2, 1, 3, 1 }, integers.values);
+    const doubles = [_]cyna.DenseInputF64{.{ .shape = &.{ 2, 2 }, .values = &.{ 1, 2, 3, 4 } }};
+    const double_result = try cyna.allocDenseGraphF64(std.testing.allocator, &doubles, &statistics, &.{ 1, 3 }, .baseline);
+    defer double_result.deinit(std.testing.allocator);
+    try std.testing.expectEqualSlices(f64, &.{ 1.25, 0.25, 0.25 }, double_result.values);
+    const unsigned = [_]cyna.DenseInputU32{.{ .shape = &.{ 2, 2 }, .values = &.{ 1, 2, 3, 4 } }};
+    const unsigned_result = try cyna.allocDenseGraphU32(std.testing.allocator, &unsigned, &statistics, &.{ 1, 3 }, .baseline);
+    defer unsigned_result.deinit(std.testing.allocator);
+    try std.testing.expectEqualSlices(u32, &.{ 1, 0, 0 }, unsigned_result.values);
+    const bits = [_]cyna.DenseInputBf16Bits{.{ .shape = &.{ 2, 2 }, .values = &.{ 0x3f80, 0x4000, 0x4040, 0x4080 } }};
+    const bits_result = try cyna.allocDenseGraphBf16Bits(std.testing.allocator, &bits, &statistics, &.{ 1, 3, 4 }, .baseline);
+    defer bits_result.deinit(std.testing.allocator);
+    try std.testing.expectEqualSlices(u16, &.{ 0x3fa0, 0x3e80, 0x3e80, 0x3f00, 0x3f00 }, bits_result.values);
+}
+
 test "Affon runs Cyna i64 argmin and argmax with first-index ties" {
     const inputs = [_]cyna.DenseInputI64{.{ .shape = &.{ 2, 2 }, .values = &.{ 7, -3, 7, -3 } }};
     const steps = [_]cyna.DenseStep{
@@ -135,7 +173,7 @@ test "Affon submits a shaped signed i64 Cyna graph" {
     try std.testing.expectError(error.InvalidShape,
         cyna.runDenseGraphI64(std.testing.allocator, &inputs, &steps, &selected, unchanged[0..9]));
     try std.testing.expectEqual(@as(i64, 91), unchanged[0]);
-    const unsupported = [_]cyna.DenseStep{.{ .operation = .mean_all, .lhs = 0 }};
+    const unsupported = [_]cyna.DenseStep{.{ .operation = .mean_axis, .lhs = 0, .rhs = 9 }};
     try std.testing.expectError(error.InvalidShape,
         cyna.runDenseGraphI64(std.testing.allocator, &inputs, &unsupported, &.{3}, unchanged[0..1]));
     try std.testing.expectEqual(@as(i64, 91), unchanged[0]);
