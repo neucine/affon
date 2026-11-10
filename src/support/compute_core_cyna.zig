@@ -91,6 +91,24 @@ extern fn compute_core_run_dense_graph_i64(
     output_value_count: usize,
 ) c_int;
 
+extern fn compute_core_run_dense_graph_f64(
+    goal: c_int,
+    input_values: [*]const f64,
+    input_value_count: usize,
+    input_ranks: [*]const usize,
+    input_count: usize,
+    dimensions: [*]const usize,
+    dimension_count: usize,
+    operations: [*]const c_int,
+    lhs_ids: [*]const usize,
+    rhs_ids: [*]const usize,
+    instruction_count: usize,
+    output_ids: [*]const usize,
+    selected_count: usize,
+    output: [*]f64,
+    output_value_count: usize,
+) c_int;
+
 pub const DenseGoal = enum(c_int) { baseline = 0, memory = 1 };
 
 fn denseInput(comptime T: type) type {
@@ -99,6 +117,7 @@ fn denseInput(comptime T: type) type {
 
 pub const DenseInput = denseInput(f32);
 pub const DenseInputI64 = denseInput(i64);
+pub const DenseInputF64 = denseInput(f64);
 pub const DenseOperation = enum(c_int) {
     add = 0,
     sub = 1,
@@ -305,6 +324,27 @@ pub fn runDenseGraphWithGoalI64(
     return runDenseGraphWithGoal(i64, allocator, inputs, steps, selected, output, goal);
 }
 
+pub fn runDenseGraphF64(
+    allocator: std.mem.Allocator,
+    inputs: []const DenseInputF64,
+    steps: []const DenseStep,
+    selected: []const usize,
+    output: []f64,
+) (Error || std.mem.Allocator.Error)!void {
+    return runDenseGraphWithGoal(f64, allocator, inputs, steps, selected, output, .baseline);
+}
+
+pub fn runDenseGraphWithGoalF64(
+    allocator: std.mem.Allocator,
+    inputs: []const DenseInputF64,
+    steps: []const DenseStep,
+    selected: []const usize,
+    output: []f64,
+    goal: DenseGoal,
+) (Error || std.mem.Allocator.Error)!void {
+    return runDenseGraphWithGoal(f64, allocator, inputs, steps, selected, output, goal);
+}
+
 fn runDenseGraphWithGoal(
     comptime T: type,
     allocator: std.mem.Allocator,
@@ -388,7 +428,23 @@ fn runDenseGraphWithGoal(
         selected.len,
         output.ptr,
         output.len,
-    ) else compute_core_run_dense_graph_i64(
+    ) else if (T == i64) compute_core_run_dense_graph_i64(
+        @backingInt(goal),
+        values.ptr,
+        values.len,
+        ranks.ptr,
+        ranks.len,
+        dimensions.ptr,
+        dimensions.len,
+        operations.ptr,
+        lhs_ids.ptr,
+        rhs_ids.ptr,
+        steps.len,
+        selected.ptr,
+        selected.len,
+        output.ptr,
+        output.len,
+    ) else compute_core_run_dense_graph_f64(
         @backingInt(goal),
         values.ptr,
         values.len,

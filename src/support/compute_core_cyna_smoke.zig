@@ -44,6 +44,29 @@ test "Affon submits a shaped signed i64 Cyna graph" {
     try std.testing.expectEqual(@as(i64, 91), unchanged[0]);
 }
 
+test "Affon submits a precise f64 Cyna graph" {
+    const left = [_]f64{ 16777217.0, 1.0, 0.0, 2.0 };
+    const right = [_]f64{ 1.0, 0.0, 0.0, 1.0 };
+    const inputs = [_]cyna.DenseInputF64{
+        .{ .shape = &.{ 2, 2 }, .values = &left },
+        .{ .shape = &.{ 2, 2 }, .values = &right },
+    };
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .matmul, .lhs = 0, .rhs = 1 },
+        .{ .operation = .sum_all, .lhs = 2 },
+    };
+    const selected = [_]usize{ 2, 3 };
+    var output = [_]f64{ -1.0, -1.0, -1.0, -1.0, -1.0 };
+    try cyna.runDenseGraphF64(std.testing.allocator, &inputs, &steps, &selected, &output);
+    try std.testing.expectEqualSlices(f64, &.{ 16777217.0, 1.0, 0.0, 2.0, 16777220.0 }, &output);
+    try cyna.runDenseGraphWithGoalF64(std.testing.allocator, &inputs, &steps, &selected, &output, .memory);
+    try std.testing.expectEqualSlices(f64, &.{ 16777217.0, 1.0, 0.0, 2.0, 16777220.0 }, &output);
+    output[0] = -1.0;
+    try std.testing.expectError(error.InvalidShape,
+        cyna.runDenseGraphF64(std.testing.allocator, &inputs, &steps, &selected, output[0..4]));
+    try std.testing.expectEqual(@as(f64, -1.0), output[0]);
+}
+
 test "Affon calls Cyna matmul bias GELU through the C ABI" {
     const lhs = [_]f32{ 1, 2, 3, 4 };
     const rhs = [_]f32{ 5, 6, 7, 8 };
