@@ -163,6 +163,25 @@ extern fn compute_core_infer_dense_graph(
     output_dimension_capacity: usize,
 ) c_int;
 
+extern fn compute_core_infer_dense_graph_typed(
+    dtype: c_int,
+    input_ranks: [*]const usize,
+    input_count: usize,
+    dimensions: [*]const usize,
+    dimension_count: usize,
+    operations: [*]const c_int,
+    lhs_ids: [*]const usize,
+    rhs_ids: [*]const usize,
+    instruction_count: usize,
+    output_ids: [*]const usize,
+    selected_count: usize,
+    output_ranks: [*]usize,
+    output_elements: [*]usize,
+    output_dimensions: [*]usize,
+    output_dimension_capacity: usize,
+    output_dtypes: [*]c_int,
+) c_int;
+
 pub const DenseGoal = enum(c_int) { baseline = 0, memory = 1 };
 
 fn denseInput(comptime T: type) type {
@@ -257,6 +276,24 @@ pub const DenseStep = struct { operation: DenseOperation, lhs: usize, rhs: usize
 // Returns the number of flattened output dimensions written. Each selected
 // output has one rank and element count; a scalar has rank zero and one element.
 pub fn inferDenseGraph(
+    allocator: std.mem.Allocator, dtype: DenseDType, inputs: []const DenseInputShape,
+    steps: []const DenseStep, selected: []const usize, output_ranks: []usize,
+    output_elements: []usize, output_dimensions: []usize,
+) (Error || std.mem.Allocator.Error)!usize {
+    return inferDenseGraphImpl(allocator, dtype, inputs, steps, selected,
+        output_ranks, output_elements, output_dimensions, null);
+}
+
+pub fn inferDenseGraphTyped(
+    allocator: std.mem.Allocator, dtype: DenseDType, inputs: []const DenseInputShape,
+    steps: []const DenseStep, selected: []const usize, output_ranks: []usize,
+    output_elements: []usize, output_dimensions: []usize, output_dtypes: []c_int,
+) (Error || std.mem.Allocator.Error)!usize {
+    return inferDenseGraphImpl(allocator, dtype, inputs, steps, selected,
+        output_ranks, output_elements, output_dimensions, output_dtypes);
+}
+
+fn inferDenseGraphImpl(
     allocator: std.mem.Allocator,
     dtype: DenseDType,
     inputs: []const DenseInputShape,
@@ -265,9 +302,11 @@ pub fn inferDenseGraph(
     output_ranks: []usize,
     output_elements: []usize,
     output_dimensions: []usize,
+    output_dtypes: ?[]c_int,
 ) (Error || std.mem.Allocator.Error)!usize {
     if (inputs.len == 0 or selected.len == 0 or
         output_ranks.len != selected.len or output_elements.len != selected.len or
+        (output_dtypes != null and output_dtypes.?.len != selected.len) or
         steps.len > std.math.maxInt(usize) - inputs.len) return error.InvalidShape;
     var dimension_count: usize = 0;
     for (inputs) |input| {
@@ -281,7 +320,7 @@ pub fn inferDenseGraph(
     }
     for (steps, 0..) |step, index| {
         const available = inputs.len + index;
-        if (dtype != .i64 and @backingInt(step.operation) >= 29 and @backingInt(step.operation) <= 32) return error.InvalidShape;
+        if (dtype != .i64 and output_dtypes == null and @backingInt(step.operation) >= 29 and @backingInt(step.operation) <= 32) return error.InvalidShape;
         if (step.lhs >= available or
             (switch (step.operation) {
                 .add, .sub, .mul, .div, .matmul => step.rhs >= available,
@@ -319,10 +358,17 @@ pub fn inferDenseGraph(
         lhs_ids[index] = step.lhs;
         rhs_ids[index] = step.rhs;
     }
-    switch (compute_core_infer_dense_graph(@backingInt(dtype), ranks.ptr, ranks.len,
-        dimensions.ptr, dimensions.len, operations.ptr, lhs_ids.ptr, rhs_ids.ptr,
-        steps.len, selected.ptr, selected.len, output_ranks.ptr, output_elements.ptr,
-        output_dimensions.ptr, output_dimensions.len)) {
+    const status = if (output_dtypes) |dtypes|
+        compute_core_infer_dense_graph_typed(@backingInt(dtype), ranks.ptr, ranks.len,
+            dimensions.ptr, dimensions.len, operations.ptr, lhs_ids.ptr, rhs_ids.ptr,
+            steps.len, selected.ptr, selected.len, output_ranks.ptr, output_elements.ptr,
+            output_dimensions.ptr, output_dimensions.len, dtypes.ptr)
+    else
+        compute_core_infer_dense_graph(@backingInt(dtype), ranks.ptr, ranks.len,
+            dimensions.ptr, dimensions.len, operations.ptr, lhs_ids.ptr, rhs_ids.ptr,
+            steps.len, selected.ptr, selected.len, output_ranks.ptr, output_elements.ptr,
+            output_dimensions.ptr, output_dimensions.len);
+    switch (status) {
         0 => {},
         1 => return error.InvalidShape,
         else => return error.CoreFailure,

@@ -1,6 +1,36 @@
 const std = @import("std");
 const cyna = @import("compute_core_cyna.zig");
 
+test "Affon infers mixed dtype selected graph results" {
+    const inputs = [_]cyna.DenseInputShape{.{ .shape = &.{ 2, 2 } }};
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .argmin_axis, .lhs = 0, .rhs = 1 },
+        .{ .operation = .argmax_all, .lhs = 0 },
+    };
+    const selected = [_]usize{ 0, 1, 2 };
+    var ranks = [_]usize{ 99, 99, 99 };
+    var elements = [_]usize{ 99, 99, 99 };
+    var dimensions = [_]usize{ 99, 99, 99, 99, 99 };
+    var dtypes = [_]c_int{ 99, 99, 99 };
+    const written = try cyna.inferDenseGraphTyped(std.testing.allocator, .f32, &inputs,
+        &steps, &selected, &ranks, &elements, &dimensions, &dtypes);
+    try std.testing.expectEqual(@as(usize, 4), written);
+    try std.testing.expectEqualSlices(usize, &.{ 2, 1, 1 }, &ranks);
+    try std.testing.expectEqualSlices(usize, &.{ 4, 2, 1 }, &elements);
+    try std.testing.expectEqualSlices(usize, &.{ 2, 2, 2, 1 }, dimensions[0..written]);
+    try std.testing.expectEqualSlices(c_int, &.{ 1, 3, 3 }, &dtypes);
+    ranks[0] = 99;
+    dtypes[0] = 99;
+    try std.testing.expectError(error.InvalidShape,
+        cyna.inferDenseGraphTyped(std.testing.allocator, .f32, &inputs,
+            &steps, &selected, &ranks, &elements, dimensions[0..3], &dtypes));
+    try std.testing.expectEqual(@as(usize, 99), ranks[0]);
+    try std.testing.expectEqual(@as(c_int, 99), dtypes[0]);
+    try std.testing.expectError(error.InvalidShape,
+        cyna.inferDenseGraph(std.testing.allocator, .f32, &inputs,
+            &steps, &selected, &ranks, &elements, &dimensions));
+}
+
 test "Affon runs Cyna population statistics and integer mean" {
     const statistics = [_]cyna.DenseStep{
         .{ .operation = .variance_all, .lhs = 0 },
