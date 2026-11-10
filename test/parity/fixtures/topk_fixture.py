@@ -1,4 +1,4 @@
-"""Stable, tie-free input and independent top-k reference."""
+"""Deterministic inputs (including BF16 ties) and stable top-k reference."""
 import struct
 
 

@@ -1,0 +1,69 @@
+{
+  "suite": "cuda_scatter_f32_parallel_review",
+  "date": "2026-11-07",
+  "target": "NVIDIA GeForce RTX 3090/7.0.0-38-generic/x86_64",
+  "protocol": {
+    "iterations": 10,
+    "samples": 5,
+    "rounds": 3
+  },
+  "catalog_sha256": "30026993d211c70a4a96510c4ca19f84e8b00413b1f8ce648ff14d21d672d376",
+  "baseline_binary_sha256": "737c172bffe5d554da200fdbeda68f07386ba61649d7ab5564b824321c20a4cd",
+  "candidate_binary_sha256": "93e0d52c41e6b29c66f08e7915492197c6a086ae1845644e2f85e5f5c5b57a18",
+  "baseline_and_candidate_each_passed": {
+    "numerical": 197,
+    "operator_peer": 197,
+    "program_peer": 197
+  },
+  "changed_path": "f32 rank-two scatter-add with zero input offsets; existing parallel output-centric rank-eight kernel",
+  "unchanged_paths": "rank-two nonzero-offset views, rank-three, bf16 and u32",
+  "phase_results": {
+    "operator_peer": {
+      "changed_cells": 100,
+      "faster_cells": 100,
+      "median_execution_speedup": 10.361676268879222,
+      "largest_baseline_execution_cell": {
+        "id": "cuda/f32/scatter_add/strided/cols_axis0_r33_c129",
+        "before_ms": 2.9505623027682306,
+        "after_ms": 0.02271919995546341,
+        "speedup": 129.8708717099298
+      },
+      "unchanged_cells": 97,
+      "unchanged_median_execution_ratio": 1.0070427937323692
+    },
+    "program_peer": {
+      "changed_cells": 100,
+      "faster_cells": 100,
+      "median_execution_speedup": 8.276012015994407,
+      "largest_baseline_execution_cell": {
+        "id": "cuda/f32/scatter_add/strided/cols_axis0_r33_c129",
+        "before_ms": 2.9552958995103835,
+        "after_ms": 0.029361798614263534,
+        "speedup": 100.65105133153334
+      },
+      "unchanged_cells": 97,
+      "unchanged_median_execution_ratio": 0.998832445445633
+    }
+  },
+  "regression": {
+    "changed_contracts": 0,
+    "correctness_regressions": 0,
+    "initial_timing_suspects": 1,
+    "suspect_cell": "cuda/f32/scatter_add/batched/dense_axis2_b4_r7_c65_n32",
+    "suspect_operator_execution_ms": {
+      "baseline": 0.021688002347946166,
+      "candidate": 0.11272099986672401,
+      "repeat": 0.02148670107126236
+    },
+    "review": "unchanged rank-three path; repeat matches baseline; original candidate two anomalous rounds"
+  },
+  "rejected_first_candidate": {
+    "incorrect_numerical_cells": 32,
+    "reason": "rank-two offset views failed under the parallel kernel; retained and superseded"
+  },
+  "promotion": {
+    "cells": 197,
+    "archive": "archive-before-promotion"
+  },
+  "peer_caveat": "PyTorch peer masks invalid indices before scatter_add to match the skip-update contract; timing includes that mask."
+}

@@ -1,0 +1,9 @@
+# CUDA f32 rank two index select
+
+The reviewed Compute change adds a rank two index select kernel that uses 32 bit division for output coordinates when the element count fits in 32 bits. Larger outputs retain the original kernel. The source change is in `src/backend/cuda/ffi.c` in the sibling Compute checkout.
+
+The complete 159-cell f32 rank two catalog covers both axes, small and large outputs, and strided layouts on an RTX 3090. The baseline and candidate each used 10 iterations, 5 samples, and 3 rounds. Both complete audits passed all 159 numerical, operator, and Program checks. No case definition or selected path changed. The candidate binary SHA-256 is `6019dcacc6ce96d967924bbee7fdcea13cbce8721db3e3f1585d4b7b96c7c48c`; the audit binds it to the exact catalog and PyTorch 2.11.0+cu128.
+
+Affon operator medians improved in 150 of 159 cells, with a median candidate/baseline ratio of 0.9800. Program medians improved in 151 cells, with a median ratio of 0.9831. Small, large, and strided subgroups all improved at the median. One diagnostic timing suspect reflects a PyTorch peer shift; Affon improved in that cell. The largest Affon median slowdowns were 1.6% operator and 2.0% Program. These measurements are diagnostic per-call evidence, not application throughput.
+
+The retained `index-select-rank2-baseline/` and `index-select-rank2-candidate/` directories contain raw per-round reports. The complete audits and regression report record the promotion review. An 18-cell probe preceded the full sweep. A separate BF16 shared indexing candidate was rejected after its 33-cell probe slowed most cells; its baseline, candidate, and regression records are retained here. A readback synchronization candidate was also rejected and retained in `../cuda-readback-sync-rejected-2026-11-07/`. The current ledger uses the 159-cell candidate only; previous entries are archived in `../archive-cuda-index-select-before-f32-u32-2026-11-07/`.

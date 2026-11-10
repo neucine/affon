@@ -1,0 +1,176 @@
+# Parity regression check
+
+Target: `NVIDIA GeForce RTX 3090/7.0.0-38-generic/x86_64`
+
+- Cells compared: 159
+- Added cells: 0
+- Removed cells: 0
+- Changed case definitions: 0
+- New correctness failures: 0
+- Diagnostic timing suspects: 1
+- Target matches: yes
+- Measurement protocol matches: yes
+
+Timing changes are diagnostic and do not fail this check. Timing is compared only when target and protocol match. No timing baseline is accepted by this comparison.
+
+| Cell | Correctness regression | Operator relative timing | Program relative timing |
+| --- | --- | ---: | ---: |
+| `cuda/f32/index_select/large` | none | 1.02× | 1.02× |
+| `cuda/f32/index_select/large/a0_r64_w64_i31` | none | 1.00× | 0.94× |
+| `cuda/f32/index_select/large/a0_r64_w64_i33` | none | 1.00× | 0.96× |
+| `cuda/f32/index_select/large/a1_r64_w64_i31` | none | 1.13× | 0.96× |
+| `cuda/f32/index_select/large/a1_r64_w64_i33` | none | 1.00× | 0.82× |
+| `cuda/f32/index_select/large/axis0_len64` | none | 0.98× | 1.01× |
+| `cuda/f32/index_select/large/axis1_len64` | none | 1.02× | 0.99× |
+| `cuda/f32/index_select/large/offset_axis0_r16_c129_i9` | none | 0.99× | 0.97× |
+| `cuda/f32/index_select/large/offset_axis0_r16_c32_i9` | none | 0.97× | 0.95× |
+| `cuda/f32/index_select/large/offset_axis0_r16_c5_i9` | none | 0.96× | 0.97× |
+| `cuda/f32/index_select/large/offset_axis0_r16_c65_i9` | none | 0.98× | 0.98× |
+| `cuda/f32/index_select/large/offset_axis0_r2_c127_i2` | none | 1.00× | 1.00× |
+| `cuda/f32/index_select/large/offset_axis0_r2_c31_i2` | none | 1.00× | 0.97× |
+| `cuda/f32/index_select/large/offset_axis0_r2_c63_i2` | none | 0.98× | 0.98× |
+| `cuda/f32/index_select/large/offset_axis0_r2_c7_i2` | none | 1.00× | 0.98× |
+| `cuda/f32/index_select/large/offset_axis0_r32_c127_i17` | none | 1.01× | 1.01× |
+| `cuda/f32/index_select/large/offset_axis0_r32_c31_i17` | none | 0.93× | 0.99× |
+| `cuda/f32/index_select/large/offset_axis0_r32_c63_i17` | none | 0.99× | 0.99× |
+| `cuda/f32/index_select/large/offset_axis0_r32_c7_i17` | none | 0.99× | 0.97× |
+| `cuda/f32/index_select/large/offset_axis0_r33_c129_i17` | none | 0.99× | 0.97× |
+| `cuda/f32/index_select/large/offset_axis0_r33_c32_i17` | none | 1.02× | 1.01× |
+| `cuda/f32/index_select/large/offset_axis0_r33_c5_i17` | none | 0.98× | 0.96× |
+| `cuda/f32/index_select/large/offset_axis0_r33_c65_i17` | none | 1.03× | 1.06× |
+| `cuda/f32/index_select/large/offset_axis0_r3_c129_i2` | none | 0.96× | 0.95× |
+| `cuda/f32/index_select/large/offset_axis0_r3_c32_i2` | none | 0.97× | 0.99× |
+| `cuda/f32/index_select/large/offset_axis0_r3_c5_i2` | none | 0.99× | 0.99× |
+| `cuda/f32/index_select/large/offset_axis0_r3_c65_i2` | none | 0.99× | 0.97× |
+| `cuda/f32/index_select/large/offset_axis0_r65_c127_i33` | none | 0.97× | 0.99× |
+| `cuda/f32/index_select/large/offset_axis0_r65_c31_i33` | none | 0.97× | 1.08× |
+| `cuda/f32/index_select/large/offset_axis0_r65_c63_i33` | none | 0.99× | 0.99× |
+| `cuda/f32/index_select/large/offset_axis0_r65_c7_i33` | none | 0.96× | 0.96× |
+| `cuda/f32/index_select/large/offset_axis0_r7_c129_i4` | none | 0.97× | 0.92× |
+| `cuda/f32/index_select/large/offset_axis0_r7_c32_i4` | none | 0.96× | 0.95× |
+| `cuda/f32/index_select/large/offset_axis0_r7_c5_i4` | none | 0.98× | 0.95× |
+| `cuda/f32/index_select/large/offset_axis0_r7_c65_i4` | none | 0.96× | 0.99× |
+| `cuda/f32/index_select/large/offset_axis0_r8_c127_i5` | none | 0.90× | 0.96× |
+| `cuda/f32/index_select/large/offset_axis0_r8_c31_i5` | none | 0.94× | 0.93× |
+| `cuda/f32/index_select/large/offset_axis0_r8_c63_i5` | none | 0.95× | 0.94× |
+| `cuda/f32/index_select/large/offset_axis0_r8_c7_i5` | none | 1.01× | 0.98× |
+| `cuda/f32/index_select/large/offset_axis1_r16_c129_i65` | none | 0.99× | 1.00× |
+| `cuda/f32/index_select/large/offset_axis1_r16_c32_i17` | none | 0.99× | 0.95× |
+| `cuda/f32/index_select/large/offset_axis1_r16_c5_i3` | none | 0.99× | 0.96× |
+| `cuda/f32/index_select/large/offset_axis1_r16_c65_i33` | none | 1.00× | 0.94× |
+| `cuda/f32/index_select/large/offset_axis1_r2_c127_i64` | none | 0.98× | 0.96× |
+| `cuda/f32/index_select/large/offset_axis1_r2_c31_i16` | none | 0.96× | 0.98× |
+| `cuda/f32/index_select/large/offset_axis1_r2_c63_i32` | none | 0.98× | 0.99× |
+| `cuda/f32/index_select/large/offset_axis1_r2_c7_i4` | none | 0.98× | 0.97× |
+| `cuda/f32/index_select/large/offset_axis1_r32_c127_i64` | none | 1.00× | 0.99× |
+| `cuda/f32/index_select/large/offset_axis1_r32_c31_i16` | none | 0.98× | 0.93× |
+| `cuda/f32/index_select/large/offset_axis1_r32_c63_i32` | none | 1.00× | 0.96× |
+| `cuda/f32/index_select/large/offset_axis1_r32_c7_i4` | none | 0.99× | 0.95× |
+| `cuda/f32/index_select/large/offset_axis1_r33_c129_i65` | none | 1.00× | 0.98× |
+| `cuda/f32/index_select/large/offset_axis1_r33_c32_i17` | none | 1.00× | 0.95× |
+| `cuda/f32/index_select/large/offset_axis1_r33_c5_i3` | none | 1.01× | 0.97× |
+| `cuda/f32/index_select/large/offset_axis1_r33_c65_i33` | none | 1.02× | 0.95× |
+| `cuda/f32/index_select/large/offset_axis1_r3_c129_i65` | none | 0.97× | 0.97× |
+| `cuda/f32/index_select/large/offset_axis1_r3_c32_i17` | none | 0.96× | 0.97× |
+| `cuda/f32/index_select/large/offset_axis1_r3_c5_i3` | none | 0.98× | 0.99× |
+| `cuda/f32/index_select/large/offset_axis1_r3_c65_i33` | none | 0.99× | 0.94× |
+| `cuda/f32/index_select/large/offset_axis1_r65_c127_i64` | none | 1.00× | 0.90× |
+| `cuda/f32/index_select/large/offset_axis1_r65_c31_i16` | none | 0.99× | 0.99× |
+| `cuda/f32/index_select/large/offset_axis1_r65_c63_i32` | none | 0.96× | 1.01× |
+| `cuda/f32/index_select/large/offset_axis1_r65_c7_i4` | none | 0.98× | 0.99× |
+| `cuda/f32/index_select/large/offset_axis1_r7_c129_i65` | none | 1.02× | 1.02× |
+| `cuda/f32/index_select/large/offset_axis1_r7_c32_i17` | none | 0.98× | 0.98× |
+| `cuda/f32/index_select/large/offset_axis1_r7_c5_i3` | none | 1.00× | 1.00× |
+| `cuda/f32/index_select/large/offset_axis1_r7_c65_i33` | none | 0.99× | 0.99× |
+| `cuda/f32/index_select/large/offset_axis1_r8_c127_i64` | none | 0.96× | 0.99× |
+| `cuda/f32/index_select/large/offset_axis1_r8_c31_i16` | none | 0.99× | 1.00× |
+| `cuda/f32/index_select/large/offset_axis1_r8_c63_i32` | none | 0.97× | 0.97× |
+| `cuda/f32/index_select/large/offset_axis1_r8_c7_i4` | none | 1.01× | 1.00× |
+| `cuda/f32/index_select/large/r128_c127_i64` | none | 1.00× | 1.02× |
+| `cuda/f32/index_select/large/r128_w64_i64_a1_offset` | none | 0.98× | 1.02× |
+| `cuda/f32/index_select/large/r128_w64_i64_a1_strided` | none | 0.98× | 1.03× |
+| `cuda/f32/index_select/large/r64_w33_i31_a0_offset` | none | 0.96× | 0.98× |
+| `cuda/f32/index_select/large/r64_w33_i31_a0_strided` | none | 0.93× | 1.03× |
+| `cuda/f32/index_select/small` | none | 0.97× | 1.02× |
+| `cuda/f32/index_select/small/a0_r31_w32_i15` | none | 0.97× | 1.05× |
+| `cuda/f32/index_select/small/a0_r32_w32_i16` | none | 0.99× | 0.99× |
+| `cuda/f32/index_select/small/a0_r33_w32_i17` | none | 1.01× | 0.99× |
+| `cuda/f32/index_select/small/a1_r32_w31_i15` | none | 1.04× | 1.05× |
+| `cuda/f32/index_select/small/a1_r32_w32_i16` | none | 0.98× | 1.04× |
+| `cuda/f32/index_select/small/a1_r32_w33_i17` | none | 0.97× | 1.02× |
+| `cuda/f32/index_select/small/axis0_len1` | none | 0.98× | 0.98× |
+| `cuda/f32/index_select/small/axis0_len8` | none | 0.96× | 0.99× |
+| `cuda/f32/index_select/small/axis1_len1` | none | 0.98× | 1.00× |
+| `cuda/f32/index_select/small/axis1_len8` | none | 0.95× | 0.97× |
+| `cuda/f32/index_select/small/r16_w31_i7_a0_offset` | none | 0.96× | 1.01× |
+| `cuda/f32/index_select/small/r16_w31_i7_a0_strided` | none | 0.96× | 1.03× |
+| `cuda/f32/index_select/small/r32_w32_i16_a0_offset` | none | 1.02× | 0.99× |
+| `cuda/f32/index_select/small/r32_w32_i16_a0_strided` | none | 0.98× | 1.00× |
+| `cuda/f32/index_select/small/r32_w64_i31_a1_offset` | none | 0.98× | 0.91× |
+| `cuda/f32/index_select/small/r32_w64_i31_a1_strided` | none | 1.04× | 0.99× |
+| `cuda/f32/index_select/strided` | none | 0.99× | 0.98× |
+| `cuda/f32/index_select/strided/r64_c127_i32` | none | 1.11× | 1.09× |
+| `cuda/f32/index_select/strided/strided_axis0_r16_c129_i9` | none | 1.09× | 0.99× |
+| `cuda/f32/index_select/strided/strided_axis0_r16_c32_i9` | none | 1.01× | 0.98× |
+| `cuda/f32/index_select/strided/strided_axis0_r16_c5_i9` | none | 0.98× | 0.96× |
+| `cuda/f32/index_select/strided/strided_axis0_r16_c65_i9` | none | 1.04× | 1.06× |
+| `cuda/f32/index_select/strided/strided_axis0_r2_c127_i2` | none | 0.94× | 0.97× |
+| `cuda/f32/index_select/strided/strided_axis0_r2_c31_i2` | none | 1.01× | 1.02× |
+| `cuda/f32/index_select/strided/strided_axis0_r2_c63_i2` | none | 1.02× | 1.01× |
+| `cuda/f32/index_select/strided/strided_axis0_r2_c7_i2` | none | 0.99× | 0.99× |
+| `cuda/f32/index_select/strided/strided_axis0_r32_c127_i17` | none | 1.19× | 0.85× |
+| `cuda/f32/index_select/strided/strided_axis0_r32_c31_i17` | none | 1.02× | 0.98× |
+| `cuda/f32/index_select/strided/strided_axis0_r32_c63_i17` | none | 1.07× | 0.98× |
+| `cuda/f32/index_select/strided/strided_axis0_r32_c7_i17` | none | 0.98× | 0.97× |
+| `cuda/f32/index_select/strided/strided_axis0_r33_c129_i17` | none | 0.98× | 0.98× |
+| `cuda/f32/index_select/strided/strided_axis0_r33_c32_i17` | none | 1.00× | 1.00× |
+| `cuda/f32/index_select/strided/strided_axis0_r33_c5_i17` | none | 0.96× | 0.99× |
+| `cuda/f32/index_select/strided/strided_axis0_r33_c65_i17` | none | 1.03× | 1.08× |
+| `cuda/f32/index_select/strided/strided_axis0_r3_c129_i2` | none | 0.96× | 0.99× |
+| `cuda/f32/index_select/strided/strided_axis0_r3_c32_i2` | none | 0.97× | 1.01× |
+| `cuda/f32/index_select/strided/strided_axis0_r3_c5_i2` | none | 0.96× | 0.98× |
+| `cuda/f32/index_select/strided/strided_axis0_r3_c65_i2` | none | 0.96× | 1.01× |
+| `cuda/f32/index_select/strided/strided_axis0_r65_c127_i33` | none | 1.18× | 1.06× |
+| `cuda/f32/index_select/strided/strided_axis0_r65_c31_i33` | none | 0.95× | 1.12× |
+| `cuda/f32/index_select/strided/strided_axis0_r65_c63_i33` | none | 1.07× | 1.01× |
+| `cuda/f32/index_select/strided/strided_axis0_r65_c7_i33` | none | 0.98× | 1.00× |
+| `cuda/f32/index_select/strided/strided_axis0_r7_c129_i4` | none | 0.92× | 1.04× |
+| `cuda/f32/index_select/strided/strided_axis0_r7_c32_i4` | none | 0.94× | 1.01× |
+| `cuda/f32/index_select/strided/strided_axis0_r7_c5_i4` | none | 0.97× | 0.97× |
+| `cuda/f32/index_select/strided/strided_axis0_r7_c65_i4` | none | 0.89× | 1.01× |
+| `cuda/f32/index_select/strided/strided_axis0_r8_c127_i5` | none | 0.87× | 1.03× |
+| `cuda/f32/index_select/strided/strided_axis0_r8_c31_i5` | none | 0.95× | 1.01× |
+| `cuda/f32/index_select/strided/strided_axis0_r8_c63_i5` | none | 0.94× | 1.02× |
+| `cuda/f32/index_select/strided/strided_axis0_r8_c7_i5` | none | 0.95× | 0.97× |
+| `cuda/f32/index_select/strided/strided_axis1_r16_c129_i65` | none | 0.98× | 1.14× |
+| `cuda/f32/index_select/strided/strided_axis1_r16_c32_i17` | none | 0.96× | 1.02× |
+| `cuda/f32/index_select/strided/strided_axis1_r16_c5_i3` | none | 0.94× | 0.97× |
+| `cuda/f32/index_select/strided/strided_axis1_r16_c65_i33` | none | 0.93× | 1.02× |
+| `cuda/f32/index_select/strided/strided_axis1_r2_c127_i64` | none | 1.00× | 0.98× |
+| `cuda/f32/index_select/strided/strided_axis1_r2_c31_i16` | none | 0.96× | 0.99× |
+| `cuda/f32/index_select/strided/strided_axis1_r2_c63_i32` | none | 1.01× | 0.97× |
+| `cuda/f32/index_select/strided/strided_axis1_r2_c7_i4` | none | 0.97× | 0.97× |
+| `cuda/f32/index_select/strided/strided_axis1_r32_c127_i64` | none | 0.86× | 1.17× |
+| `cuda/f32/index_select/strided/strided_axis1_r32_c31_i16` | none | 0.96× | 1.01× |
+| `cuda/f32/index_select/strided/strided_axis1_r32_c63_i32` | none | 0.92× | 1.03× |
+| `cuda/f32/index_select/strided/strided_axis1_r32_c7_i4` | none | 0.96× | 0.98× |
+| `cuda/f32/index_select/strided/strided_axis1_r33_c129_i65` | none | 0.98× | 1.18× |
+| `cuda/f32/index_select/strided/strided_axis1_r33_c32_i17` | none | 0.98× | 1.04× |
+| `cuda/f32/index_select/strided/strided_axis1_r33_c5_i3` | none | 0.99× | 0.96× |
+| `cuda/f32/index_select/strided/strided_axis1_r33_c65_i33` | none | 0.97× | 0.99× |
+| `cuda/f32/index_select/strided/strided_axis1_r3_c129_i65` | none | 1.02× | 1.01× |
+| `cuda/f32/index_select/strided/strided_axis1_r3_c32_i17` | none | 0.96× | 0.69× |
+| `cuda/f32/index_select/strided/strided_axis1_r3_c5_i3` | none | 0.96× | 1.00× |
+| `cuda/f32/index_select/strided/strided_axis1_r3_c65_i33` | none | 1.00× | 1.01× |
+| `cuda/f32/index_select/strided/strided_axis1_r65_c127_i64` | none | 1.05× | 1.14× |
+| `cuda/f32/index_select/strided/strided_axis1_r65_c31_i16` | none | 0.95× | 1.06× |
+| `cuda/f32/index_select/strided/strided_axis1_r65_c63_i32` | none | 0.99× | 1.13× |
+| `cuda/f32/index_select/strided/strided_axis1_r65_c7_i4` | none | 0.98× | 1.03× |
+| `cuda/f32/index_select/strided/strided_axis1_r7_c129_i65` | none | 0.98× | 0.94× |
+| `cuda/f32/index_select/strided/strided_axis1_r7_c32_i17` | none | 0.97× | 1.01× |
+| `cuda/f32/index_select/strided/strided_axis1_r7_c5_i3` | none | 0.99× | 0.99× |
+| `cuda/f32/index_select/strided/strided_axis1_r7_c65_i33` | none | 2.84× | 1.01× |
+| `cuda/f32/index_select/strided/strided_axis1_r8_c127_i64` | none | 0.97× | 1.00× |
+| `cuda/f32/index_select/strided/strided_axis1_r8_c31_i16` | none | 0.99× | 0.99× |
+| `cuda/f32/index_select/strided/strided_axis1_r8_c63_i32` | none | 1.00× | 0.95× |
+| `cuda/f32/index_select/strided/strided_axis1_r8_c7_i4` | none | 0.98× | 0.97× |

@@ -1,0 +1,12 @@
+{
+  "suite": "cuda_topk_candidate_static_review",
+  "candidate_source": "/Users/chao.yang/Private/compute/src/backend/cuda/binary_small.cu",
+  "kernel": "compute_topk_rank_parallel",
+  "findings": [
+    "Each lane scans disjoint candidates and counts strictly better values plus equal values at lower source indices; non-NaN rows therefore assign unique stable ranks.",
+    "Row indexing uses runtime rank, dimensions, strides, offset, axis, and k; output indexing retains the dimensions after the selected axis.",
+    "NaN rows use a serial fallback preserving the previous first-candidate-per-rank behavior. The independent seeded checker does not include NaNs, so this behavior is not covered by its 544 full-output checks. PyTorch 2.11.0+cu128 CPU stable sort places NaNs first for largest and last for smallest, retaining their source order; the fallback can instead leave rank holes. This is a confirmed peer-parity gap for NaN input, outside the finite-valued catalog.",
+    "The public top-k API in src/js/compute/program.ts accepts only f32 and bf16 tensors of rank two or three. The candidate's i64 branch is outside that public scope; the independent checker appropriately exercises f32 and bf16."
+  ],
+  "status": "review_of_binary_607e101edc81a7d1e6e456c98c1edc7dd20f3bf8851017786adb4034a91b715c; local NaN ordering source edits are pending build and runtime validation"
+}

@@ -39,8 +39,8 @@ def promote(batch, ledger_path, archive=None, complete_only=False, exclude_ids=(
         raise ValueError('batch has already linked cells; provide --archive for a reviewed replacement')
     if archive is not None:
         archive = archive.resolve()
-        if archive.exists() or not ids.issubset(existing):
-            raise ValueError('replacement archive exists or batch contains new cells')
+        if archive.exists():
+            raise ValueError('replacement archive already exists')
     module = importer()
     fresh = module.import_probe(batch / 'capability.json', {row['id'] for row in all_rows})
     fresh = {cell: value for cell, value in fresh.items() if cell in ids}
@@ -60,16 +60,28 @@ def promote(batch, ledger_path, archive=None, complete_only=False, exclude_ids=(
             destination = RESULTS / aggregate / (cell.replace('/', '__') + '.json')
             if archive is None and destination.exists():
                 raise FileExistsError(destination)
-            if archive is not None and not destination.exists():
-                raise FileNotFoundError(destination)
             copies.append((cell, kind, source, destination))
     if archive is not None:
         archive.mkdir(parents=True)
-        for _, kind, _, destination in copies:
+        # A mixed batch can replace classifications without previous peer reports
+        # as well as introduce new cells. Retain the exact old ledger entries and
+        # explicitly record absent reports instead of inventing evidence for them.
+        (archive / 'ledger-before.json').write_text(json.dumps(
+            {cell: existing[cell] for cell in sorted(ids.intersection(existing))},
+            indent=2) + '\n')
+        archive_reports = []
+        for cell, kind, _, destination in copies:
+            archive_reports.append({'id': cell, 'kind': kind,
+                                    'destination': str(destination),
+                                    'existed': destination.exists()})
+            if not destination.exists():
+                continue
             saved = archive / kind / destination.name
             saved.parent.mkdir(exist_ok=True)
             shutil.copy2(destination, saved)
+        (archive / 'reports-before.json').write_text(json.dumps(archive_reports, indent=2) + '\n')
     for cell, kind, source, destination in copies:
+        destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
         fresh[cell]['evidence'][kind]['artifact'] = str(destination.resolve())
     for cell, value in fresh.items():
@@ -86,7 +98,7 @@ def main():
     parser.add_argument('--ledger', type=Path,
                         default=RESULTS / 'coverage-outcomes-current-mac-2026-10-29.json')
     parser.add_argument('--archive', type=Path,
-                        help='archive existing aggregate reports before replacing reviewed cells')
+                        help='archive old ledger entries and any aggregate reports before reviewed promotion (supports mixed existing/new cells)')
     parser.add_argument('--complete-only', action='store_true',
                         help='promote only cells with complete probe, operator and Program parity')
     parser.add_argument('--exclude-id', action='append', default=[],

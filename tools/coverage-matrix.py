@@ -57,6 +57,9 @@ def build(policy, diagnostics, outcomes=None):
     unknown = set(outcomes) - canonical_ids - set(variants)
     if unknown:
         raise ValueError(f"outcomes contain unknown cells: {sorted(unknown)[:5]}")
+    variants_by_base = {}
+    for cell in variants:
+        variants_by_base.setdefault(cell.rsplit('/', 1)[0], []).append(cell)
     rows = []
     for backend in policy["backends"]:
         for dtype in dtypes:
@@ -64,7 +67,7 @@ def build(policy, diagnostics, outcomes=None):
                 group = policy["op_regime"][op]
                 for regime in policy["regimes"][group]:
                     base_id = f"{backend}/{dtype}/{op}/{regime}"
-                    for case_id in [base_id] + [key for key in variants if key.rsplit("/", 1)[0] == base_id]:
+                    for case_id in [base_id] + variants_by_base.get(base_id, []):
                         rows.append(make_row(case_id, group, outcomes, policy, related, backend, dtype, op, variants.get(case_id)))
     counts = Counter(row["support"] for row in rows)
     evidence_counts = {kind: Counter("missing" if row["evidence"][kind] == "missing" else "linked" for row in rows)

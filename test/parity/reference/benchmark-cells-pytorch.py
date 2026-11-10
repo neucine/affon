@@ -14,6 +14,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / 'test/parity/fixtures'))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from quantized_fixture import parameters as quantized_parameters, physical_parameters as quantized_physical_parameters
 from scatter_fixture import physical_parameters as scatter_physical_parameters
 from dense_loss_fixture import physical_parameters as dense_loss_physical_parameters
@@ -21,6 +22,8 @@ from reduce_shape_fixture import values as reduce_shape_values
 from topk_fixture import physical_values as topk_physical_values
 from topk_fixture import output_hash as topk_output_hash
 from index_select_fixture import parameters as batched_index_select_parameters
+from stable_topk import stable_topk
+from scatter_add_peer import scatter_add_skip_invalid
 
 
 def is_outer_axis(case):
@@ -180,7 +183,8 @@ def affon(binary, case, iterations, samples, kind="operator_peer", warmup_calls=
     if len(lines) != 1:
         raise ValueError(f"{case['id']}: expected one Affon JSON result")
     result = json.loads(lines[0])
-    if result.get("id") != case["id"] or result.get("shape") != case["shape"] or result.get("suite") != "affon_cell_samples" or result.get("kind") != kind:
+    expected_suite = "affon_cell_profile" if env.get("AFFON_CELL_PROFILE") == "1" else "affon_cell_samples"
+    if result.get("id") != case["id"] or result.get("shape") != case["shape"] or result.get("suite") != expected_suite or result.get("kind") != kind:
         raise ValueError(f"{case['id']}: Affon result contract mismatch")
     return result
 
@@ -211,7 +215,7 @@ def pytorch(case, iterations, samples, kind="operator_peer"):
         if op == 'topk':
             layout = case['id'].split('/')[4].split('_')[0] if len(case['id'].split('/')) > 4 else 'strided' if case['id'].split('/')[3] == 'strided' else 'dense'
             x = x_base[1:, 1:] if layout == 'offset' else x_base[:, ::2] if layout == 'strided' else x_base
-            values, indices = torch.topk(x, case['k'], dim=case['axis'], largest=case.get('largest', True))
+            values, indices = stable_topk(x, case['k'], case['axis'], case.get('largest', True))
             return (values + values if kind == 'program_peer' else values), indices
         if op == 'reduce_to_shape':
             x = x_base[1:, 1:] if '/offset_' in case['id'] else x_base
@@ -234,7 +238,7 @@ def pytorch(case, iterations, samples, kind="operator_peer"):
             x = x_base[1:, 1:] if offset else x_base[:, ::2] if cols else x_base[::2, :] if rows else x_base
             i = y_base[1:, 1:] if offset else y_base[:, ::2] if cols else y_base[::2, :] if rows else y_base
             u = updates_base[1:, 1:] if offset else updates_base[:, ::2] if cols else updates_base[::2, :] if rows else updates_base
-            result = x.scatter_add(case['index_axis'], i, u)
+            result = scatter_add_skip_invalid(x, i, u, case['index_axis'])
             return result + result if kind == 'program_peer' else result
         if op == 'quantized_matmul':
             transposed = '/transposed/' in case['id']
@@ -353,6 +357,8 @@ def one(binary, case, iterations, samples, rounds, target, kind="operator_peer")
                          **({"target_shape": case['target_shape']} if case['op'] == 'reduce_to_shape' else {}),
                          "output_shape": peer_output["output_shape"], "output_dtype": peer_output["output_dtype"],
                          **({'outputs': peer_output['outputs']} if case['op'] == 'topk' else {}),
+                         **({'tie_break': 'lower_index', 'peer_algorithm': 'stable_sort_then_narrow'} if case['op'] == 'topk' else {}),
+                         **({'invalid_index': 'skip_update', 'peer_algorithm': 'mask_invalid_then_scatter_add'} if case['op'] == 'scatter_add' else {}),
                          "compile_options": {"dense_inputs": bool(case.get("dense_inputs", False))},
                          **({"program": program_graph(case),
                              **({"extra_input_sha256": hashlib.sha256(json.dumps(bias_fixture, separators=(",", ":")).encode()).hexdigest()}
@@ -360,6 +366,10 @@ def one(binary, case, iterations, samples, rounds, target, kind="operator_peer")
                             if kind == "program_peer" else {}),
                          "timing_scope": ("resident quantized matmul with PyTorch GPU bit unpack, affine dequantization and matmul; synchronized host materialization included; diagnostic cross-implementation timing"
                                           if case['op'] == 'quantized_matmul' else
+                                          "resident stable top-k via PyTorch full stable sort then narrow; synchronized host materialization included; diagnostic cross-implementation timing"
+                                          if case['op'] == 'topk' else
+                                          "resident scatter-add with PyTorch invalid-index masking; synchronized host materialization included; diagnostic cross-implementation timing"
+                                          if case['op'] == 'scatter_add' else
                                           "resident two-operation Program, synchronized full host materialization, output allocation and disposal included"
                                           if kind == "program_peer" else
                                           "resident operation, synchronized full host materialization, output allocation and disposal included"),

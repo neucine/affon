@@ -227,7 +227,8 @@ def expected(case):
             items = [item for row in source for item in row]
             average = math.fsum(items) / len(items)
             variance = math.fsum((item - average) ** 2 for item in items) / len(items)
-            return [rounded((item - average) / math.sqrt(variance + 1e-5) if op == 'layer_norm' else item / math.sqrt(math.fsum(x*x for x in items) / len(items) + 1e-5)) for item in items]
+            denominator = math.sqrt((variance if op == 'layer_norm' else math.fsum(x*x for x in items) / len(items)) + 1e-5)
+            return [rounded((item - average) / denominator if op == 'layer_norm' else item / denominator) for item in items]
         result = [[0.0] * cols for _ in range(rows)]
         for col in range(cols):
             items = [source[row][col] for row in range(rows)]
@@ -322,7 +323,8 @@ def expected(case):
             items = [viewed_value(row, col, 1) for col in range(cols)]
             mean = sum(items) / cols
             variance = sum((item - mean) ** 2 for item in items) / cols
-            result.extend(rounded((item - mean) / math.sqrt(variance + 1e-5) if op == 'layer_norm' else item / math.sqrt(sum(x*x for x in items) / cols + 1e-5)) for item in items)
+            denominator = math.sqrt((variance if op == 'layer_norm' else sum(x*x for x in items) / cols) + 1e-5)
+            result.extend(rounded((item - mean) / denominator if op == 'layer_norm' else item / denominator) for item in items)
         return result
     if op == "sum_axis":
         outer = is_outer_axis(case)

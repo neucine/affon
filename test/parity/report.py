@@ -26,6 +26,11 @@ def render(manifest):
              f"- Numerical failures: {len(cells) - probe['correct']}",
              f"- Operator failures: {operator['incorrect'] + operator['error']}",
              f"- Program failures: {program['incorrect'] + program['error']}",
+             f"- Operator checks pending: {operator['not_run']}",
+             f"- Program checks pending: {program['not_run']}",
+             *([f"- Checkpoint updated: {manifest['checkpoint_updated_at']}"] if manifest.get('checkpoint_updated_at') else []),
+             *(["- Validation is in progress; pending checks have not passed."] if manifest.get('in_progress') else []),
+             *([f"- Validation stopped: {manifest['interrupted']}"] if manifest.get('interrupted') else []),
              "", "## Cases", "",
              "| Case | Family | Shape | Layout | Numerical | Operator | Affon / PyTorch ms | Program | Affon / PyTorch ms |",
              "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"]

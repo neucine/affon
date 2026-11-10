@@ -1,0 +1,402 @@
+{
+  "schema_version": 1,
+  "suite": "affon_cell_benchmark",
+  "cell_id": "cuda/f32/topk/small/strided_axis1_r3_c3_k2",
+  "kind": "program_peer",
+  "target": "NVIDIA GeForce RTX 3090/7.0.0-38-generic/x86_64",
+  "affon_binary_sha256": "12b96cf6f255799f8b3059588a660354d32d75c2215155388e13a4d6dd838593",
+  "peer_engine": "pytorch",
+  "peer_version": "2.11.0+cu128",
+  "selected_path": [
+    {
+      "implementation_id": "view.slice",
+      "implementation_version": 0,
+      "configuration_digest": 0,
+      "view_slice_ranges": [
+        {
+          "start": 0,
+          "stop": 3,
+          "step": 1
+        },
+        {
+          "start": 0,
+          "stop": 6,
+          "step": 2
+        }
+      ],
+      "view_permutation": []
+    },
+    {
+      "implementation_id": "cuda_topk",
+      "implementation_version": 1,
+      "configuration_digest": 290873116282709060
+    },
+    {
+      "implementation_id": "cuda_add",
+      "implementation_version": 1,
+      "configuration_digest": 290873116282709060
+    }
+  ],
+  "contract": {
+    "shape": [
+      3,
+      3
+    ],
+    "dtype": "f32",
+    "layout": "stride_2_columns",
+    "input_shapes": [
+      [
+        3,
+        6
+      ]
+    ],
+    "output_shape": [
+      3,
+      2
+    ],
+    "output_dtype": "pair:f32,i64",
+    "outputs": [
+      {
+        "shape": [
+          3,
+          2
+        ],
+        "dtype": "f32",
+        "count": 6
+      },
+      {
+        "shape": [
+          3,
+          2
+        ],
+        "dtype": "i64",
+        "count": 6
+      }
+    ],
+    "tie_break": "lower_index",
+    "peer_algorithm": "stable_sort_then_narrow",
+    "compile_options": {
+      "dense_inputs": false
+    },
+    "program": {
+      "id": "topk_values_add_self_indices_v1",
+      "ops": [
+        "topk",
+        "add_self"
+      ],
+      "source": "test/parity/workers/affon-topk.ts"
+    },
+    "timing_scope": "resident stable top-k via PyTorch full stable sort then narrow; synchronized host materialization included; diagnostic cross-implementation timing",
+    "optimization_level": "safe",
+    "input_sha256": "225545c597a7806d541a55604cb929e61cba0962e8830990523df7594dc6f763",
+    "iterations_per_sample": 10,
+    "warmup_calls": 20,
+    "affon_clock": "performance.now",
+    "peer_clock": "time.perf_counter_ns",
+    "rounds": 3
+  },
+  "correctness": {
+    "passed": true,
+    "output_hash_matches": true,
+    "max_abs_error": 0.0,
+    "tolerance": 5.3e-05,
+    "checksum_error": 0.0,
+    "checksum_tolerance": 0.0006360000000000001,
+    "checked_elements": 5,
+    "total_elements": 12
+  },
+  "rounds": [
+    {
+      "round": 0,
+      "order": [
+        "affon",
+        "pytorch"
+      ],
+      "affon_samples_ms": [
+        0.03277540002018213,
+        0.03191879987716675,
+        0.031844300031661985,
+        0.03188910000026226,
+        0.03197919987142086
+      ],
+      "peer_samples_ms": [
+        0.0458067,
+        0.040922099999999996,
+        0.0451444,
+        0.040468,
+        0.0438292
+      ],
+      "affon_execution_ms": [
+        0.021054399758577348,
+        0.020201499946415423,
+        0.020152799785137177,
+        0.020326799899339675,
+        0.020326600037515165
+      ],
+      "affon_readback_ms": [
+        0.009962999820709228,
+        0.009996900148689748,
+        0.00998689979314804,
+        0.00989530012011528,
+        0.009978699870407582
+      ],
+      "peer_execution_ms": [
+        0.0264637,
+        0.0227798,
+        0.0238545,
+        0.0225435,
+        0.023065
+      ],
+      "peer_readback_ms": [
+        0.0187239,
+        0.0179347,
+        0.0210685,
+        0.0177376,
+        0.020573400000000002
+      ],
+      "max_abs_error": 0.0,
+      "output_hash_matches": true,
+      "checksum_error": 0.0,
+      "selected_path": [
+        {
+          "implementation_id": "view.slice",
+          "implementation_version": 0,
+          "configuration_digest": 0,
+          "view_slice_ranges": [
+            {
+              "start": 0,
+              "stop": 3,
+              "step": 1
+            },
+            {
+              "start": 0,
+              "stop": 6,
+              "step": 2
+            }
+          ],
+          "view_permutation": []
+        },
+        {
+          "implementation_id": "cuda_topk",
+          "implementation_version": 1,
+          "configuration_digest": 290873116282709060
+        },
+        {
+          "implementation_id": "cuda_add",
+          "implementation_version": 1,
+          "configuration_digest": 290873116282709060
+        }
+      ]
+    },
+    {
+      "round": 1,
+      "order": [
+        "pytorch",
+        "affon"
+      ],
+      "affon_samples_ms": [
+        0.033099300041794774,
+        0.03243179991841316,
+        0.03207499999552965,
+        0.03203969988971948,
+        0.03200110010802746
+      ],
+      "peer_samples_ms": [
+        0.0410055,
+        0.040347,
+        0.044021,
+        0.0401643,
+        0.0449134
+      ],
+      "affon_execution_ms": [
+        0.02110900040715933,
+        0.02067379988729954,
+        0.02032810002565384,
+        0.020386400073766707,
+        0.02035269998013973
+      ],
+      "affon_readback_ms": [
+        0.010098100081086159,
+        0.00994420014321804,
+        0.010018099658191204,
+        0.009926199726760388,
+        0.009966999478638171
+      ],
+      "peer_execution_ms": [
+        0.0228727,
+        0.022306799999999998,
+        0.025371400000000002,
+        0.022294,
+        0.023364299999999998
+      ],
+      "peer_readback_ms": [
+        0.017902,
+        0.0178311,
+        0.018463900000000002,
+        0.017687900000000003,
+        0.0213752
+      ],
+      "max_abs_error": 0.0,
+      "output_hash_matches": true,
+      "checksum_error": 0.0,
+      "selected_path": [
+        {
+          "implementation_id": "view.slice",
+          "implementation_version": 0,
+          "configuration_digest": 0,
+          "view_slice_ranges": [
+            {
+              "start": 0,
+              "stop": 3,
+              "step": 1
+            },
+            {
+              "start": 0,
+              "stop": 6,
+              "step": 2
+            }
+          ],
+          "view_permutation": []
+        },
+        {
+          "implementation_id": "cuda_topk",
+          "implementation_version": 1,
+          "configuration_digest": 290873116282709060
+        },
+        {
+          "implementation_id": "cuda_add",
+          "implementation_version": 1,
+          "configuration_digest": 290873116282709060
+        }
+      ]
+    },
+    {
+      "round": 2,
+      "order": [
+        "affon",
+        "pytorch"
+      ],
+      "affon_samples_ms": [
+        0.03334529995918274,
+        0.033042899891734125,
+        0.032934800162911414,
+        0.03280049990862608,
+        0.03316540010273457
+      ],
+      "peer_samples_ms": [
+        0.042168800000000006,
+        0.041255599999999996,
+        0.0424304,
+        0.0410431,
+        0.0419781
+      ],
+      "affon_execution_ms": [
+        0.02123160008341074,
+        0.021058699674904348,
+        0.02093170043081045,
+        0.020939499884843827,
+        0.02114989999681711
+      ],
+      "affon_readback_ms": [
+        0.010218300297856331,
+        0.010135599598288535,
+        0.010208600014448167,
+        0.010059199668467045,
+        0.01024900022894144
+      ],
+      "peer_execution_ms": [
+        0.0236335,
+        0.023028200000000002,
+        0.023699400000000002,
+        0.022879,
+        0.02321
+      ],
+      "peer_readback_ms": [
+        0.0182816,
+        0.018020099999999997,
+        0.018533900000000002,
+        0.017979400000000003,
+        0.018587
+      ],
+      "max_abs_error": 0.0,
+      "output_hash_matches": true,
+      "checksum_error": 0.0,
+      "selected_path": [
+        {
+          "implementation_id": "view.slice",
+          "implementation_version": 0,
+          "configuration_digest": 0,
+          "view_slice_ranges": [
+            {
+              "start": 0,
+              "stop": 3,
+              "step": 1
+            },
+            {
+              "start": 0,
+              "stop": 6,
+              "step": 2
+            }
+          ],
+          "view_permutation": []
+        },
+        {
+          "implementation_id": "cuda_topk",
+          "implementation_version": 1,
+          "configuration_digest": 290873116282709060
+        },
+        {
+          "implementation_id": "cuda_add",
+          "implementation_version": 1,
+          "configuration_digest": 290873116282709060
+        }
+      ]
+    }
+  ],
+  "affon_samples_ms": [
+    0.03277540002018213,
+    0.03191879987716675,
+    0.031844300031661985,
+    0.03188910000026226,
+    0.03197919987142086,
+    0.033099300041794774,
+    0.03243179991841316,
+    0.03207499999552965,
+    0.03203969988971948,
+    0.03200110010802746,
+    0.03334529995918274,
+    0.033042899891734125,
+    0.032934800162911414,
+    0.03280049990862608,
+    0.03316540010273457
+  ],
+  "peer_samples_ms": [
+    0.0458067,
+    0.040922099999999996,
+    0.0451444,
+    0.040468,
+    0.0438292,
+    0.0410055,
+    0.040347,
+    0.044021,
+    0.0401643,
+    0.0449134,
+    0.042168800000000006,
+    0.041255599999999996,
+    0.0424304,
+    0.0410431,
+    0.0419781
+  ],
+  "phase_medians_ms": {
+    "affon_execution_ms": 0.02067379988729954,
+    "affon_readback_ms": 0.009996900148689748,
+    "peer_execution_ms": 0.023065,
+    "peer_readback_ms": 0.0182816
+  },
+  "ratio_of_medians": 0.772588562093405,
+  "paired_round_ratios": [
+    0.7282542204093788,
+    0.7822121421645791,
+    0.7871461522016033
+  ]
+}

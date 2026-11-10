@@ -3,7 +3,8 @@
 Focused quantized matrix multiplication investigations live in
 [`quantized/`](quantized/README.md). Broad operator and Program comparisons use
 the [parity facility](../parity/README.md); retained evidence is indexed in
-[`results/`](results/README.md).
+[`results/`](results/README.md). The joined training-step observation runner is
+documented in [`training/`](training/README.md).
 
 The [workload coverage facility](WORKLOAD-COVERAGE.md) generates a matrix from
 the canonical operation and dtype vocabulary, then maps existing diagnostics

@@ -1,0 +1,26 @@
+{
+  "suite": "cuda_topk_rank_parallel_source_context",
+  "base_affon_commit": "f1350d9bd1b033b8041cfd61bfd8676df5ba358a",
+  "base_compute_commit": "74b2670fde07175ba46d3bd33cc6392307b0ca73",
+  "source_sha256": {
+    "src/backend/cuda/binary_small.cu": "640edc59716f3522d2aa527268dc2bba5f20d098eac88961cdeb5a1e147ef466",
+    "src/backend/cuda/binary_small_ptx.h": "269a4e5d01b0df7c73170be20734ebd068e5e503b4d016101b159266f58b002e",
+    "src/backend/cuda/device.zig": "8d5a907024ef152046ce7b37e73d7ebcd07c674c634e0ef9fa2fe9b28fbe5973",
+    "src/backend/cuda/ffi.c": "831f236d1b03610d845eaa023a799d25f0b025cfcd9fb2f9a7b9782f6011d33b",
+    "src/backend/cuda/ffi_stub.c": "19fe3794b1d25a4b36e069f75986550f3fa536044e671d9290ee2c3dee6302d7",
+    "src/backend/cuda/reduce_to_shape2_direct_ptx.h": "611ba828059dfb2612d668f7562db505505a49295fb9b4a40b3d9647dc012189"
+  },
+  "baseline_binary_sha256": "d352a015ea131602d664b217ee6a7e1f5084c2785fb4ee0c02ee8ec8c87be1ad",
+  "candidate_binary_sha256": "607e101edc81a7d1e6e456c98c1edc7dd20f3bf8851017786adb4034a91b715c",
+  "catalog_sha256": "95fd5fcca4989135d6805365714bb135d1822d09a976b741b03f3317fb40de4e",
+  "target": "NVIDIA GeForce RTX 3090/7.0.0-38-generic/x86_64",
+  "protocol": {
+    "iterations": 10,
+    "samples": 5,
+    "rounds": 3
+  },
+  "build": "zig 0.17.0 ReleaseFast; isolated cuda-topk-20261106 checkout; nvcc 12.4.131 generated PTX",
+  "gpu_memory_context": "Strata stopped before both controlled sweeps; no other model load observed.",
+  "algorithm": "For f32/i64 axes with at least 32 elements, a block computes each candidate stable rank once and scatters candidates with rank below k. BF16/u32 and shorter axes retain existing paths. Runtime rank, dimensions, strides, offset, axis, k, and selection direction drive all work.",
+  "peer_caveat": "PyTorch uses full stable sort then narrow for every comparison; measured peer cost is not native torch.topk cost."
+}

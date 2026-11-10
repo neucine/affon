@@ -8,11 +8,66 @@ import json
 from pathlib import Path
 import statistics
 import subprocess
+import sys
 import tempfile
 from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
 WEIV = ROOT.parent / "weiv" / "node_modules/.bin/weiv"
+
+
+def active_sweeps(results, completed=False):
+    batches = []
+    for path in sorted(results.glob('parity-*/progress.json')):
+        state = json.loads(path.read_text())
+        if bool(state.get('requested_phase_finished')) != completed or state.get('interrupted') or not (path.parent / 'run.json').is_file():
+            continue
+        subprocess.run([sys.executable, str(ROOT / 'test/parity/refresh.py'), str(path.parent)], check=True)
+        manifest = json.loads((path.parent / 'manifest.json').read_text())
+        rows = manifest['cells']
+        batches.append({'name': path.parent.name, 'directory': str(path.parent.resolve()),
+                        'target': manifest['target'], 'total': len(rows),
+                        'numerical': sum(r['probe_status'] == 'correct' for r in rows),
+                        'operator': sum(r['operator_peer'] == 'passed' for r in rows),
+                        'program': sum(r['program_peer'] == 'passed' for r in rows),
+                        'failed': sum(r['probe_status'] not in ('correct', 'not_run') or
+                                      r['operator_peer'] in ('incorrect', 'error') or
+                                      r['program_peer'] in ('incorrect', 'error') for r in rows),
+                        'updated': manifest.get('checkpoint_updated_at') or 'Not recorded',
+                        'checks': {kind: [r['id'] for r in rows if r[field] == passed]
+                                   for kind, field, passed in (('correctness', 'probe_status', 'correct'),
+                                                              ('operator_peer', 'operator_peer', 'passed'),
+                                                              ('program_peer', 'program_peer', 'passed'))},
+                        'href': path.parent.name + '/report.md'})
+    return batches
+
+
+def recorded_coverage(matrix, batches):
+    """Union reviewed records with completed checkpoints, counting each cell once."""
+    rows = {row['id']: row for row in matrix.get('cells', [])}
+    kinds = ('correctness', 'operator_peer', 'program_peer')
+    recorded = {kind: {cell for cell, row in rows.items() if row['evidence'][kind] != 'missing'}
+                for kind in kinds}
+    for batch in batches or []:
+        for kind, cells in batch.get('checks', {}).items():
+            if kind not in recorded or set(cells) - rows.keys():
+                raise ValueError('active sweep contains unknown coverage cells or check kinds')
+            recorded[kind].update(cells)
+    if not rows:
+        return {kind: matrix['summary']['evidence'][kind].get('linked', 0) for kind in kinds}, matrix['summary'].get('distribution', {})
+    distribution = {}
+    for dimension, selector in (('backend', lambda row: row['id'].split('/')[0]),
+                                ('dtype', lambda row: row['id'].split('/')[1]),
+                                ('family', lambda row: row['family']),
+                                ('backend × dtype', lambda row: ' / '.join(row['id'].split('/')[:2]))):
+        groups = {name: {**counts, 'correctness_recorded': 0, 'operator_peer_recorded': 0}
+                  for name, counts in matrix['summary']['distribution'][dimension].items()}
+        for cell, row in rows.items():
+            group = groups[selector(row)]
+            for kind in ('correctness', 'operator_peer'):
+                group[kind + '_recorded'] += cell in recorded[kind]
+        distribution[dimension] = groups
+    return {kind: len(cells) for kind, cells in recorded.items()}, distribution
 
 
 def validate_evidence_artifacts(outcomes):
@@ -73,28 +128,111 @@ def measured_rows(summary, raw_directory, kind):
         source = raw.get(row["id"])
         if source is None:
             raise ValueError(f"missing raw result for {row['id']}")
-        path = ", ".join(node["implementation_id"] for node in source["selected_path"])
-        phases = source.get("phase_medians_ms", {})
-        cases.append({**row, "path": path, "shape": " × ".join(map(str, source["contract"]["shape"])),
-                      "graph": " → ".join(source["contract"].get("program", {}).get("ops", [])),
-                      "affon_execution_ms": phases.get("affon_execution_ms"),
-                      "affon_readback_ms": phases.get("affon_readback_ms")})
+        cases.append(measurement_row(row, source, 'Reviewed record'))
     return cases, raw, raw_paths
 
 
-def data(matrix, summary, raw_directory, boundary_report=None, program_summary=None, program_raw_directory=None, calibration_directory=None, gpu_profiles=None, baseline_evaluations=None, gpu_investigations=None, paired_gpu=None):
+def measurement_row(row, source, evidence_state):
+    phases = source.get('phase_medians_ms', {})
+    return {**row, 'path': ', '.join(node['implementation_id'] for node in source['selected_path']),
+            'shape': ' × '.join(map(str, source['contract']['shape'])),
+            'graph': ' → '.join(source['contract'].get('program', {}).get('ops', [])),
+            'target': source['target'], 'evidence_state': evidence_state,
+            'peer_note': ('Peer timing: '+source['contract']['peer_algorithm'].replace('_', ' ')
+                          if source['contract'].get('peer_algorithm') else ''),
+            'affon_execution_ms': phases.get('affon_execution_ms'),
+            'affon_readback_ms': phases.get('affon_readback_ms')}
+
+
+def checkpoint_measurements(batches, known_ids, ratio_limit=1.25):
+    spec = importlib.util.spec_from_file_location('report_importer', ROOT / 'tools/import-coverage-evidence.py')
+    importer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(importer)
+    spec = importlib.util.spec_from_file_location('report_summary', ROOT / 'tools/summarize-cell-performance.py')
+    summarizer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(summarizer)
+    spec = importlib.util.spec_from_file_location('report_auditor', ROOT / 'test/parity/audit_complete_batch.py')
+    auditor = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(auditor)
+    reports = {kind: {} for kind in ('operator_peer', 'program_peer')}
+    for batch in sorted(batches or [], key=lambda batch: (batch['updated'], batch['name'])):
+        directory = Path(batch['directory'])
+        outcomes = importer.import_probe(directory / 'capability.json', known_ids)
+        identity = json.loads((directory / 'run.json').read_text())
+        for kind in reports:
+            for cell in batch['checks'].get(kind, []):
+                path = directory / kind / (cell.replace('/', '__') + '.json')
+                source = json.loads(path.read_text())
+                if source.get('cell_id') != cell or source.get('kind') != kind or source.get('target') != identity['target']:
+                    raise ValueError(f'{path}: checkpoint identity mismatch')
+                auditor.require(source.get('affon_binary_sha256') == identity['binary_sha256'], f'{cell}: checkpoint binary mismatch')
+                auditor.require(outcomes[cell]['probe_contract']['catalog_sha256'] == identity['catalog_sha256'], f'{cell}: checkpoint catalog mismatch')
+                correctness = source['correctness']
+                for field, tolerance in (('max_abs_error', 'tolerance'), ('checksum_error', 'checksum_tolerance')):
+                    auditor.error_bound(correctness[field], correctness[tolerance], cell)
+                auditor.require(source['contract']['iterations_per_sample'] == identity['iterations'] and
+                                source['contract']['rounds'] == identity['rounds'] and len(source['rounds']) == identity['rounds'],
+                                f'{cell}: checkpoint protocol mismatch')
+                flattened = {'affon_samples_ms': [], 'peer_samples_ms': []}
+                for n, measured in enumerate(source['rounds']):
+                    auditor.require(measured['round'] == n and measured['output_hash_matches'] is True and
+                                    measured['selected_path'] == source['selected_path'] and
+                                    len(measured['order']) == 2 and set(measured['order']) == {'affon', 'pytorch'},
+                                    f'{cell}: checkpoint round identity or output mismatch')
+                    for field, tolerance in (('max_abs_error', 'tolerance'), ('checksum_error', 'checksum_tolerance')):
+                        auditor.error_bound(measured[field], correctness[tolerance], cell)
+                    for key in flattened:
+                        auditor.samples(measured[key], identity['samples'], cell)
+                        flattened[key].extend(measured[key])
+                for key, values in flattened.items():
+                    auditor.require(source[key] == values, f'{cell}: checkpoint samples differ from raw rounds')
+                importer.import_benchmark(path, outcomes)
+                reports[kind][cell] = source
+    rows = {}
+    for kind, raw in reports.items():
+        summary = summarizer.summarize(list(raw.values()), ratio_limit, kind)
+        rows[kind] = [measurement_row(row, raw[row['id']], 'Completed checkpoint') for row in summary['cases']]
+    return rows, reports
+
+
+def merge_measurements(reviewed, checkpoints):
+    # A completed or still-running sweep can predate a reviewed promotion.
+    # Use it only for cells that have no current reviewed measurement.
+    merged = {row['id']: row for row in checkpoints}
+    merged.update({row['id']: row for row in reviewed})
+    return sorted(merged.values(), key=lambda row: (row['status'] != 'candidate_gap',
+                  -max(0, row['delta_ms']), -row['ratio']))
+
+
+def data(matrix, summary, raw_directory, boundary_report=None, program_summary=None, program_raw_directory=None, calibration_directory=None, gpu_profiles=None, baseline_evaluations=None, gpu_investigations=None, paired_gpu=None, active_batches=None, coverage_batches=None):
     totals = matrix["summary"]
     if matrix.get("suite") != "affon_coverage_matrix":
         raise ValueError("unexpected matrix suite")
+    recorded, current_distribution = recorded_coverage(matrix, active_batches if coverage_batches is None else coverage_batches)
     cases, raw, raw_paths = measured_rows(summary, raw_directory, "operator_peer")
     program_cases = []
+    program_raw = {}
     if program_summary is not None:
         if program_raw_directory is None:
             raise ValueError("Program raw directory missing")
-        program_cases, _, program_raw_paths = measured_rows(program_summary, program_raw_directory, "program_peer")
+        program_cases, program_raw, program_raw_paths = measured_rows(program_summary, program_raw_directory, "program_peer")
     validate_measured_links(matrix, cases, raw_paths, "operator_peer")
     if program_summary is not None:
         validate_measured_links(matrix, program_cases, program_raw_paths, "program_peer")
+    checkpoint_batches = active_batches if coverage_batches is None else coverage_batches
+    if checkpoint_batches:
+        checkpoint_rows, checkpoint_raw = checkpoint_measurements(
+            checkpoint_batches, {row['id'] for row in matrix['cells']}, summary['ratio_limit'])
+        for kind, reviewed_raw in (('operator_peer', raw), ('program_peer', program_raw)):
+            for row in checkpoint_rows[kind]:
+                cell = row['id']
+                if cell in reviewed_raw and checkpoint_raw[kind][cell] == reviewed_raw[cell]:
+                    row['evidence_state'] = 'Reviewed record'
+        cases = merge_measurements(cases, checkpoint_rows['operator_peer'])
+        program_cases = merge_measurements(program_cases, checkpoint_rows['program_peer'])
+        raw.update(checkpoint_raw['operator_peer'])
+    if 'cells' in matrix and (len(cases) != recorded['operator_peer'] or len(program_cases) != recorded['program_peer']):
+        raise ValueError('timing lists differ from recorded coverage counts')
     baseline_calibrations = []
     calibration_directories = (calibration_directory if isinstance(calibration_directory, list) else
                                [calibration_directory] if calibration_directory is not None else [])
@@ -160,8 +298,9 @@ def data(matrix, summary, raw_directory, boundary_report=None, program_summary=N
     }
     for key, (label, description) in checks.items():
         counts = totals["evidence"].get(key, {})
+        linked = recorded.get(key, counts.get('linked', 0))
         evidence.append({"label": label, "description": description,
-                         "linked": counts.get("linked", 0), "missing": counts.get("missing", 0)})
+                         "linked": linked, "missing": totals['cells'] - linked})
     gaps = [row for row in cases if row["status"] == "candidate_gap"]
     mixed = [row for row in cases if row["status"] == "mixed_rounds"]
     better = [row for row in cases if row["status"] == "better_than_peer"]
@@ -169,7 +308,7 @@ def data(matrix, summary, raw_directory, boundary_report=None, program_summary=N
         {"title": "Consistent candidate gaps", "body": f"{len(gaps)} cells exceed the provisional ratio in every round. The largest absolute difference is {gaps[0]['id']} at {(gaps[0]['affon_ms'] - gaps[0]['peer_ms']) * 1000:.1f} µs per call." if gaps else "No cell exceeds the provisional ratio in every round."},
         {"title": "Mixed measurements", "body": f"{len(mixed)} cells cross the threshold between rounds. Repeat on a controlled target before treating these as optimization targets."},
         {"title": "Consistently faster than PyTorch", "body": f"{len(better)} operator cells have Affon/PyTorch ratios below 1.0 in every round. These are diagnostic comparisons on the measured target."},
-        {"title": "Checks still needed", "body": f"{totals['evidence']['program_peer'].get('missing', 0)} Program peer cells and {totals['evidence']['self_baseline'].get('missing', 0)} baseline cells remain missing. Timing phase splits are diagnostic because accelerator work may finish during readback."},
+        {"title": "Checks still needed", "body": f"{totals['cells'] - recorded['program_peer']} Program peer cells and {totals['evidence']['self_baseline'].get('missing', 0)} baseline cells remain missing. Timing phase splits are diagnostic because accelerator work may finish during readback."},
     ]
     unstable = [row for row in baseline_calibrations if row["status"] == "Too variable"]
     if unstable:
@@ -194,17 +333,19 @@ def data(matrix, summary, raw_directory, boundary_report=None, program_summary=N
     phase_status = [
         {"name": "Foundation", "state": "Complete",
          "detail": "The saved results, report links, and baseline gate have executable checks."},
-        {"name": "Coverage expansion", "state": "Next",
+        {"name": "Coverage expansion", "state": "In progress" if active_batches else "Reviewed checkpoints",
          "detail": "Classify combinations and add concrete correctness, operator, Program, and dispatch checks by regime."},
-        {"name": "Optimization", "state": "Later",
-         "detail": "Prioritize confirmed gaps after representative coverage and repeatable peer measurements."},
+        {"name": "Optimization", "state": "Diagnostic measurements" if cases else "Later",
+         "detail": "Use general operation implementations and independent inputs; retain correctness and timing regressions."},
     ]
     distribution = [{"dimension": dimension, "rows": [
-        {"name": name, **counts} for name, counts in totals["distribution"][dimension].items()]}
+        {"name": name, **counts} for name, counts in current_distribution[dimension].items()]}
         for dimension in ("backend", "dtype", "family", "backend × dtype")] if "distribution" in totals else []
     return {"generated": datetime.now(ZoneInfo("Pacific/Auckland")).strftime("%d %b %Y, %H:%M NZ time"),
-            "target": cases and raw[cases[0]["id"]]["target"] or "No target",
+            "target": (next(iter({row['target'] for row in cases})) if len({row['target'] for row in cases}) == 1
+                       else 'Multiple validation devices' if cases else 'No target'),
             "totalCells": totals["cells"], "probedCells": totals["evidence"]["correctness"].get("linked", 0),
+            "recordedCorrectnessCells": recorded['correctness'], "recordedOperatorCells": recorded['operator_peer'],
             "gpuCandidateCells": sum(totals["distribution"]["backend"][name]["candidate"] for name in ("metal", "cuda")) if "distribution" in totals else 0,
             "peerCells": totals["evidence"]["operator_peer"].get("linked", 0),
             "acceptedBaselineCells": totals["evidence"]["self_baseline"].get("linked", 0),
@@ -213,6 +354,7 @@ def data(matrix, summary, raw_directory, boundary_report=None, program_summary=N
             "observedBoundaries": sum(row["status"] == "expected_transition" for row in boundaries),
             "unobservedBoundaries": sum(row["status"] == "unobserved_transition" for row in boundaries),
             "cases": cases, "programCases": program_cases, "baselineCalibrations": baseline_calibrations,
+            "activeBatches": [{k: v for k, v in batch.items() if k not in ('checks', 'directory')} for batch in active_batches or []],
             "baselineVerdicts": baseline_verdicts,
             "gpuProfiles": gpu_comparisons, "gpuInvestigationRuns": investigation_rows,
             "pairedGpuSessions": paired_gpu["sessions"] if paired_gpu else [],
@@ -233,13 +375,16 @@ def render(payload, output, weiv=WEIV):
         script = bundle.read_text().replace("</script", "<\\/script")
         props = json.dumps(payload, ensure_ascii=False).replace("<", "\\u003c")
         css = (build / "styles.css").read_text().replace("</style", "<\\/style")
+        refresh = '<meta http-equiv="refresh" content="60">' if payload.get('activeBatches') else ''
         html = ("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
                 "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-                "<title>Affon performance coverage</title><style>" + css + "</style></head><body>"
+                + refresh + "<title>Affon performance coverage</title><style>" + css + "</style></head><body>"
                 "<div id=\"app\"></div><script>globalThis.__WEIV_PROPS__=" + props + "</script>"
                 "<script>" + script + "</script></body></html>\n")
         output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(html)
+        with tempfile.NamedTemporaryFile(mode='w', dir=output.parent, prefix='.'+output.name+'-', delete=False) as temporary:
+            temporary.write(html)
+        Path(temporary.name).replace(output)
 
 
 def main():
@@ -296,9 +441,13 @@ def main():
     paired_gpu = json.loads(args.paired_gpu.read_text()) if args.paired_gpu.is_file() else None
     if paired_gpu and paired_gpu.get("suite") != "affon_paired_gpu_diagnostic":
         raise ValueError("unexpected paired GPU diagnostic")
+    batches = active_sweeps(ROOT / 'test/benchmark/results')
+    completed = active_sweeps(ROOT / 'test/benchmark/results', completed=True)
+    subprocess.run([sys.executable, str(ROOT / 'test/parity/index.py')], check=True)
     render(data(matrix, summary, args.raw_dir, boundary_report,
                 program_summary, args.program_raw_dir, args.baseline_calibrations, gpu_profiles,
-                args.baseline_evaluations, investigations, paired_gpu), args.output)
+                args.baseline_evaluations, investigations, paired_gpu,
+                batches, batches + completed), args.output)
     print(args.output.resolve())
 
 

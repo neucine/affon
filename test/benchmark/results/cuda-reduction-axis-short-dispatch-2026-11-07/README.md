@@ -1,0 +1,9 @@
+# CUDA short-axis f32 reductions
+
+The reviewed Compute change dispatches nonempty rank-two f32 reductions through the existing one-launch axis kernel, including axes shorter than 64. It also fixes the kernel's min/max accumulator initialization. The source changes are in the sibling Compute checkout's `src/backend/cuda/device.zig` and `src/backend/cuda/ffi.c`.
+
+The complete 528-cell catalog covers sum, mean, min, max, variance, standard deviation, argmin, and argmax with short reduced axes and dense, offset, and strided layouts on an RTX 3090. Baseline and candidate used 10 iterations, 5 samples, and 3 rounds. Both complete audits passed 528 numerical, operator, and Program checks. The regression comparison found no changed case definitions, correctness regressions, or timing suspects. The candidate binary SHA-256 is `4fafaf5b6ff353e6f47b3cff8f7c0e1899bfff0eb16a76fe6f16097df00dce27`; the audit binds it to the catalog and PyTorch 2.11.0+cu128.
+
+Candidate Affon total medians improved in 512 of 528 cells in both modes. Median candidate/baseline ratios were 0.1372 for operator and 0.1690 for Program. Each of the eight operations improved at the median. The 16 slower cells have a single output element, where the former path already used one launch; the largest increases were 33.8% operator and 26.4% Program. These are per-call measurements, including output materialization, rather than application throughput.
+
+`short-axis-full-baseline/` and `short-axis-full-candidate/` retain the complete raw reports. The audits, regression output, logs, catalog, and build logs are alongside them. An initial probe exposed three min/max numerical failures; `short-axis-probe-candidate/` retains that failed run. The corrected `short-axis-probe-fixed/` passed before the full sweep. Previous aggregate entries are retained in `../archive-cuda-reduction-before-short-dispatch-2026-11-07/`.

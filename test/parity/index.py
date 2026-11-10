@@ -2,6 +2,7 @@
 """Build a navigable index of parity catalogs and retained batch reports."""
 import json
 from pathlib import Path
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 PARITY = ROOT / 'test/parity'
@@ -12,7 +13,8 @@ def catalog_rows():
     rows = []
     for path in sorted((PARITY / 'catalogs').glob('*.json')):
         catalog = json.loads(path.read_text())
-        generator = PARITY / 'catalogs/generators' / ('generate-' + path.stem.rsplit('-', 1)[0] + '.py')
+        generator = PARITY / 'catalogs/generators' / catalog.get(
+            'generator', 'generate-' + path.stem.rsplit('-', 1)[0] + '.py')
         rows.append((path, len(catalog.get('cases', [])), generator if generator.exists() else None))
     return rows
 
@@ -50,7 +52,10 @@ def render():
 
 def main():
     output = RESULTS / 'PARITY-INDEX.md'
-    output.write_text(render())
+    content = render()
+    with tempfile.NamedTemporaryFile(mode='w', dir=output.parent, prefix='.parity-index-', delete=False) as temporary:
+        temporary.write(content)
+    Path(temporary.name).replace(output)
     print(output)
 
 

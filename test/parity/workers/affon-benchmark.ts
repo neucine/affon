@@ -9,6 +9,8 @@ const samples = Number(getEnv('AFFON_CELL_SAMPLES') ?? '5')
 const warmupCalls = Number(getEnv('AFFON_CELL_WARMUP') ?? '20')
 const denseInputs = getEnv('AFFON_CELL_DENSE_INPUTS') === '1'
 const kind = getEnv('AFFON_CELL_KIND') ?? 'operator_peer'
+const profile = getEnv('AFFON_CELL_PROFILE') === '1'
+const captureRecords = Number(getEnv('AFFON_CELL_CAPTURE_RECORDS') ?? '65536')
 const [backend, dtype, op] = id.split('/')
 if (!['cpu', 'metal', 'cuda'].includes(backend) || !['f32', 'bf16'].includes(dtype) || !['add', 'sub', 'mul', 'div', 'eq', 'lt', 'gt', 'cast', 'matmul', 'dot', 'sum_axis', 'softmax', 'neg', 'exp', 'log', 'sqrt', 'relu', 'sigmoid', 'abs', 'sign', 'silu', 'tanh', 'sin', 'cos', 'layer_norm', 'log_softmax', 'rms_norm', 'mean_axis', 'min_axis', 'max_axis', 'variance_axis', 'std_axis', 'reshape', 'transpose', 'permute', 'slice', 'contiguous', 'cat', 'stack', 'squeeze', 'unsqueeze', 'embedding', 'index_select', 'gather', 'erf', 'gelu', 'clamp', 'sum_all', 'mean_all', 'min_all', 'max_all', 'variance_all', 'std_all', 'argmin_all', 'argmax_all', 'argmin_axis', 'argmax_axis', 'where', 'masked_fill', 'cross_entropy_indexed', 'one_hot'].includes(op))
   throw Error(`invalid benchmark cell: ${id}`)
@@ -16,8 +18,11 @@ if (!Number.isSafeInteger(iterations) || iterations < 1 || !Number.isSafeInteger
   throw Error('invalid benchmark repetitions')
 if (!Number.isSafeInteger(warmupCalls) || warmupCalls < 0) throw Error('invalid warmup calls')
 if (kind !== 'operator_peer' && kind !== 'program_peer') throw Error(`invalid benchmark kind: ${kind}`)
+if (profile && (!Number.isSafeInteger(captureRecords) || captureRecords < 1 || captureRecords > 4194304)) throw Error('invalid capture record limit')
 
-const session = new Session({ device: backend as 'cpu' | 'metal' | 'cuda', telemetry: false })
+const session = new Session({ device: backend as 'cpu' | 'metal' | 'cuda', telemetry: profile ? {
+  computeTiming: 'invocation', bridgeTiming: true, profilerMarkers: true, captureRecords,
+} : false })
 try {
   const view = op !== 'matmul' && (id.includes('/offset') || id.includes('_offset')) ? 'offset' : op !== 'matmul' && (id.includes('/strided') || id.includes('_strided')) ? 'strided' : null
   const indexing = op === 'embedding' || op === 'index_select' || op === 'gather' || op === 'cross_entropy_indexed'
@@ -120,6 +125,24 @@ try {
       const output = run()
       const indices = Array.from(new Set([0, Math.floor(output.length / 4), Math.floor(output.length / 2), Math.floor(output.length * 3 / 4), output.length - 1]))
       for (let warmup = 0; warmup < warmupCalls; warmup++) run()
+      if (profile) {
+        session.resetEvidence()
+        const start = performance.now()
+        const selected = run()
+        const elapsedMs = performance.now() - start
+        const evidence = session.runtimeEvidence(executable) as any
+        if (evidence.schema_version !== 3 || evidence.dropped_event_count !== 0)
+          throw Error(`incomplete runtime evidence: schema=${evidence.schema_version}, dropped=${evidence.dropped_event_count}`)
+        console.log(JSON.stringify({ schema_version: 1, suite: 'affon_cell_profile', id, shape, kind,
+          warmup_calls: warmupCalls + 1, selected_elapsed_ms: elapsedMs,
+          output_shape: outputShape, output_dtype: outputDtype, output_count: selected.length,
+          output_checksum: selected.reduce((total, value) => total + value, 0),
+          output_samples: indices.map(index => ({ index, value: selected[index] })),
+          selected_path: path, executable_explanation: executable.explain(), runtime_evidence: evidence,
+          observation: { compute_timing: 'invocation', bridge_timing: true, profiler_markers: true,
+            capture_records: captureRecords, dropped_event_count: evidence.dropped_event_count },
+          timing_scope: 'one warmed Program run, full host readback and output disposal; includes observation overhead' }))
+      } else {
       const samples_ms: number[] = []
       const execution_ms: number[] = []
       const readback_ms: number[] = []
@@ -143,6 +166,7 @@ try {
         iterations, samples_ms, execution_ms, readback_ms, output_count: output.length,
         output_checksum: output.reduce((total, value) => total + value, 0),
         output_samples: indices.map(index => ({ index, value: output[index] })), selected_path: path }))
+      }
     } finally { executable.dispose() }
   } finally { mask?.dispose(); z?.dispose(); y.dispose(); x.dispose() }
 } finally { session.dispose() }

@@ -450,3 +450,225 @@ operator, and Program checks passed. The
 found no correctness regression or changed case contract. Runs used ten
 iterations, five samples, and three rounds. The parallel candidate is marked
 reassociated; `exact_only` selects the serial kernel.
+
+
+## CUDA parity expansion and general loss optimization, 2026-11-05
+
+`cuda-metal-parity.json` mirrors all **11,946** currently supported Metal
+contracts, preserving shapes and options. The complete target passed numerical,
+operator, and Program checks and was promoted after the scope-bound audit.
+The target is registered in the master catalog and coverage policy.
+
+The frozen full-target run has now passed all **11,946 numerical checks**:
+5,650 BF16 and 6,296 f32. The retained
+[numerical audit](../../benchmark/results/cuda-parity-expansion-2026-11-05/full-numerical-audit.json)
+checks exact registered scope, numerical and checksum bounds, and selected
+paths. All selected implementations are CUDA kernels or view operations.
+The same frozen build is used for the full operator and Program
+comparisons with 10 iterations, five samples and three rounds. The corrected
+peer verifier and explicit reuse of unaffected reports are described below.
+
+The frozen operator sweep exposed a top-k peer mismatch: BF16 rounding creates
+ties in the deterministic input, while native PyTorch `topk` does not guarantee
+stable tied indices. Affon's independent reference and CUDA implementation use
+lower-index tie-breaking. The failing `[2, 16, 65]`, `k=32` input has ties in
+all 32 rows; native PyTorch CPU top-k returns the same values but differs at
+398 indices from stable selection. Stable sorting agrees with the independent
+reference on every output. Original failure reports remain retained.
+
+The corrected peer uses full stable sorting followed by narrowing for every
+top-k input, with `tie_break=lower_index` and
+`peer_algorithm=stable_sort_then_narrow` recorded in the timing contract.
+It changes neither CUDA dispatch nor fixtures nor tolerances. This comparison
+includes the cost of full sorting and must not be described as native PyTorch
+top-k performance. Independent CPU checks pass all **408** full-output cases
+across both dtypes, all axes, largest/smallest selection, equal inputs, cutoff
+ties, and dense/strided/transposed layouts. The full **520-cell** corrected
+`cuda-topk-stable-peer.json` GPU operator scope now passes in the corrected
+full-target collection, as recorded in the
+[top-k checkpoint](../../benchmark/results/cuda-parity-expansion-2026-11-05/topk-full-corrected-operator-checkpoint.json).
+All 520 corrected operator and Program checks pass in the complete collection.
+
+The original sweep was subsequently stopped after PyTorch's native scatter-add
+asserted on the invalid-index contract and left its in-process CUDA context
+unusable. Its 130 failure reports (20 top-k, 110 scatter including downstream
+context errors) remain retained. The corrected scatter peer masks invalid
+indices and zeroes their updates before scatter-add for every input, matching
+Affon's skip-update semantics without cell-specific conditions. Its timing
+contract records the masking cost. Independent checks pass all 120 full-output
+CPU/CUDA cases across f32/BF16, all axes and three layouts; the formerly failing
+GPU invalid-index operator comparison also passes with zero error.
+
+`parity-cuda-metal-corrected-peers-2026-11-05` supersedes the queued standalone
+top-k rerun. It retains the complete 11,946-cell scope and the same binary and
+10/5/3 protocol. Its `seeded-evidence.json` records the original verifier identity
+and hashes for 9,939 unchanged, passing operator reports after checking their
+raw rounds and probe contracts. All top-k and scatter-add peers are excluded
+from that reuse and were rerun under the corrected semantics. All Program
+comparisons were run under the corrected verifier. This is an explicitly
+mixed-verifier evidence collection; the retained reports were not all rerun
+under one verifier.
+
+The completion auditor automatically verifies `seeded-evidence.json` when
+present: original and current run identities, shared build/target/protocol,
+source catalog and numerical hashes, unchanged numerical rows, exclusion of
+invalidated operations, and every retained source and copied report hash.
+`--seed-source` permits auditing a relocated retained source batch without
+changing its recorded provenance. All **9,939** reused reports pass this
+provenance audit; 11 focused completion-audit tests pass, including tampering,
+duplicate reuse, invalidated-operation reuse, and relocated-source checks.
+
+The corrected collection has now passed all **11,946 operator comparisons**.
+The [full operator audit](../../benchmark/results/cuda-parity-expansion-2026-11-05/full-operator-audit.json)
+checks exact ID coverage, raw errors, checksums, all three rounds and five
+samples, selected paths, peer identity, the actual binary hash, and every reused
+report's source and destination hash. This includes 2,007 fresh operator reports
+and 9,939 unchanged reports with verified provenance. All 11,946 Program
+comparisons also passed. The [complete batch audit](../../benchmark/results/cuda-parity-expansion-2026-11-05/full-completion-audit.json)
+binds the registered catalog, frozen binary, PyTorch 2.11.0+cu128, all raw
+rounds, and seed provenance. Every selected numerical, operator, and Program
+path is a CUDA kernel or view operation; no limitations or failure reports were
+found. The reviewed evidence was promoted with an
+[archive](../../benchmark/results/cuda-parity-expansion-2026-11-05/pre-promotion-archive-2026-11-06/reports-before.json)
+of prior ledger entries, existing peer reports, and explicit missing-report
+records. The current coverage ledger now supports all 11,946 mirrored cells.
+
+The [full operator diagnostics](../../benchmark/results/cuda-parity-expansion-2026-11-05/full-operator-diagnostics.json)
+and [general optimization triage](../../benchmark/results/cuda-parity-expansion-2026-11-05/general-optimization-triage.json)
+retain all 11,946 timing comparisons without accepting a performance baseline.
+Rank-two reduction-to-shape currently scans every input for each
+output; traversing only reduced dimensions is a general candidate for follow-up.
+Top-k comparisons include stable sorting and scatter-add comparisons include
+invalid-index masking. These peer costs must remain explicit in any performance
+interpretation. The retained Program timings span a change in GPU memory use:
+the user stopped an unrelated Strata model at about Program case 9,762.
+The sweep build remained frozen.
+
+The [142-cell smoke baseline](../../benchmark/results/parity-cuda-metal-smoke-baseline-2026-11-05/report.md)
+passed 134 numerical, 133 operator, and 133 Program checks. The
+[parity candidate](../../benchmark/results/parity-cuda-metal-smoke-candidate-2026-11-05/report.md)
+passed all 142 in each category, with [zero correctness regressions](../../benchmark/results/regression-cuda-metal-smoke-2026-11-05/regression.md).
+Changes add native f32/BF16 sine and cosine, native 2/4/8-bit quantized matmul,
+and the missing reduction-to-shape recipe. F32 normalization now uses centered
+variance and cooperative double accumulation. Quantized matmul, normalization,
+and dense losses declare reassociated arithmetic; `exact_only` rejects these
+candidates. The [six-cell planner-policy rerun](../../benchmark/results/parity-cuda-metal-numerical-policy-2026-11-05/report.md)
+passed numerical, operator, and Program checks on the rebuilt binary.
+
+The [1,350-cell gap regression](../../benchmark/results/parity-cuda-metal-gap-regression-2026-11-05/capability.json)
+passed all numerical checks across the changed operation families. After loss
+tuning, the [784-cell dense-loss regression](../../benchmark/results/parity-cuda-metal-loss-adaptive-2026-11-05/capability.json)
+also passed every numerical check. These broad regressions establish numerical
+evidence; the complete target audit now also covers every operator and Program
+comparison in these families.
+
+The loss implementation uses runtime shapes, strides, offsets, and dtype.
+It assigns independent warps when enough rows exist and shares a block between
+power-of-two row teams when there are fewer independent rows. Long rows can
+therefore use more than one warp without allocating a temporary loss tensor.
+Catalog IDs and fixture values never enter dispatch.
+
+Independent [seed A](../../benchmark/results/parity-cuda-general-adaptive-a-2026-11-05/report.json)
+and [seed B](../../benchmark/results/parity-cuda-general-adaptive-b-2026-11-05/report.json)
+checks cover random dimensions, signed values, large offsets, near-constant and
+zero inputs, ranks two through four for normalization, and dense/offset/strided/
+transposed inputs. All **736 numerical checks** compare every output against
+PyTorch CPU float64 after quantizing source inputs to f32/BF16. Another **32**
+checks confirm the existing public rejection of rank-four losses; these are
+reported separately. The [old loss implementation](../../benchmark/results/parity-cuda-general-baseline-2026-11-05/report.json)
+missed the unchanged f32 tolerance in three independent cases, in both operator
+and composed Program form. The final implementation passes those same inputs.
+Raw general-case inputs and outputs are retained as gzip JSON with hashes.
+
+The independent quantized-matmul [seed A](../../benchmark/results/parity-cuda-quantized-general-a-2026-11-05/report.json)
+and [seed B](../../benchmark/results/parity-cuda-quantized-general-b-2026-11-05/report.json)
+also pass all **768 full-output checks**. They exercise every f32/BF16
+activation/metadata pairing, 2/4/8-bit weights, odd groups (including 3 and 31)
+that cross packed-word boundaries, random dimensions and values, and
+dense/offset/strided/transposed views of all four operands. The expected result
+uses independent PyTorch CPU float64 unpacking, affine decoding and matrix
+multiplication after rounding source values to their declared dtypes. These
+checks add general correctness evidence without adding timing or aggregate
+coverage claims.
+
+The [independent evidence retention audit](../../benchmark/results/cuda-parity-expansion-2026-11-05/independent-evidence-retention-audit.json)
+binds all four batches to the frozen binary, verifies uncompressed input hashes,
+exact operator/Program result identities, finite complete output arrays and
+CUDA/view paths, and records hashes of the retained reports and outputs.
+It covers 1,504 reported full-output passes and 32 separately classified API
+rejections. This is an artifact audit; it does not recompute numerical references.
+
+The [24-case baseline](../../benchmark/results/parity-cuda-loss-general-baseline-2026-11-05/report.md)
+and [final comparison](../../benchmark/results/parity-cuda-loss-general-adaptive-2026-11-05/report.md)
+use 30 iterations, five samples, and three rounds, covering tiny, wide,
+multi-row, offset, strided, and batched cases outside the Metal catalog.
+All numerical, operator, and Program checks passed. The
+[regression comparison](../../benchmark/results/regression-cuda-loss-general-adaptive-2026-11-05/regression.md)
+reports zero correctness regressions, changed contracts, or timing suspects
+at the existing diagnostic threshold.
+
+Example f32 cross-entropy execution-phase medians, in milliseconds:
+
+| Logical input / layout | Before | Final | Before / final |
+| --- | ---: | ---: | ---: |
+| 19 × 257, strided columns | 0.6071 | 0.0651 | 9.32 |
+| 11 × 1031, dense | 1.1236 | 0.1146 | 9.80 |
+| 1 × 8193, dense | 0.7782 | 0.0881 | 8.84 |
+| 5 × 97, offset | 0.0644 | 0.0277 | 2.33 |
+| 1 × 3, dense | 0.0125 | 0.0152 | 0.82 |
+
+The tiny f32 case costs about 3 microseconds more. Long single-row BF16
+cross-entropy measured 0.0822 → 0.0879 ms; a simple warp-per-row version had
+regressed to 0.2274 ms, which motivated cooperative row teams. Those raw
+[earlier results](../../benchmark/results/parity-cuda-loss-general-optimized-2026-11-05/report.md)
+and their [two timing suspects](../../benchmark/results/regression-cuda-loss-general-first-warp-2026-11-05/regression.md)
+are retained. Timing is diagnostic on the RTX 3090. An unrelated process
+retained most VRAM during the earlier comparison and part of the full sweep;
+it was stopped during the Program sweep. No universal speedup or accepted performance baseline is
+claimed. See the [machine-readable summary](../../benchmark/results/cuda-parity-expansion-2026-11-05/summary.json)
+and [source/build context](../../benchmark/results/cuda-parity-expansion-2026-11-05/source-context.json).
+
+## General CUDA reduce-to-shape optimization, 2026-11-06
+
+The rank-two CUDA reduction now derives each output's base address from its
+runtime shape and traverses only dimensions being summed. It uses input strides
+and offsets directly and preserves row-major accumulation order, including f32
+rounding after each addition. The change contains no catalog IDs, input-value
+branches, or exact-shape dispatch. The scalar and higher-rank paths remain on
+their existing implementations.
+
+The [134-cell target](cuda-reduce-to-shape-reviewed-134.json) contains every
+reduce-to-shape cell from the mirrored Metal catalog. The controlled
+[baseline](../../benchmark/results/parity-cuda-reduce-to-shape-controlled-baseline-2026-11-06/report.md)
+and [candidate](../../benchmark/results/parity-cuda-reduce-to-shape-controlled-direct-2026-11-06/report.md)
+both pass all 134 numerical, operator, and Program checks with the same 10/5/3
+protocol on the RTX 3090 after the Strata model was stopped. The
+[regression report](../../benchmark/results/cuda-reduction-direct-2026-11-06/regression/regression.md)
+finds zero changed contracts, correctness regressions, or diagnostic timing
+suspects. Both batches passed full catalog, binary, PyTorch-version, raw-round,
+and selected-path audits.
+
+Two independent random seeds add 256 input cases and 512 full-output checks
+across f32/i64, output ranks zero through two, identity and multi-axis
+reductions, and dense, offset, strided, and transposed views. Every output
+matches an independent sequential reference exactly; all selected reductions
+use the CUDA path. Inputs and outputs are retained with hashes.
+
+Across the 133 cells using the changed rank-two path, median execution-phase
+speedup is **10.15×** for operator runs and **9.85×** for Program runs. Every
+changed cell is faster in these controlled measurements; the scalar cell uses
+the unchanged path. These are diagnostic medians for this GPU and protocol, not
+an accepted performance baseline or universal speedup. The audited candidate
+replaced the 134 current ledger entries, with their prior entries and reports
+preserved in a fresh archive. See the [summary](../../benchmark/results/cuda-reduction-direct-2026-11-06/summary.json)
+and [source/build identity](../../benchmark/results/cuda-reduction-direct-2026-11-06/source-context.json).
+
+## General CUDA f32 scatter-add optimization, 2026-11-07
+
+The reviewed [197-cell comparison](../../benchmark/results/cuda-scatter-f32-parallel-2026-11-07/README.md)
+uses the complete f32 scatter-add subset of the frozen CUDA catalog. It routes
+all rank-two views to the existing parallel output-centric CUDA kernel. A
+rejected first candidate exposed an offset-address bug; the final version fixes
+it and passes all 32 offset cases. The final candidate and baseline each pass all
+197 numerical, operator, and Program checks. All 132 changed cells improve in
+both execution-phase medians; the previous current reports are archived.
