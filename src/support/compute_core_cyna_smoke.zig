@@ -681,6 +681,13 @@ test "Affon submits a precise f64 Cyna graph" {
     try std.testing.expectEqualSlices(f64, &.{ 16777217.0, 1.0, 0.0, 2.0, 16777220.0 }, &output);
     try cyna.runDenseGraphWithGoalF64(std.testing.allocator, &inputs, &steps, &selected, &output, .memory);
     try std.testing.expectEqualSlices(f64, &.{ 16777217.0, 1.0, 0.0, 2.0, 16777220.0 }, &output);
+    var resident_output: [5]f64 = @splat(-1.0);
+    try cyna.runDenseGraphResidentF64(std.testing.allocator, &inputs, &steps, &selected, &resident_output);
+    try std.testing.expectEqualSlices(f64, &output, &resident_output);
+    resident_output = @splat(-1.0);
+    try std.testing.expectError(error.InvalidShape,
+        cyna.runDenseGraphResidentF64(std.testing.allocator, &inputs, &steps, &selected, resident_output[0..4]));
+    try std.testing.expectEqual(@as(f64, -1.0), resident_output[0]);
     output[0] = -1.0;
     try std.testing.expectError(error.InvalidShape,
         cyna.runDenseGraphF64(std.testing.allocator, &inputs, &steps, &selected, output[0..4]));

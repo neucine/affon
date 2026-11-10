@@ -126,6 +126,23 @@ extern fn compute_core_run_dense_graph_f64(
     output_value_count: usize,
 ) c_int;
 
+extern fn compute_core_run_dense_graph_resident_f64(
+    input_values: [*]const f64,
+    input_value_count: usize,
+    input_ranks: [*]const usize,
+    input_count: usize,
+    dimensions: [*]const usize,
+    dimension_count: usize,
+    operations: [*]const c_int,
+    lhs_ids: [*]const usize,
+    rhs_ids: [*]const usize,
+    instruction_count: usize,
+    output_ids: [*]const usize,
+    selected_count: usize,
+    output: [*]f64,
+    output_value_count: usize,
+) c_int;
+
 extern fn compute_core_run_dense_graph_u32(
     goal: c_int,
     input_values: [*]const u32,
@@ -1034,6 +1051,16 @@ pub fn runDenseGraphWithGoalF64(
     return runDenseGraphWithGoal(f64, allocator, inputs, steps, selected, output, goal);
 }
 
+pub fn runDenseGraphResidentF64(
+    allocator: std.mem.Allocator,
+    inputs: []const DenseInputF64,
+    steps: []const DenseStep,
+    selected: []const usize,
+    output: []f64,
+) (Error || std.mem.Allocator.Error)!void {
+    return runDenseGraphWithGoalMode(f64, allocator, inputs, steps, selected, output, .baseline, true);
+}
+
 pub fn runDenseGraphU32(
     allocator: std.mem.Allocator,
     inputs: []const DenseInputU32,
@@ -1247,6 +1274,21 @@ fn runDenseGraphWithGoalMode(
         output.len,
     ) else if (T == i64) compute_core_run_dense_graph_i64(
         @backingInt(goal),
+        values.ptr,
+        values.len,
+        ranks.ptr,
+        ranks.len,
+        dimensions.ptr,
+        dimensions.len,
+        operations.ptr,
+        lhs_ids.ptr,
+        rhs_ids.ptr,
+        steps.len,
+        selected.ptr,
+        selected.len,
+        output.ptr,
+        output.len,
+    ) else if (T == f64 and resident) compute_core_run_dense_graph_resident_f64(
         values.ptr,
         values.len,
         ranks.ptr,
