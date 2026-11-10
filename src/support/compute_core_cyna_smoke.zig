@@ -693,6 +693,25 @@ test "Affon runs f64 matmul and bias through the Cyna memory goal" {
     try std.testing.expectEqualSlices(f64, &baseline, &memory);
 }
 
+test "Affon runs f64 multiply and add through the Cyna memory goal" {
+    const left = [_]f64{ 16777217.0, -2.0 };
+    const factor = [_]f64{2.0};
+    const bias = [_]f64{ 1.0, 5.0 };
+    const inputs = [_]cyna.DenseInputF64{
+        .{ .shape = &.{2}, .values = &left },
+        .{ .shape = &.{1}, .values = &factor },
+        .{ .shape = &.{2}, .values = &bias },
+    };
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .mul, .lhs = 0, .rhs = 1 },
+        .{ .operation = .add, .lhs = 3, .rhs = 2 },
+    };
+    const result = try cyna.allocDenseGraphF64(std.testing.allocator, &inputs, &steps, &.{4}, .memory);
+    defer result.deinit(std.testing.allocator);
+    try std.testing.expectEqualSlices(f64, &.{ 33554435.0, 1.0 }, result.values);
+    try std.testing.expectEqualSlices(usize, &.{2}, result.shape(0));
+}
+
 test "Affon submits a wrapping u32 Cyna graph" {
     const left = [_]u32{ std.math.maxInt(u32), 2, 3, 4 };
     const identity = [_]u32{ 1, 0, 0, 1 };
