@@ -46,6 +46,21 @@ test "Affon infers mixed dtype selected graph results" {
         cyna.runDenseGraphBytes(std.testing.allocator, .f32, &inputs,
             &input_bytes, &steps, &selected, output_bytes[0..39], .baseline));
     try std.testing.expectEqual(@as(u8, 91), output_bytes[0]);
+    const owned = try cyna.allocDenseGraphBytes(std.testing.allocator, .f32, &inputs,
+        &input_bytes, &steps, &selected, .memory);
+    defer owned.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(usize, 40), owned.bytes.len);
+    try std.testing.expectEqual(cyna.DenseDType.f32, owned.dtype(0));
+    try std.testing.expectEqual(cyna.DenseDType.i64, owned.dtype(1));
+    try std.testing.expectEqualSlices(usize, &.{ 2, 2 }, owned.shape(0));
+    try std.testing.expectEqualSlices(usize, &.{2}, owned.shape(1));
+    try std.testing.expectEqualSlices(u8, &input_bytes, owned.outputBytes(0));
+    try std.testing.expectEqualSlices(u8, &.{ 1, 0, 0, 0, 0, 0, 0, 0,
+        1, 0, 0, 0, 0, 0, 0, 0 }, owned.outputBytes(1));
+    try std.testing.expectEqualSlices(u8, &.{ 0, 0, 0, 0, 0, 0, 0, 0 }, owned.outputBytes(2));
+    try std.testing.expectError(error.InvalidShape,
+        cyna.allocDenseGraphBytes(std.testing.allocator, .f32, &inputs,
+            input_bytes[0..15], &steps, &selected, .baseline));
 }
 
 test "Affon preserves f64 u32 and bf16 bytes with i64 index results" {

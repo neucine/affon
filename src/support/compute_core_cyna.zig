@@ -215,6 +215,47 @@ pub const DenseInputBf16Bits = denseInput(u16);
 pub const DenseInputShape = struct { shape: []const usize };
 pub const DenseDType = enum(c_int) { f32 = 1, f64 = 2, i64 = 3, u32 = 4, bf16 = 5 };
 
+fn denseDTypeWidth(dtype: DenseDType) usize {
+    return switch (dtype) { .f64, .i64 => 8, .f32, .u32 => 4, .bf16 => 2 };
+}
+
+pub const DenseGraphBytesResult = struct {
+    bytes: []u8,
+    ranks: []usize,
+    elements: []usize,
+    dimensions: []usize,
+    dtypes: []c_int,
+
+    pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
+        allocator.free(self.bytes);
+        allocator.free(self.ranks);
+        allocator.free(self.elements);
+        allocator.free(self.dimensions);
+        allocator.free(self.dtypes);
+    }
+
+    pub fn dtype(self: @This(), index: usize) DenseDType {
+        std.debug.assert(index < self.dtypes.len);
+        return @enumFromInt(self.dtypes[index]);
+    }
+
+    pub fn shape(self: @This(), index: usize) []const usize {
+        std.debug.assert(index < self.ranks.len);
+        var offset: usize = 0;
+        for (self.ranks[0..index]) |rank| offset += rank;
+        return self.dimensions[offset..][0..self.ranks[index]];
+    }
+
+    pub fn outputBytes(self: @This(), index: usize) []const u8 {
+        std.debug.assert(index < self.elements.len);
+        var offset: usize = 0;
+        for (self.elements[0..index], self.dtypes[0..index]) |count, code| {
+            offset += count * denseDTypeWidth(@enumFromInt(code));
+        }
+        return self.bytes[offset..][0 .. self.elements[index] * denseDTypeWidth(self.dtype(index))];
+    }
+};
+
 pub fn DenseGraphResult(comptime T: type) type {
     return struct {
         values: []T,
@@ -321,7 +362,7 @@ pub fn runDenseGraphBytes(
 ) (Error || std.mem.Allocator.Error)!void {
     if (inputs.len == 0 or selected.len == 0 or
         steps.len > std.math.maxInt(usize) - inputs.len) return error.InvalidShape;
-    const width: usize = switch (dtype) { .f64, .i64 => 8, .f32, .u32 => 4, .bf16 => 2 };
+    const width = denseDTypeWidth(dtype);
     var dimension_count: usize = 0;
     var input_count: usize = 0;
     for (inputs) |input| {
@@ -365,6 +406,40 @@ pub fn runDenseGraphBytes(
         1 => return error.InvalidShape,
         else => return error.CoreFailure,
     }
+}
+
+pub fn allocDenseGraphBytes(
+    allocator: std.mem.Allocator, dtype: DenseDType, inputs: []const DenseInputShape,
+    input_bytes: []const u8, steps: []const DenseStep, selected: []const usize,
+    goal: DenseGoal,
+) (Error || std.mem.Allocator.Error)!DenseGraphBytesResult {
+    const max_dimensions = std.math.mul(usize, selected.len, 8) catch return error.InvalidShape;
+    const ranks = try allocator.alloc(usize, selected.len);
+    errdefer allocator.free(ranks);
+    const elements = try allocator.alloc(usize, selected.len);
+    errdefer allocator.free(elements);
+    const dtypes = try allocator.alloc(c_int, selected.len);
+    errdefer allocator.free(dtypes);
+    const dimension_buffer = try allocator.alloc(usize, max_dimensions);
+    defer allocator.free(dimension_buffer);
+    const written = try inferDenseGraphTyped(allocator, dtype, inputs, steps, selected,
+        ranks, elements, dimension_buffer, dtypes);
+    const dimensions = try allocator.dupe(usize, dimension_buffer[0..written]);
+    errdefer allocator.free(dimensions);
+    var total_bytes: usize = 0;
+    for (elements, dtypes) |count, code| {
+        const output_dtype: DenseDType = switch (code) {
+            1 => .f32, 2 => .f64, 3 => .i64, 4 => .u32, 5 => .bf16,
+            else => return error.CoreFailure,
+        };
+        const size = std.math.mul(usize, count, denseDTypeWidth(output_dtype)) catch return error.InvalidShape;
+        total_bytes = std.math.add(usize, total_bytes, size) catch return error.InvalidShape;
+    }
+    const bytes = try allocator.alloc(u8, total_bytes);
+    errdefer allocator.free(bytes);
+    try runDenseGraphBytes(allocator, dtype, inputs, input_bytes, steps, selected, bytes, goal);
+    return .{ .bytes = bytes, .ranks = ranks, .elements = elements,
+        .dimensions = dimensions, .dtypes = dtypes };
 }
 
 fn inferDenseGraphImpl(
