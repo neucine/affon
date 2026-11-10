@@ -564,6 +564,9 @@ test "Affon runs Cyna dense min and max reductions" {
     const single_result = try cyna.allocDenseGraphF32(std.testing.allocator, &single, &steps, &selected, .baseline);
     defer single_result.deinit(std.testing.allocator);
     try std.testing.expectEqualSlices(f32, &.{ 2, 9, 3, 2, 7, 9 }, single_result.values);
+    var resident_f32: [6]f32 = @splat(0);
+    try cyna.runDenseGraphResidentF32(std.testing.allocator, &single, &steps, &selected, &resident_f32);
+    try std.testing.expectEqualSlices(f32, single_result.values, &resident_f32);
     const double = [_]cyna.DenseInputF64{.{ .shape = &.{ 2, 2 }, .values = &.{ 7, 3, 2, 9 } }};
     const double_result = try cyna.allocDenseGraphF64(std.testing.allocator, &double, &steps, &selected, .baseline);
     defer double_result.deinit(std.testing.allocator);
