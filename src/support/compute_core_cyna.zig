@@ -238,6 +238,10 @@ pub const DenseOperation = enum(c_int) {
     cos = 22,
     softmax = 23,
     log_softmax = 24,
+    min_all = 25,
+    max_all = 26,
+    min_axis = 27,
+    max_axis = 28,
 };
 // rhs is a value ID for binary steps and an axis for axis reductions and softmax.
 pub const DenseStep = struct { operation: DenseOperation, lhs: usize, rhs: usize = 0 };
@@ -275,10 +279,11 @@ pub fn inferDenseGraph(
                 else => false,
             })) return error.InvalidShape;
         if (dtype == .i64 and switch (step.operation) {
-            .add, .sub, .mul, .div, .abs, .neg, .relu, .matmul, .sum_all, .sum_axis, .sign => false,
+            .add, .sub, .mul, .div, .abs, .neg, .relu, .matmul, .sum_all, .sum_axis, .sign,
+            .min_all, .max_all, .min_axis, .max_axis => false,
             else => true,
         }) return error.InvalidShape;
-        if (dtype == .u32 and @backingInt(step.operation) > 12) return error.InvalidShape;
+        if (dtype == .u32 and @backingInt(step.operation) > 12 and @backingInt(step.operation) < 25) return error.InvalidShape;
     }
     for (selected) |id| if (id >= inputs.len + steps.len) return error.InvalidShape;
     const ranks = try allocator.alloc(usize, inputs.len);
@@ -633,10 +638,11 @@ fn runDenseGraphWithGoal(
     for (steps, 0..) |step, index| {
         const available = inputs.len + index;
         if (T == i64 and switch (step.operation) {
-            .add, .sub, .mul, .div, .abs, .neg, .relu, .matmul, .sum_all, .sum_axis, .sign => false,
+            .add, .sub, .mul, .div, .abs, .neg, .relu, .matmul, .sum_all, .sum_axis, .sign,
+            .min_all, .max_all, .min_axis, .max_axis => false,
             else => true,
         }) return error.InvalidShape;
-        if (T == u32 and @backingInt(step.operation) > 12) return error.InvalidShape;
+        if (T == u32 and @backingInt(step.operation) > 12 and @backingInt(step.operation) < 25) return error.InvalidShape;
         if (step.lhs >= available or
             (switch (step.operation) {
                 .add, .sub, .mul, .div, .matmul => step.rhs >= available,
