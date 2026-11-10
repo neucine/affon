@@ -24,6 +24,9 @@ operation, native CPU/Metal implementations, and benchmark protocol.
 [Quantized Inference Profiling](./quantized-profiling.md) separates GPU work, host
 readback, and synchronized-call overhead and compares the optimized path with MLX.
 
+[Cyna Compute Core Integration Probe](./compute-core-cyna-adapter.md) records the
+isolated Affon consumer adapter and its build and parity check.
+
 The draft [Interactive Program Inspection](./inspection-visualization.md)
 describes a generic viewer built on the serialized `ProgramInspection` contract.
 
