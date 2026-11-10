@@ -93,6 +93,33 @@ test "Affon submits a wrapping u32 Cyna graph" {
     try std.testing.expectEqual(@as(u32, 91), output[0]);
 }
 
+test "Affon submits exact bf16 bits through a Cyna graph" {
+    const left = [_]u16{ 0x3f80, 0x4000, 0x4040, 0x4080 };
+    const identity = [_]u16{ 0x3f80, 0, 0, 0x3f80 };
+    const bias = [_]u16{ 0x3f80, 0x4000 };
+    const inputs = [_]cyna.DenseInputBf16Bits{
+        .{ .shape = &.{ 2, 2 }, .values = &left },
+        .{ .shape = &.{ 2, 2 }, .values = &identity },
+        .{ .shape = &.{2}, .values = &bias },
+    };
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .matmul, .lhs = 0, .rhs = 1 },
+        .{ .operation = .add, .lhs = 3, .rhs = 2 },
+        .{ .operation = .sum_axis, .lhs = 4, .rhs = 1 },
+    };
+    const selected = [_]usize{ 3, 4, 5 };
+    const expected = [_]u16{ 0x3f80, 0x4000, 0x4040, 0x4080, 0x4000, 0x4080, 0x4080, 0x40c0, 0x40c0, 0x4120 };
+    var output = [_]u16{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    try cyna.runDenseGraphBf16Bits(std.testing.allocator, &inputs, &steps, &selected, &output);
+    try std.testing.expectEqualSlices(u16, &expected, &output);
+    try cyna.runDenseGraphWithGoalBf16Bits(std.testing.allocator, &inputs, &steps, &selected, &output, .memory);
+    try std.testing.expectEqualSlices(u16, &expected, &output);
+    output[0] = 0xffff;
+    try std.testing.expectError(error.InvalidShape,
+        cyna.runDenseGraphBf16Bits(std.testing.allocator, &inputs, &steps, &selected, output[0..9]));
+    try std.testing.expectEqual(@as(u16, 0xffff), output[0]);
+}
+
 test "Affon calls Cyna matmul bias GELU through the C ABI" {
     const lhs = [_]f32{ 1, 2, 3, 4 };
     const rhs = [_]f32{ 5, 6, 7, 8 };
