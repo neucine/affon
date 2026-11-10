@@ -986,6 +986,9 @@ test "Affon submits axis softmax and log softmax" {
     const selected = [_]usize{ 1, 2 };
     var output: [12]f32 = @splat(0);
     try cyna.runDenseGraphF32(std.testing.allocator, &inputs, &steps, &selected, &output);
+    var resident_output: [12]f32 = @splat(0);
+    try cyna.runDenseGraphResidentF32(std.testing.allocator, &inputs, &steps, &selected, &resident_output);
+    try std.testing.expectEqualSlices(f32, &output, &resident_output);
     const expected_softmax = [_]f32{ 0.09003057, 0.24472848, 0.66524094 };
     const expected_log = [_]f32{ -2.407606, -1.407606, -0.407606 };
     for (0..6) |index| {
