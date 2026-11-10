@@ -250,6 +250,21 @@ test "Affon receives paired Cyna top k graph results" {
     const expected_indices = [_]i64{ 1, 2, 2, 0 };
     try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&expected_values), result.outputBytes(0));
     try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&expected_indices), result.outputBytes(1));
+    const unsorted_steps = [_]cyna.DenseStep{
+        .{ .operation = .top_k_values, .lhs = 0, .metadata = &.{ 1, 2, 1, 0 } },
+        .{ .operation = .top_k_indices, .lhs = 0, .metadata = &.{ 1, 2, 1, 0 } },
+    };
+    const unsorted = try cyna.allocDenseGraphMultiBytes(std.testing.allocator,
+        &inputs, &unsorted_steps, &.{ 1, 2 }, .memory);
+    defer unsorted.deinit(std.testing.allocator);
+    try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&expected_values), unsorted.outputBytes(0));
+    try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&expected_indices), unsorted.outputBytes(1));
+    const invalid_sort = [_]cyna.DenseStep{
+        .{ .operation = .top_k_values, .lhs = 0, .metadata = &.{ 1, 2, 1, 2 } },
+    };
+    try std.testing.expectError(error.InvalidShape,
+        cyna.allocDenseGraphMultiBytes(std.testing.allocator,
+            &inputs, &invalid_sort, &.{1}, .baseline));
     const invalid = [_]cyna.DenseStep{
         .{ .operation = .top_k_values, .lhs = 0, .metadata = &.{ 1, 4, 1 } },
     };
