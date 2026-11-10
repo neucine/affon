@@ -26,3 +26,22 @@ test "invalid Affon shape leaves caller output intact" {
             &output, std.math.maxInt(usize), 2, 2));
     try std.testing.expectEqualSlices(f32, &.{ -1, -1, -1, -1 }, &output);
 }
+
+test "Affon calls Cyna quantized matmul through the C ABI" {
+    const activation = [_]f32{ 1, 2, 3, 4, 5, 6, 7, 8, 2, 3, 4, 5, 6, 7, 8, 9 };
+    const weights = [_]u32{ 0x01010101, 0x01010101, 0x02020202, 0x02020202, 0x03030303, 0x03030303 };
+    const scales = [_]f32{ 1, 1, 1, 1, 1, 1 };
+    const biases = [_]f32{ 0, 0, 0, 0, 0, 0 };
+    var output = [_]f32{ -1, -1, -1, -1, -1, -1 };
+    try cyna.quantizedMatmulF32(&activation, &weights, &scales, &biases, &output, 2, 8, 3, 8, 4);
+    try std.testing.expectEqualSlices(f32, &.{ 36, 72, 108, 44, 88, 132 }, &output);
+
+    output = @splat(-1);
+    try std.testing.expectError(error.InvalidShape,
+        cyna.quantizedMatmulF32(&activation, &weights, &scales, &biases, &output, 2, 8, 3, 3, 4));
+    try std.testing.expectError(error.InvalidShape,
+        cyna.quantizedMatmulF32(&activation, &weights, &scales, &biases, &output, 2, 8, 3, 8, 0));
+    try std.testing.expectError(error.InvalidShape,
+        cyna.quantizedMatmulF32(&activation, &weights, &scales, &biases, &output, std.math.maxInt(usize), 8, 3, 8, 4));
+    try std.testing.expectEqualSlices(f32, &.{ -1, -1, -1, -1, -1, -1 }, &output);
+}
