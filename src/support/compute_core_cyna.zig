@@ -368,6 +368,9 @@ pub const DenseOperation = enum(c_int) {
     std_all = 34,
     variance_axis = 35,
     std_axis = 36,
+    eq = 37,
+    lt = 38,
+    gt = 39,
 };
 // rhs is a value ID for binary steps and an axis for axis reductions and softmax.
 pub const DenseStep = struct { operation: DenseOperation, lhs: usize, rhs: usize = 0 };
@@ -599,10 +602,12 @@ fn inferDenseGraphImpl(
     }
     for (steps, 0..) |step, index| {
         const available = inputs.len + index;
-        if (dtype != .i64 and output_dtypes == null and @backingInt(step.operation) >= 29 and @backingInt(step.operation) <= 32) return error.InvalidShape;
+        if (dtype != .i64 and output_dtypes == null and
+            ((@backingInt(step.operation) >= 29 and @backingInt(step.operation) <= 32) or
+            @backingInt(step.operation) >= 37)) return error.InvalidShape;
         if (step.lhs >= available or
             (switch (step.operation) {
-                .add, .sub, .mul, .div, .matmul => step.rhs >= available,
+                .add, .sub, .mul, .div, .matmul, .eq, .lt, .gt => step.rhs >= available,
                 else => false,
             })) return error.InvalidShape;
         if (dtype == .i64 and switch (step.operation) {
@@ -610,7 +615,8 @@ fn inferDenseGraphImpl(
             .sum_all, .mean_all, .sum_axis, .mean_axis, .sign,
             .min_all, .max_all, .min_axis, .max_axis,
             .argmin_all, .argmax_all, .argmin_axis, .argmax_axis,
-            .variance_all, .std_all, .variance_axis, .std_axis => false,
+            .variance_all, .std_all, .variance_axis, .std_axis,
+            .eq, .lt, .gt => false,
             else => true,
         }) return error.InvalidShape;
         if (dtype == .u32 and @backingInt(step.operation) > 12 and @backingInt(step.operation) < 25) return error.InvalidShape;
@@ -974,19 +980,21 @@ fn runDenseGraphWithGoal(
     }
     for (steps, 0..) |step, index| {
         const available = inputs.len + index;
-        if (T != i64 and @backingInt(step.operation) >= 29 and @backingInt(step.operation) <= 32) return error.InvalidShape;
+        if (T != i64 and ((@backingInt(step.operation) >= 29 and @backingInt(step.operation) <= 32) or
+            @backingInt(step.operation) >= 37)) return error.InvalidShape;
         if (T == i64 and switch (step.operation) {
             .add, .sub, .mul, .div, .abs, .neg, .relu, .matmul,
             .sum_all, .mean_all, .sum_axis, .mean_axis, .sign,
             .min_all, .max_all, .min_axis, .max_axis,
             .argmin_all, .argmax_all, .argmin_axis, .argmax_axis,
-            .variance_all, .std_all, .variance_axis, .std_axis => false,
+            .variance_all, .std_all, .variance_axis, .std_axis,
+            .eq, .lt, .gt => false,
             else => true,
         }) return error.InvalidShape;
         if (T == u32 and @backingInt(step.operation) > 12 and @backingInt(step.operation) < 25) return error.InvalidShape;
         if (step.lhs >= available or
             (switch (step.operation) {
-                .add, .sub, .mul, .div, .matmul => step.rhs >= available,
+                .add, .sub, .mul, .div, .matmul, .eq, .lt, .gt => step.rhs >= available,
                 else => false,
             }))
             return error.InvalidShape;
