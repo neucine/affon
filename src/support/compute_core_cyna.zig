@@ -73,9 +73,32 @@ extern fn compute_core_run_dense_graph_with_goal_f32(
     output_value_count: usize,
 ) c_int;
 
+extern fn compute_core_run_dense_graph_i64(
+    goal: c_int,
+    input_values: [*]const i64,
+    input_value_count: usize,
+    input_ranks: [*]const usize,
+    input_count: usize,
+    dimensions: [*]const usize,
+    dimension_count: usize,
+    operations: [*]const c_int,
+    lhs_ids: [*]const usize,
+    rhs_ids: [*]const usize,
+    instruction_count: usize,
+    output_ids: [*]const usize,
+    selected_count: usize,
+    output: [*]i64,
+    output_value_count: usize,
+) c_int;
+
 pub const DenseGoal = enum(c_int) { baseline = 0, memory = 1 };
 
-pub const DenseInput = struct { shape: []const usize, values: []const f32 };
+fn denseInput(comptime T: type) type {
+    return struct { shape: []const usize, values: []const T };
+}
+
+pub const DenseInput = denseInput(f32);
+pub const DenseInputI64 = denseInput(i64);
 pub const DenseOperation = enum(c_int) {
     add = 0,
     sub = 1,
@@ -258,6 +281,39 @@ pub fn runDenseGraphWithGoalF32(
     output: []f32,
     goal: DenseGoal,
 ) (Error || std.mem.Allocator.Error)!void {
+    return runDenseGraphWithGoal(f32, allocator, inputs, steps, selected, output, goal);
+}
+
+pub fn runDenseGraphI64(
+    allocator: std.mem.Allocator,
+    inputs: []const DenseInputI64,
+    steps: []const DenseStep,
+    selected: []const usize,
+    output: []i64,
+) (Error || std.mem.Allocator.Error)!void {
+    return runDenseGraphWithGoal(i64, allocator, inputs, steps, selected, output, .baseline);
+}
+
+pub fn runDenseGraphWithGoalI64(
+    allocator: std.mem.Allocator,
+    inputs: []const DenseInputI64,
+    steps: []const DenseStep,
+    selected: []const usize,
+    output: []i64,
+    goal: DenseGoal,
+) (Error || std.mem.Allocator.Error)!void {
+    return runDenseGraphWithGoal(i64, allocator, inputs, steps, selected, output, goal);
+}
+
+fn runDenseGraphWithGoal(
+    comptime T: type,
+    allocator: std.mem.Allocator,
+    inputs: []const denseInput(T),
+    steps: []const DenseStep,
+    selected: []const usize,
+    output: []T,
+    goal: DenseGoal,
+) (Error || std.mem.Allocator.Error)!void {
     if (inputs.len == 0 or selected.len == 0 or
         steps.len > std.math.maxInt(usize) - inputs.len) return error.InvalidShape;
     var dimension_count: usize = 0;
@@ -275,6 +331,10 @@ pub fn runDenseGraphWithGoalF32(
     }
     for (steps, 0..) |step, index| {
         const available = inputs.len + index;
+        if (T == i64 and switch (step.operation) {
+            .add, .sub, .mul, .div, .abs, .neg, .relu, .matmul, .sum_all, .sum_axis, .sign => false,
+            else => true,
+        }) return error.InvalidShape;
         if (step.lhs >= available or
             (switch (step.operation) {
                 .add, .sub, .mul, .div, .matmul => step.rhs >= available,
@@ -286,7 +346,7 @@ pub fn runDenseGraphWithGoalF32(
         return error.InvalidShape;
     };
 
-    const values = try allocator.alloc(f32, value_count);
+    const values = try allocator.alloc(T, value_count);
     defer allocator.free(values);
     const ranks = try allocator.alloc(usize, inputs.len);
     defer allocator.free(ranks);
@@ -312,7 +372,7 @@ pub fn runDenseGraphWithGoalF32(
         lhs_ids[index] = step.lhs;
         rhs_ids[index] = step.rhs;
     }
-    switch (compute_core_run_dense_graph_with_goal_f32(
+    const status = if (T == f32) compute_core_run_dense_graph_with_goal_f32(
         @backingInt(goal),
         values.ptr,
         values.len,
@@ -328,7 +388,24 @@ pub fn runDenseGraphWithGoalF32(
         selected.len,
         output.ptr,
         output.len,
-    )) {
+    ) else compute_core_run_dense_graph_i64(
+        @backingInt(goal),
+        values.ptr,
+        values.len,
+        ranks.ptr,
+        ranks.len,
+        dimensions.ptr,
+        dimensions.len,
+        operations.ptr,
+        lhs_ids.ptr,
+        rhs_ids.ptr,
+        steps.len,
+        selected.ptr,
+        selected.len,
+        output.ptr,
+        output.len,
+    );
+    switch (status) {
         0 => {},
         1 => return error.InvalidShape,
         else => return error.CoreFailure,

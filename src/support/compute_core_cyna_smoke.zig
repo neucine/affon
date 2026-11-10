@@ -14,6 +14,36 @@ test "Affon calls Cyna signed i64 matmul through the C ABI" {
     try std.testing.expectEqualSlices(i64, &.{ 91, 92, 93, 94 }, &unchanged);
 }
 
+test "Affon submits a shaped signed i64 Cyna graph" {
+    const left = [_]i64{ 1, 2, 3, 4 };
+    const right = [_]i64{ 5, 6, 7, 8 };
+    const bias = [_]i64{ 10, 20 };
+    const inputs = [_]cyna.DenseInputI64{
+        .{ .shape = &.{ 2, 2 }, .values = &left },
+        .{ .shape = &.{ 2, 2 }, .values = &right },
+        .{ .shape = &.{2}, .values = &bias },
+    };
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .matmul, .lhs = 0, .rhs = 1 },
+        .{ .operation = .add, .lhs = 3, .rhs = 2 },
+        .{ .operation = .sum_axis, .lhs = 4, .rhs = 1 },
+    };
+    const selected = [_]usize{ 3, 4, 5 };
+    var output = [_]i64{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    try cyna.runDenseGraphI64(std.testing.allocator, &inputs, &steps, &selected, &output);
+    try std.testing.expectEqualSlices(i64, &.{ 19, 22, 43, 50, 29, 42, 53, 70, 71, 123 }, &output);
+    try cyna.runDenseGraphWithGoalI64(std.testing.allocator, &inputs, &steps, &selected, &output, .memory);
+    try std.testing.expectEqualSlices(i64, &.{ 19, 22, 43, 50, 29, 42, 53, 70, 71, 123 }, &output);
+    var unchanged = [_]i64{ 91, 91, 91, 91, 91, 91, 91, 91, 91, 91 };
+    try std.testing.expectError(error.InvalidShape,
+        cyna.runDenseGraphI64(std.testing.allocator, &inputs, &steps, &selected, unchanged[0..9]));
+    try std.testing.expectEqual(@as(i64, 91), unchanged[0]);
+    const unsupported = [_]cyna.DenseStep{.{ .operation = .mean_all, .lhs = 0 }};
+    try std.testing.expectError(error.InvalidShape,
+        cyna.runDenseGraphI64(std.testing.allocator, &inputs, &unsupported, &.{3}, unchanged[0..1]));
+    try std.testing.expectEqual(@as(i64, 91), unchanged[0]);
+}
+
 test "Affon calls Cyna matmul bias GELU through the C ABI" {
     const lhs = [_]f32{ 1, 2, 3, 4 };
     const rhs = [_]f32{ 5, 6, 7, 8 };
