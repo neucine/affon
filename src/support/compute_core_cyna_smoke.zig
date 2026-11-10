@@ -654,14 +654,14 @@ test "Affon submits a shaped signed i64 Cyna graph" {
     try std.testing.expectEqualSlices(i64, &.{ 19, 22, 43, 50, 29, 42, 53, 70, 71, 123 }, &output);
     try cyna.runDenseGraphWithGoalI64(std.testing.allocator, &inputs, &steps, &selected, &output, .memory);
     try std.testing.expectEqualSlices(i64, &.{ 19, 22, 43, 50, 29, 42, 53, 70, 71, 123 }, &output);
-    try cyna.runDenseGraphResidentI64(std.testing.allocator, &inputs, steps[0..2], selected[0..2], output[0..8]);
-    try std.testing.expectEqualSlices(i64, &.{ 19, 22, 43, 50, 29, 42, 53, 70 }, output[0..8]);
+    try cyna.runDenseGraphResidentI64(std.testing.allocator, &inputs, &steps, &selected, &output);
+    try std.testing.expectEqualSlices(i64, &.{ 19, 22, 43, 50, 29, 42, 53, 70, 71, 123 }, &output);
     var unchanged = [_]i64{ 91, 91, 91, 91, 91, 91, 91, 91, 91, 91 };
     try std.testing.expectError(error.InvalidShape,
         cyna.runDenseGraphI64(std.testing.allocator, &inputs, &steps, &selected, unchanged[0..9]));
     try std.testing.expectEqual(@as(i64, 91), unchanged[0]);
     try std.testing.expectError(error.InvalidShape,
-        cyna.runDenseGraphResidentI64(std.testing.allocator, &inputs, steps[0..2], selected[0..2], unchanged[0..7]));
+        cyna.runDenseGraphResidentI64(std.testing.allocator, &inputs, &steps, &selected, unchanged[0..9]));
     try std.testing.expectEqual(@as(i64, 91), unchanged[0]);
     const unsupported = [_]cyna.DenseStep{.{ .operation = .mean_axis, .lhs = 0, .rhs = 9 }};
     try std.testing.expectError(error.InvalidShape,
