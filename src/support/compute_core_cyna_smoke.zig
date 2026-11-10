@@ -29,6 +29,46 @@ test "Affon infers mixed dtype selected graph results" {
     try std.testing.expectError(error.InvalidShape,
         cyna.inferDenseGraph(std.testing.allocator, .f32, &inputs,
             &steps, &selected, &ranks, &elements, &dimensions));
+    const input_bytes = [_]u8{
+        0, 0, 128, 64, 0, 0, 128, 191,
+        0, 0, 0, 64, 0, 0, 128, 191,
+    };
+    var output_bytes: [40]u8 = undefined;
+    @memset(&output_bytes, 0);
+    try cyna.runDenseGraphBytes(std.testing.allocator, .f32, &inputs,
+        &input_bytes, &steps, &selected, &output_bytes, .memory);
+    try std.testing.expectEqualSlices(u8, &input_bytes, output_bytes[0..16]);
+    try std.testing.expectEqual(@as(u8, 1), output_bytes[16]);
+    try std.testing.expectEqual(@as(u8, 1), output_bytes[24]);
+    try std.testing.expectEqual(@as(u8, 0), output_bytes[32]);
+    @memset(&output_bytes, 91);
+    try std.testing.expectError(error.InvalidShape,
+        cyna.runDenseGraphBytes(std.testing.allocator, .f32, &inputs,
+            &input_bytes, &steps, &selected, output_bytes[0..39], .baseline));
+    try std.testing.expectEqual(@as(u8, 91), output_bytes[0]);
+}
+
+test "Affon preserves f64 u32 and bf16 bytes with i64 index results" {
+    const shapes = [_]cyna.DenseInputShape{.{ .shape = &.{ 2, 2 } }};
+    const steps = [_]cyna.DenseStep{.{ .operation = .argmin_axis, .lhs = 0, .rhs = 1 }};
+    const selected = [_]usize{ 0, 1 };
+    const double_values = [_]f64{ 2, 1, 4, 3 };
+    const unsigned_values = [_]u32{ 2, 1, 4, 3 };
+    const bf16_values = [_]u16{ 0x4000, 0x3f80, 0x4080, 0x4040 };
+    inline for (.{
+        .{ cyna.DenseDType.f64, std.mem.sliceAsBytes(&double_values) },
+        .{ cyna.DenseDType.u32, std.mem.sliceAsBytes(&unsigned_values) },
+        .{ cyna.DenseDType.bf16, std.mem.sliceAsBytes(&bf16_values) },
+    }) |item| {
+        const input = item[1];
+        const result = try std.testing.allocator.alloc(u8, input.len + 16);
+        defer std.testing.allocator.free(result);
+        try cyna.runDenseGraphBytes(std.testing.allocator, item[0], &shapes,
+            input, &steps, &selected, result, .baseline);
+        try std.testing.expectEqualSlices(u8, input, result[0..input.len]);
+        try std.testing.expectEqualSlices(u8, &.{ 1, 0, 0, 0, 0, 0, 0, 0 }, result[input.len..][0..8]);
+        try std.testing.expectEqualSlices(u8, &.{ 1, 0, 0, 0, 0, 0, 0, 0 }, result[input.len + 8 ..][0..8]);
+    }
 }
 
 test "Affon runs Cyna population statistics and integer mean" {

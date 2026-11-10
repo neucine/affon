@@ -182,6 +182,25 @@ extern fn compute_core_infer_dense_graph_typed(
     output_dtypes: [*]c_int,
 ) c_int;
 
+extern fn compute_core_run_dense_graph_bytes(
+    goal: c_int,
+    dtype: c_int,
+    input_bytes: [*]const u8,
+    input_byte_count: usize,
+    input_ranks: [*]const usize,
+    input_count: usize,
+    dimensions: [*]const usize,
+    dimension_count: usize,
+    operations: [*]const c_int,
+    lhs_ids: [*]const usize,
+    rhs_ids: [*]const usize,
+    instruction_count: usize,
+    output_ids: [*]const usize,
+    selected_count: usize,
+    output_bytes: [*]u8,
+    output_byte_count: usize,
+) c_int;
+
 pub const DenseGoal = enum(c_int) { baseline = 0, memory = 1 };
 
 fn denseInput(comptime T: type) type {
@@ -291,6 +310,61 @@ pub fn inferDenseGraphTyped(
 ) (Error || std.mem.Allocator.Error)!usize {
     return inferDenseGraphImpl(allocator, dtype, inputs, steps, selected,
         output_ranks, output_elements, output_dimensions, output_dtypes);
+}
+
+// Input and selected output buffers use little-endian dtype-width bytes.
+// Use inferDenseGraphTyped to size and interpret each selected output.
+pub fn runDenseGraphBytes(
+    allocator: std.mem.Allocator, dtype: DenseDType, inputs: []const DenseInputShape,
+    input_bytes: []const u8, steps: []const DenseStep, selected: []const usize,
+    output_bytes: []u8, goal: DenseGoal,
+) (Error || std.mem.Allocator.Error)!void {
+    if (inputs.len == 0 or selected.len == 0 or
+        steps.len > std.math.maxInt(usize) - inputs.len) return error.InvalidShape;
+    const width: usize = switch (dtype) { .f64, .i64 => 8, .f32, .u32 => 4, .bf16 => 2 };
+    var dimension_count: usize = 0;
+    var input_count: usize = 0;
+    for (inputs) |input| {
+        if (input.shape.len > 8) return error.InvalidShape;
+        dimension_count = std.math.add(usize, dimension_count, input.shape.len) catch return error.InvalidShape;
+        var elements: usize = 1;
+        for (input.shape) |dimension| {
+            if (dimension == 0) return error.InvalidShape;
+            elements = std.math.mul(usize, elements, dimension) catch return error.InvalidShape;
+        }
+        input_count = std.math.add(usize, input_count, elements) catch return error.InvalidShape;
+    }
+    const expected_bytes = std.math.mul(usize, input_count, width) catch return error.InvalidShape;
+    if (expected_bytes != input_bytes.len) return error.InvalidShape;
+    const ranks = try allocator.alloc(usize, inputs.len);
+    defer allocator.free(ranks);
+    const dimensions = try allocator.alloc(usize, dimension_count);
+    defer allocator.free(dimensions);
+    const operations = try allocator.alloc(c_int, steps.len);
+    defer allocator.free(operations);
+    const lhs_ids = try allocator.alloc(usize, steps.len);
+    defer allocator.free(lhs_ids);
+    const rhs_ids = try allocator.alloc(usize, steps.len);
+    defer allocator.free(rhs_ids);
+    var cursor: usize = 0;
+    for (inputs, 0..) |input, index| {
+        ranks[index] = input.shape.len;
+        @memcpy(dimensions[cursor..][0..input.shape.len], input.shape);
+        cursor += input.shape.len;
+    }
+    for (steps, 0..) |step, index| {
+        operations[index] = @backingInt(step.operation);
+        lhs_ids[index] = step.lhs;
+        rhs_ids[index] = step.rhs;
+    }
+    switch (compute_core_run_dense_graph_bytes(@backingInt(goal), @backingInt(dtype),
+        input_bytes.ptr, input_bytes.len, ranks.ptr, ranks.len, dimensions.ptr,
+        dimensions.len, operations.ptr, lhs_ids.ptr, rhs_ids.ptr, steps.len,
+        selected.ptr, selected.len, output_bytes.ptr, output_bytes.len)) {
+        0 => {},
+        1 => return error.InvalidShape,
+        else => return error.CoreFailure,
+    }
 }
 
 fn inferDenseGraphImpl(
