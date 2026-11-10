@@ -290,6 +290,35 @@ test "Affon composes Cyna cat stack and reduce to shape" {
             &inputs, &invalid, &.{2}, .baseline));
 }
 
+test "Affon sends Cyna masked fill and clamp scalars" {
+    const values = [_]f32{ -2, 0, 2, 4 };
+    const mask = [_]i64{ 0, 1, 0, 1 };
+    const inputs = [_]cyna.DenseByteInput{
+        .{ .dtype = .f32, .shape = &.{4}, .bytes = std.mem.sliceAsBytes(&values) },
+        .{ .dtype = .i64, .shape = &.{4}, .bytes = std.mem.sliceAsBytes(&mask) },
+    };
+    const fill = cyna.scalarMetadata(-1.5);
+    const lower = cyna.scalarMetadata(-1);
+    const upper = cyna.scalarMetadata(1);
+    const bounds = [4]usize{ lower[0], lower[1], upper[0], upper[1] };
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .masked_fill, .lhs = 0, .rhs = 1, .metadata = &fill },
+        .{ .operation = .clamp, .lhs = 2, .metadata = &bounds },
+    };
+    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator,
+        &inputs, &steps, &.{ 2, 3 }, .baseline);
+    defer result.deinit(std.testing.allocator);
+    const expected_fill = [_]f32{ -2, -1.5, 2, -1.5 };
+    const expected_clamp = [_]f32{ -1, -1, 1, -1 };
+    try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&expected_fill), result.outputBytes(0));
+    try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&expected_clamp), result.outputBytes(1));
+    const reversed = [4]usize{ upper[0], upper[1], lower[0], lower[1] };
+    const invalid = [_]cyna.DenseStep{.{ .operation = .clamp, .lhs = 0, .metadata = &reversed }};
+    try std.testing.expectError(error.InvalidShape,
+        cyna.allocDenseGraphMultiBytes(std.testing.allocator,
+            &inputs, &invalid, &.{2}, .baseline));
+}
+
 test "Affon owns heterogeneous Cyna graph results" {
     const float_values = [_]f32{ 4, -1 };
     const integer_values = [_]i64{ 7, 9 };

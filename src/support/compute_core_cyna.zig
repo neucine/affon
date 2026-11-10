@@ -477,6 +477,8 @@ pub const DenseOperation = enum(c_int) {
     reduce_to_shape = 57,
     cat = 58,
     stack = 59,
+    masked_fill = 60,
+    clamp = 61,
 };
 // rhs is a value ID for binary steps, an axis for reductions and softmax,
 // an index ID for indexed steps, a class count for one_hot, a DenseDType code
@@ -487,7 +489,13 @@ pub const DenseOperation = enum(c_int) {
 // start/stop/positive-step triples for each slice axis. Scatter add uses one
 // metadata value for its axis. Top-k uses axis, k, and a 0/1 largest flag.
 // Reduce-to-shape uses target dimensions; cat and stack use additional value IDs.
+// Masked fill and clamp store each f64 scalar as low and high 32-bit words.
 pub const DenseStep = struct { operation: DenseOperation, lhs: usize, rhs: usize = 0, third: usize = 0, metadata: []const usize = &.{} };
+
+pub fn scalarMetadata(value: f64) [2]usize {
+    const bits: u64 = @bitCast(value);
+    return .{ @intCast(bits & 0xffff_ffff), @intCast(bits >> 32) };
+}
 
 // Returns the number of flattened output dimensions written. Each selected
 // output has one rank and element count; a scalar has rank zero and one element.
