@@ -672,6 +672,27 @@ test "Affon submits a precise f64 Cyna graph" {
     try std.testing.expectEqual(@as(f64, -1.0), output[0]);
 }
 
+test "Affon runs f64 matmul and bias through the Cyna memory goal" {
+    const left = [_]f64{ 16777217.0, 1.0, 2.0, 3.0 };
+    const right = [_]f64{ 1.0, 0.0, 0.0, 1.0 };
+    const bias = [_]f64{ 4.0, 5.0 };
+    const inputs = [_]cyna.DenseInputF64{
+        .{ .shape = &.{ 2, 2 }, .values = &left },
+        .{ .shape = &.{ 2, 2 }, .values = &right },
+        .{ .shape = &.{2}, .values = &bias },
+    };
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .matmul, .lhs = 0, .rhs = 1 },
+        .{ .operation = .add, .lhs = 3, .rhs = 2 },
+    };
+    var baseline: [4]f64 = undefined;
+    var memory: [4]f64 = undefined;
+    try cyna.runDenseGraphF64(std.testing.allocator, &inputs, &steps, &.{4}, &baseline);
+    try cyna.runDenseGraphWithGoalF64(std.testing.allocator, &inputs, &steps, &.{4}, &memory, .memory);
+    try std.testing.expectEqualSlices(f64, &.{ 16777221.0, 6.0, 6.0, 8.0 }, &memory);
+    try std.testing.expectEqualSlices(f64, &baseline, &memory);
+}
+
 test "Affon submits a wrapping u32 Cyna graph" {
     const left = [_]u32{ std.math.maxInt(u32), 2, 3, 4 };
     const identity = [_]u32{ 1, 0, 0, 1 };
