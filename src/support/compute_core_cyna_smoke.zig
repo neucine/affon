@@ -1,6 +1,19 @@
 const std = @import("std");
 const cyna = @import("compute_core_cyna.zig");
 
+test "Affon calls Cyna signed i64 matmul through the C ABI" {
+    const lhs = [_]i64{ 1, -2, 3, 4 };
+    const rhs = [_]i64{ 5, 6, 7, 8 };
+    var output = [_]i64{ 0, 0, 0, 0 };
+    try cyna.matmulI64(&lhs, &rhs, &output, 2, 2, 2);
+    try std.testing.expectEqualSlices(i64, &.{ -9, -10, 43, 50 }, &output);
+    var unchanged = [_]i64{ 91, 92, 93, 94 };
+    try std.testing.expectError(error.InvalidShape, cyna.matmulI64(lhs[0..3], &rhs, &unchanged, 2, 2, 2));
+    try std.testing.expectEqualSlices(i64, &.{ 91, 92, 93, 94 }, &unchanged);
+    try std.testing.expectError(error.InvalidShape, cyna.matmulI64(&lhs, &rhs, &unchanged, std.math.maxInt(usize), 2, 2));
+    try std.testing.expectEqualSlices(i64, &.{ 91, 92, 93, 94 }, &unchanged);
+}
+
 test "Affon calls Cyna matmul bias GELU through the C ABI" {
     const lhs = [_]f32{ 1, 2, 3, 4 };
     const rhs = [_]f32{ 5, 6, 7, 8 };

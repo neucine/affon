@@ -1,5 +1,17 @@
 const std = @import("std");
 
+extern fn compute_core_run_matmul_i64(
+    lhs: [*]const i64,
+    lhs_count: usize,
+    rhs: [*]const i64,
+    rhs_count: usize,
+    output: [*]i64,
+    output_count: usize,
+    rows: usize,
+    depth: usize,
+    columns: usize,
+) c_int;
+
 extern fn compute_core_run_matmul_bias_gelu_f32(
     lhs: [*]const f32,
     lhs_count: usize,
@@ -98,6 +110,19 @@ pub const Reduction = enum(c_int) { sum = 0, mean = 1, min = 2, max = 3, varianc
 pub const ReductionAxis = enum(c_int) { all = -1, rows = 0, columns = 1 };
 
 pub const Error = error{ InvalidShape, CoreFailure };
+
+pub fn matmulI64(lhs: []const i64, rhs: []const i64, output: []i64, rows: usize, depth: usize, columns: usize) Error!void {
+    if (rows == 0 or depth == 0 or columns == 0) return error.InvalidShape;
+    const lhs_count = std.math.mul(usize, rows, depth) catch return error.InvalidShape;
+    const rhs_count = std.math.mul(usize, depth, columns) catch return error.InvalidShape;
+    const output_count = std.math.mul(usize, rows, columns) catch return error.InvalidShape;
+    if (lhs.len != lhs_count or rhs.len != rhs_count or output.len != output_count) return error.InvalidShape;
+    switch (compute_core_run_matmul_i64(lhs.ptr, lhs.len, rhs.ptr, rhs.len, output.ptr, output.len, rows, depth, columns)) {
+        0 => {},
+        1 => return error.InvalidShape,
+        else => return error.CoreFailure,
+    }
+}
 
 // Isolated Affon consumer boundary for compute-core. The caller owns every slice.
 pub fn matmulBiasGeluF32(
