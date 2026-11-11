@@ -1,3 +1,4 @@
+import { testDevices, testOn } from '../../devices.ts'
 import { Session, Tensor, program } from 'affon:compute'
 import { add, argmax, argmin, max, mean, min, std, sum, variance } from 'affon:ops'
 import { describe, expect, test, values } from 'std:test'
@@ -15,7 +16,7 @@ const cases = [
 ] as const
 
 describe('Reduction axes, values, and repeatability', () => {
-  test('Metal keeps a parallel axis reduction between GPU producer and consumer', () => {
+  testOn('metal')('Metal keeps a parallel axis reduction between GPU producer and consumer', () => {
     const source = program('gpu_axis_sum_resident', p => {
       const input = p.argument('input', Tensor.f32([129, 257]))
       const reduced = sum(add(input, input), 1)
@@ -30,7 +31,7 @@ describe('Reduction axes, values, and repeatability', () => {
     output.dispose(); input.dispose(); executable.dispose(); session.dispose()
   })
 
-  test('Metal keeps parallel axis variance between GPU producer and consumer', () => {
+  testOn('metal')('Metal keeps parallel axis variance between GPU producer and consumer', () => {
     const source = program('gpu_axis_variance_resident', p => {
       const input = p.argument('input', Tensor.f32([129, 257]))
       const zeros = p.argument('zeros', Tensor.f32([129, 257]))
@@ -49,7 +50,7 @@ describe('Reduction axes, values, and repeatability', () => {
     output.dispose(); zeros.dispose(); input.dispose(); executable.dispose(); session.dispose()
   })
 
-  test('Metal parallel argmax keeps first ties and first NaN indices', () => {
+  testOn('metal')('Metal parallel argmax keeps first ties and first NaN indices', () => {
     const source = program('gpu_argmax_axis_ties', p => {
       const input = p.argument('input', Tensor.f32([2, 128]))
       const zeros = p.argument('zeros', Tensor.f32([2, 128]))
@@ -67,7 +68,7 @@ describe('Reduction axes, values, and repeatability', () => {
     output.dispose(); zeros.dispose(); input.dispose(); executable.dispose(); session.dispose()
   })
 
-  for (const device of ['cpu', 'metal'] as const) {
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) {
     for (const entry of cases) {
       test(`${entry.name} on ${device} handles negative axis and keep_dims`, () => {
         const source = program(`reduction_${entry.name}_${device}`, p => entry.run(
@@ -90,8 +91,8 @@ describe('Reduction axes, values, and repeatability', () => {
     }
   }
 
-  test('column reductions use independent columns with integer argmax output', () => {
-    const session = new Session({ device: 'cpu' })
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`column reductions use independent columns with integer argmax output on ${device}`, () => {
+    const session = new Session({ device })
     const input = session.tensor(data, { axes: ['batch', 'feature'] })
     const total = sum(input, 0)
     const largest = argmax(input, 0)
@@ -102,8 +103,8 @@ describe('Reduction axes, values, and repeatability', () => {
     total.dispose(); largest.dispose(); input.dispose(); session.dispose()
   })
 
-  test('invalid axis leaves the tensor usable for a valid reduction', () => {
-    const session = new Session({ device: 'cpu' })
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`invalid axis leaves the tensor usable for a valid reduction on ${device}`, () => {
+    const session = new Session({ device })
     const input = session.tensor(data)
     expect(() => sum(input, 2)).toThrow()
     expect(() => argmin(input, -3)).toThrow()

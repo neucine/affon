@@ -1,9 +1,10 @@
+import { testDevices } from '../../devices.ts'
 import { Session, Tensor, program } from 'affon:compute'
 import { erf, gelu, log_softmax, permute, rms_norm, silu, square } from 'affon:ops'
 import { describe, expect, test, values } from 'std:test'
 
 describe('remaining public operation behavior', () => {
-  test('runs activation and normalization calls in evaluated and compiled forms', () => {
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`runs activation and normalization calls in evaluated and compiled forms on ${device}`, () => {
     const source = program('activation_and_norm', p => {
       const input = p.argument('input', Tensor.f32([3]))
       return [square(input), silu(input), erf(input), gelu(input), log_softmax(input, 0), rms_norm(input, 0)]
@@ -11,7 +12,7 @@ describe('remaining public operation behavior', () => {
     expect(source.inspect().nodes.filter(node => node.kind === 'operation').map(node => node.op)).toEqual([
       'mul', 'silu', 'erf', 'gelu', 'log_softmax', 'rms_norm',
     ])
-    const session = new Session({ device: 'cpu' })
+    const session = new Session({ device })
     const input = session.tensor([-1, 0, 1])
     const direct = [square(input), silu(input), erf(input), gelu(input), log_softmax(input, 0), rms_norm(input, 0)]
     const compiled = session.compile(source).run({ input }) as Tensor[]
@@ -31,11 +32,11 @@ describe('remaining public operation behavior', () => {
     session.dispose()
   })
 
-  test('permutes three axes in evaluated and compiled forms', () => {
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`permutes three axes in evaluated and compiled forms on ${device}`, () => {
     const source = program('permute_three_axes', p => permute(
       p.argument('input', Tensor.f32([2, 1, 3])), [2, 0, 1],
     ))
-    const session = new Session({ device: 'cpu' })
+    const session = new Session({ device })
     const input = session.tensor([[[1, 2, 3]], [[4, 5, 6]]])
     const expected = [[[1], [4]], [[2], [5]], [[3], [6]]]
     const direct = permute(input, [2, 0, 1])

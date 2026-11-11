@@ -1,9 +1,10 @@
+import { testDevices } from '../../devices.ts'
 import { Session, Tensor, program } from 'affon:compute'
 import { dot, matmul, transpose } from 'affon:ops'
 import { describe, expect, test } from 'std:test'
 
 describe('Matrix and dot operation contracts', () => {
-  for (const device of ['cpu', 'metal'] as const) {
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) {
     test(`batched matrix multiplication keeps batches independent on ${device}`, () => {
       const source = program(`batched_matmul_${device}`, p => matmul(
         p.argument('left', Tensor.f32([2, 2, 3])),
@@ -34,8 +35,8 @@ describe('Matrix and dot operation contracts', () => {
     })
   }
 
-  test('invalid inner dimensions reject before a valid multiply in the same Session', () => {
-    const session = new Session({ device: 'cpu' })
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`invalid inner dimensions reject before a valid multiply in the same Session on ${device}`, () => {
+    const session = new Session({ device })
     const left = session.tensor([[1, 2, 3]])
     const wrong = session.tensor([[1, 2]])
     expect(() => matmul(left, wrong)).toThrow()
@@ -45,8 +46,8 @@ describe('Matrix and dot operation contracts', () => {
     result.dispose(); right.dispose(); wrong.dispose(); left.dispose(); session.dispose()
   })
 
-  test('dot rejects length mismatch but keeps the vectors usable', () => {
-    const session = new Session({ device: 'cpu' })
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`dot rejects length mismatch but keeps the vectors usable on ${device}`, () => {
+    const session = new Session({ device })
     const left = session.tensor([1, 2, 3])
     const wrong = session.tensor([1, 2])
     expect(() => dot(left, wrong)).toThrow()

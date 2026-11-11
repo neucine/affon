@@ -1,9 +1,10 @@
+import { testDevices } from '../../devices.ts'
 import { Session, Tensor, program } from 'affon:compute'
 import { add, cat, contiguous, matmul, permute, reshape, slice, squeeze, stack, transpose, unsqueeze } from 'affon:ops'
 import { describe, expect, test } from 'std:test'
 
 describe('Layout and shape operation contracts', () => {
-  for (const device of ['cpu', 'metal'] as const) {
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) {
     test(`sliced offset and transposed views feed arithmetic on ${device}`, () => {
       const session = new Session({ device })
       const base = session.tensor([[0, 1, 2, 3], [10, 11, 12, 13], [20, 21, 22, 23]])
@@ -37,8 +38,8 @@ describe('Layout and shape operation contracts', () => {
     })
   }
 
-  test('rank-three permutation maps every coordinate without flattening', () => {
-    const session = new Session({ device: 'cpu' })
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`rank-three permutation maps every coordinate without flattening on ${device}`, () => {
+    const session = new Session({ device })
     const input = session.tensor([[[1, 2], [3, 4], [5, 6]], [[7, 8], [9, 10], [11, 12]]])
     const result = permute(input, [2, 0, 1])
     expect(result.shape).toEqual([2, 2, 3])
@@ -46,8 +47,8 @@ describe('Layout and shape operation contracts', () => {
     result.dispose(); input.dispose(); session.dispose()
   })
 
-  test('cat, stack, squeeze, and unsqueeze preserve order and rank', () => {
-    const session = new Session({ device: 'cpu' })
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`cat, stack, squeeze, and unsqueeze preserve order and rank on ${device}`, () => {
+    const session = new Session({ device })
     const a = session.tensor([[1, 2]])
     const b = session.tensor([[3, 4]])
     const joined = cat([a, b], 0)
@@ -61,8 +62,8 @@ describe('Layout and shape operation contracts', () => {
     restored.dispose(); expanded.dispose(); grouped.dispose(); joined.dispose(); a.dispose(); b.dispose(); session.dispose()
   })
 
-  test('invalid shape requests do not poison later view operations', () => {
-    const session = new Session({ device: 'cpu' })
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`invalid shape requests do not poison later view operations on ${device}`, () => {
+    const session = new Session({ device })
     const input = session.tensor([[1, 2, 3], [4, 5, 6]])
     expect(() => reshape(input, [5])).toThrow('preserve element count')
     expect(() => transpose(input, [0, 0])).toThrow()

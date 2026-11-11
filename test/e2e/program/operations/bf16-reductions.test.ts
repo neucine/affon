@@ -1,12 +1,11 @@
 import { expect, test } from 'std:test'
-import { getEnv } from 'std:process'
+import { testDevices } from '../../devices.ts'
 import { Session, type Tensor } from 'affon:compute'
 import { argmax, cross_entropy, dot, layer_norm, mean, min, softmax, std, sum, variance } from 'affon:ops'
 
 const flatten = (value: unknown) => Array.isArray(value) ? value.flat(Infinity) as number[] : [value as number]
 
-test('BF16 cooperative reductions, softmax, and norm match CPU', () => {
-  const target = getEnv('AFFON_TEST_CUDA') === '1' ? 'cuda' : getEnv('AFFON_TEST_METAL') === '1' ? 'metal' : 'cpu'
+for (const target of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`BF16 cooperative reductions, softmax, and norm match CPU on ${target}`, () => {
   const run = (device: 'cpu' | 'cuda' | 'metal') => {
     const session = new Session({device})
     const values = Array.from({length: 2}, (_, batch) => Array.from({length: 64}, (_, row) =>
@@ -34,8 +33,8 @@ test('BF16 cooperative reductions, softmax, and norm match CPU', () => {
   }
 })
 
-test('BF16 indexed cross entropy matches a stable reference', () => {
-  const session = new Session({device: getEnv('AFFON_TEST_CUDA') === '1' ? 'cuda' : getEnv('AFFON_TEST_METAL') === '1' ? 'metal' : 'cpu'})
+for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`BF16 indexed cross entropy matches a stable reference on ${device}`, () => {
+  const session = new Session({device})
   const data = Array.from({length: 2}, (_, row) =>
     Array.from({length: 64}, (_, col) => ((row * 11 + col * 7) % 23 - 11) / 8))
   const logits = session.tensor(data, {dtype: 'bf16'})

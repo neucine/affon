@@ -1,15 +1,16 @@
+import { testDevices } from '../../devices.ts'
 import { Session, Tensor, program } from 'affon:compute'
 import { abs, add, clamp, div, eq, exp, gt, gt_scalar, log, lt, mul, neg, relu, sign, sqrt, sub, where } from 'affon:ops'
 import { describe, expect, test, values } from 'std:test'
 
 describe('Elementwise operation contracts', () => {
-  test('broadcasts a row and column through evaluated and compiled arithmetic', () => {
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`broadcasts a row and column through evaluated and compiled arithmetic on ${device}`, () => {
     const source = program('elementwise_broadcast', p => {
       const left = p.argument('left', Tensor.f32([2, 1]))
       const right = p.argument('right', Tensor.f32([1, 3]))
       return [add(left, right), sub(left, right), mul(left, right), div(right, left)]
     })
-    const session = new Session({ device: 'cpu' })
+    const session = new Session({ device })
     const left = session.tensor([[2], [4]])
     const right = session.tensor([[1, 2, 4]])
     const expected = [
@@ -33,14 +34,14 @@ describe('Elementwise operation contracts', () => {
     session.dispose()
   })
 
-  test('comparisons, thresholds, and where use element values after broadcasting', () => {
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`comparisons, thresholds, and where use element values after broadcasting on ${device}`, () => {
     const source = program('elementwise_decisions', p => {
       const data = p.argument('data', Tensor.f32([2, 3]))
       const threshold = p.argument('threshold', Tensor.f32([1, 3]))
       return [eq(data, threshold), lt(data, threshold), gt(data, threshold),
         gt_scalar(data, 0), where(gt(data, threshold), data, threshold)]
     })
-    const session = new Session({ device: 'cpu' })
+    const session = new Session({ device })
     const data = session.tensor([[-2, 0, 3], [2, 0, -3]])
     const threshold = session.tensor([[0, 0, 1]])
     const expected = [
@@ -62,8 +63,8 @@ describe('Elementwise operation contracts', () => {
     session.dispose()
   })
 
-  test('unary boundaries and compositions retain signs and clamped values', () => {
-    const session = new Session({ device: 'cpu' })
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`unary boundaries and compositions retain signs and clamped values on ${device}`, () => {
+    const session = new Session({ device })
     const input = session.tensor([-4, -1, 0, 1, 4])
     const cases = [
       [() => neg(input), [4, 1, -0, -1, -4]],
@@ -86,8 +87,8 @@ describe('Elementwise operation contracts', () => {
     rooted.dispose(); restored.dispose(); exponentiated.dispose(); positive.dispose(); input.dispose(); session.dispose()
   })
 
-  test('bad broadcast shapes fail without invalidating operands or a compiled Program', () => {
-    const session = new Session({ device: 'cpu' })
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`bad broadcast shapes fail without invalidating operands or a compiled Program on ${device}`, () => {
+    const session = new Session({ device })
     const a = session.tensor([[1, 2], [3, 4]])
     const invalid = session.tensor([1, 2, 3])
     const valid = session.tensor([10, 20])

@@ -1,8 +1,9 @@
+import { testDevices } from '../../devices.ts'
 import { describe, expect, test } from 'std:test'
 import { Session, Tensor, program } from 'affon:compute'
 import { quantized_matmul, slice, transpose } from 'affon:ops'
 
-for (const device of ['cpu', 'metal'] as const) describe(`quantized_matmul ${device}`, () => {
+for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) describe(`quantized_matmul ${device}`, () => {
   test('decodes low-bit-first U32 words and applies per-group affine parameters', () => {
     const session = new Session({ device })
     const input = session.tensor([[1, 2, 3, 4, 5, 6, 7, 8], [1, 1, 1, 1, 1, 1, 1, 1]])
@@ -148,7 +149,7 @@ for (const device of ['cpu', 'metal'] as const) describe(`quantized_matmul ${dev
 
 })
 
-for (const device of ['cpu','metal'] as const) test(`native readback preserves ${device} views and dtypes`, () => {
+for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`native readback preserves ${device} views and dtypes`, () => {
   const session=new Session({device})
   for(const dtype of ['bf16','f32','f64','u32','i64'] as const){
     const high=dtype==='u32'?0xffffffff:6
@@ -167,7 +168,7 @@ for (const device of ['cpu','metal'] as const) test(`native readback preserves $
   session.dispose()
 })
 
-for(const device of ['cpu','metal'] as const) test(`prepared ${device} group and dtype specializations stay distinct`,()=>{
+for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`prepared ${device} group and dtype specializations stay distinct`,()=>{
   const session=new Session({device}),m=8,n=3,k=128
   const x=session.tensor(Array.from({length:m},()=>Array(k).fill(1)),{dtype:'bf16'})
   const w=session.tensor(Array.from({length:n},()=>Array(k/4).fill(0x80808080)),{dtype:'u32'})
@@ -183,8 +184,8 @@ for(const device of ['cpu','metal'] as const) test(`prepared ${device} group and
 })
 
 // Packed staging must preserve groups both larger and smaller than its K tile.
-for (const group_size of [48, 64]) test(`Metal packed tiles preserve group ${group_size} across K tiles`, () => {
-  const session=new Session({device:'metal'}),m=64,n=64,k=group_size===48?96:256
+for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) for (const group_size of [48, 64]) test(`${device} packed tiles preserve group ${group_size} across K tiles`, () => {
+  const session=new Session({device}),m=64,n=64,k=group_size===48?96:256
   for(const dtype of ['f32','bf16'] as const){
     const values=Array.from({length:m},(_,r)=>Array.from({length:k},(_,c)=>((r+c)%11-5)/8))
     const weights=Array.from({length:n},(_,r)=>Array.from({length:k/4},(_,c)=>{

@@ -1,8 +1,9 @@
+import { testDevices, testOn } from '../../devices.ts'
 import { describe, expect, test } from 'std:test'
 import { Session, Tensor, program } from 'affon:compute'
 import { add, reduce_to_shape } from 'affon:ops'
 
-for (const device of ['cpu', 'metal'] as const) describe(`reduce_to_shape ${device}`, () => {
+for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) describe(`reduce_to_shape ${device}`, () => {
   test('sums axes through immediate and Program calls', () => {
     const session = new Session({ device })
     const input = session.tensor([[1, 2, 3], [4, 5, 6]])
@@ -34,7 +35,7 @@ for (const device of ['cpu', 'metal'] as const) describe(`reduce_to_shape ${devi
   })
 })
 
-test('metal keeps a scalar reduction between GPU producer and consumer', () => {
+testOn('metal')('metal keeps a scalar reduction between GPU producer and consumer', () => {
   const source = program('gpu_resident_scalar_reduction', p => {
     const input = p.argument('input', Tensor.f32([33, 5]))
     const reduced = reduce_to_shape(add(input, input), [1, 1])

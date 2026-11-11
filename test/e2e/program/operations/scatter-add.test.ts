@@ -1,8 +1,9 @@
+import { testDevices, testOn } from '../../devices.ts'
 import { describe, expect, test } from 'std:test'
 import { Session, Tensor, program } from 'affon:compute'
 import { add, argmax, reshape, scatter_add } from 'affon:ops'
 
-for (const device of ['cpu', 'metal'] as const) describe(`scatter_add ${device}`, () => {
+for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) describe(`scatter_add ${device}`, () => {
   test('accumulates colliding indices through immediate and Program calls', () => {
     const session = new Session({ device })
     const base = session.tensor([[1, 2, 3], [4, 5, 6]])
@@ -43,7 +44,7 @@ for (const device of ['cpu', 'metal'] as const) describe(`scatter_add ${device}`
   })
 })
 
-test('metal reports invalid GPU-produced BF16 scatter indices and recovers', () => {
+testOn('metal')('metal reports invalid GPU-produced BF16 scatter indices and recovers', () => {
   const source = program('gpu_scatter_bounds', p => {
     const base = p.argument('base', Tensor.bf16([2, 2]))
     return add(scatter_add(

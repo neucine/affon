@@ -1,3 +1,4 @@
+import { testDevices } from '../../devices.ts'
 // Reference cases migrated from affon-legacy/test/parity/compute. The expected
 // values are independent arithmetic fixtures rather than runtime-generated values.
 import { abs, add, argmax, argmin, div, exp, log, matmul, max, mean, min, mul, neg, relu, reshape, sigmoid, softmax, sqrt, std, sub, sum, tanh, transpose, variance } from 'affon:ops'
@@ -15,8 +16,8 @@ function close(actual: unknown, expected: unknown, tolerance = 1e-5): void {
 }
 
 describe('Compute reference values on evaluated tensors', () => {
-  test('broadcast arithmetic and unary operations', () => {
-    const session = new Session({ device: 'cpu' })
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`broadcast arithmetic and unary operations on ${device}`, () => {
+    const session = new Session({ device })
     const x = session.tensor([[2, 4, 8], [16, 32, 64]])
     const y = session.tensor([[1, 2, 4]])
     const zero = session.tensor([[0]])
@@ -41,8 +42,8 @@ describe('Compute reference values on evaluated tensors', () => {
     x.dispose(); y.dispose(); zero.dispose(); session.dispose()
   })
 
-  test('axis reductions and shape routing', () => {
-    const session = new Session({ device: 'cpu' })
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`axis reductions and shape routing on ${device}`, () => {
+    const session = new Session({ device })
     const x = session.tensor([[1, 2, 3], [4, 5, 6]])
     const zeros = session.tensor([[0, 0]])
     const cases: [string, () => any, unknown][] = [
@@ -66,8 +67,8 @@ describe('Compute reference values on evaluated tensors', () => {
     x.dispose(); zeros.dispose(); session.dispose()
   })
 
-  test('matrix multiplication reference', () => {
-    const session = new Session({ device: 'cpu' })
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`matrix multiplication reference on ${device}`, () => {
+    const session = new Session({ device })
     const left = session.tensor([[1, 2, 3], [4, 5, 6]])
     const right = session.tensor([[7, 8], [9, 10], [11, 12]])
     const result = matmul(left, right)

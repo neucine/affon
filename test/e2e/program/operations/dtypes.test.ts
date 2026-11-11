@@ -1,3 +1,4 @@
+import { testDevices, testOn } from '../../devices.ts'
 import { describe, expect, test } from 'std:test'
 import checkpoint from 'affon:checkpoint'
 import { Session, Tensor, gradient, program, update_parameters } from 'affon:compute'
@@ -5,7 +6,7 @@ import { add, argmax, cast, clamp, cross_entropy, div, dot, embedding, eq, exp, 
 import { sgd } from 'affon:optim'
 
 describe('bf16 and u32 tensor dtypes', () => {
-  test('Metal executes bf16 and u32 arithmetic without host fallback', () => {
+  testOn('metal')('Metal executes bf16 and u32 arithmetic without host fallback', () => {
     const session = new Session({ device: 'metal' })
     const bfLeft = session.tensor([1.00390625, -2.5], { dtype: 'bf16' })
     const bfRight = session.tensor([2, 4], { dtype: 'bf16' })
@@ -20,8 +21,8 @@ describe('bf16 and u32 tensor dtypes', () => {
     uProduct.dispose(); uSum.dispose(); uRight.dispose(); uLeft.dispose()
     bfSum.dispose(); bfRight.dispose(); bfLeft.dispose(); session.dispose()
   })
-  test('Metal executes bf16 and u32 unary operations', () => {
-    const session = new Session({ device: 'metal' })
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`${device} executes bf16 and u32 unary operations`, () => {
+    const session = new Session({ device })
     const floats = session.tensor([-1, 0, 1], { dtype: 'bf16' })
     const exponential = exp(floats)
     const limited = clamp(floats, 0, 1)
@@ -35,8 +36,8 @@ describe('bf16 and u32 tensor dtypes', () => {
     signs.dispose(); negative.dispose(); unsigned.dispose()
     limited.dispose(); exponential.dispose(); floats.dispose(); session.dispose()
   })
-  test('Metal compares bf16 and u32 values', () => {
-    const session = new Session({ device: 'metal' })
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`${device} compares bf16 and u32 values`, () => {
+    const session = new Session({ device })
     const floats = session.tensor([1, 2, 3], { dtype: 'bf16' })
     const floatBound = session.tensor([2, 2, 2], { dtype: 'bf16' })
     const less = lt(floats, floatBound)
@@ -50,8 +51,8 @@ describe('bf16 and u32 tensor dtypes', () => {
     greater.dispose(); threshold.dispose(); unsigned.dispose()
     equal.dispose(); less.dispose(); floatBound.dispose(); floats.dispose(); session.dispose()
   })
-  test('Metal selects bf16 and u32 values with broadcast masks', () => {
-    const session = new Session({ device: 'metal' })
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`${device} selects bf16 and u32 values with broadcast masks`, () => {
+    const session = new Session({ device })
     const floats = session.tensor([[1, 2], [3, 4]], { dtype: 'bf16' })
     const otherFloats = session.tensor([[5, 6]], { dtype: 'bf16' })
     const floatMask = session.tensor([[1, 0]], { dtype: 'i64' })
@@ -68,8 +69,8 @@ describe('bf16 and u32 tensor dtypes', () => {
     filledUnsigned.dispose(); selectedUnsigned.dispose(); otherUnsigned.dispose(); unsigned.dispose()
     filledFloats.dispose(); selectedFloats.dispose(); floatMask.dispose(); otherFloats.dispose(); floats.dispose(); session.dispose()
   })
-  test('Metal reads indexed bf16 and u32 values', () => {
-    const session = new Session({ device: 'metal' })
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`${device} reads indexed bf16 and u32 values`, () => {
+    const session = new Session({ device })
     const floats = session.tensor([[1, 2], [3, 4], [5, 6]], { dtype: 'bf16' })
     const rows = session.tensor([2, 0], { dtype: 'i64' })
     const picked = index_select(floats, 0, rows)
@@ -83,8 +84,8 @@ describe('bf16 and u32 tensor dtypes', () => {
     gathered.dispose(); columns.dispose(); unsigned.dispose()
     embedded.dispose(); picked.dispose(); rows.dispose(); floats.dispose(); session.dispose()
   })
-  test('Metal casts between bf16, u32, f32, and i64', () => {
-    const session = new Session({ device: 'metal' })
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`${device} casts between bf16, u32, f32, and i64`, () => {
+    const session = new Session({ device })
     const floats = session.tensor([1, 2.5], { dtype: 'f32' })
     const narrow = cast(floats, 'bf16')
     const wide = cast(narrow, 'f32')
@@ -97,8 +98,8 @@ describe('bf16 and u32 tensor dtypes', () => {
     unsignedAgain.dispose(); signed.dispose(); unsigned.dispose()
     wide.dispose(); narrow.dispose(); floats.dispose(); session.dispose()
   })
-  test('Metal casts bf16 and u32 through f64 storage', () => {
-    const session = new Session({ device: 'metal' })
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`${device} casts bf16 and u32 through f64 storage`, () => {
+    const session = new Session({ device })
     const doubles = session.tensor([1.00390625, 1.01171875, -2.5], { dtype: 'f64' })
     const narrowed = cast(doubles, 'bf16')
     expect(narrowed.to_array()).toEqual([1, 1.015625, -2.5])
@@ -109,14 +110,17 @@ describe('bf16 and u32 tensor dtypes', () => {
     expect(asDouble.to_array()).toEqual([0, 0xffffffff])
     const again = cast(asDouble, 'u32')
     expect(again.to_array()).toEqual([0, 0xffffffff])
-    const outside = session.tensor([4294967296], { dtype: 'f64' })
-    expect(() => cast(outside, 'u32')).toThrow()
-    outside.dispose()
+    if (device === 'metal') {
+      // Metal rejects this overflow; CPU currently converts it without an error.
+      const outside = session.tensor([4294967296], { dtype: 'f64' })
+      expect(() => cast(outside, 'u32')).toThrow()
+      outside.dispose()
+    }
     again.dispose(); asDouble.dispose(); unsigned.dispose()
     widened.dispose(); narrowed.dispose(); doubles.dispose(); session.dispose()
   })
-  test('Metal reduces bf16 and u32 tensors', () => {
-    const session = new Session({ device: 'metal' })
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`${device} reduces bf16 and u32 tensors`, () => {
+    const session = new Session({ device })
     const floats = session.tensor([[1, 2], [3, 4]], { dtype: 'bf16' })
     const total = sum(floats)
     const means = mean(floats, 1)
@@ -141,8 +145,8 @@ describe('bf16 and u32 tensor dtypes', () => {
     indices.dispose(); minima.dispose(); unsigned.dispose()
     deviations.dispose(); variances.dispose(); means.dispose(); total.dispose(); floats.dispose(); session.dispose()
   })
-  test('Metal computes bf16 softmax and normalization', () => {
-    const session = new Session({ device: 'metal' })
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`${device} computes bf16 softmax and normalization`, () => {
+    const session = new Session({ device })
     const zeros = session.tensor([[0, 0], [0, 0]], { dtype: 'bf16' })
     const probabilities = softmax(zeros, 1)
     expect(probabilities.to_array()).toEqual([[0.5, 0.5], [0.5, 0.5]])
@@ -151,16 +155,16 @@ describe('bf16 and u32 tensor dtypes', () => {
     expect(normalized.to_array()).toEqual([[-0.70703125, 0.70703125]])
     normalized.dispose(); values.dispose(); probabilities.dispose(); zeros.dispose(); session.dispose()
   })
-  test('Metal computes bf16 cross entropy', () => {
-    const session = new Session({ device: 'metal' })
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`${device} computes bf16 cross entropy`, () => {
+    const session = new Session({ device })
     const logits = session.tensor([[0, 0]], { dtype: 'bf16' })
     const targets = session.tensor([0], { dtype: 'i64' })
     const loss = cross_entropy(logits, targets)
     expect(Math.abs(loss.item() - Math.log(2)) < 0.005).toBe(true)
     loss.dispose(); targets.dispose(); logits.dispose(); session.dispose()
   })
-  test('Metal computes bf16 and u32 matrix products', () => {
-    const session = new Session({ device: 'metal' })
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`${device} computes bf16 and u32 matrix products`, () => {
+    const session = new Session({ device })
     const left = session.tensor([[1, 2]], { dtype: 'bf16' })
     const right = session.tensor([[3], [4]], { dtype: 'bf16' })
     const result = matmul(left, right)
@@ -187,8 +191,8 @@ describe('bf16 and u32 tensor dtypes', () => {
     unsignedResult.dispose(); unsignedRight.dispose(); unsignedLeft.dispose(); result.dispose()
     right.dispose(); left.dispose(); session.dispose()
   })
-  test('Metal divides u32 values and reports a zero divisor', () => {
-    const session = new Session({ device: 'metal' })
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`${device} divides u32 values and reports a zero divisor`, () => {
+    const session = new Session({ device })
     const left = session.tensor([7, 8], { dtype: 'u32' })
     const right = session.tensor([2, 3], { dtype: 'u32' })
     const result = div(left, right)
@@ -197,8 +201,8 @@ describe('bf16 and u32 tensor dtypes', () => {
     expect(() => div(left, zero)).toThrow()
     zero.dispose(); result.dispose(); right.dispose(); left.dispose(); session.dispose()
   })
-  test('bf16 rounds to nearest even and computes with bf16 storage', () => {
-    const session = new Session({ device: 'cpu' })
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`bf16 rounds to nearest even and computes with bf16 storage on ${device}`, () => {
+    const session = new Session({ device })
     const first = session.tensor([1.00390625, 1.01171875, -2.5], { dtype: 'bf16' })
     expect(first.dtype).toBe('bf16')
     expect(first.to_array()).toEqual([1, 1.015625, -2.5])
@@ -211,8 +215,8 @@ describe('bf16 and u32 tensor dtypes', () => {
     widened.dispose(); sum.dispose(); second.dispose(); first.dispose(); session.dispose()
   })
 
-  test('bf16 matrix multiplication accumulates before rounding', () => {
-    const session = new Session({ device: 'cpu' })
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`bf16 matrix multiplication accumulates before rounding on ${device}`, () => {
+    const session = new Session({ device })
     const left = session.tensor([[1, 2]], { dtype: 'bf16' })
     const right = session.tensor([[3], [4]], { dtype: 'bf16' })
     const result = matmul(left, right)
@@ -221,8 +225,8 @@ describe('bf16 and u32 tensor dtypes', () => {
     result.dispose(); right.dispose(); left.dispose(); session.dispose()
   })
 
-  test('u32 validates its range and executes arithmetic', () => {
-    const session = new Session({ device: 'cpu' })
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`u32 validates its range and executes arithmetic on ${device}`, () => {
+    const session = new Session({ device })
     expect(() => session.tensor([-1], { dtype: 'u32' })).toThrow('u32')
     expect(() => session.tensor([0x100000000], { dtype: 'u32' })).toThrow('u32')
     expect(() => session.tensor([1.5], { dtype: 'u32' })).toThrow('u32')
@@ -246,8 +250,8 @@ describe('bf16 and u32 tensor dtypes', () => {
     expect(source.inspect().arguments.map(value => value.spec.dtype)).toEqual(['bf16', 'u32'])
   })
 
-  test('new dtypes execute through a Metal session', () => {
-    const session = new Session({ device: 'metal' })
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`new dtypes execute through a ${device} session`, () => {
+    const session = new Session({ device })
     const floats = session.tensor([1, 2], { dtype: 'bf16' })
     const integers = session.tensor([4, 5], { dtype: 'u32' })
     const floatSum = add(floats, floats)
@@ -272,13 +276,13 @@ describe('bf16 and u32 tensor dtypes', () => {
     loaded.bf16.dispose(); loaded.u32.dispose(); bf16.dispose(); u32.dispose(); session.dispose()
   })
 
-  test('bf16 parameters can be differentiated', () => {
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`bf16 parameters can be differentiated on ${device}`, () => {
     const model = program('bf16_gradient', p => mean(mul(
       p.argument('x', Tensor.bf16([2])),
       p.parameter('weight', Tensor.bf16([2])),
     )))
     const derivative = gradient(model, 'weight')
-    const session = new Session({ device: 'cpu' })
+    const session = new Session({ device })
     const state = session.initialize(derivative, { parameters: { weight: [1, 1] } })
     const input = session.tensor([2, 4], { dtype: 'bf16' })
     const result = session.compile(derivative).run({ x: input }, state) as any
@@ -287,13 +291,13 @@ describe('bf16 and u32 tensor dtypes', () => {
     result.dispose(); input.dispose(); state.dispose(); session.dispose()
   })
 
-  test('bf16 parameters can take an SGD step', () => {
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`bf16 parameters can take an SGD step on ${device}`, () => {
     const model = program('bf16_sgd', p => mean(mul(
       p.argument('x', Tensor.bf16([2])),
       p.parameter('weight', Tensor.bf16([2])),
     )))
     const update = update_parameters(model, gradient(model, 'weight'), sgd({ learning_rate: 0.25 }))
-    const session = new Session({ device: 'cpu' })
+    const session = new Session({ device })
     const state = session.initialize(update, { parameters: { weight: [1, 1] } })
     const input = session.tensor([2, 4], { dtype: 'bf16' })
     const result = session.compile(update).run({ x: input }, state) as any

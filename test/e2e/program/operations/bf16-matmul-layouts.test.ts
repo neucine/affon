@@ -1,10 +1,10 @@
 import { expect, test } from 'std:test'
-import { getEnv } from 'std:process'
+import { testDevices } from '../../devices.ts'
 import { Session, Tensor, program } from 'affon:compute'
 import { add, matmul, slice, transpose } from 'affon:ops'
 
-test('BF16 matmul handles contiguous, transposed, broadcast, and sliced layouts', () => {
-  const session = new Session({device: getEnv('AFFON_TEST_CUDA') === '1' ? 'cuda' : 'cpu'})
+for (const device of testDevices(['cpu', 'cuda'] as const)) test(`BF16 matmul handles contiguous, transposed, broadcast, and sliced layouts on ${device}`, () => {
+  const session = new Session({device})
   try {
     const left = session.tensor([[1, 2, 3], [4, 5, 6]], {dtype: 'bf16'})
     const right = session.tensor([[7, 8], [9, 10], [11, 12]], {dtype: 'bf16'})
@@ -26,14 +26,14 @@ test('BF16 matmul handles contiguous, transposed, broadcast, and sliced layouts'
   } finally { session.dispose() }
 })
 
-test('Metal tiled BF16 matmul consumes a transposed view inside a Program', () => {
+for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`${device} tiled BF16 matmul consumes a transposed view inside a Program`, () => {
   const source = program('bf16_transposed_tiled_resident', p => {
     const left = p.argument('left', Tensor.bf16([32, 64]))
     const right = transpose(p.argument('right', Tensor.bf16([32, 64])), [1, 0])
     const product = matmul(left, right)
     return add(product, product)
   })
-  const session = new Session({ device: 'metal' })
+  const session = new Session({ device })
   const executable = session.compile(source)
   const values = Array.from({ length: 32 }, () => Array(64).fill(1))
   const left = session.tensor(values, { dtype: 'bf16' })

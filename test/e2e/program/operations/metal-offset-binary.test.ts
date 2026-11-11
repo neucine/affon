@@ -1,10 +1,11 @@
+import { testDevices } from '../../devices.ts'
 import { describe, expect, test } from 'std:test'
 import { Session, Tensor, program } from 'affon:compute'
 import { add, div, eq, gt, mul, slice, sub } from 'affon:ops'
 
-describe('Metal f32 offset binary inputs', () => {
+for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) describe(`${device} f32 offset binary inputs`, () => {
   test('uses both view offsets in arithmetic and comparison', () => {
-    const session = new Session({ device: 'metal' })
+    const session = new Session({ device })
     const x = session.tensor([[1, 2, 3], [4, 5, 6]])
     const y = session.tensor([[10, 20, 30], [40, 50, 60]])
     const source = program('offset_binary_contract', p => {

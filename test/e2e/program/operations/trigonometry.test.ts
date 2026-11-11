@@ -1,9 +1,10 @@
+import { testDevices } from '../../devices.ts'
 import { test, expect } from 'std:test'
 import { Session, Tensor, program, gradient } from 'affon:compute'
 import { sin, cos, add, mul, sum, reshape, transpose, slice } from 'affon:ops'
 import { conv1d } from 'affon:nn'
 
-for (const device of ['cpu','metal'] as const) {
+for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) {
   for (const dtype of ['f32','bf16'] as const) test(`trigonometry ${device} ${dtype} values and strided views`,()=>{
     const s=new Session({device})
     const data=[[-256,-Math.PI,-.5,0],[.5,Math.PI/2,3,256]]
@@ -84,8 +85,8 @@ test('CPU f64 trigonometry retains double precision',()=>{
   }
   a.dispose();b.dispose();x.dispose();s.dispose()
 })
-test('dense input specialization guards views and keeps a separate executable',()=>{
-  const s=new Session({device:'metal'})
+for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`dense input specialization guards views and keeps a separate executable on ${device}`,()=>{
+  const s=new Session({device})
   const model=program('guarded_dense',p=>sin(p.argument('x',Tensor.f32([2,2]))))
   const generic=s.compile(model)
   const dense=s.compile(model,{denseInputs:true})

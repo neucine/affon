@@ -1,9 +1,10 @@
+import { testDevices, testOn } from '../../devices.ts'
 import { Session, Tensor, program } from 'affon:compute'
 import { add, binary_cross_entropy, binary_cross_entropy_with_logits, cross_entropy, layer_norm, log_softmax, mean_absolute_error, mean_squared_error, rms_norm, softmax } from 'affon:ops'
 import { describe, expect, test, values } from 'std:test'
 
 describe('Normalization and loss operation contracts', () => {
-  test('Metal keeps a large normalization between GPU producer and consumer', () => {
+  testOn('metal')('Metal keeps a large normalization between GPU producer and consumer', () => {
     const source = program('large_normalization_resident', p => {
       const input = p.argument('input', Tensor.f32([129, 257]))
       const normalized = layer_norm(add(input, input), 0)
@@ -20,7 +21,7 @@ describe('Normalization and loss operation contracts', () => {
     output.dispose(); input.dispose(); executable.dispose(); session.dispose()
   })
 
-  test('Metal large normalization scales extreme finite values', () => {
+  testOn('metal')('Metal large normalization scales extreme finite values', () => {
     const source = program('large_normalization_extremes', p => layer_norm(
       p.argument('input', Tensor.f32([128, 64])), 0))
     const session = new Session({ device: 'metal' })
@@ -33,7 +34,7 @@ describe('Normalization and loss operation contracts', () => {
     output.dispose(); input.dispose(); executable.dispose(); session.dispose()
   })
 
-  test('Metal keeps large BF16 normalization and its consumer on GPU', () => {
+  testOn('metal')('Metal keeps large BF16 normalization and its consumer on GPU', () => {
     const source = program('large_bf16_normalization_resident', p => {
       const input = p.argument('input', Tensor.bf16([128, 64]))
       const normalized = layer_norm(input, 0)
@@ -49,7 +50,7 @@ describe('Normalization and loss operation contracts', () => {
     output.dispose(); input.dispose(); executable.dispose(); session.dispose()
   })
 
-  for (const device of ['cpu', 'metal'] as const) {
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) {
     test(`softmax and log_softmax normalize large scores on ${device}`, () => {
       const session = new Session({ device })
       const scores = session.tensor([[1000, 1000, 998], [-1000, -1000, -1002]])
@@ -86,8 +87,8 @@ describe('Normalization and loss operation contracts', () => {
     })
   }
 
-  test('indexed cross entropy matches an independent two-class loss', () => {
-    const session = new Session({ device: 'cpu' })
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`indexed cross entropy matches an independent two-class loss on ${device}`, () => {
+    const session = new Session({ device })
     const logits = session.tensor([[2, 0], [0, 2]])
     const labels = session.tensor([0, 1], { dtype: 'i64' })
     const immediate = cross_entropy(logits, labels)
@@ -102,8 +103,8 @@ describe('Normalization and loss operation contracts', () => {
     immediate.dispose(); compiled.dispose(); logits.dispose(); labels.dispose(); session.dispose()
   })
 
-  test('binary losses agree between probabilities and equivalent logits', () => {
-    const session = new Session({ device: 'cpu' })
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`binary losses agree between probabilities and equivalent logits on ${device}`, () => {
+    const session = new Session({ device })
     const probabilities = session.tensor([0.25, 0.75])
     const logits = session.tensor([-Math.log(3), Math.log(3)])
     const labels = session.tensor([0, 1])
@@ -115,8 +116,8 @@ describe('Normalization and loss operation contracts', () => {
     probabilityLoss.dispose(); logitLoss.dispose(); probabilities.dispose(); logits.dispose(); labels.dispose(); session.dispose()
   })
 
-  test('regression losses reduce every element, including negative errors', () => {
-    const session = new Session({ device: 'cpu' })
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`regression losses reduce every element, including negative errors on ${device}`, () => {
+    const session = new Session({ device })
     const prediction = session.tensor([[2, -1], [4, 2]])
     const target = session.tensor([[0, 1], [1, 3]])
     const mse = mean_squared_error(prediction, target)
@@ -126,8 +127,8 @@ describe('Normalization and loss operation contracts', () => {
     mse.dispose(); mae.dispose(); prediction.dispose(); target.dispose(); session.dispose()
   })
 
-  test('invalid loss shapes do not prevent the same Session from evaluating valid labels', () => {
-    const session = new Session({ device: 'cpu' })
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`invalid loss shapes do not prevent the same Session from evaluating valid labels on ${device}`, () => {
+    const session = new Session({ device })
     const logits = session.tensor([[1, 2], [3, 4]])
     const bad = session.tensor([0], { dtype: 'i64' })
     const good = session.tensor([1, 1], { dtype: 'i64' })

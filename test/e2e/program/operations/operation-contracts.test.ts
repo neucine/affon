@@ -1,10 +1,11 @@
+import { testDevices } from '../../devices.ts'
 import { add, masked_fill, matmul, mul, neg, reshape } from 'affon:ops'
 import { Session, Tensor, program } from 'affon:compute'
 import { describe, expect, test } from 'std:test'
 
 describe('Operation contracts', () => {
-  test('a rejected evaluated matmul leaves operands reusable for a valid operation', () => {
-    const session = new Session({ device: 'cpu' })
+  for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`a rejected evaluated matmul leaves operands reusable for a valid operation on ${device}`, () => {
+    const session = new Session({ device })
     const left = session.tensor([[1, 2], [3, 4]])
     const wrong = session.tensor([[1, 2, 3]])
     const identity = session.tensor([[1, 0], [0, 1]])

@@ -1,8 +1,9 @@
+import { testDevices } from '../../devices.ts'
 import { describe, expect, test } from 'std:test'
 import { Session, Tensor, program } from 'affon:compute'
 import { topk } from 'affon:ops'
 
-for (const device of ['cpu', 'metal'] as const) describe(`topk ${device}`, () => {
+for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) describe(`topk ${device}`, () => {
   test('returns values and indices in immediate and Program calls', () => {
     const session = new Session({ device })
     const input = session.tensor([[1, 4, 3, 2], [8, 5, 7, 6]])
