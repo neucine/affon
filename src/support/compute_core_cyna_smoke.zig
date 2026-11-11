@@ -913,6 +913,30 @@ test "Affon calls Cyna quantized matmul through the C ABI" {
     try std.testing.expectEqualSlices(f32, &.{ -1, -1, -1, -1, -1, -1 }, &output);
 }
 
+test "Affon runs quantized matmul inside a Cyna graph" {
+    const activation = [_]f32{ 1, 2, 3, 4, 5, 6, 7, 8, 2, 3, 4, 5, 6, 7, 8, 9 };
+    const weights = [_]u32{ 0x01010101, 0x01010101, 0x02020202, 0x02020202, 0x03030303, 0x03030303 };
+    const scales = [_]f32{ 1, 1, 1, 1, 1, 1 };
+    const biases = [_]f32{ 0, 0, 0, 0, 0, 0 };
+    const inputs = [_]cyna.DenseByteInput{
+        .{ .dtype = .f32, .shape = &.{ 2, 8 }, .bytes = std.mem.sliceAsBytes(&activation) },
+        .{ .dtype = .u32, .shape = &.{ 3, 2 }, .bytes = std.mem.sliceAsBytes(&weights) },
+        .{ .dtype = .f32, .shape = &.{ 3, 2 }, .bytes = std.mem.sliceAsBytes(&scales) },
+        .{ .dtype = .f32, .shape = &.{ 3, 2 }, .bytes = std.mem.sliceAsBytes(&biases) },
+    };
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .quantized_matmul, .lhs = 0, .rhs = 1,
+            .third = 2, .metadata = &.{ 3, 8, 4 } },
+    };
+    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator,
+        &inputs, &steps, &.{4}, .baseline);
+    defer result.deinit(std.testing.allocator);
+    try std.testing.expectEqual(cyna.DenseDType.f32, result.dtype(0));
+    try std.testing.expectEqualSlices(usize, &.{ 2, 3 }, result.shape(0));
+    const expected = [_]f32{ 36, 72, 108, 44, 88, 132 };
+    try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&expected), result.outputBytes(0));
+}
+
 test "Affon calls Cyna rank-two reductions through the C ABI" {
     const input = [_]f32{ 1, 2, 3, 4, 5, 6 };
     var whole = [_]f32{-1};
