@@ -1,5 +1,12 @@
 # Performance coverage and model onboarding
 
+The retained result corpus lives in the sibling `affon-evidence` directory.
+`test/benchmark/results` is a local compatibility link to that directory, so
+existing run commands, artifact hashes, and historical absolute paths continue
+to work. Set it up with `ln -s ../../../affon-evidence test/benchmark/results`
+from the Affon root if the link is absent. The harness, catalogs, and acceptance
+rules remain here; generated evidence is not tracked by this repository.
+
 Focused quantized matrix multiplication investigations live in
 [`quantized/`](quantized/README.md). Broad operator and Program comparisons use
 the [parity facility](../parity/README.md); retained evidence is indexed in

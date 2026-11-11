@@ -1,5 +1,10 @@
 # Numerical and timing parity
 
+Retained run output lives in the sibling `affon-evidence` directory. Set up the
+local compatibility link described in [the benchmark guide](../benchmark/README.md)
+before running historical evidence audits or regenerating aggregate reports.
+New run directories also go through that link into the evidence directory.
+
 A case list describes what to check. `run.py` saves numerical and timing
 results; `regression.py` compares two runs. The [case and result definitions](SCHEMA.md)
 explain every dimension and internal term. The [results index](../benchmark/results/PARITY-INDEX.md)
