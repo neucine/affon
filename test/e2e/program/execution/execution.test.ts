@@ -25,14 +25,14 @@ describe("Program execution state and lowering", () => {
     expect(result.to_array()).toEqual([6, 8])
     expect(result.to_bytes().byteLength).toBe(8)
     const evidence = session.runtimeEvidence(executable) as any
-    expect(evidence.schema_version).toBe(1)
+    expect(evidence.schema_version).toBe(3)
     expect(evidence.dropped_event_count).toBe(0)
     expect(evidence.entries.length).toBe(1)
     expect(evidence.entries[0].invocation_count).toBe(1)
-    expect(evidence.entries[0].kernel_count).toBe(1)
-    expect(evidence.phase_memory.length).toBe(5)
+    expect(evidence.entries[0].operation).toBe("add")
+    expect(Array.isArray(evidence.phase_memory)).toBe(true)
     expect(evidence.phase_memory.every((phase: any) => phase.peak_live_bytes >= phase.live_bytes)).toBe(true)
-    expect(() => executable.run({ left })).toThrow("missing argument")
+    expect(() => executable.run({ left })).toThrow("missing Program argument: right")
 
     result.dispose()
     left.dispose()

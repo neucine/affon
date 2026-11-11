@@ -271,6 +271,7 @@ const SESSION_FULL = Symbol("affon.compute.session_full")
 const SESSION_EVIDENCE_DIRECT = Symbol("affon.compute.session_evidence_direct")
 const SESSION_OPTIMIZER_EVIDENCE = Symbol("affon.compute.session_optimizer_evidence")
 const EXECUTABLE_EVIDENCE = Symbol("affon.compute.executable_evidence")
+const EXECUTABLE_NATIVE = Symbol("affon.compute.executable_native")
 
 function defaultSession(): Session {
   if (!defaultSessionValue) defaultSessionValue = new Session({ device: native.defaultDevice() })
@@ -1599,6 +1600,7 @@ export class Executable<Out extends FormalTensor | readonly FormalTensor[] = For
     this.native_input_order = Object.freeze(this.inputFormals.map(value => value.name))
   }
   get disposed(): boolean { return this.#disposed }
+  [EXECUTABLE_NATIVE](): any { return this.nativeExecutable }
   explain(): CompilationExplanation {
     if (this.#disposed) throw new Error("Executable has been disposed")
     if (this.optimization) return freezeJson({
@@ -1806,7 +1808,7 @@ export class Session {
     return source[EXECUTABLE_EVIDENCE]() ?? this[SESSION_EVIDENCE_DIRECT](source)
   }
   [SESSION_EVIDENCE_DIRECT](source: Executable): Readonly<Record<string, unknown>> {
-    const json = native.exportEvidenceCapture(this.#native, source.nativeExecutable)
+    const json = native.exportEvidenceCapture(this.#native, source[EXECUTABLE_NATIVE]())
     return Object.freeze(JSON.parse(json))
   }
   [SESSION_OPTIMIZER_EVIDENCE](source: Program): Executable<any> | undefined {

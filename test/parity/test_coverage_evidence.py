@@ -167,8 +167,11 @@ class CoverageEvidenceTest(unittest.TestCase):
                 evidence.import_benchmark(benchmark_path, operator_outcomes)
 
     def test_historical_report_remains_diagnostic(self):
-        with self.assertRaisesRegex(ValueError, "diagnostic only"):
-            evidence.import_benchmark(ROOT / "test/benchmark/results/model-gpt2-metal-m4-2026-10-18.json", {})
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "historical-model-report.json"
+            report.write_text(json.dumps({"status": "exploratory; not accepted baseline", "model_id": "example/model"}))
+            with self.assertRaisesRegex(ValueError, "diagnostic only"):
+                evidence.import_benchmark(report, {})
 
 
 if __name__ == "__main__":

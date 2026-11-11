@@ -44,7 +44,7 @@ describe('Reduction axes, values, and repeatability', () => {
     const zeros = session.tensor(Array.from({ length: 129 }, () => Array(257).fill(0)))
     const output = executable.run({ input, zeros })
     const expected = 2 * (257 * 257 - 1) / 12
-    expect(output.to_array().every((value: number) => Math.abs(value - expected) < 0.01)).toBe(true)
+    expect((output.to_array() as number[]).every(value => Math.abs(value - expected) < 0.01)).toBe(true)
     expect(JSON.stringify(executable.explain())).toContain('metal.reduction.parallel_generic')
     output.dispose(); zeros.dispose(); input.dispose(); executable.dispose(); session.dispose()
   })

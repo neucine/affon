@@ -2,6 +2,7 @@ import importlib.util
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import shutil
@@ -10,14 +11,16 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
+RESULTS = Path(os.environ.get("AFFON_EVIDENCE_ROOT", ROOT / "test/benchmark/results"))
 spec = importlib.util.spec_from_file_location("performance_report", ROOT / "tools/render-performance-report.py")
 report = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(report)
 
 
 class PerformanceReportTest(unittest.TestCase):
+    @unittest.skipUnless((RESULTS / 'parity-cuda-sweep-harness-2026-11-05').is_dir(), "archived sweep evidence unavailable")
     def test_timing_tables_include_valid_checkpoints_without_replacing_reviewed_records(self):
-        fixture = ROOT / 'test/benchmark/results/parity-cuda-sweep-harness-2026-11-05'
+        fixture = RESULTS / 'parity-cuda-sweep-harness-2026-11-05'
         with tempfile.TemporaryDirectory() as directory:
             results = Path(directory)
             batch = results / 'parity-timings'
@@ -47,8 +50,9 @@ class PerformanceReportTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 report.checkpoint_measurements(batches, ids)
 
+    @unittest.skipUnless((RESULTS / 'parity-cuda-sweep-harness-2026-11-05').is_dir(), "archived sweep evidence unavailable")
     def test_finished_sweep_keeps_recorded_checks_after_leaving_active_panel(self):
-        fixture = ROOT / 'test/benchmark/results/parity-cuda-sweep-harness-2026-11-05'
+        fixture = RESULTS / 'parity-cuda-sweep-harness-2026-11-05'
         with tempfile.TemporaryDirectory() as directory:
             results = Path(directory)
             batch = results / 'parity-transition'
@@ -114,8 +118,9 @@ class PerformanceReportTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "different raw artifact"):
                 report.validate_measured_links(matrix, cases, {cases[0]["id"]: other}, "operator_peer")
 
+    @unittest.skipUnless((RESULTS / 'cell-peer-current-summary-mac-2026-10-29.json').is_file(), "archived peer evidence unavailable")
     def test_summary_must_match_raw_rounds(self):
-        base = ROOT / "test/benchmark/results"
+        base = RESULTS
         summary = json.loads((base / "cell-peer-current-summary-mac-2026-10-29.json").read_text())
         raw = base / "cell-peer-current-mac-2026-10-29"
         report.validate_summary(summary, raw, "operator_peer")
@@ -123,8 +128,9 @@ class PerformanceReportTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "summary differs from raw"):
             report.validate_summary(summary, raw, "operator_peer")
 
+    @unittest.skipUnless((RESULTS / 'cell-gpu-variability-session-a-mac-2026-10-29.json').is_file(), "archived GPU profiles unavailable")
     def test_gpu_sessions_show_between_session_drift(self):
-        paths = [ROOT / f"test/benchmark/results/cell-gpu-variability-session-{name}-mac-2026-10-29.json"
+        paths = [RESULTS / f"cell-gpu-variability-session-{name}-mac-2026-10-29.json"
                  for name in ("a", "b")]
         profiles = [json.loads(path.read_text()) for path in paths]
         matrix = {"suite": "affon_coverage_matrix", "summary": {"cells": 0,
@@ -159,9 +165,10 @@ class PerformanceReportTest(unittest.TestCase):
             self.assertEqual(result["evidence"][0]["label"], "Does Affon return the right answer?")
             self.assertEqual(result["evidence"][3]["label"], "Is a regression reference ready?")
 
+    @unittest.skipUnless((RESULTS / 'performance-report.html').is_file(), "archived HTML report unavailable")
     def test_saved_html_mounts_and_filters_from_file_url(self):
-        html = ROOT / "test/benchmark/results/performance-report.html"
-        results = ROOT / "test/benchmark/results"
+        html = RESULTS / "performance-report.html"
+        results = RESULTS
         operator_count = len(json.loads((results / "cell-peer-current-summary-mac-2026-10-29.json").read_text())["cases"])
         program_count = len(json.loads((results / "cell-program-peer-summary-mac-2026-10-29.json").read_text())["cases"])
         outcomes = json.loads((results / "coverage-outcomes-current-mac-2026-10-29.json").read_text())
