@@ -671,6 +671,48 @@ test "Affon infers selected graph shapes for five Cyna dtypes" {
     }
 }
 
+test "Affon runs resident Cyna vector dot and broadcast batch matmul" {
+    const vector = [_]f32{ 1, 2, 3 };
+    const matrix = [_]f32{ 1, 2, 3, 4, 5, 6 };
+    const vector_matrix = [_]cyna.DenseInput{
+        .{ .shape = &.{3}, .values = &vector },
+        .{ .shape = &.{ 3, 2 }, .values = &matrix },
+    };
+    const step = [_]cyna.DenseStep{.{ .operation = .matmul, .lhs = 0, .rhs = 1 }};
+    var output = [_]f32{ -1, -1 };
+    try cyna.runDenseGraphResidentF32(std.testing.allocator, &vector_matrix, &step, &.{2}, &output);
+    try std.testing.expectEqualSlices(f32, &.{ 22, 28 }, &output);
+
+    const matrix_vector = [_]cyna.DenseInput{
+        .{ .shape = &.{ 2, 3 }, .values = &matrix },
+        .{ .shape = &.{3}, .values = &vector },
+    };
+    try cyna.runDenseGraphResidentF32(std.testing.allocator, &matrix_vector, &step, &.{2}, &output);
+    try std.testing.expectEqualSlices(f32, &.{ 14, 32 }, &output);
+
+    const dot_inputs = [_]cyna.DenseInput{
+        .{ .shape = &.{3}, .values = &vector },
+        .{ .shape = &.{3}, .values = &vector },
+    };
+    var dot = [_]f32{-1};
+    try cyna.runDenseGraphResidentF32(std.testing.allocator, &dot_inputs, &step, &.{2}, &dot);
+    try std.testing.expectEqual(@as(f32, 14), dot[0]);
+
+    const batch_left = [_]f32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
+    const batch_right = [_]f32{ 1, 2, 3, 4, 5, 6 };
+    const batch_inputs = [_]cyna.DenseInput{
+        .{ .shape = &.{ 2, 2, 3 }, .values = &batch_left },
+        .{ .shape = &.{ 1, 3, 2 }, .values = &batch_right },
+    };
+    const owned = try cyna.allocDenseGraphF32(std.testing.allocator, &batch_inputs, &step, &.{2}, .baseline);
+    defer owned.deinit(std.testing.allocator);
+    try std.testing.expectEqualSlices(usize, &.{ 2, 2, 2 }, owned.shape(0));
+    try std.testing.expectEqualSlices(f32, &.{ 22, 28, 49, 64, 76, 100, 103, 136 }, owned.output(0));
+    var batch_output: [8]f32 = @splat(-1);
+    try cyna.runDenseGraphResidentF32(std.testing.allocator, &batch_inputs, &step, &.{2}, &batch_output);
+    try std.testing.expectEqualSlices(f32, owned.output(0), &batch_output);
+}
+
 test "Affon calls Cyna signed i64 matmul through the C ABI" {
     const lhs = [_]i64{ 1, -2, 3, 4 };
     const rhs = [_]i64{ 5, 6, 7, 8 };
