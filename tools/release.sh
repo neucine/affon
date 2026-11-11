@@ -11,6 +11,7 @@
 #   ./tools/release.sh smoke-remote
 #   ./tools/release.sh upload-install
 #   ./tools/release.sh github-release
+#   ./tools/release.sh sync-site
 #   ./tools/release.sh all
 #
 # Environment:
@@ -23,6 +24,8 @@
 #   AFFON_R2_DRY_RUN           1 to print uploads without writing to R2
 #   AFFON_R2_UPLOAD_TOOL       aws or wrangler (default: aws)
 #   AFFON_GITHUB_REPO          GitHub repo slug for gh release (default: neucine/affon)
+#   AFFON_SITES_REPO           Sites checkout (default: sibling sites directory)
+#   AFFON_SITE_HAO_REPO        Pinned Hao checkout (default: sibling hao directory)
 #   AWS_ACCESS_KEY_ID          R2 access key for aws uploads
 #   AWS_SECRET_ACCESS_KEY      R2 secret key for aws uploads
 #   AWS_PROFILE                Optional aws profile
@@ -41,6 +44,8 @@ R2_PREFIX="${AFFON_R2_PREFIX:-releases}"
 R2_DRY_RUN="${AFFON_R2_DRY_RUN:-0}"
 R2_UPLOAD_TOOL="${AFFON_R2_UPLOAD_TOOL:-aws}"
 GITHUB_REPO="${AFFON_GITHUB_REPO:-neucine/affon}"
+SITES_REPO="${AFFON_SITES_REPO:-$(dirname "$ROOT")/sites}"
+SITE_HAO_REPO="${AFFON_SITE_HAO_REPO:-$(dirname "$ROOT")/hao}"
 MODE="${1:-check}"
 
 info() {
@@ -412,6 +417,53 @@ create_github_release() {
   rm -f "$notes"
 }
 
+sync_site() {
+  local version pinned_hao current_hao site_head remote_head hosted_installer hosted_home
+  need_cmd npm
+  need_cmd gh
+  [ -d "$SITES_REPO/sites/affon-ai" ] || fail "missing sites checkout at $SITES_REPO"
+  [ -d "$SITE_HAO_REPO" ] || fail "missing Hao checkout at $SITE_HAO_REPO"
+  version="$(version_string)"
+  [ "$(release_tag)" = "v$version" ] || fail "release tag must match build.zig.zon"
+  gh release view "$(release_tag)" --repo "$GITHUB_REPO" >/dev/null || fail "publish the GitHub release before syncing the site"
+
+  pinned_hao="$(awk '/repository: neucine\/hao/ { found=1 } found && /ref:/ { print $2; exit }' "$ROOT/.github/workflows/release.yml")"
+  current_hao="$(git -C "$SITE_HAO_REPO" rev-parse HEAD)"
+  [ -n "$pinned_hao" ] && [ "$current_hao" = "$pinned_hao" ] || \
+    fail "site Hao checkout must match release pin $pinned_hao (got $current_hao)"
+
+  [ -z "$(git -C "$SITES_REPO" status --porcelain)" ] || fail "sites checkout has local changes: $SITES_REPO"
+  run git -C "$SITES_REPO" fetch origin main
+  site_head="$(git -C "$SITES_REPO" rev-parse HEAD)"
+  remote_head="$(git -C "$SITES_REPO" rev-parse origin/main)"
+  [ "$site_head" = "$remote_head" ] || fail "sites checkout is not at origin/main"
+
+  run env AFFON_REPO="$ROOT" HAO_REPO="$SITE_HAO_REPO" npm --prefix "$SITES_REPO" run sync:affon
+  run env AFFON_REPO="$ROOT" HAO_REPO="$SITE_HAO_REPO" npm --prefix "$SITES_REPO" run build:affon
+  grep -q "Install the latest release.*v$version" "$SITES_REPO/sites/affon-ai/dist/index.html" || \
+    fail "built homepage does not show v$version"
+  grep -q "AFFON_RELEASE_VERSION=\"\\\${AFFON_RELEASE_VERSION:-$version}\"" "$SITES_REPO/sites/affon-ai/dist/install.sh" || \
+    fail "built site installer does not default to $version"
+
+  run git -C "$SITES_REPO" add sites/affon-ai/content.lock.json sites/affon-ai/public/install.sh
+  if ! git -C "$SITES_REPO" diff --cached --quiet; then
+    run git -C "$SITES_REPO" commit -m "Sync affon.ai to $version"
+    run git -C "$SITES_REPO" push origin HEAD:main
+  fi
+  [ -z "$(git -C "$SITES_REPO" status --porcelain)" ] || fail "sites sync left uncommitted changes"
+  run env AFFON_REPO="$ROOT" HAO_REPO="$SITE_HAO_REPO" npm --prefix "$SITES_REPO" run deploy:affon
+  hosted_installer="$(mktemp "${TMPDIR:-/tmp}/affon-site-installer.XXXXXX")"
+  hosted_home="$(mktemp "${TMPDIR:-/tmp}/affon-site-home.XXXXXX")"
+  run curl -fsSL "https://affon.ai/install.sh" -o "$hosted_installer"
+  run curl -fsSL "https://affon.ai/" -o "$hosted_home"
+  grep -q "AFFON_RELEASE_VERSION=\"\\\${AFFON_RELEASE_VERSION:-$version}\"" "$hosted_installer" || \
+    fail "hosted site installer does not default to $version"
+  grep -q "Install the latest release.*v$version" "$hosted_home" || \
+    fail "hosted homepage does not show v$version"
+  rm -f "$hosted_installer" "$hosted_home"
+  info "affon.ai synced to $version"
+}
+
 case "$MODE" in
   check)
     run_checks
@@ -438,6 +490,9 @@ case "$MODE" in
   github-release)
     create_github_release
     ;;
+  sync-site)
+    sync_site
+    ;;
   all)
     run_checks
     build_artifacts
@@ -447,6 +502,7 @@ case "$MODE" in
     if [ "$R2_DRY_RUN" != "1" ]; then
       smoke_remote
       create_github_release
+      sync_site
     else
       info "skipped remote smoke and GitHub release during dry run"
     fi

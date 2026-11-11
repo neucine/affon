@@ -42,10 +42,16 @@ tag, then run:
 AFFON_R2_UPLOAD_TOOL=wrangler ./tools/release.sh upload-r2
 AFFON_R2_UPLOAD_TOOL=wrangler ./tools/release.sh upload-install
 ./tools/release.sh smoke-remote
+AFFON_SITES_REPO=/path/to/sites AFFON_SITE_HAO_REPO=/path/to/pinned/hao \
+  ./tools/release.sh sync-site
 ```
 
 Run `smoke-remote` on Linux as well, using the staged Linux asset there. Set
 `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` for Wrangler uploads.
+`sync-site` checks the pinned Hao commit, builds affon.ai from the published
+Affon commit, pushes its content lock and installer to the sites repository,
+deploys the site, and verifies the hosted homepage and installer version.
+The `all` mode performs this step after publishing the GitHub Release.
 
 ## Optional CI Release
 
@@ -71,6 +77,9 @@ The release workflow:
 - uploads hosted assets to R2 under `releases/<tag>/`
 - uploads metadata to `releases/latest.json` and `releases/<tag>.json`
 - uploads `install.sh` to `install.sh` and `releases/install.sh`
+
+After a CI release, run `sync-site` from a clean local checkout with the pinned
+Hao source. The manual workflow currently publishes release assets only.
 
 CI, security scans, and release jobs use the Neucine organization runners
 `eq12-linux-x64` and `macbook-arm64`. The native release assets therefore target
