@@ -377,6 +377,33 @@ test "Affon runs Cyna normalization and loss graph" {
             &inputs, &invalid, &.{3}, .baseline));
 }
 
+test "Affon runs a fused Cyna graph in resident memory mode" {
+    const left = [_]f32{ 1, 2, 3, 4 };
+    const right = [_]f32{ 5, 6, 7, 8 };
+    const bias = [_]f32{ 10, 20 };
+    const inputs = [_]cyna.DenseByteInput{
+        .{ .dtype = .f32, .shape = &.{ 2, 2 }, .bytes = std.mem.sliceAsBytes(&left) },
+        .{ .dtype = .f32, .shape = &.{ 2, 2 }, .bytes = std.mem.sliceAsBytes(&right) },
+        .{ .dtype = .f32, .shape = &.{2}, .bytes = std.mem.sliceAsBytes(&bias) },
+    };
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .matmul, .lhs = 0, .rhs = 1 },
+        .{ .operation = .add, .lhs = 3, .rhs = 2 },
+    };
+    const baseline = try cyna.allocDenseGraphMultiBytes(std.testing.allocator,
+        &inputs, &steps, &.{4}, .baseline);
+    defer baseline.deinit(std.testing.allocator);
+    const resident = try cyna.allocDenseGraphResidentMultiBytes(std.testing.allocator,
+        &inputs, &steps, &.{4}, .memory);
+    defer resident.deinit(std.testing.allocator);
+    try std.testing.expectEqualSlices(usize, &.{ 2, 2 }, resident.shape(0));
+    try std.testing.expectEqualSlices(u8, baseline.bytes, resident.bytes);
+    for ([_]f32{ 29, 42, 53, 70 }, 0..) |expected, index| {
+        try std.testing.expectEqual(expected,
+            std.mem.bytesToValue(f32, resident.outputBytes(0)[index * 4 ..][0..4]));
+    }
+}
+
 test "Affon runs resident Cyna normalization with epsilon metadata" {
     const values = [_]f32{ 1, 2, 3, 4, 5, 6 };
     const inputs = [_]cyna.DenseByteInput{.{
