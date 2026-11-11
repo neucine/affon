@@ -4,22 +4,36 @@ on:
   push:
   pull_request:
 
-env:
-  RUNTIME_PACKAGE_PATH: packages
+permissions:
+  contents: read
 
 jobs:
-  test:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: linux-x64
-            runner: eq12-linux-x64
-          - os: darwin-arm64
-            runner: macbook-arm64
+  quick-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check parity policies
+        run: |
+          for test in test_model_performance_gate test_coverage_matrix test_coverage_evidence test_capability_probes test_cell_performance_summary test_performance_report test_dispatch_boundaries test_workload_coverage; do
+            python3 -m unittest discover -s test/parity -p "${test}.py"
+          done
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.2.16
+      - name: Type-check public TypeScript contracts
+        run: |
+          bun x tsc -p src/tsconfig.json --noEmit
+          bun x tsc -p test/types/tsconfig.json --noEmit
+          bun x tsc -p test/e2e/program/operations/tsconfig.json --noEmit
+          bun x tsc -p packages/@affon/models/tsconfig.json --noEmit
+          bun x tsc -p packages/@affon/tokenizers/tsconfig.json --noEmit
+          bun x tsc -p apps/decoder-lm/tsconfig.json --noEmit
 
-    runs-on: [self-hosted, "${{ matrix.runner }}"]
-
+  native-tests:
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    env:
+      RUNTIME_PACKAGE_PATH: packages
     steps:
       - name: Check out Affon
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -37,7 +51,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: neucine/compute
-          token: ${{ secrets.DEPENDENCY_READ_TOKEN }}
+          token: ${{ secrets.PRIVATE_REPO_READ_TOKEN || secrets.DEPENDENCY_READ_TOKEN }}
           persist-credentials: false
           ref: c0d89db73c2cdc5e830ed3ff0f507fd26d44a063
           path: compute
@@ -46,7 +60,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: neucine/zig-libs
-          token: ${{ secrets.DEPENDENCY_READ_TOKEN }}
+          token: ${{ secrets.PRIVATE_REPO_READ_TOKEN || secrets.DEPENDENCY_READ_TOKEN }}
           persist-credentials: false
           ref: a91b58271be94a4e402a856403fe0fa83add1709
           path: zig-libs
@@ -65,35 +79,9 @@ jobs:
         working-directory: affon
         run: zig build test -Doptimize=ReleaseSafe
 
-      - name: Check model performance gate
-        working-directory: affon
-        run: python3 -m unittest discover -s test/parity -p 'test_model_performance_gate.py'
-
-      - name: Check workload coverage policy
-        working-directory: affon
-        run: |
-          python3 -m unittest discover -s test/parity -p 'test_coverage_matrix.py'
-          python3 -m unittest discover -s test/parity -p 'test_coverage_evidence.py'
-          python3 -m unittest discover -s test/parity -p 'test_capability_probes.py'
-          python3 -m unittest discover -s test/parity -p 'test_cell_performance_summary.py'
-          python3 -m unittest discover -s test/parity -p 'test_performance_report.py'
-          python3 -m unittest discover -s test/parity -p 'test_dispatch_boundaries.py'
-          python3 -m unittest discover -s test/parity -p 'test_workload_coverage.py'
-          python3 tools/coverage-matrix.py --output /tmp/affon-coverage-matrix.json
-
       - name: Build
         working-directory: affon
         run: zig build -Doptimize=ReleaseSafe
-
-      - name: Type-check public TypeScript contracts
-        working-directory: affon
-        run: |
-          bun x tsc -p src/tsconfig.json --noEmit
-          bun x tsc -p test/types/tsconfig.json --noEmit
-          bun x tsc -p test/e2e/program/operations/tsconfig.json --noEmit
-          bun x tsc -p packages/@affon/models/tsconfig.json --noEmit
-          bun x tsc -p packages/@affon/tokenizers/tsconfig.json --noEmit
-          bun x tsc -p apps/decoder-lm/tsconfig.json --noEmit
 
       - name: Run Affon runtime tests
         working-directory: affon
