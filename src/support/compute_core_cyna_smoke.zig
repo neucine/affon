@@ -721,8 +721,9 @@ test "Affon runs resident Cyna vector dot and broadcast batch matmul" {
         .{ .shape = &.{3}, .values = &vector },
         .{ .shape = &.{3}, .values = &vector },
     };
+    const dot_step = [_]cyna.DenseStep{.{ .operation = .dot, .lhs = 0, .rhs = 1 }};
     var dot = [_]f32{-1};
-    try cyna.runDenseGraphResidentF32(std.testing.allocator, &dot_inputs, &step, &.{2}, &dot);
+    try cyna.runDenseGraphResidentF32(std.testing.allocator, &dot_inputs, &dot_step, &.{2}, &dot);
     try std.testing.expectEqual(@as(f32, 14), dot[0]);
 
     const batch_left = [_]f32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };

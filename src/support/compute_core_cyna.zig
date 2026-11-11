@@ -593,6 +593,7 @@ pub const DenseOperation = enum(c_int) {
     log_softmax_nll = 65,
     cross_entropy_indexed = 66,
     quantized_matmul = 67,
+    dot = 68,
 };
 // rhs is a value ID for binary steps, an axis for reductions and softmax,
 // an index ID for indexed steps, a class count for one_hot, a DenseDType code
@@ -881,14 +882,14 @@ fn inferDenseGraphImpl(
         const available = inputs.len + index;
         if (dtype != .i64 and output_dtypes == null and
             ((@backingInt(step.operation) >= 29 and @backingInt(step.operation) <= 32) or
-            @backingInt(step.operation) >= 37)) return error.InvalidShape;
+            (@backingInt(step.operation) >= 37 and step.operation != .dot))) return error.InvalidShape;
         if (step.lhs >= available or
             (switch (step.operation) {
-                .add, .sub, .mul, .div, .matmul, .eq, .lt, .gt => step.rhs >= available,
+                .add, .sub, .mul, .div, .matmul, .dot, .eq, .lt, .gt => step.rhs >= available,
                 else => false,
             })) return error.InvalidShape;
         if (dtype == .i64 and switch (step.operation) {
-            .add, .sub, .mul, .div, .abs, .neg, .relu, .matmul,
+            .add, .sub, .mul, .div, .abs, .neg, .relu, .matmul, .dot,
             .sum_all, .mean_all, .sum_axis, .mean_axis, .sign,
             .min_all, .max_all, .min_axis, .max_axis,
             .argmin_all, .argmax_all, .argmin_axis, .argmax_axis,
@@ -1321,9 +1322,9 @@ fn runDenseGraphWithGoalMode(
     for (steps, 0..) |step, index| {
         const available = inputs.len + index;
         if (T != i64 and ((@backingInt(step.operation) >= 29 and @backingInt(step.operation) <= 32) or
-            @backingInt(step.operation) >= 37)) return error.InvalidShape;
+            (@backingInt(step.operation) >= 37 and step.operation != .dot))) return error.InvalidShape;
         if (T == i64 and switch (step.operation) {
-            .add, .sub, .mul, .div, .abs, .neg, .relu, .matmul,
+            .add, .sub, .mul, .div, .abs, .neg, .relu, .matmul, .dot,
             .sum_all, .mean_all, .sum_axis, .mean_axis, .sign,
             .min_all, .max_all, .min_axis, .max_axis,
             .argmin_all, .argmax_all, .argmin_axis, .argmax_axis,
@@ -1334,7 +1335,7 @@ fn runDenseGraphWithGoalMode(
         if (T == u32 and @backingInt(step.operation) > 12 and @backingInt(step.operation) < 25) return error.InvalidShape;
         if (step.lhs >= available or
             (switch (step.operation) {
-                .add, .sub, .mul, .div, .matmul, .eq, .lt, .gt => step.rhs >= available,
+                .add, .sub, .mul, .div, .matmul, .dot, .eq, .lt, .gt => step.rhs >= available,
                 else => false,
             }))
             return error.InvalidShape;
