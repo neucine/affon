@@ -22,10 +22,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
-    runs-on: ${{ matrix.os }}
+        include:
+          - os: linux-x64
+            runner: eq12-linux-x64
+          - os: darwin-arm64
+            runner: macbook-arm64
+    runs-on: [self-hosted, "${{ matrix.runner }}"]
 
     steps:
       - name: Check out Affon
@@ -71,85 +73,16 @@ jobs:
       - name: Verify version
         working-directory: affon
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          version=$(sed -n 's/.*\.version = "\([^"]*\)".*/\1/p' build.zig.zon)
-          test "v$version" = "$RELEASE_TAG"
-          test -x install.sh
-          grep -q "AFFON_RELEASE_VERSION=\"\${AFFON_RELEASE_VERSION:-$version}\"" install.sh
-          grep -q 'downloads\.affon\.ai/releases/v${AFFON_RELEASE_VERSION}\.json' install.sh
+          AFFON_RELEASE_TAG: ${{ github.ref_name }}
+        run: ./tools/release.sh check
 
-      - name: Verify release build
-        working-directory: affon
-        run: |
-          zig build test -Doptimize=ReleaseSafe
-          zig build -Doptimize=ReleaseSafe
-
-      - name: Type-check public TypeScript contracts
-        working-directory: affon
-        run: |
-          bun x tsc -p src/tsconfig.json --noEmit
-          bun x tsc -p test/types/tsconfig.json --noEmit
-          bun x tsc -p packages/@affon/models/tsconfig.json --noEmit
-          bun x tsc -p packages/@affon/tokenizers/tsconfig.json --noEmit
-          bun x tsc -p apps/decoder-lm/tsconfig.json --noEmit
-
-      - name: Run Affon runtime tests
-        working-directory: affon
-        run: ./tools/test-runtime.sh
-
-      - name: Package native release asset
+      - name: Package and smoke test native release asset
         working-directory: affon
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
-        shell: bash
+          AFFON_RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          set -euo pipefail
-
-          version="${RELEASE_TAG#v}"
-
-          case "$(uname -s)" in
-            Darwin) target_os="darwin" ;;
-            Linux) target_os="linux" ;;
-            *) echo "unsupported OS: $(uname -s)" >&2; exit 1 ;;
-          esac
-
-          case "$(uname -m)" in
-            x86_64|amd64) target_arch="x64" ;;
-            arm64|aarch64) target_arch="arm64" ;;
-            *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;;
-          esac
-
-          zig build -Doptimize=ReleaseFast
-
-          expected="affon $version"
-          actual="$(./zig-out/bin/affon --version 2>&1)"
-          if [ "$actual" != "$expected" ]; then
-            echo "binary version mismatch: expected '$expected', got '$actual'" >&2
-            exit 1
-          fi
-
-          stem="affon-${RELEASE_TAG}-${target_os}-${target_arch}"
-          dist="dist/release"
-          package_root="$dist/package"
-          stage="$package_root/$stem"
-
-          rm -rf "$dist"
-          mkdir -p "$stage"
-          cp zig-out/bin/affon "$stage/affon"
-          cp zig-out/bin/affon "$dist/$stem"
-          chmod 755 "$stage/affon" "$dist/$stem"
-          cp README.md "$stage/README.md"
-          [ ! -f LICENSE ] || cp LICENSE "$stage/LICENSE"
-
-          tar -czf "$dist/$stem.tar.gz" -C "$package_root" "$stem"
-          rm -rf "$package_root"
-
-          (
-            cd "$dist"
-            shasum -a 256 "$stem" > "$stem.sha256"
-            shasum -a 256 "$stem.tar.gz" > "$stem.tar.gz.sha256"
-          )
+          ./tools/release.sh build
+          ./tools/release.sh smoke-local
 
       - name: Upload native release asset
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -161,7 +94,7 @@ jobs:
   publish:
     name: Publish GitHub release and R2 assets
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, eq12-linux-x64]
 
     steps:
       - name: Check out Affon
@@ -232,38 +165,8 @@ jobs:
       - name: Write hosted release metadata
         working-directory: affon
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          python3 - <<'PY'
-          import json
-          import os
-          import pathlib
-
-          tag = os.environ["RELEASE_TAG"]
-          dist = pathlib.Path("dist/release")
-          base_url = f"https://downloads.affon.ai/releases/{tag}"
-          assets = []
-
-          for path in sorted(dist.iterdir()):
-              if path.is_file() and path.name != "latest.json":
-                  assets.append({
-                      "name": path.name,
-                      "browser_download_url": f"{base_url}/{path.name}?v={tag}",
-                  })
-
-          payload = {
-              "tag_name": tag,
-              "name": tag,
-              "assets": assets,
-          }
-
-          text = json.dumps(payload, indent=2) + "\n"
-          (dist / "latest.json").write_text(text)
-          (dist / f"{tag}.json").write_text(text)
-          PY
+          AFFON_RELEASE_TAG: ${{ github.ref_name }}
+        run: ./tools/release.sh metadata
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3

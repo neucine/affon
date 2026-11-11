@@ -6,6 +6,7 @@
 #   ./tools/release.sh check
 #   ./tools/release.sh build
 #   ./tools/release.sh smoke-local
+#   ./tools/release.sh metadata
 #   ./tools/release.sh upload-r2
 #   ./tools/release.sh smoke-remote
 #   ./tools/release.sh upload-install
@@ -128,6 +129,7 @@ assert_checkout_binary() {
 run_release_tests() {
   export RUNTIME_PACKAGE_PATH="${RUNTIME_PACKAGE_PATH:-$ROOT/packages}"
   run zig build test -Doptimize=ReleaseSafe
+  run bun x tsc -p src/tsconfig.json --noEmit
   run bun x tsc -p test/types/tsconfig.json --noEmit
   run bun x tsc -p packages/@affon/models/tsconfig.json --noEmit
   run bun x tsc -p packages/@affon/tokenizers/tsconfig.json --noEmit
@@ -142,7 +144,7 @@ run_checks() {
 
   info "version: $(version_string)"
   info "tag: $(release_tag)"
-  sync_install_version
+  [ "$(release_tag)" = "v$(version_string)" ] || fail "release tag must match build.zig.zon"
   require_install_script
 
   run zig build -Doptimize=ReleaseSafe
@@ -161,7 +163,7 @@ build_artifacts() {
   need_cmd shasum
   need_cmd tar
   need_cmd zig
-  sync_install_version
+  [ "$(release_tag)" = "v$(version_string)" ] || fail "release tag must match build.zig.zon"
   require_install_script
 
   stem="$(asset_stem)"
@@ -190,11 +192,9 @@ build_artifacts() {
     shasum -a 256 "$stem.tar.gz" > "$stem.tar.gz.sha256"
   )
 
-  write_latest_json
-
   info "built direct binary: $binary_asset"
   info "built artifact: $tarball"
-  info "wrote checksums and latest.json in $DIST_DIR"
+  info "wrote checksums in $DIST_DIR"
 }
 
 require_artifacts() {
@@ -202,8 +202,6 @@ require_artifacts() {
   stem="$(asset_stem)"
   [ -f "$DIST_DIR/$stem" ] || build_artifacts
   [ -f "$DIST_DIR/$stem.tar.gz" ] || build_artifacts
-  [ -f "$DIST_DIR/latest.json" ] || write_latest_json
-  [ -f "$DIST_DIR/$(release_tag).json" ] || write_latest_json
 }
 
 require_install_script() {
@@ -215,30 +213,6 @@ require_install_script() {
     fail "install.sh release version must match build.zig.zon version $version"
   grep -q 'downloads\.affon\.ai/releases/v${AFFON_RELEASE_VERSION}\.json' "$ROOT/install.sh" || \
     fail "install.sh must default to the AFFON downloads endpoint"
-}
-
-sync_install_version() {
-  local version
-  version="$(version_string)"
-  python3 - <<'PY' "$ROOT/install.sh" "$version"
-import pathlib
-import re
-import sys
-
-path = pathlib.Path(sys.argv[1])
-version = sys.argv[2]
-source = path.read_text()
-updated, count = re.subn(
-    r'AFFON_RELEASE_VERSION="\$\{AFFON_RELEASE_VERSION:-[^}]+\}"',
-    f'AFFON_RELEASE_VERSION="${{AFFON_RELEASE_VERSION:-{version}}}"',
-    source,
-    count=1,
-)
-if count != 1:
-    raise SystemExit("failed to update AFFON_RELEASE_VERSION in install.sh")
-if updated != source:
-    path.write_text(updated)
-PY
 }
 
 write_latest_json() {
@@ -254,7 +228,7 @@ base_url = f"{os.environ['DOWNLOAD_BASE_URL'].rstrip('/')}/{prefix}/{tag}"
 assets = []
 
 for path in sorted(dist.iterdir()):
-    if path.is_file() and path.name != "latest.json":
+    if path.is_file() and path.name not in ("latest.json", f"{tag}.json"):
         assets.append({
             "name": path.name,
             "browser_download_url": f"{base_url}/{path.name}?v={tag}",
@@ -355,6 +329,7 @@ upload_file_to_r2() {
 upload_r2() {
   local file name key
   require_artifacts
+  write_latest_json
 
   for file in "$DIST_DIR"/*; do
     [ -f "$file" ] || continue
@@ -446,6 +421,10 @@ case "$MODE" in
     ;;
   smoke-local)
     smoke_local
+    ;;
+  metadata)
+    [ -d "$DIST_DIR" ] || fail "missing dist/release"
+    write_latest_json
     ;;
   upload-r2)
     upload_r2

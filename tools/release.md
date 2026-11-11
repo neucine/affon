@@ -3,13 +3,14 @@
 This document defines the maintainer release workflow for Affon runtime
 releases.
 
-The primary release path is tag-driven GitHub Actions:
+The canonical release path is tag-driven GitHub Actions:
 
 ```text
 .github/workflows/release.yml
 ```
 
-The local maintainer helper is:
+The workflow calls the local maintainer helper for version checks, tests, native
+packaging, smoke tests, and hosted metadata:
 
 ```text
 tools/release.sh
@@ -39,7 +40,7 @@ git push origin v0.3.0
 
 The release workflow:
 
-- validates that the tag matches `build.zig.zon`
+- validates that the tag and installer version match `build.zig.zon`
 - checks out Affon plus pinned `hao`, `compute`, and `zig-libs` dependencies
 - builds and tests on Linux and macOS
 - type-checks public TypeScript contracts and first-party packages
@@ -49,6 +50,11 @@ The release workflow:
 - uploads hosted assets to R2 under `releases/<tag>/`
 - uploads metadata to `releases/latest.json` and `releases/<tag>.json`
 - uploads `install.sh` to `install.sh` and `releases/install.sh`
+
+CI, security scans, and release jobs use the Neucine organization runners
+`eq12-linux-x64` and `macbook-arm64`. The native release assets therefore target
+Linux x64 and macOS arm64. Both runners must be online and available to this
+repository before pushing a release tag.
 
 CI requires these repository secrets:
 
@@ -73,6 +79,12 @@ Smoke test the staged archive:
 
 ```sh
 ./tools/release.sh smoke-local
+```
+
+Write hosted metadata after gathering native assets:
+
+```sh
+./tools/release.sh metadata
 ```
 
 Dry-run the local R2 upload:
@@ -140,19 +152,18 @@ The local helper stages assets in:
 dist/release/
 ```
 
-For version `0.3.0` on Darwin arm64, the staged files are:
+For version `0.3.0` on Darwin arm64, `build` stages these files:
 
 ```text
 affon-v0.3.0-darwin-arm64
 affon-v0.3.0-darwin-arm64.sha256
 affon-v0.3.0-darwin-arm64.tar.gz
 affon-v0.3.0-darwin-arm64.tar.gz.sha256
-latest.json
-v0.3.0.json
 ```
 
 The canonical installer is [install.sh](../../install.sh). It carries
 `AFFON_RELEASE_VERSION`, which defaults to the current release version and points
 at `https://downloads.affon.ai/releases/v${AFFON_RELEASE_VERSION}.json`. The
-local helper syncs that default from `build.zig.zon`; CI verifies that the two
-versions match before publishing.
+Update that default alongside `build.zig.zon`; the helper and CI require the two
+versions to match before publishing. The `metadata` helper mode writes hosted
+metadata after native assets have been gathered in `dist/release/`.
