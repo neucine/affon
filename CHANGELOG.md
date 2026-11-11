@@ -6,6 +6,18 @@ The format is based on Keep a Changelog and the project follows Semantic Version
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-11
+
+### Added
+
+- added Cyna graph integration for resident tensor operations and metadata-aware execution
+- added automatic device discovery for operation end-to-end tests across available CPU, Metal, and CUDA devices
+
+### Changed
+
+- moved quick public CI checks to GitHub-hosted runners and kept local native release tooling
+- refreshed pinned dependencies and release packaging for the current runtime
+
 ## [0.3.0] - 2026-09-05
 
 ### Added

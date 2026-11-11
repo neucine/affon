@@ -3,7 +3,7 @@
 This document defines the maintainer release workflow for Affon runtime
 releases.
 
-The canonical release path is tag-driven GitHub Actions:
+The GitHub Actions release workflow is available for a future CI release:
 
 ```text
 .github/workflows/release.yml
@@ -16,7 +16,7 @@ packaging, smoke tests, and hosted metadata:
 tools/release.sh
 ```
 
-The goal is to keep every release in the same order:
+The local release uses this order:
 
 1. build the runtime from the checkout
 2. run the release test suite
@@ -24,18 +24,39 @@ The goal is to keep every release in the same order:
 4. stage native release assets
 5. smoke test the staged archive
 6. publish the tag
-7. let CI build, publish GitHub assets, and mirror hosted assets to R2
-8. smoke test the hosted archive when doing a manual local upload
-9. publish the canonical installer script
+7. gather both native assets in one `dist/release/` directory
+8. publish the release tag and GitHub assets
+9. mirror assets and metadata to R2, then publish the canonical installer
+10. smoke test both hosted archives
 
-## Standard CI Release
+## Standard Local Release
+
+Run `check`, `build`, and `smoke-local` in clean, pinned dependency checkouts
+on macOS arm64 and Linux x64. Copy the four Linux assets into the macOS
+`dist/release/` directory. From that checkout, publish the release commit and
+tag, then run:
+
+```sh
+./tools/release.sh metadata
+./tools/release.sh github-release
+AFFON_R2_UPLOAD_TOOL=wrangler ./tools/release.sh upload-r2
+AFFON_R2_UPLOAD_TOOL=wrangler ./tools/release.sh upload-install
+./tools/release.sh smoke-remote
+```
+
+Run `smoke-remote` on Linux as well, using the staged Linux asset there. Set
+`CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` for Wrangler uploads.
+
+## Optional CI Release
 
 Prepare and verify the release commit locally, then push the release commit and
-tag:
+tag. Dispatch the release workflow manually on that tag when the runners are
+available:
 
 ```sh
 git push origin HEAD
-git push origin v0.3.0
+git push origin v0.4.0
+gh workflow run release.yml --repo neucine/affon --ref v0.4.0
 ```
 
 The release workflow:
@@ -121,7 +142,7 @@ Create a GitHub Release locally after the tag exists remotely:
 ./tools/release.sh github-release
 ```
 
-Run the full local flow:
+Run the full local flow on one host when only that host's asset is required:
 
 ```sh
 ./tools/release.sh all
@@ -152,13 +173,13 @@ The local helper stages assets in:
 dist/release/
 ```
 
-For version `0.3.0` on Darwin arm64, `build` stages these files:
+For version `0.4.0` on Darwin arm64, `build` stages these files:
 
 ```text
-affon-v0.3.0-darwin-arm64
-affon-v0.3.0-darwin-arm64.sha256
-affon-v0.3.0-darwin-arm64.tar.gz
-affon-v0.3.0-darwin-arm64.tar.gz.sha256
+affon-v0.4.0-darwin-arm64
+affon-v0.4.0-darwin-arm64.sha256
+affon-v0.4.0-darwin-arm64.tar.gz
+affon-v0.4.0-darwin-arm64.tar.gz.sha256
 ```
 
 The canonical installer is [install.sh](../../install.sh). It carries

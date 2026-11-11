@@ -8,7 +8,7 @@ const qjs = hao.qjs;
 const packages = hao.package;
 
 pub const package_name = "affon";
-pub const version = "0.3.0";
+pub const version = "0.4.0";
 pub const compute = @import("compute");
 
 comptime { _ = config; _ = memory; }
