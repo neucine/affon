@@ -935,6 +935,10 @@ test "Affon runs quantized matmul inside a Cyna graph" {
     try std.testing.expectEqualSlices(usize, &.{ 2, 3 }, result.shape(0));
     const expected = [_]f32{ 36, 72, 108, 44, 88, 132 };
     try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&expected), result.outputBytes(0));
+    const resident = try cyna.allocDenseGraphResidentMultiBytes(std.testing.allocator,
+        &inputs, &steps, &.{4}, .baseline);
+    defer resident.deinit(std.testing.allocator);
+    try std.testing.expectEqualSlices(u8, result.outputBytes(0), resident.outputBytes(0));
 }
 
 test "Affon calls Cyna rank-two reductions through the C ABI" {
