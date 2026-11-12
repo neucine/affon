@@ -445,7 +445,9 @@ upload_install() {
   require_install_script
   upload_file_to_r2 "$ROOT/install.sh" "install.sh"
   upload_file_to_r2 "$ROOT/install.sh" "${R2_PREFIX%/}/install.sh"
-  info "uploaded install.sh to R2 bucket $R2_BUCKET_NAME"
+  upload_file_to_r2 "$ROOT/install.ps1" "install.ps1"
+  upload_file_to_r2 "$ROOT/install.ps1" "${R2_PREFIX%/}/install.ps1"
+  info "uploaded installers to R2 bucket $R2_BUCKET_NAME"
 }
 
 smoke_remote() {
