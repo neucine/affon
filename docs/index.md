@@ -17,7 +17,7 @@ and apps that build on those surfaces.
 
 Affon keeps the public runtime surface intentionally small:
 
-- `affon:compute` provides tensors, Programs, Sessions, differentiation, and
+- `affon:core` provides tensors, Programs, Sessions, differentiation, and
   Program transforms.
 - `affon:nn` provides callable factories for parameterized neural-network
   declarations and losses.

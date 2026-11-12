@@ -17,7 +17,7 @@ and expands named parameters into the Program that owns those tensors.
 Use ordinary functions for reusable architecture fragments:
 
 ```ts
-import type { FormalTensor } from 'affon:compute'
+import type { FormalTensor } from 'affon:core'
 import { linear } from 'affon:nn'
 import { gelu } from 'affon:ops'
 

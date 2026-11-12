@@ -1,6 +1,6 @@
 import { add } from "affon:ops"
 import { describe, expect, test } from "std:test"
-import { Session, Tensor, program } from "affon:compute"
+import { Session, Tensor, program } from "affon:core"
 
 describe("Program execution lifecycle", () => {
   test("supports optional deterministic disposal and safe child lifetimes", () => {

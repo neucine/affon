@@ -1,7 +1,7 @@
 import { from_pretrained } from '../../../packages/@affon/huggingface/src/index.ts'
 import { getEnv } from 'std:process'
 import { SMOLLM2_MODELS, type SmolLM2Size } from '../src/inference/models.ts'
-import type { Device } from 'affon:compute'
+import type { Device } from 'affon:core'
 import { CausalProgramRuntime } from '../src/inference/program-runtime.ts'
 const size = (getEnv('AFFON_SMOLLM2_SIZE') ?? '135M') as SmolLM2Size
 if (!Object.hasOwn(SMOLLM2_MODELS, size)) throw Error('Invalid SmolLM2 size')

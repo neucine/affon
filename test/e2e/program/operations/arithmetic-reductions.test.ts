@@ -2,7 +2,7 @@ import { testDevices } from '../../devices.ts'
 // Reference cases migrated from affon-legacy/test/parity/compute. The expected
 // values are independent arithmetic fixtures rather than runtime-generated values.
 import { abs, add, argmax, argmin, div, exp, log, matmul, max, mean, min, mul, neg, relu, reshape, sigmoid, softmax, sqrt, std, sub, sum, tanh, transpose, variance } from 'affon:ops'
-import { Session } from 'affon:compute'
+import { Session } from 'affon:core'
 import { describe, expect, test } from 'std:test'
 
 function close(actual: unknown, expected: unknown, tolerance = 1e-5): void {

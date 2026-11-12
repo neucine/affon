@@ -11,7 +11,7 @@ follow ownership and dependencies:
 
 Model families belong inside `models`; shared components belong in `models/src/shared`.
 Generation belongs with the models that support it. Parameterized layer factories
-live in `affon:nn`, tensor operations in `affon:ops`, execution in `affon:compute`, and
+live in `affon:nn`, tensor operations in `affon:ops`, execution in `affon:core`, and
 basic data operations in `affon:dataset`. Complete training and serving workflows
 belong in `apps/`.
 

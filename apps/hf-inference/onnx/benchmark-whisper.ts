@@ -3,7 +3,7 @@ import { getEnv } from 'std:process'
 import { load_whisper } from '../../../packages/@affon/huggingface/src/adapters/whisper.ts'
 import { load_whisper_processor } from '../../../packages/@affon/huggingface/src/processors/whisper.ts'
 import { decode_wav } from '../../../packages/@affon/huggingface/src/processors/shared/audio.ts'
-import type { Device } from 'affon:compute'
+import type { Device } from 'affon:core'
 import { WhisperProgramRuntime } from '../src/inference/program-runtime.ts'
 const root = getEnv('AFFON_WHISPER_DIR') ?? 'apps/hf-inference/artifacts/whisper'
 const device = (getEnv('AFFON_DEVICE') ?? 'metal') as Device

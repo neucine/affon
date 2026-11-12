@@ -8,6 +8,8 @@ with spaces to a multiple of eight bytes, and a tiny tensor payload (usually fou
 `dtype: "F32"`, `shape: [1]`, `data_offsets: [0,4]`.
 `partial-invalid` contains that weight followed by `bad: {}` to exercise cleanup
 after a tensor has already been allocated.
+`multi` contains two F32 tensors so selective loads can verify that seeking to
+the second payload does not return data from the first.
 
 The other files deliberately violate one field: a root array, numeric metadata
 value, negative dimension, one-element offset list, mismatched byte count, or

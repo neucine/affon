@@ -1,4 +1,4 @@
-import type { Tensor } from 'affon:compute'
+import type { Tensor } from 'affon:core'
 import process from 'std:process'
 
 type FiniteSummary = {

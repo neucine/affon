@@ -37,8 +37,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: neucine/hao
-          ref: aa59fc076607f98612243e0ecc7f7da019f9dc5d
-          path: hao
+          ref: 4b58ac4dd2841fbc3bf6d96d2f985a3e2ea57c5b
+          path: hao-legacy
 
       - name: Check out Compute
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -46,7 +46,7 @@ jobs:
           repository: neucine/compute
           token: ${{ secrets.PRIVATE_REPO_READ_TOKEN || secrets.DEPENDENCY_READ_TOKEN }}
           persist-credentials: false
-          ref: c0d89db73c2cdc5e830ed3ff0f507fd26d44a063
+          ref: dc66696c6444d4077bea9e172e1f6e1d990ed223
           path: compute
 
       - name: Check out shared Zig libraries
@@ -55,7 +55,7 @@ jobs:
           repository: neucine/zig-libs
           token: ${{ secrets.PRIVATE_REPO_READ_TOKEN || secrets.DEPENDENCY_READ_TOKEN }}
           persist-credentials: false
-          ref: a91b58271be94a4e402a856403fe0fa83add1709
+          ref: c5b61fbdd2c7c02d875212e7111a27be3aaf2f17
           path: zig-libs
 
       - name: Set up Zig
@@ -89,9 +89,89 @@ jobs:
           path: affon/dist/release/*
           if-no-files-found: error
 
+  windows:
+    name: Build release asset (windows-x64)
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out Affon
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: affon
+
+      - name: Check out Hao
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: neucine/hao
+          ref: 4b58ac4dd2841fbc3bf6d96d2f985a3e2ea57c5b
+          path: hao-legacy
+
+      - name: Check out Compute
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: neucine/compute
+          token: ${{ secrets.PRIVATE_REPO_READ_TOKEN || secrets.DEPENDENCY_READ_TOKEN }}
+          persist-credentials: false
+          ref: dc66696c6444d4077bea9e172e1f6e1d990ed223
+          path: compute
+
+      - name: Check out shared Zig libraries
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: neucine/zig-libs
+          token: ${{ secrets.PRIVATE_REPO_READ_TOKEN || secrets.DEPENDENCY_READ_TOKEN }}
+          persist-credentials: false
+          ref: c5b61fbdd2c7c02d875212e7111a27be3aaf2f17
+          path: zig-libs
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: 0.17.0
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.2.16
+
+      - name: Install Rust Windows GNU target
+        shell: pwsh
+        run: rustup target add x86_64-pc-windows-gnu
+
+      - name: Install LLVM-MinGW
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP "llvm-mingw.zip"
+          $download = "https://github.com/mstorsjo/llvm-mingw/releases/download/20260908/llvm-mingw-20260908-ucrt-x86_64.zip"
+          Invoke-WebRequest -Uri $download -OutFile $archive
+          Expand-Archive -Path $archive -DestinationPath $env:RUNNER_TEMP -Force
+          $prefix = (Get-ChildItem $env:RUNNER_TEMP -Directory -Filter "llvm-mingw-*" | Select-Object -First 1).FullName
+          "LLVM_MINGW_PREFIX=$prefix" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "$prefix\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+          "AFFON_WINDOWS_GNU_LIBUNWIND=$prefix\x86_64-w64-mingw32\lib\libunwind.a" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=$env:GITHUB_WORKSPACE\affon\tools\rust-windows-linker.cmd" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Package and smoke test Windows release asset
+        working-directory: affon
+        shell: bash
+        env:
+          AFFON_RELEASE_TAG: ${{ github.ref_name }}
+          AFFON_RELEASE_PLATFORM: windows-x64
+        run: |
+          ./tools/release.sh build
+          ./tools/release.sh smoke-local
+          ./dist/release/affon-${AFFON_RELEASE_TAG}-windows-x64.exe examples/first-program.ts
+
+      - name: Upload Windows release asset
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: affon-release-windows-x64
+          path: affon/dist/release/*
+          if-no-files-found: error
+
   publish:
     name: Publish GitHub release and R2 assets
-    needs: build
+    needs: [build, windows]
     runs-on: [self-hosted, eq12-linux-x64]
 
     steps:
@@ -104,8 +184,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: neucine/hao
-          ref: aa59fc076607f98612243e0ecc7f7da019f9dc5d
-          path: hao
+          ref: 4b58ac4dd2841fbc3bf6d96d2f985a3e2ea57c5b
+          path: hao-legacy
 
       - name: Check out Compute
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -113,7 +193,7 @@ jobs:
           repository: neucine/compute
           token: ${{ secrets.PRIVATE_REPO_READ_TOKEN || secrets.DEPENDENCY_READ_TOKEN }}
           persist-credentials: false
-          ref: c0d89db73c2cdc5e830ed3ff0f507fd26d44a063
+          ref: dc66696c6444d4077bea9e172e1f6e1d990ed223
           path: compute
 
       - name: Check out shared Zig libraries
@@ -122,7 +202,7 @@ jobs:
           repository: neucine/zig-libs
           token: ${{ secrets.PRIVATE_REPO_READ_TOKEN || secrets.DEPENDENCY_READ_TOKEN }}
           persist-credentials: false
-          ref: a91b58271be94a4e402a856403fe0fa83add1709
+          ref: c5b61fbdd2c7c02d875212e7111a27be3aaf2f17
           path: zig-libs
 
       - name: Set up Zig
@@ -147,18 +227,18 @@ jobs:
           mkdir -p dist/source package-source verify-source
 
           git archive --format=tar --prefix="affon/" "$GITHUB_SHA" \
-            build.zig build.zig.zon LICENSE README.md THIRD_PARTY_NOTICES.md install.sh src tools packages/@types/affon | tar -C verify-source -xf -
-          git -C ../hao archive --format=tar --prefix="hao/" HEAD -- build.zig build.zig.zon include src libs/transpiler | tar -C verify-source -xf -
+            build.zig build.zig.zon LICENSE README.md THIRD_PARTY_NOTICES.md install.sh install.ps1 src tools packages/@types/affon | tar -C verify-source -xf -
+          git -C ../hao-legacy archive --format=tar --prefix="hao-legacy/" HEAD -- build.zig build.zig.zon include src libs/transpiler | tar -C verify-source -xf -
           git -C ../compute archive --format=tar --prefix="compute/" HEAD -- build.zig build.zig.zon README.md src tools | tar -C verify-source -xf -
           git -C ../zig-libs archive --format=tar --prefix="zig-libs/" HEAD -- build.zig build.zig.zon README.md src .gitignore | tar -C verify-source -xf -
           zig build --build-file verify-source/affon/build.zig -Doptimize=ReleaseSafe
 
           git archive --format=tar --prefix="affon/" "$GITHUB_SHA" \
-            build.zig build.zig.zon LICENSE README.md THIRD_PARTY_NOTICES.md install.sh src tools packages/@types/affon | tar -C package-source -xf -
-          git -C ../hao archive --format=tar --prefix="hao/" HEAD -- build.zig build.zig.zon include src libs/transpiler | tar -C package-source -xf -
+            build.zig build.zig.zon LICENSE README.md THIRD_PARTY_NOTICES.md install.sh install.ps1 src tools packages/@types/affon | tar -C package-source -xf -
+          git -C ../hao-legacy archive --format=tar --prefix="hao-legacy/" HEAD -- build.zig build.zig.zon include src libs/transpiler | tar -C package-source -xf -
           git -C ../compute archive --format=tar --prefix="compute/" HEAD -- build.zig build.zig.zon README.md src tools | tar -C package-source -xf -
           git -C ../zig-libs archive --format=tar --prefix="zig-libs/" HEAD -- build.zig build.zig.zon README.md src .gitignore | tar -C package-source -xf -
-          tar -C package-source -czf "dist/source/$archive" affon hao compute zig-libs
+          tar -C package-source -czf "dist/source/$archive" affon hao-legacy compute zig-libs
 
       - name: Write hosted release metadata
         working-directory: affon
@@ -217,7 +297,19 @@ jobs:
             --remote
 
           npx --yes wrangler r2 object put \
+            "$R2_BUCKET/install.ps1" \
+            --file affon/install.ps1 \
+            --content-type text/plain \
+            --remote
+
+          npx --yes wrangler r2 object put \
             "$R2_BUCKET/releases/install.sh" \
             --file affon/install.sh \
             --content-type text/x-shellscript \
+            --remote
+
+          npx --yes wrangler r2 object put \
+            "$R2_BUCKET/releases/install.ps1" \
+            --file affon/install.ps1 \
+            --content-type text/plain \
             --remote

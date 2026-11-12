@@ -1,6 +1,6 @@
 import fs from 'std:fs'
-import { Session } from 'affon:compute'
-import type { Device, Tensor } from 'affon:compute'
+import { Session } from 'affon:core'
+import type { Device, Tensor } from 'affon:core'
 import { resize_rgb } from './shared/resize-rgb.ts'
 
 /** Prepare RGB8 arrays using the local ViT bilinear resize/rescale/normalize config.

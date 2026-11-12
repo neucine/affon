@@ -45,6 +45,12 @@ test('checkpoint metadata and selective reads preserve storage dtype and validat
   expect(()=>checkpoint.load(fixture('partial-invalid'),{names:[]})).toThrow()
 })
 
+test('selective checkpoint reads seek to later tensor payloads', () => {
+  const state=checkpoint.load(fixture('multi'),{names:['second']}) as any
+  expect(Object.keys(state)).toEqual(['second'])
+  expect(values(state.second)).toEqual([3,4])
+})
+
 test('BF16 streaming handles a full 64 KiB input chunk and a partial tail without count overflow', () => {
   const state=checkpoint.load(fixture('bf16-chunks')) as any
   const v=values(state.weight)

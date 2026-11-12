@@ -37,7 +37,7 @@ y = x * x
 Affon, evaluated immediately:
 
 ```ts
-import { Session } from 'affon:compute'
+import { Session } from 'affon:core'
 import { mul } from 'affon:ops'
 
 const session = new Session({ device: 'cpu' })
@@ -70,7 +70,7 @@ model = nn.Sequential(
 Affon:
 
 ```ts
-import { Tensor, program } from 'affon:compute'
+import { Tensor, program } from 'affon:core'
 import { linear } from 'affon:nn'
 import { gelu } from 'affon:ops'
 
@@ -87,12 +87,12 @@ Layer factories infer the owning Program from their formal tensor bindings and
 declare dotted parameter names such as `hidden.weight`. General operations live
 in `affon:ops`; there are no canonical
 tensor methods such as `x.matmul(y)` and no global operation exports from
-`affon:compute`.
+`affon:core`.
 
 ## Training
 
 ```ts
-import { Session, optimize } from 'affon:compute'
+import { Session, optimize } from 'affon:core'
 import { cross_entropy } from 'affon:nn'
 import { adam } from 'affon:optim'
 

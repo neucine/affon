@@ -1,6 +1,6 @@
 import { expect, test } from 'std:test'
-import { Session } from 'affon:compute'
-import type { Tensor } from 'affon:compute'
+import { Session } from 'affon:core'
+import type { Tensor } from 'affon:core'
 import { create_vit } from '../../src/vit/model.ts'
 
 for (const dtype of ['f32', 'bf16'] as const) test(`runs ViT ${dtype} parameters through Program and Session`, () => {

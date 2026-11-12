@@ -1,7 +1,7 @@
 import { describe, test, expect, values } from 'std:test'
 import { text } from 'affon:dataset/text.ts'
 import { writeFileSync } from 'std:fs'
-import { Session } from 'affon:compute'
+import { Session } from 'affon:core'
 import { createLookupTokenizer } from '../../../packages/@affon/tokenizers/src/index.ts'
 
 describe('dataset text', () => {

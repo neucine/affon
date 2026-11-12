@@ -40,14 +40,26 @@ curl -fsSL https://affon.ai/install.sh | bash
 This installs `affon` into `~/.affon/bin` and adds that directory to your shell
 `PATH`.
 
-Run a script:
+On Windows x64:
 
-```bash
-affon hello.ts
+```powershell
+irm https://downloads.affon.ai/install.ps1 | iex
 ```
 
+Restart the terminal after installation so the updated user `PATH` is loaded.
+
+Run the self-contained CPU demo from this checkout:
+
+```bash
+affon examples/first-program.ts
+```
+
+It prints a typed input contract, the inspected optimizer transition, a
+decreasing training loss, and predictions near `[2, 4, 6]`. See the
+[one-minute walkthrough](docs/getting-started/first-program.md).
+
 ```typescript
-import { Session, Tensor, program } from "affon:compute";
+import { Session, Tensor, program } from "affon:core";
 import { linear } from "affon:nn";
 
 const output = linear({ out_features: 1 });
@@ -68,7 +80,7 @@ console.log(prediction.to_array());
 For immediate computation, evaluated tensors can use the lazy default Session:
 
 ```typescript
-import { Tensor } from "affon:compute";
+import { Tensor } from "affon:core";
 import { add } from "affon:ops";
 
 const result = add(Tensor.from([1, 2, 3]), Tensor.ones([3]));
@@ -81,7 +93,7 @@ changed through the canonical API.
 
 ## Public Modules
 
-- `affon:compute` is the declarative Program, Session, differentiation, and
+- `affon:core` is the declarative Program, Session, differentiation, and
   Program-transform surface.
 - `affon:nn` contains callable factories for parameterized layers and losses.
 - `affon:ops` is the shared operation vocabulary for formal and evaluated tensors.
@@ -132,7 +144,7 @@ cases.
 ## Docs
 
 - Roadmap: [Legible computational Programs](docs/roadmap.md)
-- Getting started: [Python to AFFON](docs/getting-started/python-to-affon.md)
+- Getting started: [First Program](docs/getting-started/first-program.md), [Python to AFFON](docs/getting-started/python-to-affon.md)
 - Core numerics: [Compute Concepts](docs/core/compute.md), [Backend Support](docs/core/backend-support.md), [Error Handling](docs/core/errors.md)
 - Machine learning: [NN Concepts](docs/ml/nn/index.md), [Metrics Concepts](docs/ml/metrics.md), [Optim Concepts](docs/ml/optim.md), [Checkpoints](docs/ml/checkpoints.md), [Text Datasets](docs/ml/text-datasets.md), [ML Glossary](docs/ml/glossary.md)
 - Runtime: [Install](docs/runtime/install.md), [Configuration](docs/runtime/configuration.md), [Module Loader](docs/runtime/module-loader.md), [Memory Debugging](docs/runtime/memory-debugging.md)

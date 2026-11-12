@@ -1,5 +1,5 @@
 import { getEnv } from 'std:process'
-import { Session, Tensor, program } from 'affon:compute'
+import { Session, Tensor, program } from 'affon:core'
 import { abs, add, argmax, argmin, cast, cat, contiguous, cos, cross_entropy, div, dot, embedding, eq, erf, exp, gather, gelu, gt, clamp, index_select, layer_norm, log_softmax, rms_norm, log, lt, masked_fill, matmul, max, mean, min, mul, neg, one_hot, permute, relu, reshape, sigmoid, sign, silu, sin, slice, softmax, squeeze, sqrt, stack, std, sub, sum, tanh, transpose, unsqueeze, variance, where } from 'affon:ops'
 
 const id = getEnv('AFFON_PROBE_ID') ?? ''

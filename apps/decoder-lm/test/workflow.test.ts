@@ -1,6 +1,6 @@
 import fs from 'std:fs'
 import { describe, expect, test } from 'std:test'
-import { Tensor, program } from 'affon:compute'
+import { Tensor, program } from 'affon:core'
 import checkpoint from 'affon:checkpoint'
 
 import { loadDecoderLMWorkflowConfig, trainDecoderLMFromConfig } from '../src/index.ts'

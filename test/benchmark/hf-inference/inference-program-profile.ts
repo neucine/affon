@@ -2,7 +2,7 @@
 import fs from 'std:fs'
 import { getEnv } from 'std:process'
 import telemetry from 'std:telemetry'
-import { Session, Tensor } from 'affon:compute'
+import { Session, Tensor } from 'affon:core'
 import { create_gpt2 } from '../../../packages/@affon/models/src/gpt2/model.ts'
 
 const output = getEnv('AFFON_INFERENCE_PROFILE_PATH')

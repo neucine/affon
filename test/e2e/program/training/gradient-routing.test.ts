@@ -1,6 +1,6 @@
 // Gradient reference cases adapted from affon-legacy/test/parity/compute.
 import { add, matmul, mean, mul, reshape, sum, transpose } from 'affon:ops'
-import { Session, Tensor, gradient, program } from 'affon:compute'
+import { Session, Tensor, gradient, program } from 'affon:core'
 import { describe, expect, test } from 'std:test'
 
 function close(actual: unknown, expected: unknown): void {

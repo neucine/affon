@@ -7,7 +7,7 @@ device-neutral; save and restore the tensors owned by an `ExecutionState`.
 
 ```ts
 import checkpoint from 'affon:checkpoint'
-import { Session } from 'affon:compute'
+import { Session } from 'affon:core'
 
 const session = new Session({ device: 'cpu' })
 const state = session.initialize(model, { seed: 7 })

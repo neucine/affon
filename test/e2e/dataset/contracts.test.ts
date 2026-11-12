@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'std:test'
 import dataset, { read, DataLoader } from 'affon:dataset'
-import { Session } from 'affon:compute'
+import { Session } from 'affon:core'
 import { createHFTokenizerFromJSON, createLookupTokenizer } from '../../../packages/@affon/tokenizers/src/index.ts'
 import { captureError } from '../../support/errors.ts'
 

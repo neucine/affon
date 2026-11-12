@@ -1,6 +1,6 @@
 import { describe, expect, test, values } from 'std:test'
 import { read } from 'affon:dataset'
-import { Session } from 'affon:compute'
+import { Session } from 'affon:core'
 import { captureError } from '../../support/errors.ts'
 
 describe('tabular batch contents and recovery', () => {

@@ -1,5 +1,5 @@
 import { testDevices } from '../../devices.ts'
-import { Session, Tensor, program } from 'affon:compute'
+import { Session, Tensor, program } from 'affon:core'
 import { dot, matmul, transpose } from 'affon:ops'
 import { describe, expect, test } from 'std:test'
 

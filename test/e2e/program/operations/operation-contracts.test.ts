@@ -1,6 +1,6 @@
 import { testDevices } from '../../devices.ts'
 import { add, masked_fill, matmul, mul, neg, reshape } from 'affon:ops'
-import { Session, Tensor, program } from 'affon:compute'
+import { Session, Tensor, program } from 'affon:core'
 import { describe, expect, test } from 'std:test'
 
 describe('Operation contracts', () => {

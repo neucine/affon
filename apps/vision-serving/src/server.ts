@@ -2,7 +2,7 @@
 import fs from 'std:fs'
 import http from 'std:http'
 import { getEnv } from 'std:process'
-import { Session, type Device, type Tensor } from 'affon:compute'
+import { Session, type Device, type Tensor } from 'affon:core'
 import { load_graph } from '../../../packages/@affon/onnx/src/index.ts'
 import { process_mobilenet_image } from '../../../packages/@affon/huggingface/src/processors/mobilenet.ts'
 

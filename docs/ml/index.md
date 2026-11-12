@@ -1,6 +1,6 @@
 # Machine Learning Docs
 
-Machine-learning docs cover the layers that sit on top of `affon:compute`:
+Machine-learning docs cover the layers that sit on top of `affon:core`:
 model construction, optimizers, losses, metrics, datasets, checkpoints, and
 beginner terminology.
 
@@ -17,7 +17,7 @@ beginner terminology.
 
 - `affon:nn` owns callable factories for parameterized neural-network declarations
   and specialized loss callables.
-- `affon:compute` owns tensors, Programs, Sessions, differentiation, and Program
+- `affon:core` owns tensors, Programs, Sessions, differentiation, and Program
   transforms such as `optimize`.
 - `affon:ops` owns tensor operations shared by formal and evaluated tensors.
 - `affon:optim` owns optimizer descriptors.

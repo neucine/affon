@@ -7,7 +7,7 @@ This is not a native `.onnx` protobuf reader.
 
 ```ts
 import { load_graph, capabilities } from '@affon/onnx'
-import { Session } from 'affon:compute'
+import { Session } from 'affon:core'
 
 const model = load_graph('/models/converted')
 const session = new Session({ device: 'metal' })

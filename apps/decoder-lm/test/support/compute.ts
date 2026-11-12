@@ -1,4 +1,4 @@
-import { Session, type Device, type Tensor } from 'affon:compute'
+import { Session, type Device, type Tensor } from 'affon:core'
 
 export function internal_tensor(
   data: number | number[] | number[][] | number[][][],

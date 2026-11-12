@@ -1,5 +1,19 @@
 const std = @import("std");
 
+fn addWindowsUnwind(
+    module: *std.Build.Module,
+    target: std.Build.ResolvedTarget,
+    unwind: ?[]const u8,
+) void {
+    if (target.result.os.tag != .windows) return;
+    const unwind_path = unwind orelse return;
+    const lib_dir = std.fs.path.dirname(unwind_path) orelse return;
+    module.addLibraryPath(.{ .cwd_relative = lib_dir });
+    module.linkSystemLibrary("mingwex", .{});
+    module.addObjectFile(.{ .cwd_relative = unwind_path });
+    module.addCSourceFile(.{ .file = .{ .cwd_relative = "src/windows_cfg_stub.c" }, .flags = &.{"-std=c11"} });
+}
+
 fn addComputeBackends(compute_dep: *std.Build.Dependency, module: *std.Build.Module, target: std.Build.ResolvedTarget) void {
     if (target.result.os.tag == .macos) {
         module.linkFramework("Accelerate", .{});
@@ -17,6 +31,15 @@ fn addComputeBackends(compute_dep: *std.Build.Dependency, module: *std.Build.Mod
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const windows_unwind = b.option(
+        []const u8,
+        "windows-gnu-libunwind",
+        "Path to libunwind.a for x86_64-w64-mingw32",
+    ) orelse b.graph.environ_map.get("AFFON_WINDOWS_GNU_LIBUNWIND");
+    const transpiler_archive = if (target.result.os.tag == .windows)
+        "libs/transpiler/target/x86_64-pc-windows-gnu/release/libhao_transpiler.a"
+    else
+        "libs/transpiler/target/release/libhao_transpiler.a";
     const hao = b.dependency("hao", .{ .target = target, .optimize = optimize });
     const compute_dep = b.dependency("compute", .{ .target = target, .optimize = optimize });
     const zig_libs_dep = b.dependency("zig_libs", .{ .target = target, .optimize = optimize });
@@ -53,10 +76,11 @@ pub fn build(b: *std.Build) void {
     cli.root_module.linkLibrary(hao.artifact("hao_runtime"));
     // Link the Rust archive at the final executable; a static library cannot
     // contain another archive as an object member.
-    cli.root_module.addObjectFile(hao.path("libs/transpiler/target/release/libhao_transpiler.a"));
+    cli.root_module.addObjectFile(hao.path(transpiler_archive));
     if (target.result.os.tag == .linux) {
         cli.root_module.linkSystemLibrary("unwind", .{});
     }
+    addWindowsUnwind(cli.root_module, target, windows_unwind);
     addComputeBackends(compute_dep, cli.root_module, target);
     b.installArtifact(cli);
 
@@ -73,13 +97,13 @@ pub fn build(b: *std.Build) void {
         }),
     });
     tests.root_module.linkLibrary(hao.artifact("hao_runtime"));
-    tests.root_module.addObjectFile(hao.path("libs/transpiler/target/release/libhao_transpiler.a"));
+    tests.root_module.addObjectFile(hao.path(transpiler_archive));
     if (target.result.os.tag == .linux) {
         tests.root_module.linkSystemLibrary("unwind", .{});
     }
+    addWindowsUnwind(tests.root_module, target, windows_unwind);
     addComputeBackends(compute_dep, tests.root_module, target);
     const run_tests = b.addRunArtifact(tests);
     const test_step = b.step("test", "Run Affon tests");
     test_step.dependOn(&run_tests.step);
-
 }

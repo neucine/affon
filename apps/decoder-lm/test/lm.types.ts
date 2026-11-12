@@ -1,4 +1,4 @@
-import { Session, Tensor, program, type Tensor as EvaluatedTensor } from 'affon:compute'
+import { Session, Tensor, program, type Tensor as EvaluatedTensor } from 'affon:core'
 import { cross_entropy } from 'affon:nn'
 import { DecoderModel } from '../src/model.ts'
 import { generate } from '../src/causal-lm.ts'

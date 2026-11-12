@@ -1,5 +1,5 @@
 import fs from "std:fs";
-import { Session, type Device } from "affon:compute";
+import { Session, type Device } from "affon:core";
 import { resize_rgb } from "./shared/resize-rgb.ts";
 
 /** MobileNetV2's RGB8 bilinear shortest-edge resize, center crop and f32 normalization. */

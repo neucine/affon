@@ -1,5 +1,5 @@
 /**
- * Immutable optimizer descriptors consumed by affon:compute optimize().
+ * Immutable optimizer descriptors consumed by affon:core optimize().
  * Creating a descriptor does not allocate state or mutate parameters.
  *
  * @summary Configure SGD, Adam, or AdamW training transforms.

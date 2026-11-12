@@ -1,4 +1,4 @@
-import { Tensor, type FormalTensor, type ProgramDType, type TensorData } from 'affon:compute'
+import { Tensor, type FormalTensor, type ProgramDType, type TensorData } from 'affon:core'
 import { cast } from 'affon:ops'
 
 /** Minimal checkpoint/runtime value contract accepted at model boundaries. */

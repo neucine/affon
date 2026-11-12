@@ -4,7 +4,7 @@ Metrics evaluate model outputs; they do not update model state. The canonical
 API exposes reporting helpers through `metrics`:
 
 ```ts
-import { metrics } from 'affon:compute'
+import { metrics } from 'affon:core'
 
 const logits = session.compile(model).run({ image }, state)
 const accuracy = metrics.accuracy(logits, labels)

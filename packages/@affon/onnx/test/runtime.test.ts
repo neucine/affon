@@ -1,7 +1,7 @@
 import { test, expect, beforeAll, afterAll } from 'std:test'
 import fs from 'std:fs'
 import { getEnv, run } from 'std:process'
-import { Session, type Device, type Tensor } from 'affon:compute'
+import { Session, type Device, type Tensor } from 'affon:core'
 import { load_graph, semantic_loss_report } from '../src/index.ts'
 
 const directory = 'packages/@affon/onnx/test/fixtures'

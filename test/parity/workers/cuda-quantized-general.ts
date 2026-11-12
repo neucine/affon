@@ -1,6 +1,6 @@
 import fs from 'std:fs'
 import { getEnv } from 'std:process'
-import { Session, Tensor, program } from 'affon:compute'
+import { Session, Tensor, program } from 'affon:core'
 import { add, quantized_matmul, slice, transpose } from 'affon:ops'
 
 const cases = JSON.parse(fs.readFileSync(getEnv('AFFON_GENERAL_CASES')!))

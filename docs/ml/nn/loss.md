@@ -7,7 +7,7 @@ Program when it needs independent identity or inspection.
 ## Cross entropy
 
 ```ts
-import { Tensor, optimize, program } from 'affon:compute'
+import { Tensor, optimize, program } from 'affon:core'
 import { cross_entropy } from 'affon:nn'
 
 const classificationLoss = cross_entropy()

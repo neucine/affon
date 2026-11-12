@@ -2,7 +2,7 @@ import { beforeAll, afterAll, test, expect } from 'std:test'
 import { run } from 'std:process'
 import fs from 'std:fs'
 import checkpoint from 'affon:checkpoint'
-import { Session, type Tensor } from 'affon:compute'
+import { Session, type Tensor } from 'affon:core'
 import { load_gpt2 } from '../src/adapters/gpt2.ts'
 import { execute_causal, generate_causal } from './execute-causal.ts'
 

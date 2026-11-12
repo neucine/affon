@@ -1,5 +1,5 @@
 /** Inspector-side projections over core inspection contracts. */
-import type { ProgramComponentInspection, ProgramInspection, ProgramPath } from 'affon:compute'
+import type { ProgramComponentInspection, ProgramInspection, ProgramPath } from 'affon:core'
 
 export type InspectionNode = ProgramInspection['nodes'][number]
 export type InspectionRole = 'argument' | 'parameter' | 'state' | 'constant' | 'operation' | 'composition' | 'gradient'

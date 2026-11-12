@@ -1,5 +1,5 @@
 import { DecoderModel, decoderProgram } from '../src/model.ts'
-import { Session } from 'affon:compute'
+import { Session } from 'affon:core'
 import { pack_token_windows } from '../src/data/index.ts'
 import { createLookupTokenizer } from '@affon/tokenizers'
 

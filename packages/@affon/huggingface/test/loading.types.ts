@@ -1,5 +1,5 @@
 import { load_model, from_pretrained, load_processor } from '../src/index.ts'
-import type { Tensor } from 'affon:compute'
+import type { Tensor } from 'affon:core'
 
 // Compile-only: task selection must preserve each domain's input signature.
 function contracts(pixels: Tensor) {

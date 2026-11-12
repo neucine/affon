@@ -1,6 +1,6 @@
 import { testDevices } from '../../devices.ts'
 import { describe, expect, test } from 'std:test'
-import { Session, Tensor, program } from 'affon:compute'
+import { Session, Tensor, program } from 'affon:core'
 import { index_select } from 'affon:ops'
 
 for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) describe(`batched index_select ${device}`, () => {

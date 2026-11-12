@@ -1,5 +1,5 @@
 // Two-step SGD momentum reference from affon-legacy/test/parity/optim/sgd.test.ts.
-import { Session, Tensor, gradient, program, update_parameters } from 'affon:compute'
+import { Session, Tensor, gradient, program, update_parameters } from 'affon:core'
 import { mul, sum } from 'affon:ops'
 import { sgd } from 'affon:optim'
 import { describe, expect, test } from 'std:test'

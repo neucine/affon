@@ -1,7 +1,7 @@
 import fs from 'std:fs'
 import checkpoint from 'affon:checkpoint'
 import { getEnv } from 'std:process'
-import { Session, type Tensor } from 'affon:compute'
+import { Session, type Tensor } from 'affon:core'
 import { load_whisper } from '../../../packages/@affon/huggingface/src/adapters/whisper.ts'
 import { WhisperProgramRuntime } from '../src/inference/program-runtime.ts'
 const root = getEnv('AFFON_WHISPER_DIR') ?? 'apps/hf-inference/artifacts/whisper'

@@ -1,5 +1,5 @@
 // Causal attention motif adapted from affon-legacy/test/parity/lm/attention-motif.test.ts.
-import { Session, Tensor, gradient, program } from 'affon:compute'
+import { Session, Tensor, gradient, program } from 'affon:core'
 import { masked_fill, matmul, softmax, sum } from 'affon:ops'
 import { describe, expect, test } from 'std:test'
 

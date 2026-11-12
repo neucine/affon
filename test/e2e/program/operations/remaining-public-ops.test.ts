@@ -1,5 +1,5 @@
 import { testDevices } from '../../devices.ts'
-import { Session, Tensor, program } from 'affon:compute'
+import { Session, Tensor, program } from 'affon:core'
 import { erf, gelu, log_softmax, permute, rms_norm, silu, square } from 'affon:ops'
 import { describe, expect, test, values } from 'std:test'
 

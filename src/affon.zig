@@ -2,6 +2,7 @@ const std = @import("std");
 const hao = @import("hao");
 pub const config = @import("config.zig");
 pub const memory = @import("memory.zig");
+pub const compat = @import("support/compat.zig");
 const compute_native = @import("js/compute/native.zig");
 const dataset_native = @import("js/dataset/native.zig");
 const qjs = hao.qjs;
@@ -11,17 +12,20 @@ pub const package_name = "affon";
 pub const version = "0.4.0";
 pub const compute = @import("compute");
 
-comptime { _ = config; _ = memory; }
+comptime {
+    _ = config;
+    _ = memory;
+}
 
 const sources = [_]hao.SourceModule{
     .{ .specifier = "affon:errors", .source = @embedFile("js/errors-global.js") ++ "\nexport const AffonError = globalThis.AffonError;\nexport default AffonError;\n" },
     .{ .specifier = "affon:runtime", .source = "import 'affon:errors';\n" ++ "export const name = \"affon\";\n" ++ "export const version = \"" ++ version ++ "\";\n" },
-    .{ .specifier = "affon:compute", .source = @embedFile("js/compute/public.ts") },
+    .{ .specifier = "affon:core", .source = @embedFile("js/compute/public.ts") },
     .{ .specifier = "affon:_internal/compute/program", .source = @embedFile("js/compute/program.ts") },
     .{ .specifier = "affon:ops", .source = @embedFile("js/ops.ts") },
     .{ .specifier = "affon:nn", .source = @embedFile("js/nn.ts") },
     .{ .specifier = "affon:optim", .source = @embedFile("js/optim.ts") },
-    .{ .specifier = "affon:compute/persistence.ts", .source = @embedFile("js/compute/persistence.ts") },
+    .{ .specifier = "affon:core/persistence.ts", .source = @embedFile("js/compute/persistence.ts") },
     .{ .specifier = "affon:checkpoint", .source = @embedFile("js/checkpoint/index.ts") },
     .{ .specifier = "affon:dataset", .source = @embedFile("js/dataset/index.ts") },
     .{ .specifier = "affon:dataset/tabular.ts", .source = @embedFile("js/dataset/tabular.ts") },
@@ -44,9 +48,15 @@ fn installGlobals(context: *packages.PackageContext) !void {
     if (qjs.isException(value)) return error.JavaScriptError;
 }
 
-fn packageDefinition() hao.Package { return .{ .name = package_name, .sources = &sources, .native_modules = &native_modules, .install = installGlobals }; }
-pub fn registerPackage(registry: *hao.package.Registry) !void { try registry.register(packageDefinition()); }
-pub fn register(environment: *hao.RuntimeEnvironment) !void { try environment.registerPackage(packageDefinition()); }
+fn packageDefinition() hao.Package {
+    return .{ .name = package_name, .sources = &sources, .native_modules = &native_modules, .install = installGlobals };
+}
+pub fn registerPackage(registry: *hao.package.Registry) !void {
+    try registry.register(packageDefinition());
+}
+pub fn register(environment: *hao.RuntimeEnvironment) !void {
+    try environment.registerPackage(packageDefinition());
+}
 
 test "registers the Affon package" {
     var environment = try hao.RuntimeEnvironment.init(std.testing.allocator, .{ .std = false });

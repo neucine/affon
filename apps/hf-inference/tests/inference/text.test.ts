@@ -1,7 +1,7 @@
 import { test, expect } from 'std:test'
 import { generate_text, dispose_text_runtimes } from '../../src/inference/text.ts'
 import type { InferenceModels } from '../../src/inference/models.ts'
-import { Tensor, program } from 'affon:compute'
+import { Tensor, program } from 'affon:core'
 import { contiguous, div, embedding, reshape, slice } from 'affon:ops'
 import { finite_argmax_bytes } from '../../src/inference/program-runtime.ts'
 function fixture() {

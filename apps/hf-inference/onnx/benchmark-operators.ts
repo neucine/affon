@@ -3,7 +3,7 @@ import fs from 'std:fs'
 import { getEnv } from 'std:process'
 import telemetry from 'std:telemetry'
 import checkpoint from 'affon:checkpoint'
-import { Session, Tensor, program } from 'affon:compute'
+import { Session, Tensor, program } from 'affon:core'
 
 const root = getEnv('OPERATOR_FIXTURES') ?? '/private/tmp/whisper-operator-fixtures'
 const cases = JSON.parse(fs.readFileSync(`${root}/cases.json`))

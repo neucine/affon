@@ -17,7 +17,7 @@ Program-level concerns.
 ## Program authoring
 
 ```ts
-import { program, Tensor } from 'affon:compute'
+import { program, Tensor } from 'affon:core'
 import { linear } from 'affon:nn'
 import { relu } from 'affon:ops'
 

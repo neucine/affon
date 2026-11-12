@@ -1,5 +1,5 @@
 import { test, expect } from 'std:test'
-import { Tensor, program } from 'affon:compute'
+import { Tensor, program } from 'affon:core'
 import { div } from 'affon:ops'
 import { create_text_generation, dispose_text_runtimes, generate_text } from '../../src/inference/text.ts'
 import { CausalProgramRuntime } from '../../src/inference/program-runtime.ts'

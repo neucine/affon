@@ -17,6 +17,8 @@
 # Environment:
 #   AFFON_RELEASE_TAG          Release tag to publish (default: v<build.zig.zon version>)
 #   AFFON_RELEASE_SKIP_TESTS   1 to skip release tests during check/all
+#   AFFON_RELEASE_PLATFORM     Override detected asset platform
+#   AFFON_WINDOWS_GNU_LIBUNWIND Path to llvm-mingw x86_64 libunwind.a
 #   AFFON_DOWNLOAD_BASE_URL    Download origin (default: https://downloads.affon.ai)
 #   AFFON_R2_ACCOUNT_ID        Cloudflare account id for aws S3-compatible uploads
 #   AFFON_R2_BUCKET            R2 bucket name (default: R2_BUCKET or affon-downloads)
@@ -25,7 +27,7 @@
 #   AFFON_R2_UPLOAD_TOOL       aws or wrangler (default: aws)
 #   AFFON_GITHUB_REPO          GitHub repo slug for gh release (default: neucine/affon)
 #   AFFON_SITES_REPO           Sites checkout (default: sibling sites directory)
-#   AFFON_SITE_HAO_REPO        Pinned Hao checkout (default: sibling hao directory)
+#   AFFON_SITE_HAO_REPO        Pinned Hao checkout (default: sibling hao-legacy directory)
 #   AWS_ACCESS_KEY_ID          R2 access key for aws uploads
 #   AWS_SECRET_ACCESS_KEY      R2 secret key for aws uploads
 #   AWS_PROFILE                Optional aws profile
@@ -45,8 +47,9 @@ R2_DRY_RUN="${AFFON_R2_DRY_RUN:-0}"
 R2_UPLOAD_TOOL="${AFFON_R2_UPLOAD_TOOL:-aws}"
 GITHUB_REPO="${AFFON_GITHUB_REPO:-neucine/affon}"
 SITES_REPO="${AFFON_SITES_REPO:-$(dirname "$ROOT")/sites}"
-SITE_HAO_REPO="${AFFON_SITE_HAO_REPO:-$(dirname "$ROOT")/hao}"
+SITE_HAO_REPO="${AFFON_SITE_HAO_REPO:-$(dirname "$ROOT")/hao-legacy}"
 MODE="${1:-check}"
+RELEASE_PLATFORM="${AFFON_RELEASE_PLATFORM:-}"
 
 info() {
   printf 'affon-release: %s\n' "$*"
@@ -59,6 +62,16 @@ fail() {
 
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "missing required command: $1"
+}
+
+sha256_file() {
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1"
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1"
+  else
+    fail "missing required command: shasum or sha256sum"
+  fi
 }
 
 run() {
@@ -92,6 +105,7 @@ host_os() {
   case "$(uname -s)" in
     Darwin) printf 'darwin\n' ;;
     Linux) printf 'linux\n' ;;
+    MINGW*|MSYS*|CYGWIN*) printf 'windows\n' ;;
     *) fail "unsupported operating system: $(uname -s)" ;;
   esac
 }
@@ -105,7 +119,39 @@ host_arch() {
 }
 
 asset_stem() {
-  printf 'affon-%s-%s-%s\n' "$(release_tag)" "$(host_os)" "$(host_arch)"
+  printf 'affon-%s-%s\n' "$(release_tag)" "$(release_platform)"
+}
+
+release_platform() {
+  if [ -n "$RELEASE_PLATFORM" ]; then
+    printf '%s\n' "$RELEASE_PLATFORM"
+  else
+    printf '%s-%s\n' "$(host_os)" "$(host_arch)"
+  fi
+}
+
+is_windows_release() {
+  [ "$(release_platform)" = "windows-x64" ]
+}
+
+binary_basename() {
+  if is_windows_release; then
+    printf 'affon.exe\n'
+  else
+    printf 'affon\n'
+  fi
+}
+
+checkout_binary() {
+  printf '%s/zig-out/bin/%s\n' "$ROOT" "$(binary_basename)"
+}
+
+binary_asset_name() {
+  if is_windows_release; then
+    printf '%s.exe\n' "$(asset_stem)"
+  else
+    printf '%s\n' "$(asset_stem)"
+  fi
 }
 
 release_url() {
@@ -127,8 +173,15 @@ assert_version_output() {
 }
 
 assert_checkout_binary() {
-  [ -x "$ROOT/zig-out/bin/affon" ] || fail "missing built binary at zig-out/bin/affon"
-  assert_version_output "$ROOT/zig-out/bin/affon"
+  local binary
+  binary="$(checkout_binary)"
+  [ -x "$binary" ] || fail "missing built binary at $binary"
+  if is_windows_release && [ "$(host_os)" != "windows" ]; then
+    need_cmd file
+    file "$binary" | grep -q 'PE32+ executable' || fail "built binary is not a Windows x64 executable"
+    return
+  fi
+  assert_version_output "$binary"
 }
 
 run_release_tests() {
@@ -163,9 +216,9 @@ run_checks() {
 }
 
 build_artifacts() {
-  local stem package_root stage_dir tarball binary_asset
+  local stem package_root stage_dir tarball binary_asset binary_name binary_source
+  local -a build_args
   need_cmd python3
-  need_cmd shasum
   need_cmd tar
   need_cmd zig
   [ "$(release_tag)" = "v$(version_string)" ] || fail "release tag must match build.zig.zon"
@@ -175,16 +228,25 @@ build_artifacts() {
   tarball="$DIST_DIR/$stem.tar.gz"
   package_root="$DIST_DIR/package"
   stage_dir="$package_root/$stem"
-  binary_asset="$DIST_DIR/$stem"
+  binary_name="$(binary_basename)"
+  binary_source="$(checkout_binary)"
+  binary_asset="$DIST_DIR/$(binary_asset_name)"
 
-  run zig build -Doptimize=ReleaseFast
+  build_args=(-Doptimize=ReleaseFast)
+  if is_windows_release; then
+    build_args+=(-Dtarget=x86_64-windows-gnu)
+    if [ -n "${AFFON_WINDOWS_GNU_LIBUNWIND:-}" ]; then
+      build_args+=("-Dwindows-gnu-libunwind=$AFFON_WINDOWS_GNU_LIBUNWIND")
+    fi
+  fi
+  run zig build "${build_args[@]}"
   assert_checkout_binary
 
   rm -rf "$DIST_DIR"
   mkdir -p "$stage_dir"
-  cp "$ROOT/zig-out/bin/affon" "$stage_dir/affon"
-  cp "$ROOT/zig-out/bin/affon" "$binary_asset"
-  chmod 755 "$stage_dir/affon" "$binary_asset"
+  cp "$binary_source" "$stage_dir/$binary_name"
+  cp "$binary_source" "$binary_asset"
+  chmod 755 "$stage_dir/$binary_name" "$binary_asset"
   [ ! -f "$ROOT/README.md" ] || cp "$ROOT/README.md" "$stage_dir/README.md"
   [ ! -f "$ROOT/LICENSE" ] || cp "$ROOT/LICENSE" "$stage_dir/LICENSE"
 
@@ -193,8 +255,9 @@ build_artifacts() {
 
   (
     cd "$DIST_DIR"
-    shasum -a 256 "$stem" > "$stem.sha256"
-    shasum -a 256 "$stem.tar.gz" > "$stem.tar.gz.sha256"
+    direct_binary="$(basename "$binary_asset")"
+    sha256_file "$direct_binary" > "$direct_binary.sha256"
+    sha256_file "$stem.tar.gz" > "$stem.tar.gz.sha256"
   )
 
   info "built direct binary: $binary_asset"
@@ -203,9 +266,10 @@ build_artifacts() {
 }
 
 require_artifacts() {
-  local stem
+  local stem binary_asset
   stem="$(asset_stem)"
-  [ -f "$DIST_DIR/$stem" ] || build_artifacts
+  binary_asset="$(binary_asset_name)"
+  [ -f "$DIST_DIR/$binary_asset" ] || build_artifacts
   [ -f "$DIST_DIR/$stem.tar.gz" ] || build_artifacts
 }
 
@@ -214,13 +278,19 @@ require_install_script() {
   version="$(version_string)"
   [ -f "$ROOT/install.sh" ] || fail "missing canonical installer at install.sh"
   [ -x "$ROOT/install.sh" ] || fail "install.sh must be executable"
+  [ -f "$ROOT/install.ps1" ] || fail "missing PowerShell installer at install.ps1"
   grep -q "AFFON_RELEASE_VERSION=\"\${AFFON_RELEASE_VERSION:-$version}\"" "$ROOT/install.sh" || \
     fail "install.sh release version must match build.zig.zon version $version"
+  grep -q "else { \"$version\" }" "$ROOT/install.ps1" || \
+    fail "install.ps1 release version must match build.zig.zon version $version"
   grep -q 'downloads\.affon\.ai/releases/v${AFFON_RELEASE_VERSION}\.json' "$ROOT/install.sh" || \
     fail "install.sh must default to the AFFON downloads endpoint"
+  grep -q 'downloads\.affon\.ai/releases/v$ReleaseVersion\.json' "$ROOT/install.ps1" || \
+    fail "install.ps1 must default to the AFFON downloads endpoint"
 }
 
 write_latest_json() {
+  verify_release_set
   RELEASE_TAG="$(release_tag)" DIST_DIR="$DIST_DIR" R2_PREFIX="$R2_PREFIX" DOWNLOAD_BASE_URL="$DOWNLOAD_BASE_URL" python3 - <<'PY'
 import json
 import os
@@ -251,26 +321,46 @@ text = json.dumps(payload, indent=2) + "\n"
 PY
 }
 
+verify_release_set() {
+  local tag platform stem binary expected actual
+  tag="$(release_tag)"
+  for platform in darwin-arm64 linux-x64 windows-x64; do
+    stem="affon-$tag-$platform"
+    binary="$stem"
+    if [ "$platform" = "windows-x64" ]; then binary="$stem.exe"; fi
+    for file in "$binary" "$stem.tar.gz"; do
+      [ -s "$DIST_DIR/$file" ] || fail "missing release asset: $file"
+      [ -s "$DIST_DIR/$file.sha256" ] || fail "missing release checksum: $file.sha256"
+      expected="$(awk 'NR == 1 { print $1 }' "$DIST_DIR/$file.sha256")"
+      [[ "$expected" =~ ^[0-9a-fA-F]{64}$ ]] || fail "invalid checksum: $file.sha256"
+      actual="$(sha256_file "$DIST_DIR/$file" | awk '{ print $1 }')"
+      [ "$actual" = "$expected" ] || fail "checksum mismatch: $file"
+    done
+  done
+}
+
 smoke_archive_path() {
   local archive="$1"
-  local stem tmp extracted
+  local stem tmp extracted binary_name
   stem="$(asset_stem)"
+  binary_name="$(binary_basename)"
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/affon-release-smoke.XXXXXX")"
   trap "rm -rf '$tmp'" RETURN
 
   mkdir -p "$tmp/extract"
   run tar -xzf "$archive" -C "$tmp/extract"
-  extracted="$tmp/extract/$stem/affon"
-  [ -x "$extracted" ] || fail "archive does not contain executable $stem/affon"
+  extracted="$tmp/extract/$stem/$binary_name"
+  [ -x "$extracted" ] || fail "archive does not contain executable $stem/$binary_name"
   assert_version_output "$extracted"
   info "smoke passed for $archive"
 }
 
 smoke_local() {
-  local stem
+  local stem binary_asset
   require_artifacts
   stem="$(asset_stem)"
-  assert_version_output "$DIST_DIR/$stem"
+  binary_asset="$(binary_asset_name)"
+  assert_version_output "$DIST_DIR/$binary_asset"
   smoke_archive_path "$DIST_DIR/$stem.tar.gz"
 }
 
@@ -418,7 +508,7 @@ create_github_release() {
 }
 
 sync_site() {
-  local version pinned_hao current_hao site_head remote_head hosted_installer hosted_home
+  local version pinned_hao current_hao pinned_hao_commit site_head remote_head hosted_installer hosted_home
   need_cmd npm
   need_cmd gh
   [ -d "$SITES_REPO/sites/affon-ai" ] || fail "missing sites checkout at $SITES_REPO"
@@ -429,8 +519,9 @@ sync_site() {
 
   pinned_hao="$(awk '/repository: neucine\/hao/ { found=1 } found && /ref:/ { print $2; exit }' "$ROOT/.github/workflows/release.yml")"
   current_hao="$(git -C "$SITE_HAO_REPO" rev-parse HEAD)"
-  [ -n "$pinned_hao" ] && [ "$current_hao" = "$pinned_hao" ] || \
-    fail "site Hao checkout must match release pin $pinned_hao (got $current_hao)"
+  pinned_hao_commit="$(git -C "$SITE_HAO_REPO" rev-parse "$pinned_hao")"
+  [ -n "$pinned_hao_commit" ] && [ "$current_hao" = "$pinned_hao_commit" ] || \
+    fail "site Hao checkout must match release ref $pinned_hao ($pinned_hao_commit), got $current_hao"
 
   [ -z "$(git -C "$SITES_REPO" status --porcelain)" ] || fail "sites checkout has local changes: $SITES_REPO"
   run git -C "$SITES_REPO" fetch origin main

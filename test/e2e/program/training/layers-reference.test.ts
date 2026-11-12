@@ -1,5 +1,5 @@
 // Fixed reference cases adapted from affon-legacy/test/parity/nn.
-import { Session, Tensor, gradient, program } from 'affon:compute'
+import { Session, Tensor, gradient, program } from 'affon:core'
 import { embedding, layer_norm, linear } from 'affon:nn'
 import { sum } from 'affon:ops'
 import { describe, expect, test } from 'std:test'

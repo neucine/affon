@@ -38,6 +38,7 @@ fn runFile(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !void {
 }
 
 pub fn main(init: std.process.Init) !void {
+    affon.compat.setRuntimeIo(init.io);
     var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     // DebugAllocator maps large tensors individually, even with safety disabled.
@@ -57,7 +58,8 @@ pub fn main(init: std.process.Init) !void {
     hao.runtime_allocator.init(affon.memory.allocator(.hao_runtime));
     try hao.config.loadFromEnv();
     try affon.config.loadFromEnv();
-    var args = std.process.Args.Iterator.init(init.minimal.args);
+    var args = try std.process.Args.Iterator.initAllocator(init.minimal.args, allocator);
+    defer args.deinit();
     _ = args.next();
     const command = args.next() orelse {
         usage();

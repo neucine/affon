@@ -2,7 +2,7 @@ import fs from 'std:fs'
 import checkpoint from 'affon:checkpoint'
 import { getEnv, run } from 'std:process'
 import { load_llama, load_smollm2_processor, format_smollm2_chat } from '../../../packages/@affon/huggingface/src/index.ts'
-import type { Device, Tensor } from 'affon:compute'
+import type { Device, Tensor } from 'affon:core'
 import { CausalProgramRuntime } from '../src/inference/program-runtime.ts'
 const directory = getEnv('AFFON_SMOLLM2_DIR') ?? '/tmp/affon-smollm-source'
 const device = (getEnv('AFFON_DEVICE') ?? 'cpu') as Device

@@ -1,4 +1,8 @@
 const std = @import("std");
+const builtin = @import("builtin");
+
+const FileTime = extern struct { low: u32, high: u32 };
+extern "kernel32" fn GetSystemTimeAsFileTime(*FileTime) void;
 
 var runtime_io: ?std.Io = null;
 
@@ -8,6 +12,10 @@ pub fn setRuntimeIo(io: std.Io) void {
 
 pub fn runtimeIo() ?std.Io {
     return runtime_io;
+}
+
+fn requireRuntimeIo() !std.Io {
+    return runtime_io orelse error.IoUnavailable;
 }
 
 pub const Mutex = struct {
@@ -41,6 +49,12 @@ pub fn getenv(key: []const u8) ?[]const u8 {
 }
 
 pub fn nanoTimestamp() i128 {
+    if (builtin.os.tag == .windows) {
+        var timestamp: FileTime = undefined;
+        GetSystemTimeAsFileTime(&timestamp);
+        const ticks: u64 = (@as(u64, timestamp.high) << 32) | timestamp.low;
+        return (@as(i128, ticks) - 116444736000000000) * 100;
+    }
     if (@hasDecl(std.time, "nanoTimestamp")) {
         return std.time.nanoTimestamp();
     }
@@ -90,171 +104,75 @@ pub fn writeStderr(bytes: []const u8) void {
 }
 
 pub fn readFileAlloc(allocator: std.mem.Allocator, path: []const u8, max_bytes: usize) ![]u8 {
-    if (@hasDecl(std.fs, "cwd")) {
-        return std.fs.cwd().readFileAlloc(allocator, path, max_bytes);
-    }
-
-    const path_z = try allocator.dupeSentinel(u8, path, 0);
-    defer allocator.free(path_z);
-
-    const fd = std.c.open(path_z.ptr, .{ .ACCMODE = .RDONLY });
-    if (fd < 0) return error.FileNotFound;
-    defer _ = std.c.close(fd);
-
-    const end = std.c.lseek(fd, 0, std.c.SEEK.END);
-    if (end < 0) return error.ReadFailed;
-    if (@as(u64, @intCast(end)) > max_bytes) return error.FileTooBig;
-    if (std.c.lseek(fd, 0, std.c.SEEK.SET) < 0) return error.ReadFailed;
-
-    const buf = try allocator.alloc(u8, @intCast(end));
-    errdefer allocator.free(buf);
-
-    var offset: usize = 0;
-    while (offset < buf.len) {
-        const n = std.c.read(fd, buf[offset..].ptr, buf.len - offset);
-        if (n < 0) return error.ReadFailed;
-        if (n == 0) break;
-        offset += @intCast(n);
-    }
-    return buf[0..offset];
+    return std.Io.Dir.cwd().readFileAlloc(try requireRuntimeIo(), path, allocator, .limited(max_bytes));
 }
 
 pub const FdFile = struct {
-    fd: std.c.fd_t,
+    file: std.Io.File,
+    io: std.Io,
 
     pub fn openRead(path: []const u8) !FdFile {
-        if (@hasDecl(std.fs, "cwd")) {
-            @compileError("FdFile is intended for Zig std.fs-free builds");
-        }
-        const path_z = try std.heap.page_allocator.dupeSentinel(u8, path, 0);
-        defer std.heap.page_allocator.free(path_z);
-        const fd = std.c.open(path_z.ptr, .{ .ACCMODE = .RDONLY });
-        if (fd < 0) return error.FileNotFound;
-        return .{ .fd = fd };
+        const io = try requireRuntimeIo();
+        return .{ .file = try std.Io.Dir.cwd().openFile(io, path, .{}), .io = io };
     }
 
     pub fn create(path: []const u8) !FdFile {
-        if (@hasDecl(std.fs, "cwd")) {
-            @compileError("FdFile is intended for Zig std.fs-free builds");
-        }
-        const path_z = try std.heap.page_allocator.dupeSentinel(u8, path, 0);
-        defer std.heap.page_allocator.free(path_z);
-        const fd = std.c.open(path_z.ptr, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true }, @as(std.c.mode_t, 0o666));
-        if (fd < 0) return error.OpenFailed;
-        return .{ .fd = fd };
+        const io = try requireRuntimeIo();
+        return .{ .file = try std.Io.Dir.cwd().createFile(io, path, .{}), .io = io };
     }
 
     pub fn close(self: FdFile) void {
-        _ = std.c.close(self.fd);
+        self.file.close(self.io);
     }
 
     pub fn size(self: FdFile) !u64 {
-        const current = std.c.lseek(self.fd, 0, std.c.SEEK.CUR);
-        if (current < 0) return error.SeekFailed;
-        const end = std.c.lseek(self.fd, 0, std.c.SEEK.END);
-        if (end < 0) return error.SeekFailed;
-        if (std.c.lseek(self.fd, current, std.c.SEEK.SET) < 0) return error.SeekFailed;
-        return @intCast(end);
+        return (try self.file.stat(self.io)).size;
     }
 
     pub fn read(self: FdFile, buf: []u8) !usize {
-        const n = std.c.read(self.fd, buf.ptr, buf.len);
-        if (n < 0) return error.ReadFailed;
-        return @intCast(n);
+        return self.file.readStreaming(self.io, &.{buf}) catch |err| switch (err) {
+            error.EndOfStream => 0,
+            else => return err,
+        };
     }
 
     pub fn seekTo(self: FdFile, pos: u64) !void {
-        if (std.c.lseek(self.fd, @intCast(pos), std.c.SEEK.SET) < 0) return error.SeekFailed;
+        try self.io.vtable.fileSeekTo(self.io.userdata, self.file, pos);
     }
 
     pub fn writeAll(self: FdFile, bytes: []const u8) !void {
-        var remaining = bytes;
-        while (remaining.len > 0) {
-            const written = std.c.write(self.fd, remaining.ptr, remaining.len);
-            if (written <= 0) return error.WriteFailed;
-            remaining = remaining[@intCast(written)..];
-        }
+        return self.file.writeStreamingAll(self.io, bytes);
     }
 };
 
 pub fn writeFile(path: []const u8, bytes: []const u8) !void {
-    if (@hasDecl(std.fs, "cwd")) {
-        const file = try std.fs.cwd().createFile(path, .{});
-        defer file.close();
-        return file.writeAll(bytes);
-    }
-    const file = try FdFile.create(path);
-    defer file.close();
-    try file.writeAll(bytes);
+    const io = try requireRuntimeIo();
+    const file = try std.Io.Dir.cwd().createFile(io, path, .{});
+    defer file.close(io);
+    return file.writeStreamingAll(io, bytes);
 }
 
 pub fn makePath(path: []const u8) !void {
-    if (@hasDecl(std.fs, "cwd")) {
-        return std.fs.cwd().makePath(path);
-    }
-
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
-    if (path.len >= buf.len) return error.NameTooLong;
-    @memcpy(buf[0..path.len], path);
-
-    var i: usize = if (path.len > 0 and path[0] == '/') 1 else 0;
-    while (i <= path.len) : (i += 1) {
-        if (i != path.len and buf[i] != '/') continue;
-        if (i == 0) continue;
-        const save = if (i < path.len) buf[i] else 0;
-        if (i < path.len) buf[i] = 0 else buf[i] = 0;
-        const part: [*:0]u8 = @ptrCast(&buf);
-        if (std.c.mkdir(part, 0o755) != 0 and !pathExists(buf[0..i])) return error.MakePathFailed;
-        if (i < path.len) buf[i] = save;
-        if (i == path.len) break;
-    }
+    return std.Io.Dir.cwd().createDirPath(try requireRuntimeIo(), path);
 }
 
 pub fn realpathAlloc(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
-    if (@hasDecl(std.fs, "realpathAlloc")) {
-        return std.fs.realpathAlloc(allocator, path);
-    }
-
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
-    const path_z = try allocator.dupeSentinel(u8, path, 0);
-    defer allocator.free(path_z);
-    const resolved = std.c.realpath(path_z.ptr, &buf) orelse return error.FileNotFound;
-    return allocator.dupe(u8, std.mem.span(resolved));
+    return std.Io.Dir.cwd().realPathFileAlloc(try requireRuntimeIo(), path, allocator);
 }
 
 pub fn selfExeDirPathAlloc(allocator: std.mem.Allocator) ![]u8 {
-    if (@hasDecl(std.fs, "selfExeDirPathAlloc")) {
-        return std.fs.selfExeDirPathAlloc(allocator);
-    }
-
     const exe_path = try selfExePathAlloc(allocator);
     defer allocator.free(exe_path);
     return allocator.dupe(u8, std.fs.path.dirname(exe_path) orelse ".");
 }
 
 pub fn selfExePathAlloc(allocator: std.mem.Allocator) ![]u8 {
-    if (@hasDecl(std.fs, "selfExePathAlloc")) {
-        return std.fs.selfExePathAlloc(allocator);
-    }
-    if (@hasDecl(std.c, "_NSGetExecutablePath")) {
-        var size: u32 = 0;
-        _ = std.c._NSGetExecutablePath(undefined, &size);
-        const buf = try allocator.alloc(u8, size);
-        defer allocator.free(buf);
-        if (std.c._NSGetExecutablePath(buf.ptr, &size) != 0) return error.NameTooLong;
-        return allocator.dupe(u8, std.mem.sliceTo(buf, 0));
-    }
-    return error.Unsupported;
+    return std.process.executablePathAlloc(try requireRuntimeIo(), allocator);
 }
 
 pub fn pathExists(path: []const u8) bool {
-    if (@hasDecl(std.fs, "cwd")) {
-        std.fs.cwd().access(path, .{}) catch return false;
-        return true;
-    }
-    const path_z = std.heap.page_allocator.dupeSentinel(u8, path, 0) catch return false;
-    defer std.heap.page_allocator.free(path_z);
-    return std.c.access(path_z.ptr, std.c.F_OK) == 0;
+    std.Io.Dir.cwd().access(runtime_io orelse return false, path, .{}) catch return false;
+    return true;
 }
 
 pub fn randomBytes(bytes: []u8) void {

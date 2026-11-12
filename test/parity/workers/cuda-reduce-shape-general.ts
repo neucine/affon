@@ -1,6 +1,6 @@
 import fs from 'std:fs'
 import { getEnv } from 'std:process'
-import { Session, Tensor, program } from 'affon:compute'
+import { Session, Tensor, program } from 'affon:core'
 import { add, reduce_to_shape, slice, transpose } from 'affon:ops'
 
 const cases = JSON.parse(fs.readFileSync(getEnv('AFFON_REDUCE_CASES')!)) as any[]

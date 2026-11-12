@@ -1,5 +1,5 @@
 import checkpoint from 'affon:checkpoint'
-import { optimize, program, Tensor, type ExecutionState, type Program, type FormalTensor, type Session } from 'affon:compute'
+import { optimize, program, Tensor, type ExecutionState, type Program, type FormalTensor, type Session } from 'affon:core'
 import { cross_entropy } from 'affon:nn'
 import { adam, adamw, type Optimizer } from 'affon:optim'
 import { decoderProgram, type DecoderModel } from './model.ts'

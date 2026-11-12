@@ -9,7 +9,7 @@ Program -> Session.compile -> Executable.run -> Tensor
 Choose the target when creating a `Session`:
 
 ```ts
-import { Session } from 'affon:compute'
+import { Session } from 'affon:core'
 
 const cpu = new Session({ device: 'cpu' })
 const metal = new Session({ device: 'metal' })

@@ -1,6 +1,6 @@
 import { describe, test, expect, values } from 'std:test'
 import dataset, { read, DataLoader } from 'affon:dataset'
-import { Session } from 'affon:compute'
+import { Session } from 'affon:core'
 
 const session = new Session({ device: 'cpu' })
 

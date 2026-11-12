@@ -1,5 +1,5 @@
 import fs from 'std:fs'
-import { Tensor, program } from 'affon:compute'
+import { Tensor, program } from 'affon:core'
 import { prepare_inspection_export } from '@affon/inspector'
 import { DecoderModel } from '../decoder-lm/src/model.ts'
 

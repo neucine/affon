@@ -1,4 +1,4 @@
-import { program, Session, Tensor, type Device, type Executable, type ExecutionState, type Program, type SessionOptions, type TensorData } from 'affon:compute'
+import { program, Session, Tensor, type Device, type Executable, type ExecutionState, type Program, type SessionOptions, type TensorData } from 'affon:core'
 import { where } from 'affon:ops'
 import telemetry from 'std:telemetry'
 import type { ModelTensor } from '../../../../packages/@affon/models/src/shared/parameters.ts'

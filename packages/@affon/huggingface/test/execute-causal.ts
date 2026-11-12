@@ -1,10 +1,10 @@
-import { Session, type Tensor } from 'affon:compute'
+import { Session, type Tensor } from 'affon:core'
 import type { ModelTensor } from '../../models/src/shared/parameters.ts'
 
 export interface CausalDefinition {
   config: { vocab_size?: number; n_positions?: number; max_position_embeddings?: number; eos_token_id?: number }
   parameters: Readonly<Record<string, ModelTensor>>
-  forward(length: number, outputStart?: number): import('affon:compute').Program
+  forward(length: number, outputStart?: number): import('affon:core').Program
 }
 
 export function execute_causal(model: CausalDefinition, ids: readonly number[], outputStart = 0, device = 'cpu') {

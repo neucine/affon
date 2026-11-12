@@ -26,7 +26,7 @@ to prepare artifacts and generate independent reference results.
 
 ```ts
 import { from_pretrained } from '@affon/huggingface'
-import { Session } from 'affon:compute'
+import { Session } from 'affon:core'
 
 const { model, processor } = await from_pretrained('distilbert/distilgpt2', {
   revision: '2290a62682d06624634c1f46a6ad5be0f47f38aa',
@@ -125,7 +125,7 @@ contents; ViT scalar sizes and omitted preprocessing defaults are handled.
 - `@affon/models` owns model definitions and shared blocks;
   `@affon/tokenizers` owns tokenization algorithms and tokenizer JSON support.
 - Tensor operations and parameterized layer factories belong in `affon:ops` and `affon:nn`;
-  execution belongs in `affon:compute`, while low-level tensor
+  execution belongs in `affon:core`, while low-level tensor
   persistence belongs in `affon:checkpoint`.
 - Reference generation, comparisons, diagnostics, and reports stay in
   [the audit app](../../../apps/hf-inference/README.md).

@@ -1,7 +1,7 @@
 import { add, cat, contiguous, embedding, index_select, layer_norm, masked_fill, mean, mul, slice, squeeze, unsqueeze } from "affon:ops"
 import { describe, expect, test } from "std:test"
 import telemetry from "std:telemetry"
-import { Session, Tensor, gradient, optimize, program } from "affon:compute"
+import { Session, Tensor, gradient, optimize, program } from "affon:core"
 import { cross_entropy, linear } from "affon:nn"
 import { adam } from "affon:optim"
 

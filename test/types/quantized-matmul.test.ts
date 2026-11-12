@@ -1,5 +1,5 @@
 import { quantized_matmul } from 'affon:ops'
-import type { Tensor, FormalTensor } from 'affon:compute'
+import type { Tensor, FormalTensor } from 'affon:core'
 
 declare const evaluated: Tensor
 declare const formal: FormalTensor

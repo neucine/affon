@@ -1,5 +1,5 @@
 import { getEnv } from 'std:process'
-import { Session, Tensor, program } from 'affon:compute'
+import { Session, Tensor, program } from 'affon:core'
 import { add, index_select } from 'affon:ops'
 
 const id = getEnv('AFFON_CELL_ID') ?? getEnv('AFFON_PROBE_ID') ?? ''

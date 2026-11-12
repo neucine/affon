@@ -1,5 +1,5 @@
 import { add, contiguous, div, embedding, gelu, layer_norm, masked_fill, matmul, mul, reshape, slice, softmax, transpose } from 'affon:ops'
-import { Tensor, program, type FormalTensor } from 'affon:compute'
+import { Tensor, program, type FormalTensor } from 'affon:core'
 import { f32_parameter, positive_dimensions, parameter_checks } from '../shared/parameters.ts'
 import type { ModelAffineWeights, ModelTensor } from '../shared/parameters.ts'
 

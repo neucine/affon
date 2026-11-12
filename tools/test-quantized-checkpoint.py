@@ -55,7 +55,7 @@ def main():
                  for out in range(len(selected))] for x in inputs]
     data = json.dumps(dict(inputs=inputs, packed=packed, scales=scales, biases=biases, expected=expected))
     source = '''import { test, expect } from 'std:test'
-import { Session } from 'affon:compute'
+import { Session } from 'affon:core'
 import { quantized_matmul } from 'affon:ops'
 const data = DATA
 for (const device of ['cpu', 'metal'] as const) test(`checkpoint parity ${device}`, () => {

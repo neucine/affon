@@ -1,7 +1,7 @@
 // Run from repository root after export-audio-model.py and conversion.
 import { getEnv } from 'std:process'
 import checkpoint from 'affon:checkpoint'
-import type { Device } from 'affon:compute'
+import type { Device } from 'affon:core'
 import { load_model, load_processor } from '../../../packages/@affon/huggingface/src/index.ts'
 import { GraphProgramRuntime } from '../src/inference/program-runtime.ts'
 const directory = getEnv('AFFON_AST_ONNX_DIR') ?? 'apps/hf-inference/artifacts/ast'

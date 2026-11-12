@@ -1,5 +1,5 @@
 import { add, cat, cross_entropy, matmul, mean, reshape, softmax, transpose } from 'affon:ops'
-import { Session, Tensor, program } from 'affon:compute'
+import { Session, Tensor, program } from 'affon:core'
 import { describe, expect, test } from 'std:test'
 
 describe('Formal and evaluated operation parity', () => {

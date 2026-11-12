@@ -1,5 +1,5 @@
 // Exercises the CUDA rank-one mean path used by Apertus normalization.
-import { Session, Tensor, program } from 'affon:compute'
+import { Session, Tensor, program } from 'affon:core'
 import { mean, slice } from 'affon:ops'
 
 const session = new Session({ device: 'cuda' })

@@ -5,7 +5,7 @@ import { getEnv } from 'std:process'
 import { load_model, load_processor, snapshot_download } from '../../../packages/@affon/huggingface/src/index.ts'
 import { TEXT_MODEL } from '../../../apps/hf-inference/src/inference/models.ts'
 import { CausalProgramRuntime } from '../../../apps/hf-inference/src/inference/program-runtime.ts'
-import type { Device } from 'affon:compute'
+import type { Device } from 'affon:core'
 
 const device = getEnv('AFFON_DEVICE') ?? 'cpu'
 if (device !== 'cpu' && device !== 'metal') throw Error('Use cpu or metal')

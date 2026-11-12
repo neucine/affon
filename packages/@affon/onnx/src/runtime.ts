@@ -1,6 +1,6 @@
 import fs from 'std:fs'
 import checkpoint from 'affon:checkpoint'
-import { Tensor, program, type FormalTensor } from 'affon:compute'
+import { Tensor, program, type FormalTensor } from 'affon:core'
 import { add, cat, contiguous, div, erf, layer_norm, matmul, mean, mul, relu, reshape, slice, softmax, sub, transpose } from 'affon:ops'
 import { capabilities } from './capabilities.ts'
 
@@ -195,7 +195,7 @@ function lower(p: any, node: Node, nodeIndex: number, args: FormalTensor[]) {
 export function load_graph(directory: string) {
   const graph = read_manifest(directory)
   validate_graph(graph)
-  const loaded = checkpoint.load(`${directory}/weights.safetensors`) as Record<string, import('affon:compute').Tensor>
+  const loaded = checkpoint.load(`${directory}/weights.safetensors`) as Record<string, import('affon:core').Tensor>
   for (const [name, shape] of Object.entries(graph.constants)) {
     const value = loaded[name]
     if (!value || value.dtype !== 'f32' || !same(value.shape, shape)) throw Error(`Invalid constant: ${name}`)

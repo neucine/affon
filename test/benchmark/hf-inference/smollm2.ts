@@ -5,7 +5,7 @@ import telemetry from 'std:telemetry'
 import { getEnv } from 'std:process'
 import { from_pretrained } from '../../../packages/@affon/huggingface/src/index.ts'
 import { SMOLLM2_MODELS, type SmolLM2Size } from '../../../apps/hf-inference/src/inference/models.ts'
-import type { Device, Tensor } from 'affon:compute'
+import type { Device, Tensor } from 'affon:core'
 import { CausalProgramRuntime } from '../../../apps/hf-inference/src/inference/program-runtime.ts'
 const size = (getEnv('AFFON_SMOLLM2_SIZE') ?? '360M') as SmolLM2Size
 if (!Object.hasOwn(SMOLLM2_MODELS, size)) throw Error('Invalid AFFON_SMOLLM2_SIZE')

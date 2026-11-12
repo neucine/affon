@@ -9,7 +9,7 @@ import {
 import { TEXT_MODEL, IMAGE_MODEL } from '../../../apps/hf-inference/src/inference/models.ts'
 import { rank_classes } from '../../../apps/hf-inference/src/inference/classification.ts'
 import { CausalProgramRuntime, VitProgramRuntime } from '../../../apps/hf-inference/src/inference/program-runtime.ts'
-import type { Device } from 'affon:compute'
+import type { Device } from 'affon:core'
 
 const device = getEnv('AFFON_DEVICE') ?? 'cpu'
 if (device !== 'cpu' && device !== 'metal' && device !== 'cuda') throw Error('Use cpu, metal, or cuda')

@@ -1,6 +1,6 @@
 import { testDevices } from '../../devices.ts'
 // Numerical fixtures from affon-legacy/test/parity/metrics, applied to the current API.
-import { Session, metrics } from 'affon:compute'
+import { Session, metrics } from 'affon:core'
 import { describe, expect, test } from 'std:test'
 
 function near(actual: number, expected: number): void {

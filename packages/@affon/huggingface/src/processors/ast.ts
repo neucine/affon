@@ -1,5 +1,5 @@
 import fs from 'std:fs'
-import { Session, type Device } from 'affon:compute'
+import { Session, type Device } from 'affon:core'
 import { resample_audio } from './shared/audio.ts'
 
 // Radix-2 FFT in double precision; output rounds to complex64 like HF's NumPy STFT.

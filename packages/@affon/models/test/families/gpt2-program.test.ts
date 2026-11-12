@@ -1,6 +1,6 @@
 import { expect, test } from 'std:test'
-import { Session } from 'affon:compute'
-import type { Tensor } from 'affon:compute'
+import { Session } from 'affon:core'
+import type { Tensor } from 'affon:core'
 import { create_gpt2 } from '../../src/gpt2/model.ts'
 
 test('authors GPT-2 forward windows as caller-executed Programs', () => {

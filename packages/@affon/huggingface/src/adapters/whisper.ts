@@ -1,6 +1,6 @@
 import fs from 'std:fs'
 import checkpoint from 'affon:checkpoint'
-import type { Tensor } from 'affon:compute'
+import type { Tensor } from 'affon:core'
 import { load_graph } from '../../../onnx/src/index.ts'
 import { createHFTokenizerFromFile } from '../../../tokenizers/src/index.ts'
 export type WhisperOptions = {

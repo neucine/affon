@@ -1,9 +1,9 @@
 # Quantized inference: affine packed weights
 
 Status: first native implementation, 2026-10-16. `affon:ops.quantized_matmul`
-supports evaluated and formal tensors on CPU and Metal. The CPU kernel is a
-scalar reference. The Metal kernel fuses unpacking, affine decoding, and matrix
-multiplication in one dispatch. Neither kernel constructs a floating weight
+supports evaluated and formal tensors on CPU, Metal, and CUDA. The CPU kernel is a
+scalar reference. The GPU kernels fuse unpacking, affine decoding, and matrix
+multiplication in one dispatch. None of these kernels constructs a floating weight
 matrix. JavaScript only authors and validates the operation.
 
 ## Architecture and scope
@@ -174,7 +174,11 @@ memory requirements. If the required pipelines are unavailable, selection uses
 the SIMD or scalar path. BF16 loads widen U16 bits to F32. The existing command
 batching and asynchronous buffer-lifetime path are retained. Metal candidates
 are classified `reassociated`; `backend_equivalent` accepts them and
-`exact_only` rejects them. CUDA remains unsupported.
+`exact_only` rejects them. CUDA also provides a generic native candidate,
+classified `reassociated`, for 2-, 4-, and 8-bit packed weights, f32/BF16
+activations, and f32/BF16 metadata. It reads logical strides and byte offsets
+directly and accumulates in f32. This establishes a correctness path; it does
+not claim a tuned tensor-core implementation or whole-model speedup.
 
 The M=8 crossover was checked on the M4. The simple shape-based choice is a
 first calibration, not a universal cost model. MLX remains faster in the

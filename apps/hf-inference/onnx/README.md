@@ -10,7 +10,7 @@ The deployment path is:
 
 ```text
 Preparation: local HF model → ONNX → graph.json + weights.safetensors
-Execution:   prepared pixels → generic graph executor → affon:compute → logits
+Execution:   prepared pixels → generic graph executor → affon:core → logits
 ```
 
 Python, PyTorch, ONNX and ONNX Runtime are preparation/reference dependencies.
@@ -43,7 +43,7 @@ For native execution alone:
 
 ```ts
 import { load_graph } from '@affon/onnx'
-import { Session } from 'affon:compute'
+import { Session } from 'affon:core'
 const model = load_graph('/path/to/converted')
 const session = new Session({ device: 'metal' })
 const state = session.initialize(model.forward, { parameters: model.parameters })

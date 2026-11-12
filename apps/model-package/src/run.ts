@@ -1,7 +1,7 @@
 // Invoked by package.py after verification. Adapters own their request contracts.
 import fs from 'std:fs'
 import { getEnv } from 'std:process'
-import { Session, type Device, type Tensor } from 'affon:compute'
+import { Session, type Device, type Tensor } from 'affon:core'
 import { load_graph } from '../../../packages/@affon/onnx/src/index.ts'
 import { load_llama } from '../../../packages/@affon/huggingface/src/index.ts'
 

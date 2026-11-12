@@ -1,7 +1,7 @@
 import { testDevices, testOn } from '../../devices.ts'
 import { describe, expect, test } from 'std:test'
 import checkpoint from 'affon:checkpoint'
-import { Session, Tensor, gradient, program, update_parameters } from 'affon:compute'
+import { Session, Tensor, gradient, program, update_parameters } from 'affon:core'
 import { add, argmax, cast, clamp, cross_entropy, div, dot, embedding, eq, exp, gather, gt, index_select, layer_norm, lt, masked_fill, matmul, mean, min, mul, neg, sign, softmax, std, sum, variance, where } from 'affon:ops'
 import { sgd } from 'affon:optim'
 

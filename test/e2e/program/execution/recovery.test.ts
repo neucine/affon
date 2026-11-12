@@ -1,4 +1,4 @@
-import { Session, Tensor, optimize, program } from 'affon:compute'
+import { Session, Tensor, optimize, program } from 'affon:core'
 import { cross_entropy, index_select, mean, mul } from 'affon:ops'
 import { sgd } from 'affon:optim'
 import { describe, expect, test } from 'std:test'

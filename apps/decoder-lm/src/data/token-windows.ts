@@ -1,5 +1,5 @@
 import { text } from 'affon:dataset/text.ts'
-import { type Session, type Tensor } from 'affon:compute'
+import { type Session, type Tensor } from 'affon:core'
 
 export type TokenWindow = number[]
 

@@ -1,7 +1,7 @@
 import { expect, test } from 'std:test'
-import { Session } from 'affon:compute'
+import { Session } from 'affon:core'
 import { create_bert } from '../../src/bert/model.ts'
-import type { Tensor } from 'affon:compute'
+import type { Tensor } from 'affon:core'
 
 for (const dtype of ['f32', 'bf16'] as const) test(`runs BERT ${dtype} parameters through Program and Session`, () => {
   const source = new Session({ device: 'cpu' })

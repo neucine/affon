@@ -1,5 +1,5 @@
 // Run with a ReleaseFast Affon build. Construction and compilation are untimed.
-import { Session, Tensor, program } from 'affon:compute'
+import { Session, Tensor, program } from 'affon:core'
 import { quantized_matmul } from 'affon:ops'
 
 for (const device of ['cpu', 'metal'] as const) for (const rows of [1, 8]) {

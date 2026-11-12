@@ -1,4 +1,4 @@
-import { Session, Tensor, program } from 'affon:compute'
+import { Session, Tensor, program } from 'affon:core'
 import { add, cat } from 'affon:ops'
 
 for (const dtype of ['f32', 'bf16'] as const) {

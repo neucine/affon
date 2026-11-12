@@ -29,7 +29,7 @@ column-oriented.
 
 ```typescript
 import dataset from 'affon:dataset'
-import { Session } from 'affon:compute'
+import { Session } from 'affon:core'
 
 const session = new Session({ device: 'cpu' })
 ```

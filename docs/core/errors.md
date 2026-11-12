@@ -8,7 +8,7 @@ a machine-readable `code`.
 Runtime errors extend the standard JavaScript `Error` but add first-class properties for machine-readable codes and native stack traces.
 
 ```typescript
-import { Session } from 'affon:compute'
+import { Session } from 'affon:core'
 import { reshape } from 'affon:ops'
 
 const session = new Session({ device: 'cpu' })

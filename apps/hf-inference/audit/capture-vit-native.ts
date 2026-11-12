@@ -1,6 +1,6 @@
 import { getEnv } from 'std:process'
 import checkpoint from 'affon:checkpoint'
-import type { Device, Tensor } from 'affon:compute'
+import type { Device, Tensor } from 'affon:core'
 import { load_vit, process_rgb_image } from '../../../packages/@affon/huggingface/src/index.ts'
 import { execute_vit } from '../src/inference/program-runtime.ts'
 

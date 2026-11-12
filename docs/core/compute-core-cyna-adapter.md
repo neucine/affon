@@ -23,6 +23,6 @@ static library, links it into a Zig test, and checks Affon's reference outputs
 and invalid-shape behavior, including the selected Zig R01 quantized fixture
 whole or axis reduction values, and a matmul followed by two reductions.
 
-Affon's public `affon:compute` Session still uses the Zig engine. The adapter
+Affon's public `affon:core` Session still uses the Zig engine. The adapter
 is a consumer integration gate for synchronous CPU workloads; it does not
 yet provide persistent graph or device handles.

@@ -4,7 +4,7 @@ Optimization combines a reusable model Program, a scalar loss Program or
 specialized loss callable, and an update rule from `affon:optim`.
 
 ```ts
-import { optimize } from 'affon:compute'
+import { optimize } from 'affon:core'
 import { cross_entropy } from 'affon:nn'
 import { adamw } from 'affon:optim'
 
@@ -30,7 +30,7 @@ mutable learning rate, or provide a callable `step(params)` function.
 Use the lower-level transforms when gradient selection must remain visible:
 
 ```ts
-import { gradient, update_parameters } from 'affon:compute'
+import { gradient, update_parameters } from 'affon:core'
 
 const derivatives = gradient(loss, [
   'classifier.head.weight',

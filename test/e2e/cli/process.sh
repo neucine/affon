@@ -8,7 +8,7 @@ TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 cat > "$TMP_DIR/run.ts" <<'EOF'
-import { Session } from 'affon:compute'
+import { Session } from 'affon:core'
 const session = new Session({ device: 'cpu' })
 const value = session.tensor([2, 3], { dtype: 'f32' })
 console.log(`cli-package:${value.shape.join(',')}`)

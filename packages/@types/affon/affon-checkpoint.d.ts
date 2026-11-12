@@ -1,5 +1,5 @@
 declare module "affon:checkpoint" {
-  import type { Tensor } from "affon:compute"
+  import type { Tensor } from "affon:core"
 
   type CheckpointState = Record<string, unknown>
   type LoadedCheckpoint = Record<string, Tensor>

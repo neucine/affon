@@ -1907,7 +1907,7 @@ const function_ptrs = blk: {
     for (&functions, 0..) |*function, index| pointers[index] = function;
     break :blk pointers;
 };
-pub const specifier: [:0]const u8 = "affon:compute/native";
+pub const specifier: [:0]const u8 = "affon:core/native";
 pub fn load(ctx: ?*anyopaque, module_name: [*c]const u8) ?*anyopaque {
     return @ptrCast(abi.createJSFunctionModule(allocator, @ptrCast(ctx), module_name, &function_ptrs));
 }

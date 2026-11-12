@@ -1,4 +1,4 @@
-declare module "affon:compute/native" {
+declare module "affon:core/native" {
   interface NativeTensor {
     readonly shape: readonly number[];
     readonly ndim: number;

@@ -1,4 +1,4 @@
-import { Session } from 'affon:compute'
+import { Session } from 'affon:core'
 
 let metalAvailableCache: boolean | null = null
 export function metalAvailable(): boolean {

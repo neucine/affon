@@ -1,7 +1,7 @@
 import { getEnv } from 'std:process'
 import { from_pretrained } from '../../../packages/@affon/huggingface/src/index.ts'
 import { CausalProgramRuntime, execute_vit } from '../src/inference/program-runtime.ts'
-import type { Device } from 'affon:compute'
+import type { Device } from 'affon:core'
 
 const options = { cache_dir: getEnv('AFFON_HF_CACHE') ?? '/tmp/affon-hub-cache', local_files_only: getEnv('AFFON_HF_OFFLINE') === '1' }
 if (getEnv('AFFON_HF_FAMILY') === 'vit') {

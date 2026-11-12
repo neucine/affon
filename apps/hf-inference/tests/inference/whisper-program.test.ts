@@ -1,5 +1,5 @@
 import { expect, test } from 'std:test'
-import { Session, Tensor, program } from 'affon:compute'
+import { Session, Tensor, program } from 'affon:core'
 import { WhisperProgramRuntime } from '../../src/inference/program-runtime.ts'
 
 test('Whisper app policy executes imported-style Programs with fresh request caches', () => {

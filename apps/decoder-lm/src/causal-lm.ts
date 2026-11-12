@@ -1,4 +1,4 @@
-import type { ExecutionState, Session, Tensor } from 'affon:compute'
+import type { ExecutionState, Session, Tensor } from 'affon:core'
 import { decoderProgram, type DecoderModel } from './model.ts'
 
 export interface GenerateOptions {

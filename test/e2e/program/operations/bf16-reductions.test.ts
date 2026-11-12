@@ -1,6 +1,6 @@
 import { expect, test } from 'std:test'
 import { testDevices } from '../../devices.ts'
-import { Session, type Tensor } from 'affon:compute'
+import { Session, type Tensor } from 'affon:core'
 import { argmax, cross_entropy, dot, layer_norm, mean, min, softmax, std, sum, variance } from 'affon:ops'
 
 const flatten = (value: unknown) => Array.isArray(value) ? value.flat(Infinity) as number[] : [value as number]

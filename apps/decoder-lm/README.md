@@ -11,7 +11,7 @@ mode.
 The workflow demonstrates the intended execution boundary:
 
 ```ts
-import { Session, Tensor, optimize, program } from 'affon:compute'
+import { Session, Tensor, optimize, program } from 'affon:core'
 import { cross_entropy } from 'affon:nn'
 import { adamw } from 'affon:optim'
 

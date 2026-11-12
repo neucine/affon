@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'std:test'
-import { Session, Tensor, gradient, program, type FormalTensor } from 'affon:compute'
+import { Session, Tensor, gradient, program, type FormalTensor } from 'affon:core'
 import { conv1d, conv_transpose1d, embedding, layer_norm, linear } from 'affon:nn'
 import { cross_entropy, mean } from 'affon:ops'
 

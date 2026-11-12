@@ -1,6 +1,6 @@
 # Compute Programs
 
-`affon:compute` is Affon's declarative compute API. A computation is authored
+`affon:core` is Affon's declarative compute API. A computation is authored
 once as a `Program`, compiled for a `Session`, and run with evaluated tensors:
 
 ```text
@@ -19,7 +19,7 @@ Use `program(name, builder => output)` as the only Program constructor. The
 builder declares inputs by role, and `affon:ops` supplies the computation:
 
 ```ts
-import { Tensor, program } from "affon:compute"
+import { Tensor, program } from "affon:core"
 import { linear } from "affon:nn"
 
 const head = linear({ out_features: 10 })
@@ -96,7 +96,7 @@ Program outside authoring is an error; execution always goes through a compiled
 Sessions own evaluated tensors, executable caches, and execution state:
 
 ```ts
-import { Session } from "affon:compute"
+import { Session } from "affon:core"
 
 const session = new Session({ device: "cpu" })
 const state = session.initialize(classifier, { seed: 7 })
@@ -123,7 +123,7 @@ Evaluated tensors expose `shape`, `ndim`, `dtype`, `device`, optional `axes`,
 For one-off computation, no explicit Program is required:
 
 ```ts
-import { Tensor } from "affon:compute"
+import { Tensor } from "affon:core"
 import { matmul, softmax } from "affon:ops"
 
 const image = Tensor.from(batch)
@@ -149,7 +149,7 @@ most 262,144 array entries, counting nested arrays. For larger evaluated inputs,
 native-endian bytes with an explicit shape and dtype:
 
 ```ts
-import { Session, Tensor } from "affon:compute"
+import { Session, Tensor } from "affon:core"
 const session = new Session({ device: "metal" })
 const values = new Float32Array(1024 * 1024)
 const tensor = session.fromBytes(values.buffer, Tensor.f32([1024, 1024]))
@@ -169,7 +169,7 @@ without constructing or serializing a large JavaScript array.
 Program transforms remain declarative:
 
 ```ts
-import { gradient, program, Tensor, update_parameters } from "affon:compute"
+import { gradient, program, Tensor, update_parameters } from "affon:core"
 import { cross_entropy } from "affon:ops"
 import { adamw } from "affon:optim"
 
@@ -211,7 +211,7 @@ all parameter gradients, and delegates to `update_parameters`. Keep the model an
 model must also be compiled for evaluation or inference:
 
 ```ts
-import { optimize } from "affon:compute"
+import { optimize } from "affon:core"
 import { cross_entropy } from "affon:nn"
 import { adamw } from "affon:optim"
 

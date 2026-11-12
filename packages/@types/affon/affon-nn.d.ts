@@ -1,6 +1,6 @@
 /** Parameterized neural-network factories expanded while authoring Programs. */
 declare module "affon:nn" {
-  import type { Callable, FormalTensor, ProgramDType } from "affon:compute";
+  import type { Callable, FormalTensor, ProgramDType } from "affon:core";
 
   /** A scalar objective with standardized input and target bindings. */
   export interface LossCallable<Input extends FormalTensor = FormalTensor, Target extends FormalTensor = FormalTensor> extends Callable<{ input: Input; target: Target }, FormalTensor> {}

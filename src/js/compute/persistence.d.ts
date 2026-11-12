@@ -1,4 +1,4 @@
-declare module "affon:compute/persistence.ts" {
+declare module "affon:core/persistence.ts" {
 export type DType = "bf16" | "f32" | "f64" | "u32" | "i64"
 export type Device = "cpu" | "metal" | "cuda" | `cuda:${number}`
 

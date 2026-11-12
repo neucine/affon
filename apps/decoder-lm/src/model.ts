@@ -1,5 +1,5 @@
 import { add, contiguous, div, embedding as embedding_lookup, gelu, masked_fill, matmul, reshape, softmax, transpose } from 'affon:ops'
-import { Tensor, program, type Callable, type FormalTensor, type Program } from 'affon:compute'
+import { Tensor, program, type Callable, type FormalTensor, type Program } from 'affon:core'
 import { embedding, layer_norm, linear } from 'affon:nn'
 
 export interface DecoderModelOptions {

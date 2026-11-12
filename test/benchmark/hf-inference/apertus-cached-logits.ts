@@ -1,7 +1,7 @@
 // Write the first cached decode logit row for comparison with PyTorch.
 import fs from 'std:fs'
 import { getEnv } from 'std:process'
-import { type Tensor } from 'affon:compute'
+import { type Tensor } from 'affon:core'
 import { load_apertus } from '../../../packages/@affon/huggingface/src/adapters/apertus.ts'
 import { CausalProgramRuntime } from '../../../apps/hf-inference/src/inference/program-runtime.ts'
 

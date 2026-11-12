@@ -108,11 +108,78 @@ The runtime now selects from the native BF16 byte buffer, preserving first-maxim
 
 The PyTorch benchmark now has a matching BF16-byte readback mode: it copies the BF16 row to the CPU, widens there for finite checking and first-maximum selection, and keeps the functional 320-position cache. In the [updated peer result](../../test/benchmark/results/apertus-program-bf16-byte-peer-2026-10-31.json), PyTorch measured **37.74 and 39.23 tokens/s with SDPA** and **37.21 and 39.45 with eager attention**. Affon measured **14.20 and 14.79**. The same 16 IDs were generated in every run. The backend kernel and host scheduling gap remains large under this closer readback protocol.
 
+### Joined runtime and Nsight capture
+
+The previous model profiles came from separate instrumented and uninstrumented
+runs. The [profile runner](../../test/benchmark/hf-inference/profile-apertus.py)
+now captures one warmed selected decode step in a single artifact: application
+metrics, Affon bridge spans, Compute runtime evidence, the immutable decode
+explanation, and, when available, an Nsight Systems trace joined through NVTX
+and CUPTI correlation IDs. It records one prefill, one decode warmup, resets the
+evidence window, and measures only the next cached decode step.
+
+```sh
+python3 test/benchmark/hf-inference/profile-apertus.py \
+  --affon /tmp/affon-apertus-release/bin/affon \
+  --checkpoint /path/to/verified/apertus/snapshot \
+  --output /tmp/apertus-profile
+```
+
+The telemetry console ring defaults to 4,096 records through
+`RUNTIME_TELEMETRY_TRACE_RECORDS` in the runtime and is capped at 1,048,576.
+The profile runner raises its default to 16,384 through
+`--telemetry-records`; use `--capture-records` to size the separate Compute
+evidence buffer. A full model step can exceed the old 512-record ring before the
+collector polls, which made a previously complete-looking trace incomplete.
+Always require `telemetry.missed: false` and
+`runtime_evidence_dropped_event_count: 0`.
+
+The output contains `apertus-profile.json`, `telemetry-traces.json`,
+`capture.json`, and, unless `--no-nsys` is used, the Nsight report, SQLite
+export, and `compute-timeline.json`. The runner fails when telemetry reports
+missed records, runtime evidence reports dropped events, a required span is
+absent, or the worker fails. The external timeline must be interpreted with
+`unmatched_device_activities`; a device gap establishes elapsed idle time, not
+its cause. The runner also verifies the Compute run and executable IDs and the
+exact invocation-to-step assignment across selected telemetry, runtime evidence,
+and NVTX before accepting a joined capture. NVTX and per-invocation evidence are
+intrusive, so this capture is for attribution and the deployment token rate must
+come from a separate run with observation disabled.
+
+All Compute correlation uses the decimal `*_id_text` identities. JavaScript's
+lossy numeric mirror must not be used to accept a run, executable, invocation,
+submission, or step join when the value can exceed
+`Number.MAX_SAFE_INTEGER`.
+
+The causal runtime also emits generation phase spans around decode input
+construction, decode input cleanup, logit selection, prior-cache release, and
+output cleanup. These spans use the same selected trace as the Compute
+execution, making it possible to account for the host work outside Program
+execution without treating the enclosing step wall time as an unexplained
+remainder.
+
+The first capture still needs to run on the RTX 3090. It should account for the
+deployment step across Program execution, host submission, matched GPU work,
+device gaps, full-logit readback, selection, and cache cleanup. The current
+measured evidence already points to host scheduling and launch count as major
+targets: about **6,705 Affon kernels per step versus 2,559** in the matched
+PyTorch trace, with nearly equal main BF16 GEMM time. The joined artifact should
+replace the older manually assembled comparisons before another optimization is
+selected.
+
 Full-parameter training on one 3090 is out of budget: BF16 weights and gradients need about 30 GiB combined; two f32 Adam moment buffers add 60 GiB, and an optional f32 master copy adds 30 GiB. Those figures exclude activations and CUDA allocations. A small continued-training run needs adapter training with quantized or CPU-offloaded frozen base weights, activation checkpointing, and a short context. A first experiment could use rank-8 LoRA, sequence length 512, microbatch 1, gradient accumulation 16, and a small licensed text sample, then record peak allocated/reserved VRAM and loss against a fixed baseline. This requires a native quantized/adapter training path or an external training harness; neither is part of this milestone.
 
 ## Next gates
 
-1. Measure and optimize the remaining CUDA reduction and host scheduling costs; recheck full-logit parity against PyTorch after the BF16 matmul dispatch change.
-2. Measure phase-specific CUDA peak memory and forward latency; reduce Affon's high host-memory demand during checkpoint loading and initialization.
-3. Profile and optimize fixed-capacity KV-cache prefill/decode, and benchmark longer prompts and output lengths.
-4. Implement and measure a small adapter-training path before committing to a longer continuation.
+1. Run the joined Apertus profile on the RTX 3090 and require complete telemetry,
+   zero dropped evidence records, available NVTX markers, and attributable
+   readback bytes before selecting the next optimization.
+2. Use that artifact to reduce the dominant CUDA reduction, launch, host
+   scheduling, readback, or cache-lifetime cost; then recheck saved logits and
+   greedy IDs.
+3. Measure phase-specific CUDA peak memory; reduce Affon's high host-memory
+   demand during checkpoint loading and initialization.
+4. Benchmark longer prompts and output lengths after the one-step decode profile
+   is understood.
+5. Implement and measure a small adapter-training path before committing to a
+   longer continuation.

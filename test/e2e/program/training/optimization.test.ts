@@ -1,7 +1,7 @@
 import { add, cross_entropy, mean, mul, sub } from "affon:ops"
 import { describe, expect, test } from "std:test"
 import telemetry from "std:telemetry"
-import { Session, Tensor, gradient, optimize, program, update_parameters } from "affon:compute"
+import { Session, Tensor, gradient, optimize, program, update_parameters } from "affon:core"
 import {
   binary_cross_entropy,
   binary_cross_entropy_with_logits,

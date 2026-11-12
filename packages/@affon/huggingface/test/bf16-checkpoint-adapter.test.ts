@@ -1,7 +1,7 @@
 import {expect,test} from 'std:test'
 import {run} from 'std:process'
 import checkpoint from 'affon:checkpoint'
-import {Session} from 'affon:compute'
+import {Session} from 'affon:core'
 import {prepare_encoder_checkpoint} from '../src/adapters/encoder-checkpoint.ts'
 
 test('shared BERT/ViT/Llama linear mapper preserves BF16 dtype and transposition', async () => {

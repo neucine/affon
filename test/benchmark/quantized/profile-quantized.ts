@@ -1,5 +1,5 @@
 // Used by tools/benchmark-quantized-mlx.py. Identical resident data and readback contract.
-import { Session, Tensor, program } from 'affon:compute'
+import { Session, Tensor, program } from 'affon:core'
 import { quantized_matmul, slice } from 'affon:ops'
 import telemetry from 'std:telemetry'
 for (const bits of [8] as const) for (const m of [1, 8, 32, 128]) {

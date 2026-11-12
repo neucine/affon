@@ -1,4 +1,4 @@
-import type { Session, Tensor } from 'affon:compute'
+import type { Session, Tensor } from 'affon:core'
 
 interface PaddedTextDataLoaderOpts {
   batchSize?: number

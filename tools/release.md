@@ -76,15 +76,41 @@ The release workflow:
 - writes hosted `latest.json` and versioned release metadata
 - uploads hosted assets to R2 under `releases/<tag>/`
 - uploads metadata to `releases/latest.json` and `releases/<tag>.json`
-- uploads `install.sh` to `install.sh` and `releases/install.sh`
+- uploads `install.sh` and `install.ps1` to the download root and `releases/`
 
 After a CI release, run `sync-site` from a clean local checkout with the pinned
 Hao source. The manual workflow currently publishes release assets only.
 
-CI, security scans, and release jobs use the Neucine organization runners
-`eq12-linux-x64` and `macbook-arm64`. The native release assets therefore target
-Linux x64 and macOS arm64. Both runners must be online and available to this
-repository before pushing a release tag.
+CI and security scans use GitHub-hosted runners. Release builds use the Neucine
+organization runners `eq12-linux-x64` and `macbook-arm64`, plus a
+GitHub-hosted Windows x64 runner. The native release assets target Linux x64,
+macOS arm64, and Windows x64.
+
+### Windows release status
+
+Windows x64 is a release target. Affon cross-links with the Rust transpiler
+archive built for `x86_64-pc-windows-gnu`, and the final PE includes the
+llvm-mingw unwind runtime.
+
+The release workflow installs LLVM-MinGW `20260908`, builds the Windows asset on
+`windows-latest`, verifies `affon --version`, runs the first-program CPU demo,
+and checks the packaged archive before upload. Release metadata now requires the
+Windows direct `.exe`, archive, and both checksum files alongside the macOS and
+Linux assets.
+
+For a local macOS cross-build:
+
+```sh
+export LLVM_MINGW_PREFIX=/path/to/llvm-mingw
+export PATH="$LLVM_MINGW_PREFIX/bin:$PATH"
+export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="$PWD/tools/rust-windows-linker.py"
+export AFFON_RELEASE_PLATFORM=windows-x64
+export AFFON_WINDOWS_GNU_LIBUNWIND="$LLVM_MINGW_PREFIX/x86_64-w64-mingw32/lib/libunwind.a"
+./tools/release.sh build
+```
+
+This validates the PE build and package layout. Run `smoke-local` on Windows to
+execute the runtime test.
 
 CI requires these repository secrets:
 
@@ -151,14 +177,9 @@ Create a GitHub Release locally after the tag exists remotely:
 ./tools/release.sh github-release
 ```
 
-Run the full local flow on one host when only that host's asset is required:
-
-```sh
-./tools/release.sh all
-```
-
-When `AFFON_R2_DRY_RUN=1` is set, `all` stops before remote smoke testing and
-GitHub Release creation.
+The `all` mode is retained for automation, but the two-host promotion sequence
+above is the supported release procedure. `metadata` and upload now require
+both native asset sets.
 
 ## Local Upload Environment
 
@@ -189,11 +210,40 @@ affon-v0.4.0-darwin-arm64
 affon-v0.4.0-darwin-arm64.sha256
 affon-v0.4.0-darwin-arm64.tar.gz
 affon-v0.4.0-darwin-arm64.tar.gz.sha256
+affon-v0.4.0-windows-x64.exe
+affon-v0.4.0-windows-x64.exe.sha256
+affon-v0.4.0-windows-x64.tar.gz
+affon-v0.4.0-windows-x64.tar.gz.sha256
 ```
 
-The canonical installer is [install.sh](../../install.sh). It carries
+Unix installers use [install.sh](../../install.sh), and Windows uses
+[install.ps1](../../install.ps1). Both carry
 `AFFON_RELEASE_VERSION`, which defaults to the current release version and points
 at `https://downloads.affon.ai/releases/v${AFFON_RELEASE_VERSION}.json`. The
 Update that default alongside `build.zig.zon`; the helper and CI require the two
 versions to match before publishing. The `metadata` helper mode writes hosted
 metadata after native assets have been gathered in `dist/release/`.
+
+## Promotion verification
+
+Before `metadata`, gather **all three** platform asset sets in
+`dist/release/`: `darwin-arm64`, `linux-x64`, and `windows-x64`, each with a direct binary, a
+`.tar.gz` archive, and a `.sha256` file for each. `metadata` now rejects missing
+files, malformed checksums, and checksum mismatches. Run `smoke-local` on each
+native host; a macOS host cannot execute the Linux binary or establish CUDA
+readiness. The Unix installer supports macOS arm64 and Linux x64; Windows x64
+uses `install.ps1`.
+
+The build depends on sibling `hao-legacy`, `compute`, and `zig-libs` checkouts.
+The workflows pin Hao `4b58ac4dd2841fbc3bf6d96d2f985a3e2ea57c5b`, Compute
+`dc66696c6444d4077bea9e172e1f6e1d990ed223`, and zig-libs
+`c5b61fbdd2c7c02d875212e7111a27be3aaf2f17`. Update those hashes together with
+the dependency commits. `build.zig.zon` uses local paths, so an Affon source
+checkout by itself is not a standalone public source installation. The prebuilt
+installer is the supported clean-machine path.
+
+The `all` command builds only the current host asset and replaces `dist/release/`
+before metadata generation. It therefore cannot complete a multi-platform release
+as written. Use the multi-host `check`, `build`, `smoke-local`, gather,
+`metadata` sequence for promotion. Do not infer cross-platform readiness from
+one host's smoke test.

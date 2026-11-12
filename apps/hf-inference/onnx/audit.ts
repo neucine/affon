@@ -2,7 +2,7 @@ import fs from "std:fs";
 import { getEnv } from "std:process";
 import telemetry from "std:telemetry";
 import checkpoint from "affon:checkpoint";
-import { Session, type Device, type Tensor } from "affon:compute";
+import { Session, type Device, type Tensor } from "affon:core";
 import { load_graph } from "../../../packages/@affon/onnx/src/index.ts";
 import { load_vit } from "../../../packages/@affon/huggingface/src/adapters/vit.ts";
 import { load_model } from "../../../packages/@affon/huggingface/src/index.ts";

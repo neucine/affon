@@ -1,5 +1,5 @@
 import { add, cat, contiguous, div, erf, matmul, mean, mul, reshape, slice, softmax, sqrt, sub, transpose } from 'affon:ops'
-import { Tensor, program, type FormalTensor } from 'affon:compute'
+import { Tensor, program, type FormalTensor } from 'affon:core'
 import { f32_parameter, positive_dimensions, parameter_checks } from '../shared/parameters.ts'
 import type { ModelTensor } from '../shared/parameters.ts'
 

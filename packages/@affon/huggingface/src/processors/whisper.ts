@@ -1,6 +1,6 @@
 import fs from 'std:fs'
-import native from 'affon:compute/native'
-import { Session, Tensor, type Device } from 'affon:compute'
+import native from 'affon:core/native'
+import { Session, Tensor, type Device } from 'affon:core'
 import { resample_audio } from './shared/audio.ts'
 
 /** Whisper tiny English: 30-second padded, centered Slaney log-Mel features. */

@@ -1,5 +1,5 @@
 import { argmax, binary_cross_entropy_with_logits, clamp, gather, gt_scalar, max, mean_absolute_error, mean_squared_error, min, one_hot, sign, stack, std, variance, where } from 'affon:ops'
-import { Session, Tensor, metrics, program } from 'affon:compute'
+import { Session, Tensor, metrics, program } from 'affon:core'
 import { describe, expect, test } from 'std:test'
 
 describe('Operation family coverage', () => {

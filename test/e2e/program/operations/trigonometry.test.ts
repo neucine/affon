@@ -1,6 +1,6 @@
 import { testDevices } from '../../devices.ts'
 import { test, expect } from 'std:test'
-import { Session, Tensor, program, gradient } from 'affon:compute'
+import { Session, Tensor, program, gradient } from 'affon:core'
 import { sin, cos, add, mul, sum, reshape, transpose, slice } from 'affon:ops'
 import { conv1d } from 'affon:nn'
 

@@ -1,6 +1,6 @@
 import { testDevices } from '../../devices.ts'
 import { describe, expect, test } from 'std:test'
-import { Session, Tensor, program } from 'affon:compute'
+import { Session, Tensor, program } from 'affon:core'
 import { quantized_matmul, slice, transpose } from 'affon:ops'
 
 for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) describe(`quantized_matmul ${device}`, () => {

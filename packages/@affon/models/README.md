@@ -1,7 +1,7 @@
 # @affon/models
 
 Program-first model definitions built on
-`affon:compute`.
+`affon:core`.
 
 - `src/gpt2/`: tied-head GPT-2 Program authoring.
 - `src/llama/`: tied-head, bias-free Llama Programs with RMSNorm, unscaled RoPE, and GQA.

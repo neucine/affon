@@ -1,7 +1,7 @@
 import { testDevices } from '../../devices.ts'
 // Cases adapted from affon-legacy/test/parity/compute selection families.
 import { gather, index_select, masked_fill, one_hot, where } from 'affon:ops'
-import { Session } from 'affon:compute'
+import { Session } from 'affon:core'
 import { describe, expect, test } from 'std:test'
 
 describe('Selection reference values', () => {

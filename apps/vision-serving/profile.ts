@@ -4,7 +4,7 @@ import { getEnv } from "std:process";
 import telemetry from "std:telemetry";
 import { load_graph } from "../../packages/@affon/onnx/src/index.ts";
 import { process_mobilenet_image } from "../../packages/@affon/huggingface/src/processors/mobilenet.ts";
-import { Session, type Tensor } from 'affon:compute'
+import { Session, type Tensor } from 'affon:core'
 const directory = getEnv("MODEL_DIR")!;
 const count = Number(getEnv("PROFILE_RUNS") ?? "30");
 const batch = Number(getEnv("PROFILE_BATCH") ?? "10");

@@ -1,6 +1,6 @@
 import { expect, test } from 'std:test'
 import fs from 'std:fs'
-import { Session, Tensor } from 'affon:compute'
+import { Session, Tensor } from 'affon:core'
 import { load_apertus, load_model } from '../src/index.ts'
 import { execute_causal } from './execute-causal.ts'
 

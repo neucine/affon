@@ -1,6 +1,6 @@
 import checkpoint from 'affon:checkpoint'
 import { read } from 'affon:dataset'
-import { Session, Tensor, optimize, program } from 'affon:compute'
+import { Session, Tensor, optimize, program } from 'affon:core'
 import { matmul, mean_squared_error, mul, reshape } from 'affon:ops'
 import { adam, sgd } from 'affon:optim'
 import { describe, expect, test } from 'std:test'

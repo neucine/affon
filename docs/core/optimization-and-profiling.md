@@ -12,7 +12,7 @@ Session options control runtime behavior shared by all executables in that
 session:
 
 ```ts
-import { Session } from "affon:compute"
+import { Session } from "affon:core"
 
 const session = new Session({
   device: "cuda",

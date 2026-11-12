@@ -1,6 +1,6 @@
 import fs from 'std:fs'
 import checkpoint from 'affon:checkpoint'
-import { Session } from 'affon:compute'
+import { Session } from 'affon:core'
 import { describe, expect, test, values } from 'std:test'
 import { captureError } from '../../support/errors.ts'
 

@@ -1,6 +1,6 @@
 import fs from 'std:fs'
 import telemetry from 'std:telemetry'
-import { Session, type ExecutionState } from 'affon:compute'
+import { Session, type ExecutionState } from 'affon:core'
 
 import { DecoderModel, decoderProgram, type DecoderModel as DecoderModelDefinition, type DecoderModelOptions } from './model.ts'
 import { generate } from './causal-lm.ts'

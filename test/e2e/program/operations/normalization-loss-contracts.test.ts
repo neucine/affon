@@ -1,5 +1,5 @@
 import { testDevices, testOn } from '../../devices.ts'
-import { Session, Tensor, program } from 'affon:compute'
+import { Session, Tensor, program } from 'affon:core'
 import { add, binary_cross_entropy, binary_cross_entropy_with_logits, cross_entropy, layer_norm, log_softmax, mean_absolute_error, mean_squared_error, rms_norm, softmax } from 'affon:ops'
 import { describe, expect, test, values } from 'std:test'
 

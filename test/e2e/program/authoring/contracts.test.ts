@@ -1,6 +1,6 @@
 import { describe, expect, test } from "std:test"
-import { Session, Tensor, program } from "affon:compute"
-import * as compute from "affon:compute"
+import { Session, Tensor, program } from "affon:core"
+import * as compute from "affon:core"
 import * as nn from "affon:nn"
 import * as optim from "affon:optim"
 

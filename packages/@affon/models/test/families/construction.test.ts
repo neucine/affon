@@ -1,6 +1,6 @@
 import { expect, test } from 'std:test'
-import { Session } from 'affon:compute'
-import type { Tensor } from 'affon:compute'
+import { Session } from 'affon:core'
+import type { Tensor } from 'affon:core'
 import { create_gpt2, create_bert, create_vit } from '../../src/index.ts'
 
 function fixture() {

@@ -1,5 +1,5 @@
 import { add, slice } from 'affon:ops'
-import { Session, Tensor } from 'affon:compute'
+import { Session, Tensor } from 'affon:core'
 import { describe, expect, test } from 'std:test'
 
 describe('Evaluated Tensor construction', () => {

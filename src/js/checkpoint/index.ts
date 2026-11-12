@@ -1,6 +1,6 @@
 import { AffonError } from 'affon:errors'
 import fs from 'std:fs'
-import { inspectCheckpoint, loadStateTree, restorePersistedState, saveStateTree } from 'affon:compute/persistence.ts'
+import { inspectCheckpoint, loadStateTree, restorePersistedState, saveStateTree } from 'affon:core/persistence.ts'
 
 function restore(target: any, source: string | Record<string, any>): any {
   const state = typeof source === 'string' ? loadStateTree(source) : source

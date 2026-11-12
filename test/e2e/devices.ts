@@ -1,6 +1,6 @@
 import { getEnv } from 'std:process'
 import { describe, test } from 'std:test'
-import { Session } from 'affon:compute'
+import { Session } from 'affon:core'
 
 export type TestDevice = 'cpu' | 'metal' | 'cuda'
 

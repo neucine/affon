@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'std:test'
-import { Tensor, program } from 'affon:compute'
+import { Tensor, program } from 'affon:core'
 import { add, mul } from 'affon:ops'
 import { create_inspection_model, prepare_inspection_export, scope_id } from '@affon/inspector'
 import { DecoderModel } from '../../../../apps/decoder-lm/src/model.ts'

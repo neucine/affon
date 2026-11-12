@@ -1,6 +1,6 @@
 import { add, cross_entropy, mean, reshape } from "affon:ops"
 import { describe, expect, test } from "std:test"
-import { Session, Tensor, gradient, optimize, program } from "affon:compute"
+import { Session, Tensor, gradient, optimize, program } from "affon:core"
 import { linear } from "affon:nn"
 import { adam } from "affon:optim"
 
@@ -169,7 +169,7 @@ describe("Program authoring and transforms", () => {
   })
 
   test("authors and composes a shape-specialized child from a callable", () => {
-    const reusable = ({ value }: { value: import("affon:compute").FormalTensor }, name = "reusable") => {
+    const reusable = ({ value }: { value: import("affon:core").FormalTensor }, name = "reusable") => {
       const width = value.spec.shape[0]
       const child = program("shape_specialized_child", p => add(
         p.argument("value", Tensor.f32([width])),

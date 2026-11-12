@@ -6,7 +6,7 @@
  * @summary One operation vocabulary for symbolic authoring and immediate computation.
  */
 declare module "affon:ops" {
-  import type { FormalTensor, ProgramDType, SliceRange, Tensor } from "affon:compute"
+  import type { FormalTensor, ProgramDType, SliceRange, Tensor } from "affon:core"
   type AnyTensor = Tensor | FormalTensor
   type Same<T extends AnyTensor> = T extends FormalTensor ? FormalTensor : Tensor
   /** Elementwise sine in radians. Floating tensors; native CPU and Metal. */

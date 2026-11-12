@@ -1,4 +1,4 @@
-import type { Session, Tensor, TensorData } from 'affon:compute'
+import type { Session, Tensor, TensorData } from 'affon:core'
 import type { TextEncodeOpts, TextTokenizer } from 'affon:dataset/tokenizer.ts'
 import { readDelimitedRows, readLines, readParagraphs, textFromString } from 'affon:dataset/text_io.ts'
 import type { DelimitedTextReadOpts, TextReadOpts, TextSourceOpts } from 'affon:dataset/text_io.ts'

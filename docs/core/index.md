@@ -6,7 +6,7 @@ Affon's public compute model separates declarations from evaluated values:
 Program -> Session.compile -> Executable.run -> evaluated Tensor
 ```
 
-- `affon:compute` declares Programs, tensor specifications, Sessions,
+- `affon:core` declares Programs, tensor specifications, Sessions,
   differentiation, and optimization transforms.
 - `affon:ops` is the operation vocabulary shared by formal tensors inside a
   Program and evaluated tensors owned by a Session.
@@ -33,7 +33,7 @@ describes a generic viewer built on the serialized `ProgramInspection` contract.
 ## Smallest useful example
 
 ```ts
-import { Session, Tensor, program } from 'affon:compute'
+import { Session, Tensor, program } from 'affon:core'
 import { mul } from 'affon:ops'
 
 const square = program('square', p => {

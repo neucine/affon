@@ -1,6 +1,6 @@
 import { expect, test } from 'std:test'
 import { testDevices } from '../../devices.ts'
-import { Session, Tensor, program } from 'affon:compute'
+import { Session, Tensor, program } from 'affon:core'
 import { add, matmul, slice, transpose } from 'affon:ops'
 
 for (const device of testDevices(['cpu', 'cuda'] as const)) test(`BF16 matmul handles contiguous, transposed, broadcast, and sliced layouts on ${device}`, () => {

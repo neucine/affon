@@ -7,7 +7,7 @@ Status: first vertical slice implemented
 The inspector should be a generic consumer of `ProgramInspection`, not a model
 viewer with decoder, transformer, or neural-network conventions embedded in it.
 `Program.inspect()` remains the semantic boundary. Rendering, layout, search,
-selection, and local UI state belong outside `affon:compute`.
+selection, and local UI state belong outside `affon:core`.
 
 ```text
 Program.inspect()
@@ -42,7 +42,7 @@ Program objects or a Session.
 
 ## Non-goals
 
-- Do not add `Program.visualize()` or browser dependencies to `affon:compute`.
+- Do not add `Program.visualize()` or browser dependencies to `affon:core`.
 - Do not infer attention, residual blocks, embeddings, or other architecture
   concepts from operation or parameter names.
 - Do not treat compiler plans or runtime telemetry as Program semantics.

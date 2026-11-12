@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'std:test'
-import { Session, Tensor, optimize, program } from 'affon:compute'
+import { Session, Tensor, optimize, program } from 'affon:core'
 import { cross_entropy } from 'affon:nn'
 import { adam } from 'affon:optim'
 import { DecoderModel } from '../src/model.ts'

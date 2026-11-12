@@ -1,6 +1,6 @@
 import 'affon:errors'
 import { readNative } from 'affon:dataset/native'
-import type { Session, Tensor } from 'affon:compute'
+import type { Session, Tensor } from 'affon:core'
 import { slice } from 'affon:ops'
 
 interface TensorExportOpts {

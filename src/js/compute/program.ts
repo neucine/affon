@@ -1,4 +1,4 @@
-import native from "affon:compute/native"
+import native from "affon:core/native"
 import telemetry from "std:telemetry"
 import type { LRSchedule, Optimizer } from "affon:optim"
 

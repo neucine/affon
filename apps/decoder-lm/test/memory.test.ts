@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'std:test'
 import telemetry from 'std:telemetry'
-import { Session } from 'affon:compute'
+import { Session } from 'affon:core'
 import { DecoderModel, decoderProgram } from '../src/model.ts'
 import { metalAvailable } from './support/metal.ts'
 

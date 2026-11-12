@@ -1,6 +1,6 @@
 import checkpoint from 'affon:checkpoint'
-import { Session } from 'affon:compute'
-import type { Tensor } from 'affon:compute'
+import { Session } from 'affon:core'
+import type { Tensor } from 'affon:core'
 
 type IsExact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
 function assertType<T extends true>() {}

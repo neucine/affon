@@ -20,9 +20,9 @@ import {
   type TelemetryOptions,
   type SessionOptions,
   type TensorSpec,
-} from "affon:compute"
+} from "affon:core"
 import { accumulate, adam, scheduled, schedules, sgd, type AccumulatingOptimizer, type Adam, type Optimizer, type ScheduledOptimizer, type SGD } from "affon:optim"
-import * as compute from "affon:compute"
+import * as compute from "affon:core"
 import {
   binary_cross_entropy,
   binary_cross_entropy_with_logits,
@@ -33,7 +33,7 @@ import {
 } from "affon:nn"
 
 // @ts-expect-error The removed compute compatibility module must stay unavailable.
-import "affon:compute/legacy"
+import "affon:core/legacy"
 // @ts-expect-error The removed neural-network compatibility module must stay unavailable.
 import "affon:nn/legacy"
 import * as optimModule from "affon:optim"
@@ -43,9 +43,9 @@ import * as internalCompute from "affon:_internal/compute/program"
 void internalCompute
 
 // @ts-expect-error Tensor operations belong to affon:ops.
-import { cross_entropy as computeCrossEntropy } from "affon:compute"
+import { cross_entropy as computeCrossEntropy } from "affon:core"
 // @ts-expect-error Optimizers belong to affon:optim.
-import { adam as computeAdam } from "affon:compute"
+import { adam as computeAdam } from "affon:core"
 void computeCrossEntropy
 void computeAdam
 
@@ -174,7 +174,7 @@ assertType<IsExact<typeof evaluatedLoss, Tensor>>()
 assertType<IsExact<typeof evaluatedIndices, Tensor>>()
 assertType<IsExact<typeof evaluatedStack, Tensor>>()
 assertType<IsExact<(typeof executable.argument_names)[number], string>>()
-assertType<IsExact<(typeof executable.argument_specs)[number], import("affon:compute").ProgramFormal>>()
+assertType<IsExact<(typeof executable.argument_specs)[number], import("affon:core").ProgramFormal>>()
 assertType<IsExact<typeof executable.disposed, boolean>>()
 assertType<IsExact<Parameters<typeof executable.run>[0], ProgramArguments>>()
 assertType<IsExact<(typeof executionState.parameters)[string], Tensor>>()

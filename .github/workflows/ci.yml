@@ -44,8 +44,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: neucine/hao
-          ref: aa59fc076607f98612243e0ecc7f7da019f9dc5d
-          path: hao
+          ref: 4b58ac4dd2841fbc3bf6d96d2f985a3e2ea57c5b
+          path: hao-legacy
 
       - name: Check out Compute
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -53,7 +53,7 @@ jobs:
           repository: neucine/compute
           token: ${{ secrets.PRIVATE_REPO_READ_TOKEN || secrets.DEPENDENCY_READ_TOKEN }}
           persist-credentials: false
-          ref: c0d89db73c2cdc5e830ed3ff0f507fd26d44a063
+          ref: dc66696c6444d4077bea9e172e1f6e1d990ed223
           path: compute
 
       - name: Check out shared Zig libraries
@@ -62,7 +62,7 @@ jobs:
           repository: neucine/zig-libs
           token: ${{ secrets.PRIVATE_REPO_READ_TOKEN || secrets.DEPENDENCY_READ_TOKEN }}
           persist-credentials: false
-          ref: a91b58271be94a4e402a856403fe0fa83add1709
+          ref: c5b61fbdd2c7c02d875212e7111a27be3aaf2f17
           path: zig-libs
 
       - name: Set up Zig
@@ -86,3 +86,79 @@ jobs:
       - name: Run Affon runtime tests
         working-directory: affon
         run: ./tools/test-runtime.sh
+
+  windows-smoke:
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: windows-latest
+    env:
+      RUNTIME_PACKAGE_PATH: packages
+
+    steps:
+      - name: Check out Affon
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: affon
+
+      - name: Check out Hao
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: neucine/hao
+          ref: 4b58ac4dd2841fbc3bf6d96d2f985a3e2ea57c5b
+          path: hao-legacy
+
+      - name: Check out Compute
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: neucine/compute
+          token: ${{ secrets.PRIVATE_REPO_READ_TOKEN || secrets.DEPENDENCY_READ_TOKEN }}
+          persist-credentials: false
+          ref: dc66696c6444d4077bea9e172e1f6e1d990ed223
+          path: compute
+
+      - name: Check out shared Zig libraries
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: neucine/zig-libs
+          token: ${{ secrets.PRIVATE_REPO_READ_TOKEN || secrets.DEPENDENCY_READ_TOKEN }}
+          persist-credentials: false
+          ref: c5b61fbdd2c7c02d875212e7111a27be3aaf2f17
+          path: zig-libs
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: 0.17.0
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.2.16
+
+      - name: Install Rust Windows GNU target
+        shell: pwsh
+        run: rustup target add x86_64-pc-windows-gnu
+
+      - name: Install LLVM-MinGW
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP "llvm-mingw.zip"
+          $download = "https://github.com/mstorsjo/llvm-mingw/releases/download/20260908/llvm-mingw-20260908-ucrt-x86_64.zip"
+          Invoke-WebRequest -Uri $download -OutFile $archive
+          Expand-Archive -Path $archive -DestinationPath $env:RUNNER_TEMP -Force
+          $prefix = (Get-ChildItem $env:RUNNER_TEMP -Directory -Filter "llvm-mingw-*" | Select-Object -First 1).FullName
+          "LLVM_MINGW_PREFIX=$prefix" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "$prefix\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+          "AFFON_WINDOWS_GNU_LIBUNWIND=$prefix\x86_64-w64-mingw32\lib\libunwind.a" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=$env:GITHUB_WORKSPACE\affon\tools\rust-windows-linker.cmd" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Build and smoke test Windows runtime
+        working-directory: affon
+        shell: bash
+        env:
+          AFFON_RELEASE_TAG: v0.4.0
+          AFFON_RELEASE_PLATFORM: windows-x64
+        run: |
+          zig build test -Doptimize=ReleaseSafe
+          ./tools/release.sh build
+          ./tools/release.sh smoke-local
+          ./dist/release/affon-v0.4.0-windows-x64.exe examples/first-program.ts

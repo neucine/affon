@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'std:test'
-import { Session } from 'affon:compute'
+import { Session } from 'affon:core'
 import { validate_causal_buffer } from '../src/adapters/gpt2-buffers.ts'
 
 describe('optional GPT-2 checkpoint buffers', () => {

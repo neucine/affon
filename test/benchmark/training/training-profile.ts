@@ -2,7 +2,7 @@
 import fs from 'std:fs'
 import { getEnv } from 'std:process'
 import telemetry from 'std:telemetry'
-import { Session, Tensor, optimize, program } from 'affon:compute'
+import { Session, Tensor, optimize, program } from 'affon:core'
 import { cross_entropy } from 'affon:nn'
 import { adamw } from 'affon:optim'
 import { DecoderModel } from '../../../apps/decoder-lm/src/model.ts'

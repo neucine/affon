@@ -4,7 +4,7 @@
  *
  * @summary Build inspectable compute Programs and execute them in an explicit Session.
  */
-declare module "affon:compute" {
+declare module "affon:core" {
   import type { Optimizer } from "affon:optim";
   import type { LossCallable } from "affon:nn";
   /** Numeric element types supported by the Program API. */
