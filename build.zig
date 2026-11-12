@@ -37,7 +37,7 @@ pub fn build(b: *std.Build) void {
         "Path to libunwind.a for x86_64-w64-mingw32",
     ) orelse b.graph.environ_map.get("AFFON_WINDOWS_GNU_LIBUNWIND");
     const transpiler_archive = if (target.result.os.tag == .windows)
-        "libs/transpiler/target/x86_64-pc-windows-gnu/release/libhao_transpiler.a"
+        "libs/transpiler/target/x86_64-pc-windows-gnullvm/release/libhao_transpiler.a"
     else
         "libs/transpiler/target/release/libhao_transpiler.a";
     const hao = b.dependency("hao", .{ .target = target, .optimize = optimize });

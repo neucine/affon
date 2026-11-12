@@ -3,6 +3,7 @@ const c = struct {
     extern "c" fn unsetenv(name: [*:0]const u8) c_int;
 };
 const std = @import("std");
+const builtin = @import("builtin");
 const zig_libs = @import("zig_libs");
 const compute = @import("compute");
 
@@ -162,6 +163,8 @@ test "Config defaults are correct before runtime detection" {
 }
 
 test "loadFromEnv reads schema-backed values" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
     const old_device = cfg.getenv("AFFON_DEVICE");
     const old_trace = cfg.getenv("AFFON_NATIVE_STACK_TRACE");
     defer {

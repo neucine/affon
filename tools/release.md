@@ -89,7 +89,7 @@ macOS arm64, and Windows x64.
 ### Windows release status
 
 Windows x64 is a release target. Affon cross-links with the Rust transpiler
-archive built for `x86_64-pc-windows-gnu`, and the final PE includes the
+archive built for `x86_64-pc-windows-gnullvm`, and the final PE includes the
 llvm-mingw unwind runtime.
 
 The release workflow installs LLVM-MinGW `20260908`, builds the Windows asset on
@@ -103,7 +103,7 @@ For a local macOS cross-build:
 ```sh
 export LLVM_MINGW_PREFIX=/path/to/llvm-mingw
 export PATH="$LLVM_MINGW_PREFIX/bin:$PATH"
-export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="$PWD/tools/rust-windows-linker.py"
+export CARGO_TARGET_X86_64_PC_WINDOWS_GNULLVM_LINKER="$LLVM_MINGW_PREFIX/bin/x86_64-w64-mingw32-clang"
 export AFFON_RELEASE_PLATFORM=windows-x64
 export AFFON_WINDOWS_GNU_LIBUNWIND="$LLVM_MINGW_PREFIX/x86_64-w64-mingw32/lib/libunwind.a"
 ./tools/release.sh build
@@ -235,7 +235,7 @@ readiness. The Unix installer supports macOS arm64 and Linux x64; Windows x64
 uses `install.ps1`.
 
 The build depends on sibling `hao-legacy`, `compute`, and `zig-libs` checkouts.
-The workflows pin Hao `4b58ac4dd2841fbc3bf6d96d2f985a3e2ea57c5b`, Compute
+The workflows pin Hao `7c73a564056af4cbb47998278b5253d726e03d9f`, Compute
 `dc66696c6444d4077bea9e172e1f6e1d990ed223`, and zig-libs
 `c5b61fbdd2c7c02d875212e7111a27be3aaf2f17`. Update those hashes together with
 the dependency commits. `build.zig.zon` uses local paths, so an Affon source
