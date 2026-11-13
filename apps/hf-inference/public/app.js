@@ -250,9 +250,10 @@ $('classify').addEventListener('click', () => {
 })
 function updateTextModel() {
   const chat = $('text-model').selectedOptions[0]?.dataset.chat === 'true'
+  const model = $('text-model').value
   $('text-description').textContent = chat
     ? 'SmolLM2 answers a single instruction. Responses can contain factual and reasoning errors.'
-    : 'DistilGPT-2 continues a passage.'
+    : model === 'apertus' ? 'Apertus 8B continues a passage.' : 'DistilGPT-2 continues a passage.'
   $('prompt-label').textContent = chat ? 'Your instruction' : 'Start a passage'
   $('generate').textContent = chat ? 'Generate response' : 'Generate completion'
 }
@@ -294,7 +295,7 @@ $('form').addEventListener('submit', async (e) => {
   try {
     const started = await post('/api/generate/start', {
       prompt:$('prompt').value, model:$('text-model').value,
-      max_new_tokens:Number($('tokens').value),
+      max_new_tokens:Number($('tokens').value), stop_at_sentence:false,
     })
     id = started.id
     while (!stopGeneration) {

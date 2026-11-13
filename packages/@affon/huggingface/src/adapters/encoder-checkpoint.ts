@@ -1,4 +1,5 @@
 import { open_checkpoint } from './checkpoint.ts'
+import type { Tensor } from 'affon:core'
 import type { ModelTensor } from '../../../models/src/shared/parameters.ts'
 
 export function prepare_encoder_checkpoint(directory: string) {
@@ -16,10 +17,22 @@ export function prepare_encoder_checkpoint(directory: string) {
       weights[name] = value
       return
     }
-    weights[name] = { shape: [shape[1], shape[0]], dtype: value.dtype, to_array: () => {
-      const rows = value.to_array() as number[][]
-      return Array.from({ length: shape[1] }, (_, row) => Array.from({ length: shape[0] }, (_, column) => rows[column][row]))
-    } }
+    weights[name] = { shape: [shape[1], shape[0]], dtype: value.dtype,
+      to_bytes: () => {
+        const source = new Uint8Array((value as Tensor).to_bytes())
+        const size = value.dtype === 'bf16' ? 2 : 4
+        const result = new Uint8Array(source.length)
+        for (let row = 0; row < shape[0]; row++) for (let column = 0; column < shape[1]; column++) {
+          const from = (row * shape[1] + column) * size
+          result.set(source.subarray(from, from + size), (column * shape[0] + row) * size)
+        }
+        return result.buffer
+      },
+      to_array: () => {
+        const rows = value.to_array() as number[][]
+        return Array.from({ length: shape[1] }, (_, row) => Array.from({ length: shape[0] }, (_, column) => rows[column][row]))
+      },
+    }
   }
   function finish() {
     for (const name of Object.keys(source.catalog)) {

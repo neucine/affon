@@ -199,6 +199,8 @@ declare module "affon:core" {
     item(): number;
     /** Copy tensor contents into scalar or nested JavaScript arrays. */
     to_array(): TensorData;
+    /** Copy tensor contents into a row-major byte buffer. */
+    to_bytes(): ArrayBuffer;
     /** Human-readable summary. */
     toString(): string;
     /** Detailed representation including shape, dtype, device, and values. */

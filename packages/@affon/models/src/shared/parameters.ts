@@ -6,6 +6,7 @@ export interface ModelTensor {
   readonly shape: readonly number[]
   readonly dtype: ProgramDType
   to_array(): TensorData
+  to_bytes?(): ArrayBuffer
 }
 
 export interface ModelAffineWeights { weight: ModelTensor; bias: ModelTensor }

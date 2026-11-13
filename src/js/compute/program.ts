@@ -333,13 +333,15 @@ export const Tensor = Object.freeze({
     const { seed = 0, ...tensorOptions } = options
     const spec = freezeSpec(tensorOptions.dtype ?? "f32", checkedTensorShape(shape), tensorOptions.axes)
     if (spec.dtype === "i64" || spec.dtype === "u32") throw new TypeError("Tensor.rand requires a floating-point dtype")
-    return defaultSession().tensor(initializedValue(spec, { kind: "uniform", min: 0, max: 1 }, seededRandom(seed)), tensorOptions)
+    const value = initializedValue(spec, { kind: "uniform", min: 0, max: 1 }, seededRandom(seed))
+    return value instanceof ArrayBuffer ? defaultSession().fromBytes(value, spec) : defaultSession().tensor(value, tensorOptions)
   },
   randn(shape: readonly number[], options: TensorValueOptions & { seed?: number } = {}): Tensor {
     const { seed = 0, ...tensorOptions } = options
     const spec = freezeSpec(tensorOptions.dtype ?? "f32", checkedTensorShape(shape), tensorOptions.axes)
     if (spec.dtype === "i64" || spec.dtype === "u32") throw new TypeError("Tensor.randn requires a floating-point dtype")
-    return defaultSession().tensor(initializedValue(spec, { kind: "normal" }, seededRandom(seed)), tensorOptions)
+    const value = initializedValue(spec, { kind: "normal" }, seededRandom(seed))
+    return value instanceof ArrayBuffer ? defaultSession().fromBytes(value, spec) : defaultSession().tensor(value, tensorOptions)
   },
 })
 
@@ -1391,7 +1393,7 @@ function seededRandom(seed: number): () => number {
   }
 }
 
-function initializedValue(spec: TensorSpec, initializer: Initializer, random: () => number): ProgramValue {
+function initializedValue(spec: TensorSpec, initializer: Initializer, random: () => number): ProgramValue | ArrayBuffer {
   const fanIn = spec.shape.length >= 2 ? spec.shape[spec.shape.length - 2] : Math.max(spec.shape[0] ?? 1, 1)
   const fanOut = spec.shape.length >= 2 ? spec.shape[spec.shape.length - 1] : Math.max(spec.shape[0] ?? 1, 1)
   let spareNormal: number | undefined
@@ -1412,6 +1414,12 @@ function initializedValue(spec: TensorSpec, initializer: Initializer, random: ()
       case "xavier_uniform": { const bound = Math.sqrt(6 / (fanIn + fanOut)); return (2 * random() - 1) * bound }
       case "xavier_normal": return normal() * Math.sqrt(2 / (fanIn + fanOut))
     }
+  }
+  // The array limit counts nested containers as well as scalar entries.
+  if (spec.dtype === "f32" && elementCount(spec.shape) >= MAX_ARRAY_TENSOR_ENTRIES / 2) {
+    const values = new Float32Array(elementCount(spec.shape))
+    for (let index = 0; index < values.length; index++) values[index] = scalar()
+    return values.buffer
   }
   const build = (axis: number): ProgramValue => axis === spec.shape.length ? scalar() : Array.from({ length: spec.shape[axis] }, () => build(axis + 1))
   return build(0)
@@ -1902,10 +1910,14 @@ export class Session {
         }
         const copied = raw && typeof raw === "object" && "to_array" in raw ? native.sessionTensorCopy(this.#native, raw) : undefined
         let value: Tensor
-        if (copied) {
+        if (raw instanceof ArrayBuffer) {
+          value = this.fromBytes(raw, formal.spec)
+        } else if (copied) {
           if (formal.spec.axes) Object.defineProperty(copied, "axes", { value: Object.freeze([...formal.spec.axes]), enumerable: true })
           this.adopt(copied)
           value = copied as Tensor
+        } else if (raw && typeof raw === "object" && "to_bytes" in raw && typeof raw.to_bytes === "function") {
+          value = this.fromBytes(raw.to_bytes(), formal.spec)
         } else {
           const materialized = raw && typeof raw === "object" && "to_array" in raw && typeof (raw as any).to_array === "function" ? (raw as any).to_array() : raw
           value = this.tensor(materialized as TensorData, { dtype: formal.spec.dtype, axes: formal.spec.axes })

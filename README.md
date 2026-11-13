@@ -2,6 +2,8 @@
   <img src="assets/affon-lockup-vertical.svg" alt="affon" width="220"/>
 </p>
 
+<p align="center"><a href="README.zh-CN.md">简体中文</a></p>
+
 <p align="center">
   <code>aff·on</code>&nbsp;&nbsp;<span style="color: #c5bc10; font-size: 15px; font-family: monospace;">/ əfˈɒn /</span>
 </p>

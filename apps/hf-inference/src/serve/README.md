@@ -182,9 +182,9 @@ same JSON input as `/api/generate` and returns a session `id`. Repeated
 `POST /api/generate/next` requests with `{id}` each compute exactly one token,
 returning the normal result fields plus `done` and, on completion, a
 `stop_reason` (`eos`, `sentence`, or `limit`). Apertus is a base completion model:
-its browser stream stops at the first completed sentence after at least three
-generated tokens if EOS has not arrived. Set `stop_at_sentence: false` in the
-start request to allow longer continuations. The buffered `/api/generate`
+the start endpoint defaults to the first completed sentence after at least three
+generated tokens if EOS has not arrived. The browser sends `stop_at_sentence: false`
+to allow longer continuations. The buffered `/api/generate`
 endpoint retains EOS-or-budget behavior. Full-prefix decoding preserves
 byte-level Unicode boundaries.
 

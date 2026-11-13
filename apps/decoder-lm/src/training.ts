@@ -71,7 +71,7 @@ function optimizerState(runtime: DecoderLMRuntime, kind: string): DecoderLMOptim
   return { kind, scalars, tensors }
 }
 function clone(values: Readonly<Record<string, Tensor>>, session: Session) {
-  return Object.fromEntries(Object.entries(values).map(([name, value]) => [name, session.tensor(value.to_array() as any, { dtype: value.dtype }) as Tensor]))
+  return Object.fromEntries(Object.entries(values).map(([name, value]) => [name, session.fromBytes(value.to_bytes(), { dtype: value.dtype, shape: value.shape })]))
 }
 function disposeState(values: Readonly<Record<string, Tensor>>) { for (const value of Object.values(values)) value.dispose() }
 
@@ -96,11 +96,11 @@ export function loadDecoderLMCheckpoint(pathPrefix: string, runtime: DecoderLMRu
   for (const [name, current] of Object.entries(runtime.state.parameters)) {
     const loaded = bundle.state[name]
     if (!loaded || loaded.dtype !== current.dtype || JSON.stringify(loaded.shape) !== JSON.stringify(current.shape)) throw new AffonError('shape_mismatch', `Invalid decoder checkpoint parameter: ${name}`)
-    const replacement = runtime.session.tensor(loaded.to_array() as any, { dtype: loaded.dtype })
+    const replacement = runtime.session.fromBytes(loaded.to_bytes(), { dtype: loaded.dtype, shape: loaded.shape })
     current.dispose(); runtime.state.parameters[name] = replacement
   }
   const loadedOptimizer = bundle.tensorGroups.optimizer ?? {}
-  const optimizerTensors = Object.fromEntries(Object.entries(loadedOptimizer).map(([name, value]) => [name, runtime.session.tensor(value.to_array() as any, { dtype: value.dtype }) as Tensor]))
+  const optimizerTensors = Object.fromEntries(Object.entries(loadedOptimizer).map(([name, value]) => [name, runtime.session.fromBytes(value.to_bytes(), { dtype: value.dtype, shape: value.shape })]))
   const optimizer: DecoderLMOptimizerState | null = manifest.optimizerKind ? { kind: manifest.optimizerKind, scalars: manifest.optimizerScalars ?? {}, tensors: optimizerTensors } : null
   if (optimizer) { Object.assign(runtime.state.optimizer_state, optimizer.tensors); Object.assign(runtime.state.optimizer_state, optimizer.scalars) }
   for (const value of Object.values(bundle.state)) value.dispose()

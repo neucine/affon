@@ -14,6 +14,12 @@ export interface GraphProgramDefinition extends ProgramDefinition {
 
 type ProgramInput = ModelTensor | Tensor | { data: TensorData; dtype?: 'f32' | 'i64' }
 
+function copy_tensor(session: Session, value: ModelTensor | Tensor): Tensor {
+  if ('to_bytes' in value && typeof value.to_bytes === 'function')
+    return session.fromBytes(value.to_bytes(), { dtype: value.dtype, shape: value.shape })
+  return session.tensor(value.to_array(), { dtype: value.dtype })
+}
+
 export class GraphProgramRuntime {
   readonly session: Session
   readonly state: ExecutionState
@@ -33,7 +39,7 @@ export class GraphProgramRuntime {
       if (!('data' in value) && this.session.owns(value)) return [name, value]
       const tensor = 'data' in value
         ? this.session.tensor(value.data, { dtype: value.dtype ?? 'f32' })
-        : this.session.tensor(value.to_array(), { dtype: value.dtype })
+        : copy_tensor(this.session, value)
       created.push(tensor)
       return [name, tensor]
     })) as Record<string, Tensor>
@@ -47,7 +53,7 @@ export class GraphProgramRuntime {
   /** Copy a foreign-session tensor once so repeated graph calls keep it device-resident. */
   import(value: ModelTensor | Tensor) {
     if (this.session.owns(value)) return value as Tensor
-    return this.session.tensor(value.to_array(), { dtype: value.dtype })
+    return copy_tensor(this.session, value)
   }
 
   dispose() { this.state.dispose(); this.session.dispose() }
