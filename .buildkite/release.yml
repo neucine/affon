@@ -1,0 +1,42 @@
+steps:
+  - input: ":bookmark: Select existing release tag"
+    key: release-tag
+    fields:
+      - text: "Release tag"
+        key: release_tag
+        hint: "Start this build at the same tag commit, for example v0.4.1."
+        format: "^v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.]+)?$"
+  - label: ":linux: Build Linux release"
+    key: release-linux
+    command: tools/buildkite/release-build.sh linux-x64
+    agents:
+      queue: linux-local
+    secrets:
+      - PRIVATE_REPO_READ_TOKEN
+  - label: ":mac: Build macOS release"
+    key: release-macos
+    command: tools/buildkite/release-build.sh darwin-arm64
+    agents:
+      queue: macos-local
+    secrets:
+      - PRIVATE_REPO_READ_TOKEN
+  - label: ":windows: Build Windows release"
+    key: release-windows
+    command: '"C:\Program Files\Git\bin\bash.exe" tools/buildkite/release-build.sh windows-x64'
+    agents:
+      queue: windows-local
+    secrets:
+      - PRIVATE_REPO_READ_TOKEN
+  - wait: ~
+  - block: ":rocket: Publish verified release"
+    prompt: "Publish the three verified assets to GitHub Releases and R2."
+  - label: ":rocket: Publish release"
+    key: release-publish
+    command: tools/buildkite/release-publish.sh
+    agents:
+      queue: linux-local
+    secrets:
+      - PRIVATE_REPO_READ_TOKEN
+      - GITHUB_RELEASE_TOKEN
+      - CLOUDFLARE_ACCOUNT_ID
+      - CLOUDFLARE_API_TOKEN
