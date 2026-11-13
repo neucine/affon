@@ -2,12 +2,17 @@ name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to build and publish
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref_name }}
+  group: release-${{ inputs.release_tag }}
   cancel-in-progress: false
 
 env:
@@ -22,15 +27,16 @@ jobs:
       matrix:
         include:
           - os: linux-x64
-            runner: eq12-linux-x64
+            runner: ubuntu-24.04
           - os: darwin-arm64
-            runner: macbook-arm64
-    runs-on: [self-hosted, "${{ matrix.runner }}"]
+            runner: macos-15-arm64
+    runs-on: ${{ matrix.runner }}
 
     steps:
       - name: Check out Affon
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.release_tag }}
           path: affon
 
       - name: Check out Hao
@@ -71,13 +77,13 @@ jobs:
       - name: Verify version
         working-directory: affon
         env:
-          AFFON_RELEASE_TAG: ${{ github.ref_name }}
+          AFFON_RELEASE_TAG: ${{ inputs.release_tag }}
         run: ./tools/release.sh check
 
       - name: Package and smoke test native release asset
         working-directory: affon
         env:
-          AFFON_RELEASE_TAG: ${{ github.ref_name }}
+          AFFON_RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           ./tools/release.sh build
           ./tools/release.sh smoke-local
@@ -97,6 +103,7 @@ jobs:
       - name: Check out Affon
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.release_tag }}
           path: affon
 
       - name: Check out Hao
@@ -155,7 +162,7 @@ jobs:
         working-directory: affon
         shell: bash
         env:
-          AFFON_RELEASE_TAG: ${{ github.ref_name }}
+          AFFON_RELEASE_TAG: ${{ inputs.release_tag }}
           AFFON_RELEASE_PLATFORM: windows-x64
         run: |
           ./tools/release.sh build
@@ -172,12 +179,13 @@ jobs:
   publish:
     name: Publish GitHub release and R2 assets
     needs: [build, windows]
-    runs-on: [self-hosted, eq12-linux-x64]
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Check out Affon
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.release_tag }}
           path: affon
 
       - name: Check out Hao
@@ -219,21 +227,21 @@ jobs:
       - name: Package source release
         working-directory: affon
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
 
           archive="affon-${RELEASE_TAG#v}.tar.gz"
           mkdir -p dist/source package-source verify-source
 
-          git archive --format=tar --prefix="affon/" "$GITHUB_SHA" \
+          git archive --format=tar --prefix="affon/" HEAD \
             build.zig build.zig.zon LICENSE README.md THIRD_PARTY_NOTICES.md install.sh install.ps1 src tools packages/@types/affon | tar -C verify-source -xf -
           git -C ../hao-legacy archive --format=tar --prefix="hao-legacy/" HEAD -- build.zig build.zig.zon include src libs/transpiler | tar -C verify-source -xf -
           git -C ../compute archive --format=tar --prefix="compute/" HEAD -- build.zig build.zig.zon README.md src tools | tar -C verify-source -xf -
           git -C ../zig-libs archive --format=tar --prefix="zig-libs/" HEAD -- build.zig build.zig.zon README.md src .gitignore | tar -C verify-source -xf -
           zig build --build-file verify-source/affon/build.zig -Doptimize=ReleaseSafe
 
-          git archive --format=tar --prefix="affon/" "$GITHUB_SHA" \
+          git archive --format=tar --prefix="affon/" HEAD \
             build.zig build.zig.zon LICENSE README.md THIRD_PARTY_NOTICES.md install.sh install.ps1 src tools packages/@types/affon | tar -C package-source -xf -
           git -C ../hao-legacy archive --format=tar --prefix="hao-legacy/" HEAD -- build.zig build.zig.zon include src libs/transpiler | tar -C package-source -xf -
           git -C ../compute archive --format=tar --prefix="compute/" HEAD -- build.zig build.zig.zon README.md src tools | tar -C package-source -xf -
@@ -243,12 +251,13 @@ jobs:
       - name: Write hosted release metadata
         working-directory: affon
         env:
-          AFFON_RELEASE_TAG: ${{ github.ref_name }}
+          AFFON_RELEASE_TAG: ${{ inputs.release_tag }}
         run: ./tools/release.sh metadata
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
+          tag_name: ${{ inputs.release_tag }}
           generate_release_notes: true
           files: |
             affon/dist/release/*
@@ -258,7 +267,7 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         shell: bash
         run: |
           set -euo pipefail

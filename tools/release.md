@@ -56,13 +56,12 @@ The `all` mode performs this step after publishing the GitHub Release.
 ## Optional CI Release
 
 Prepare and verify the release commit locally, then push the release commit and
-tag. Dispatch the release workflow manually on that tag when the runners are
-available:
+tag. Dispatch the release workflow from `main` with that tag:
 
 ```sh
 git push origin HEAD
 git push origin v0.4.1
-gh workflow run release.yml --repo neucine/affon --ref v0.4.1
+gh workflow run release.yml --repo neucine/affon --ref main -f release_tag=v0.4.1
 ```
 
 The release workflow:
@@ -81,10 +80,8 @@ The release workflow:
 After a CI release, run `sync-site` from a clean local checkout with the pinned
 Hao source. The manual workflow currently publishes release assets only.
 
-CI and security scans use GitHub-hosted runners. Release builds use the Neucine
-organization runners `eq12-linux-x64` and `macbook-arm64`, plus a
-GitHub-hosted Windows x64 runner. The native release assets target Linux x64,
-macOS arm64, and Windows x64.
+CI, security scans, and release builds use GitHub-hosted runners. The native
+release assets target Linux x64, macOS arm64, and Windows x64.
 
 ### Windows release status
 
