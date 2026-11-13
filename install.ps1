@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$ReleaseVersion = if ($env:AFFON_RELEASE_VERSION) { $env:AFFON_RELEASE_VERSION } else { "0.4.0" }
+$ReleaseVersion = if ($env:AFFON_RELEASE_VERSION) { $env:AFFON_RELEASE_VERSION } else { "0.4.1" }
 $InstallDir = if ($env:AFFON_INSTALL) { $env:AFFON_INSTALL } else { Join-Path $HOME ".affon" }
 $BinDir = if ($env:AFFON_BIN_DIR) { $env:AFFON_BIN_DIR } else { Join-Path $InstallDir "bin" }
 $ApiUrl = if ($env:AFFON_RELEASE_API) {

@@ -6,6 +6,19 @@ The format is based on Keep a Changelog and the project follows Semantic Version
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-13
+
+### Changed
+
+- renamed the core API and updated its public declarations and documentation
+- added Windows x64 release packaging and smoke coverage
+- synchronized the Affon site during the local release flow
+- published the PowerShell installer with release assets
+
+### Fixed
+
+- fixed Windows Rust linkage with the LLVM target
+
 ## [0.4.0] - 2026-11-11
 
 ### Added

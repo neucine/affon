@@ -9,7 +9,7 @@ const qjs = hao.qjs;
 const packages = hao.package;
 
 pub const package_name = "affon";
-pub const version = "0.4.0";
+pub const version = "0.4.1";
 pub const compute = @import("compute");
 
 comptime {

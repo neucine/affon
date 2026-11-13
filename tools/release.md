@@ -61,8 +61,8 @@ available:
 
 ```sh
 git push origin HEAD
-git push origin v0.4.0
-gh workflow run release.yml --repo neucine/affon --ref v0.4.0
+git push origin v0.4.1
+gh workflow run release.yml --repo neucine/affon --ref v0.4.1
 ```
 
 The release workflow:
@@ -203,17 +203,17 @@ The local helper stages assets in:
 dist/release/
 ```
 
-For version `0.4.0` on Darwin arm64, `build` stages these files:
+For version `0.4.1` on Darwin arm64, `build` stages these files:
 
 ```text
-affon-v0.4.0-darwin-arm64
-affon-v0.4.0-darwin-arm64.sha256
-affon-v0.4.0-darwin-arm64.tar.gz
-affon-v0.4.0-darwin-arm64.tar.gz.sha256
-affon-v0.4.0-windows-x64.exe
-affon-v0.4.0-windows-x64.exe.sha256
-affon-v0.4.0-windows-x64.tar.gz
-affon-v0.4.0-windows-x64.tar.gz.sha256
+affon-v0.4.1-darwin-arm64
+affon-v0.4.1-darwin-arm64.sha256
+affon-v0.4.1-darwin-arm64.tar.gz
+affon-v0.4.1-darwin-arm64.tar.gz.sha256
+affon-v0.4.1-windows-x64.exe
+affon-v0.4.1-windows-x64.exe.sha256
+affon-v0.4.1-windows-x64.tar.gz
+affon-v0.4.1-windows-x64.tar.gz.sha256
 ```
 
 Unix installers use [install.sh](../../install.sh), and Windows uses
