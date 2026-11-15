@@ -323,7 +323,7 @@ PY
 verify_release_set() {
   local tag platform stem binary expected actual
   tag="$(release_tag)"
-  for platform in darwin-arm64 linux-x64; do
+  for platform in darwin-arm64 linux-x64 windows-x64; do
     stem="affon-$tag-$platform"
     binary="$stem"
     if [ "$platform" = "windows-x64" ]; then binary="$stem.exe"; fi
@@ -475,7 +475,7 @@ github_release_notes() {
   {
     printf '## Affon %s\n\n' "${tag#v}"
     printf '### Downloads\n\n'
-    for platform in darwin-arm64 linux-x64; do
+    for platform in darwin-arm64 linux-x64 windows-x64; do
       stem="affon-$tag-$platform"
       printf -- '- %s: %s\n' "$stem" "$(release_url "$stem.tar.gz")"
       printf -- '  SHA256: `%s`\n' "$(awk '{print $1}' "$DIST_DIR/$stem.tar.gz.sha256")"

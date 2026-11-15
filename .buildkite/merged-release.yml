@@ -1,6 +1,16 @@
 steps:
   - wait: ~
 
+  - label: ":mag: Check pinned release dependencies"
+    key: merged-dependency-pins
+    command: bash tools/buildkite/release-deps.sh --check-pins
+    agents:
+      queue: macos-local
+    secrets:
+      - PRIVATE_REPO_READ_TOKEN
+
+  - wait: ~
+
   - label: ":mac: Verify macOS release"
     key: merged-macos
     command: tools/buildkite/release-build.sh darwin-arm64
@@ -17,6 +27,14 @@ steps:
     secrets:
       - PRIVATE_REPO_READ_TOKEN
 
+  - label: ":windows: Verify Windows release"
+    key: merged-windows
+    command: bash tools/buildkite/release-build.sh windows-x64
+    agents:
+      queue: windows-local
+    secrets:
+      - PRIVATE_REPO_READ_TOKEN
+
   - wait: ~
 
   - label: ":package: Check release archives"
@@ -27,7 +45,7 @@ steps:
 
   - block: ":rocket: Approve Affon release"
     key: release-approval
-    prompt: "Publish these verified macOS and Linux archives from the merged commit?"
+    prompt: "Publish these verified macOS, Linux, and Windows archives from the merged commit?"
 
   - label: ":rocket: Publish Affon release"
     key: release-publish

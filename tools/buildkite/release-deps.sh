@@ -4,6 +4,27 @@
 set -euo pipefail
 
 source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+hao_pin=7c73a564056af4cbb47998278b5253d726e03d9f
+compute_pin=dc66696c6444d4077bea9e172e1f6e1d990ed223
+zig_libs_pin=c5b61fbdd2c7c02d875212e7111a27be3aaf2f17
+
+check_current_pin() {
+  local repo="$1" branch="$2" pin="$3" branch_tip
+  branch_tip="$(git ls-remote "https://github.com/neucine/$repo.git" "refs/heads/$branch" | awk '{print $1}')"
+  [ -n "$branch_tip" ] || { echo "Could not read $repo $branch branch" >&2; return 1; }
+  if [ "$pin" != "$branch_tip" ]; then
+    echo "$repo pin is $pin, but $branch is $branch_tip" >&2
+    return 1
+  fi
+  echo "$repo pin matches $branch: $pin"
+}
+
+if [ "${1:-}" = --check-pins ]; then
+  result=0
+  check_current_pin hao legacy "$hao_pin" || result=1
+  check_current_pin compute main "$compute_pin" || result=1
+  exit "$result"
+fi
 task_id="${BUILDKITE_JOB_ID:-local-$$}"
 [[ "$task_id" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "Invalid Buildkite job ID" >&2; exit 1; }
 workspace="$HOME/.cache/neucine/affon-jobs/$task_id"
@@ -48,11 +69,20 @@ clone_pinned() {
   test "$(git -C "$destination" rev-parse HEAD)" = "$ref"
 }
 
-export AFFON_SITE_HAO_REF=7c73a564056af4cbb47998278b5253d726e03d9f
-clone_pinned hao "$AFFON_SITE_HAO_REF" hao-legacy
-clone_pinned compute dc66696c6444d4077bea9e172e1f6e1d990ed223 compute
-clone_pinned zig-libs c5b61fbdd2c7c02d875212e7111a27be3aaf2f17 zig-libs
+export AFFON_SITE_HAO_REF="$hao_pin"
+clone_pinned hao "$hao_pin" hao-legacy
+clone_pinned compute "$compute_pin" compute
+clone_pinned zig-libs "$zig_libs_pin" zig-libs
 
 mkdir -p "$HOME/.cache/neucine/affon-build/zig" "$HOME/.cache/neucine/affon-build/cargo"
-ln -s "$HOME/.cache/neucine/affon-build/zig" "$root/.zig-cache"
-ln -s "$HOME/.cache/neucine/affon-build/cargo" "$workspace/hao-legacy/libs/transpiler/target"
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*)
+    mkdir -p "$root/.zig-cache" "$workspace/hao-legacy/libs/transpiler/target"
+    export ZIG_GLOBAL_CACHE_DIR="$HOME/.cache/neucine/affon-build/zig"
+    export CARGO_TARGET_DIR="$workspace/hao-legacy/libs/transpiler/target"
+    ;;
+  *)
+    ln -s "$HOME/.cache/neucine/affon-build/zig" "$root/.zig-cache"
+    ln -s "$HOME/.cache/neucine/affon-build/cargo" "$workspace/hao-legacy/libs/transpiler/target"
+    ;;
+esac

@@ -13,7 +13,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 BRANCH = re.compile(r"release/v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)$")
-PLATFORMS = ("darwin-arm64", "linux-x64")
+PLATFORMS = ("darwin-arm64", "linux-x64", "windows-x64")
+PLATFORM_STEPS = dict(zip(PLATFORMS, ("macos", "linux", "windows")))
 
 
 def run(*args: str) -> str:
@@ -98,10 +99,10 @@ def collect(lane: str) -> None:
     dist.mkdir(parents=True, exist_ok=True)
     assets = []
     for platform in PLATFORMS:
-        step = f"{lane}-{'macos' if platform == 'darwin-arm64' else 'linux'}"
+        step = f"{lane}-{PLATFORM_STEPS[platform]}"
         subprocess.run(["buildkite-agent", "artifact", "download", "dist/release/*", ".", "--step", step], cwd=ROOT, check=True)
         stem = f"affon-{tag}-{platform}"
-        for name in (stem, f"{stem}.tar.gz"):
+        for name in (stem + (".exe" if platform == "windows-x64" else ""), f"{stem}.tar.gz"):
             path = dist / name
             checksum = dist / f"{name}.sha256"
             if not path.is_file() or not checksum.is_file():
@@ -130,9 +131,9 @@ def publish_check() -> None:
     if manifest["tag"] != tag or manifest["commit"] != sha or manifest["platforms"] != list(PLATFORMS):
         raise SystemExit("verified assets belong to another release")
     expected_names = {name for platform in PLATFORMS for name in
-                      (f"affon-{tag}-{platform}", f"affon-{tag}-{platform}.tar.gz")}
+                      (f"affon-{tag}-{platform}" + (".exe" if platform == "windows-x64" else ""), f"affon-{tag}-{platform}.tar.gz")}
     if {asset["name"] for asset in manifest["assets"]} != expected_names or len(manifest["assets"]) != len(expected_names):
-        raise SystemExit("verified release must contain exactly both platform binaries and archives")
+        raise SystemExit("verified release must contain exactly three platform binaries and archives")
     for asset in manifest["assets"]:
         path = ROOT / "dist/release" / asset["name"]
         if not path.is_file() or path.stat().st_size != asset["size"] or hashlib.sha256(path.read_bytes()).hexdigest() != asset["sha256"]:

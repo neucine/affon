@@ -6,12 +6,14 @@ cd "$root"
 export PATH="$HOME/.cargo/bin:$PATH"
 if [ "$(uname -s)" = Linux ]; then
   export PATH="/opt/neucine-release-tools/zig-0.17.0:/opt/neucine-release-tools/bun/bin:/usr/lib/llvm-22/bin:$PATH"
-else
+elif [ "$(uname -s)" = Darwin ]; then
   export PATH="$HOME/.bun/bin:/opt/homebrew/bin:$PATH"
+else
+  export PATH="$HOME/.bun/bin:$HOME/.local/bin:$PATH"
 fi
-platform="${1:?expected fast, darwin-arm64 or linux-x64}"
+platform="${1:?expected fast, darwin-arm64, linux-x64, or windows-x64}"
 case "$platform:$(uname -s):$(uname -m)" in
-  fast:Darwin:arm64|darwin-arm64:Darwin:arm64|linux-x64:Linux:x86_64) ;;
+  fast:Darwin:arm64|darwin-arm64:Darwin:arm64|linux-x64:Linux:x86_64|windows-x64:MINGW*:x86_64|windows-x64:MSYS*:x86_64) ;;
   *) echo "Wrong runner for $platform" >&2; exit 1 ;;
 esac
 test "$(git rev-parse HEAD)" = "${BUILDKITE_COMMIT:?Buildkite commit required}"
@@ -41,7 +43,9 @@ release_commit="$(buildkite-agent meta-data get release_commit)"
 test "$release_commit" = "$BUILDKITE_COMMIT"
 export AFFON_RELEASE_TAG="$tag"
 export AFFON_RELEASE_PLATFORM="$platform"
-"$root/tools/release.sh" check
+if [ "$platform" != windows-x64 ]; then
+  "$root/tools/release.sh" check
+fi
 "$root/tools/release.sh" build
 "$root/tools/release.sh" smoke-local
 buildkite-agent artifact upload 'dist/release/*'
