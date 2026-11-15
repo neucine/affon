@@ -1,11 +1,4 @@
 steps:
-  - label: ":lock: Scan Git history"
-    key: secret-scan
-    if: 'build.tag == null && build.branch == "main"'
-    command: PATH="/usr/local/go/bin:/opt/homebrew/bin:$PATH" go run github.com/zricethezav/gitleaks/v8@v8.30.1 detect --source . --no-banner --redact
-    agents:
-      queue: macos-local
-
   - label: ":mag: Fast Affon checks"
     key: fast
     if: 'build.tag == null && build.branch !~ /^release\/v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$/'
@@ -30,6 +23,13 @@ steps:
       queue: macos-local
 
   - wait: ~
+
+  - label: ":lock: Scan merged commit"
+    key: secret-scan
+    if: 'build.tag == null && build.branch == "main"'
+    command: PATH="/usr/local/go/bin:/opt/homebrew/bin:$PATH" go run github.com/zricethezav/gitleaks/v8@v8.30.1 detect --source . --log-opts="--first-parent -1" --no-banner --redact
+    agents:
+      queue: macos-local
 
   - label: ":mac: Verify macOS candidate"
     key: candidate-macos
