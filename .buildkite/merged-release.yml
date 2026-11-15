@@ -1,0 +1,41 @@
+steps:
+  - wait: ~
+
+  - label: ":mac: Verify macOS release"
+    key: merged-macos
+    command: tools/buildkite/release-build.sh darwin-arm64
+    agents:
+      queue: macos-local
+    secrets:
+      - PRIVATE_REPO_READ_TOKEN
+
+  - label: ":linux: Verify Linux release"
+    key: merged-linux
+    command: tools/buildkite/release-build.sh linux-x64
+    agents:
+      queue: linux-local-gpu
+    secrets:
+      - PRIVATE_REPO_READ_TOKEN
+
+  - wait: ~
+
+  - label: ":package: Check release archives"
+    key: merged-collect
+    command: python3 tools/buildkite/ci.py collect merged
+    agents:
+      queue: macos-local
+
+  - block: ":rocket: Approve Affon release"
+    key: release-approval
+    prompt: "Publish these verified macOS and Linux archives from the merged commit?"
+
+  - label: ":rocket: Publish Affon release"
+    key: release-publish
+    command: tools/buildkite/release-publish.sh
+    agents:
+      queue: macos-local
+    secrets:
+      - PRIVATE_REPO_READ_TOKEN
+      - GITHUB_RELEASE_TOKEN
+      - CLOUDFLARE_ACCOUNT_ID
+      - CLOUDFLARE_API_TOKEN

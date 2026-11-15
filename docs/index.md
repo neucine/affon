@@ -9,6 +9,7 @@ and apps that build on those surfaces.
 - First run: follow the [First Program](./getting-started/first-program.md).
 - New to Affon from Python or PyTorch: read [Python to AFFON](./getting-started/python-to-affon.md).
 - Installing the runtime: read [Install](./runtime/install.md).
+- Preparing a release: read [CI and releases](./ci.md).
 - Building tensor or differentiated Program code: read [Compute Concepts](./core/compute.md).
 - Building models: read [NN Concepts](./ml/nn/index.md).
 - Loading text or tabular data: read [Text Datasets](./ml/text-datasets.md).

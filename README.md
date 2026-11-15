@@ -42,7 +42,7 @@ curl -fsSL https://affon.ai/install.sh | bash
 This installs `affon` into `~/.affon/bin` and adds that directory to your shell
 `PATH`.
 
-On Windows x64:
+The last Windows x64 release is v0.4.1. To install that version:
 
 ```powershell
 irm https://downloads.affon.ai/install.ps1 | iex

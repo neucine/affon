@@ -3,35 +3,45 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
+export PATH="$HOME/.cargo/bin:$PATH"
 if [ "$(uname -s)" = Linux ]; then
-  export PATH="/opt/neucine-release-tools/zig-0.17.0:/opt/neucine-release-tools/bun-1.2.16:/usr/lib/llvm-22/bin:$PATH"
+  export PATH="/opt/neucine-release-tools/zig-0.17.0:/opt/neucine-release-tools/bun/bin:/usr/lib/llvm-22/bin:$PATH"
+else
+  export PATH="$HOME/.bun/bin:/opt/homebrew/bin:$PATH"
 fi
-tag="$(buildkite-agent meta-data get release_tag)"
-[[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || {
-  echo "Invalid release tag: $tag" >&2
-  exit 1
-}
-git fetch --quiet origin "refs/tags/$tag:refs/tags/$tag"
-test "$(git rev-parse HEAD)" = "$(git rev-parse "$tag^{commit}")" || {
-  echo "Build commit must equal $tag" >&2
-  exit 1
-}
+platform="${1:?expected fast, darwin-arm64 or linux-x64}"
+case "$platform:$(uname -s):$(uname -m)" in
+  fast:Darwin:arm64|darwin-arm64:Darwin:arm64|linux-x64:Linux:x86_64) ;;
+  *) echo "Wrong runner for $platform" >&2; exit 1 ;;
+esac
+test "$(git rev-parse HEAD)" = "${BUILDKITE_COMMIT:?Buildkite commit required}"
 
-for tool in zig bun python3 tar; do
+for tool in zig bun cargo python3 tar; do
   command -v "$tool" >/dev/null || { echo "Missing release tool: $tool" >&2; exit 1; }
 done
 test "$(zig version)" = 0.17.0 || { echo "Zig 0.17.0 required" >&2; exit 1; }
 test "$(bun --version)" = 1.2.16 || { echo "Bun 1.2.16 required" >&2; exit 1; }
 
-export AFFON_RELEASE_TAG="$tag"
-export AFFON_RELEASE_PLATFORM="$1"
-"$root/tools/buildkite/release-deps.sh"
-if [ "$1" != windows-x64 ]; then
-  "$root/tools/release.sh" check
+source "$root/tools/buildkite/release-deps.sh"
+if [ "$platform" = fast ]; then
+  for test in test_model_performance_gate test_coverage_evidence test_capability_probes test_cell_performance_summary; do
+    python3 -m unittest discover -s test/parity -p "${test}.py"
+  done
+  for config in src test/types test/e2e/program/operations packages/@affon/models packages/@affon/tokenizers apps/decoder-lm; do
+    bun x tsc -p "$config/tsconfig.json" --noEmit
+  done
+  zig build test -Doptimize=ReleaseSafe
+  zig build -Doptimize=ReleaseSafe
+  "$root/zig-out/bin/affon" examples/first-program.ts
+  exit 0
 fi
+tag="$(buildkite-agent meta-data get release_tag)"
+release_commit="$(buildkite-agent meta-data get release_commit)"
+[[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || exit 1
+test "$release_commit" = "$BUILDKITE_COMMIT"
+export AFFON_RELEASE_TAG="$tag"
+export AFFON_RELEASE_PLATFORM="$platform"
+"$root/tools/release.sh" check
 "$root/tools/release.sh" build
 "$root/tools/release.sh" smoke-local
-if [ "$1" = windows-x64 ]; then
-  "$root/dist/release/affon-${tag}-windows-x64.exe" examples/first-program.ts
-fi
 buildkite-agent artifact upload 'dist/release/*'

@@ -14,7 +14,7 @@ Affon 仍处于实验阶段。它希望让模型的结构和执行过程更容�
 curl -fsSL https://affon.ai/install.sh | bash
 ```
 
-安装后，`affon` 位于 `~/.affon/bin`，安装程序也会将该目录加入 `PATH`。Windows x64 的安装方式见[英文 README](README.md#quick-start)。
+安装后，`affon` 位于 `~/.affon/bin`，安装程序也会将该目录加入 `PATH`。Windows x64 的最后一个版本是 v0.4.1，安装方式见[英文 README](README.md#quick-start)。
 
 下载示例代码，进入仓库目录：
 
