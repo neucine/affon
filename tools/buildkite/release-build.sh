@@ -19,7 +19,7 @@ done
 test "$(zig version)" = 0.17.0 || { echo "Zig 0.17.0 required" >&2; exit 1; }
 test "$(bun --version)" = 1.2.16 || { echo "Bun 1.2.16 required" >&2; exit 1; }
 
-"$root/tools/buildkite/release-deps.sh"
+source "$root/tools/buildkite/release-deps.sh"
 if [ "$platform" = fast ]; then
   zig build test -Doptimize=ReleaseSafe
   zig build -Doptimize=ReleaseSafe
