@@ -3,6 +3,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
+export PATH="$HOME/.cargo/bin:$PATH"
 if [ "$(uname -s)" = Linux ]; then
   export PATH="/opt/neucine-release-tools/zig-0.17.0:/opt/neucine-release-tools/bun/bin:/usr/lib/llvm-22/bin:$PATH"
 else
@@ -15,7 +16,7 @@ case "$platform:$(uname -s):$(uname -m)" in
 esac
 test "$(git rev-parse HEAD)" = "${BUILDKITE_COMMIT:?Buildkite commit required}"
 
-for tool in zig bun python3 tar; do
+for tool in zig bun cargo python3 tar; do
   command -v "$tool" >/dev/null || { echo "Missing release tool: $tool" >&2; exit 1; }
 done
 test "$(zig version)" = 0.17.0 || { echo "Zig 0.17.0 required" >&2; exit 1; }
