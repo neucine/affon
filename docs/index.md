@@ -6,6 +6,7 @@ and apps that build on those surfaces.
 
 ## Start Here
 
+- First run: follow the [First Program](./getting-started/first-program.md).
 - New to Affon from Python or PyTorch: read [Python to AFFON](./getting-started/python-to-affon.md).
 - Installing the runtime: read [Install](./runtime/install.md).
 - Building tensor or differentiated Program code: read [Compute Concepts](./core/compute.md).
@@ -35,6 +36,7 @@ Complete runnable workflows live under `apps/`.
 
 ## Getting Started
 
+- [First Program](./getting-started/first-program.md)
 - [Python to AFFON](./getting-started/python-to-affon.md)
 
 ## Core Numerics

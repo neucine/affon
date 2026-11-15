@@ -282,7 +282,8 @@ clearly; full dequantization should require an explicit caller choice.
 
 ## Historical M4 comparison with MLX
 
-These measurements predate the profiling changes. See [Quantized inference profiling](./quantized-profiling.md) for the current matched GPU/host breakdown and benchmark results.
+These measurements predate later profiling changes. The benchmark harness below
+is available for readers who want to repeat the comparison.
 
 The repeatable harness is `tools/benchmark-quantized-mlx.py`, using
 `test/benchmark/quantized/quantized-metal.ts`. It compares resident synthetic weights with

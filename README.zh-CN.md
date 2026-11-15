@@ -16,7 +16,14 @@ curl -fsSL https://affon.ai/install.sh | bash
 
 安装后，`affon` 位于 `~/.affon/bin`，安装程序也会将该目录加入 `PATH`。Windows x64 的安装方式见[英文 README](README.md#quick-start)。
 
-进入本仓库后，运行一个不需要准备数据的 CPU 示例：
+下载示例代码，进入仓库目录：
+
+```bash
+git clone https://github.com/neucine/affon.git
+cd affon
+```
+
+运行一个不需要准备数据的 CPU 示例：
 
 ```bash
 affon examples/first-program.ts

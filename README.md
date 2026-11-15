@@ -16,10 +16,10 @@
 
 Affon is a TypeScript runtime for scientific computing and machine learning.
 
-It provides declarative compute Programs, explicit differentiation and
-optimization transforms, Session-bound execution, datasets, checkpointing,
-first-party ML packages, notebooks, and runnable reference workloads in one
-runtime-oriented package.
+You define a computation as a **Program**: its inputs, parameters, and operations.
+You can inspect that definition, derive a training step from it, and run it in a
+**Session** on a supported device. Affon also includes data pipelines,
+checkpoints, model packages, notebooks, and runnable examples.
 
 Affon is experimental and deliberately transparent. Its working direction is to
 make computational models explainable as semantic programs: not only numeric
@@ -50,7 +50,12 @@ irm https://downloads.affon.ai/install.ps1 | iex
 
 Restart the terminal after installation so the updated user `PATH` is loaded.
 
-Run the self-contained CPU demo from this checkout:
+Get the example and run it from the repository root:
+
+```bash
+git clone https://github.com/neucine/affon.git
+cd affon
+```
 
 ```bash
 affon examples/first-program.ts
@@ -59,6 +64,9 @@ affon examples/first-program.ts
 It prints a typed input contract, the inspected optimizer transition, a
 decreasing training loss, and predictions near `[2, 4, 6]`. See the
 [one-minute walkthrough](docs/getting-started/first-program.md).
+
+The smaller example below shows model construction and inference only. Its
+weights are initialized randomly, so its output is not a trained prediction.
 
 ```typescript
 import { Session, Tensor, program } from "affon:core";
@@ -141,7 +149,6 @@ cases.
   working driver plus CUDA 12 NVRTC and cuBLAS runtime libraries
 - select the default backend with `AFFON_DEVICE=cpu`, `metal`, or `cuda`; select
   a CUDA ordinal with `AFFON_CUDA_DEVICE=N` before the first CUDA allocation
-- release automation should verify the platform assets attached to a given release
 
 ## Docs
 

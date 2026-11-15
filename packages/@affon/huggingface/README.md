@@ -2,7 +2,7 @@
 
 Experimental Hugging Face integration for native Affon inference. This package
 owns HF configuration interpretation, weight mapping, model/task dispatch, and
-processor integration. Native GPT-2, Llama, Apertus, BERT, and ViT Program definitions are
+processor integration. Native GPT-2, Llama, Apertus, OLMoE, BERT, and ViT Program definitions are
 owned by `@affon/models`. These adapters map HF configuration and checkpoint tensors into
 the model constructors; processors and checkpoint validation remain here.
 
@@ -100,10 +100,11 @@ weight loading. Inputs retain their domain-specific shapes.
 | `text-generation` | `gpt2` | `forward(length, outputStart?)` | Tied head, `gelu_new`; Program inputs are IDs, positions, and causal mask |
 | `text-generation` | `llama` | `forward(length, outputStart?)` | Tied head, SiLU, full unscaled RoPE, GQA; Program inputs are IDs and causal mask |
 | `text-generation` | `apertus` | `forward(length, outputStart?)`, `prefill(length, capacity)`, `decode(capacity)` | BF16 weights, untied head, Q/K norm, Llama 3 RoPE scaling, xIELU; fixed-capacity KV cache with one compiled decode Program per generation |
+| `text-generation` | `olmoe` | `forward(length, outputStart?)` | Original per-expert SafeTensors layout, untied head, Q/K norm, top-k routing; full-prefix inference only. Every expert branch currently runs for each token, so large checkpoints are expected to be slow. |
 | `feature-extraction` | `bert` | `forward(batch, length)` | Absolute positions, GELU, base encoder with pooler |
 | `image-classification` | `vit` | Fixed `forward` Program | Fixed-size RGB, biased QKV, GELU, classifier |
 
-Explicit `load_gpt2`, `load_apertus`, `load_bert`, and `load_vit` loaders are also exported.
+Explicit `load_gpt2`, `load_apertus`, `load_olmoe`, `load_bert`, and `load_vit` loaders are also exported.
 See [Apertus 8B integration status](../../../docs/ml/apertus-8b.md) for validation and memory limits.
 `load_bert_processor` applies templates and padding; `process_rgb_image` handles
 the supported ViT RGB8 resize/rescale/normalize pipeline. GPT-2 tokenization

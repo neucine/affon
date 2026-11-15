@@ -50,7 +50,7 @@ When `RUNTIME_LIBUV_THREADPOOL_SIZE` is set, Affon mirrors the parsed value into
 launching Affon:
 
 ```sh
-RUNTIME_LIBUV_THREADPOOL_SIZE=8 ./zig-out/bin/affon script.ts
+RUNTIME_LIBUV_THREADPOOL_SIZE=8 affon script.ts
 ```
 
 ## Metal Pool Size Classes
@@ -90,7 +90,7 @@ and prints only the version.
 Run on Metal explicitly and keep tensor displays compact:
 
 ```sh
-AFFON_DEVICE=metal AFFON_REPR_MAX_ITEMS=4 ./zig-out/bin/affon script.ts
+AFFON_DEVICE=metal AFFON_REPR_MAX_ITEMS=4 affon script.ts
 ```
 
 Use the runtime telemetry console and `std:telemetry` for diagnostics, metrics,
