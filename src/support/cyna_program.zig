@@ -440,6 +440,33 @@ fn mapInstruction(
                 .rhs = options.one_hot.num_classes,
             };
         },
+        .index_select, .gather => {
+            if (operands.len != 2 or output_ids.len != 1) return error.InvalidProgram;
+            const axis = if (tag == .index_select) options.index_select.axis else options.gather.axis;
+            step = .{
+                .operation = if (tag == .index_select) .index_select else .gather,
+                .lhs = operands[0],
+                .rhs = operands[1],
+                .third = axis,
+            };
+        },
+        .embedding => {
+            if (operands.len != 2 or output_ids.len != 1 or options != .embedding)
+                return error.InvalidProgram;
+            step = .{ .operation = .embedding, .lhs = operands[0], .rhs = operands[1] };
+        },
+        .scatter_add => {
+            if (operands.len != 3 or output_ids.len != 1 or options != .scatter_add)
+                return error.InvalidProgram;
+            const axis = try allocator.dupe(usize, &.{options.scatter_add.axis});
+            step = .{
+                .operation = .scatter_add,
+                .lhs = operands[0],
+                .rhs = operands[1],
+                .third = operands[2],
+                .metadata = axis,
+            };
+        },
         .topk => {
             if (operands.len != 1 or output_ids.len != 2 or options != .topk)
                 return error.InvalidProgram;

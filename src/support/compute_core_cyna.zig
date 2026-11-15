@@ -990,7 +990,10 @@ pub const DenseGraphHandle = struct {
         if (self.raw == null or input_bytes.len != self.input_byte_count) return error.InvalidShape;
         switch (compute_core_run_dense_graph_handle(self.raw, input_bytes.ptr, input_bytes.len,
             output_bytes.ptr, output_bytes.len)) {
-            0 => {}, 1 => return error.InvalidShape, else => return error.CoreFailure,
+            0 => {},
+            1 => return error.InvalidShape,
+            3 => return error.InvalidCommand,
+            else => return error.CoreFailure,
         }
     }
 
@@ -1428,7 +1431,7 @@ fn inferDenseGraphImpl(
 pub const Reduction = enum(c_int) { sum = 0, mean = 1, min = 2, max = 3, variance = 4, std = 5 };
 pub const ReductionAxis = enum(c_int) { all = -1, rows = 0, columns = 1 };
 
-pub const Error = error{ InvalidShape, CoreFailure };
+pub const Error = error{ InvalidShape, InvalidCommand, CoreFailure };
 
 pub fn matmulI64(lhs: []const i64, rhs: []const i64, output: []i64, rows: usize, depth: usize, columns: usize) Error!void {
     if (rows == 0 or depth == 0 or columns == 0) return error.InvalidShape;
