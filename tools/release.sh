@@ -529,7 +529,7 @@ sync_site() {
   [ "$(release_tag)" = "v$version" ] || fail "release tag must match build.zig.zon"
   gh release view "$(release_tag)" --repo "$GITHUB_REPO" >/dev/null || fail "publish the GitHub release before syncing the site"
 
-  pinned_hao="$(awk '/repository: neucine\/hao/ { found=1 } found && /ref:/ { print $2; exit }' "$ROOT/.github/workflows/release.yml")"
+  pinned_hao="${AFFON_SITE_HAO_REF:?set AFFON_SITE_HAO_REF to the pinned Hao commit}"
   current_hao="$(git -C "$SITE_HAO_REPO" rev-parse HEAD)"
   pinned_hao_commit="$(git -C "$SITE_HAO_REPO" rev-parse "$pinned_hao")"
   [ -n "$pinned_hao_commit" ] && [ "$current_hao" = "$pinned_hao_commit" ] || \
