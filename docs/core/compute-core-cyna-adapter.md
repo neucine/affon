@@ -30,5 +30,11 @@ the same input byte count and a correctly sized output buffer. A failed run
 leaves the output buffer unchanged. The linked gate checks two runs, one cache
 miss followed by one hit, a short output buffer, and cleanup.
 
+The same graph owner can create a CPU tensor from bytes for one graph input,
+read its bytes, and release it. Each tensor token carries the owning session,
+slot, and generation. A token from another graph or a released slot is rejected
+before reading or writing the caller's buffer. These calls establish the tensor
+identity boundary; graph execution still uses packed input bytes.
+
 Affon's public `affon:core` Session still uses the Zig engine. This adapter
 is an isolated CPU integration gate; device handles remain to be integrated.

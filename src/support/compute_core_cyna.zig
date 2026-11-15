@@ -450,6 +450,18 @@ extern fn compute_core_dense_graph_handle_cache_hits(handle: ?*anyopaque) usize;
 extern fn compute_core_dense_graph_handle_cache_misses(handle: ?*anyopaque) usize;
 extern fn compute_core_destroy_dense_graph_handle(handle: ?*anyopaque) c_int;
 
+extern fn compute_core_create_dense_graph_tensor(
+    handle: ?*anyopaque, input_index: usize, bytes: [*]const u8,
+    byte_count: usize, output: *[3]usize,
+) c_int;
+extern fn compute_core_read_dense_graph_tensor(
+    handle: ?*anyopaque, owner: usize, slot: usize, generation: usize,
+    output: [*]u8, byte_count: usize,
+) c_int;
+extern fn compute_core_release_dense_graph_tensor(
+    handle: ?*anyopaque, owner: usize, slot: usize, generation: usize,
+) c_int;
+
 pub const DenseGoal = enum(c_int) { baseline = 0, memory = 1 };
 
 fn denseInput(comptime T: type) type {
@@ -759,6 +771,37 @@ pub const DenseGraphHandle = struct {
         if (self.raw == null or input_bytes.len != self.input_byte_count) return error.InvalidShape;
         switch (compute_core_run_dense_graph_handle(self.raw, input_bytes.ptr, input_bytes.len,
             output_bytes.ptr, output_bytes.len)) {
+            0 => {}, 1 => return error.InvalidShape, else => return error.CoreFailure,
+        }
+    }
+
+    pub const TensorToken = struct { owner: usize, slot: usize, generation: usize };
+
+    pub fn createInputTensor(self: *const DenseGraphHandle, input_index: usize,
+        bytes: []const u8) Error!TensorToken {
+        if (self.raw == null) return error.InvalidShape;
+        var parts: [3]usize = undefined;
+        switch (compute_core_create_dense_graph_tensor(self.raw, input_index,
+            bytes.ptr, bytes.len, &parts)) {
+            0 => return .{ .owner = parts[0], .slot = parts[1], .generation = parts[2] },
+            1 => return error.InvalidShape,
+            else => return error.CoreFailure,
+        }
+    }
+
+    pub fn readTensor(self: *const DenseGraphHandle, token: TensorToken,
+        output: []u8) Error!void {
+        if (self.raw == null) return error.InvalidShape;
+        switch (compute_core_read_dense_graph_tensor(self.raw, token.owner, token.slot,
+            token.generation, output.ptr, output.len)) {
+            0 => {}, 1 => return error.InvalidShape, else => return error.CoreFailure,
+        }
+    }
+
+    pub fn releaseTensor(self: *const DenseGraphHandle, token: TensorToken) Error!void {
+        if (self.raw == null) return error.InvalidShape;
+        switch (compute_core_release_dense_graph_tensor(self.raw, token.owner,
+            token.slot, token.generation)) {
             0 => {}, 1 => return error.InvalidShape, else => return error.CoreFailure,
         }
     }

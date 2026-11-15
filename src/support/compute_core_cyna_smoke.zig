@@ -1206,6 +1206,21 @@ test "Affon reuses and closes a persistent Cyna graph" {
     var short: [20]u8 = @splat(0xaa);
     try std.testing.expectError(error.InvalidShape, graph.run(&input_buffer, &short));
     for (short) |byte| try std.testing.expectEqual(@as(u8, 0xaa), byte);
+    const token = try graph.createInputTensor(0, std.mem.sliceAsBytes(&left));
+    var tensor_copy: [16]u8 = @splat(0);
+    try graph.readTensor(token, &tensor_copy);
+    try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&left), &tensor_copy);
+    var other = try cyna.createDenseGraphHandle(std.testing.allocator, &inputs, &steps, &.{ 2, 3, 4 }, .baseline);
+    defer other.deinit();
+    tensor_copy = @splat(0xaa);
+    try std.testing.expectError(error.InvalidShape, other.readTensor(token, &tensor_copy));
+    for (tensor_copy) |byte| try std.testing.expectEqual(@as(u8, 0xaa), byte);
+    try graph.releaseTensor(token);
+    try std.testing.expectError(error.InvalidShape, graph.readTensor(token, &tensor_copy));
+    const replacement = try graph.createInputTensor(0, std.mem.sliceAsBytes(&left));
+    try std.testing.expect(token.slot != replacement.slot or token.generation != replacement.generation);
+    try graph.releaseTensor(replacement);
+    try std.testing.expectError(error.InvalidShape, graph.releaseTensor(token));
     graph.deinit();
     try std.testing.expectError(error.InvalidShape, graph.run(&input_buffer, &output));
 }
