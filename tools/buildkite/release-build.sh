@@ -24,6 +24,12 @@ test "$(bun --version)" = 1.2.16 || { echo "Bun 1.2.16 required" >&2; exit 1; }
 
 source "$root/tools/buildkite/release-deps.sh"
 if [ "$platform" = fast ]; then
+  for test in test_model_performance_gate test_coverage_evidence test_capability_probes test_cell_performance_summary; do
+    python3 -m unittest discover -s test/parity -p "${test}.py"
+  done
+  for config in src test/types test/e2e/program/operations packages/@affon/models packages/@affon/tokenizers apps/decoder-lm; do
+    bun x tsc -p "$config/tsconfig.json" --noEmit
+  done
   zig build test -Doptimize=ReleaseSafe
   zig build -Doptimize=ReleaseSafe
   "$root/zig-out/bin/affon" examples/first-program.ts
