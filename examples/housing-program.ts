@@ -61,7 +61,6 @@ for (let i = 0; i < 100; i++) {
   const result = step.run({ x, target }, state)
   finalLoss = result.item()
   if (i === 0) firstLoss = finalLoss
-  result.dispose()
 }
 const predictions = session.compile(model).run({ x: testX }, state)
 const values = predictions.to_array() as number[]
@@ -72,10 +71,3 @@ console.log('training loss:', firstLoss.toFixed(3), '->', finalLoss.toFixed(3))
 console.log('held-out MAE:', Math.round(mae), 'USD; mean-price baseline:', Math.round(baseline), 'USD')
 console.log('sample predicted / actual:', Math.round(values[0] * 100_000), '/', Math.round(testY[0] * 100_000), 'USD')
 if (!Number.isFinite(mae) || finalLoss >= firstLoss || mae >= baseline) throw new Error('training did not beat the baseline')
-
-predictions.dispose()
-x.dispose()
-target.dispose()
-testX.dispose()
-state.dispose()
-session.dispose()
