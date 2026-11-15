@@ -5,6 +5,8 @@ root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
 if [ "$(uname -s)" = Linux ]; then
   export PATH="/opt/neucine-release-tools/zig-0.17.0:/opt/neucine-release-tools/bun/bin:/usr/lib/llvm-22/bin:$PATH"
+else
+  export PATH="$HOME/.bun/bin:/opt/homebrew/bin:$PATH"
 fi
 platform="${1:?expected fast, darwin-arm64 or linux-x64}"
 case "$platform:$(uname -s):$(uname -m)" in
