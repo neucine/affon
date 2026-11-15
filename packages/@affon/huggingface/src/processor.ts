@@ -34,6 +34,8 @@ export function load_processor(
   const config = JSON.parse(fs.readFileSync(`${directory}/config.json`))
   if (config.model_type === 'gpt2' && options.task === 'text-generation')
     return createHFTokenizerFromFile(`${directory}/tokenizer.json`)
+  if (config.model_type === 'olmoe' && options.task === 'text-generation')
+    return createHFTokenizerFromFile(`${directory}/tokenizer.json`)
   if (config.model_type === 'llama' && options.task === 'text-generation')
     return load_smollm2_processor(directory)
   if (config.model_type === 'apertus' && options.task === 'text-generation') {

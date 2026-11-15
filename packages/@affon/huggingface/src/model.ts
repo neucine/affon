@@ -1,5 +1,6 @@
 import { load_llama } from './adapters/llama.ts'
 import { load_apertus } from './adapters/apertus.ts'
+import { load_olmoe } from './adapters/olmoe.ts'
 import { load_whisper, type WhisperOptions } from './adapters/whisper.ts'
 import fs from 'std:fs'
 import { load_gpt2 } from './adapters/gpt2.ts'
@@ -10,7 +11,7 @@ import type { OnnxModelOptions, OnnxClassifier } from './onnx.ts'
 
 /** Native model contracts by supported task; inputs remain domain-specific. */
 export type ModelsByTask = {
-  'text-generation': ReturnType<typeof load_gpt2> | ReturnType<typeof load_llama> | ReturnType<typeof load_apertus>
+  'text-generation': ReturnType<typeof load_gpt2> | ReturnType<typeof load_llama> | ReturnType<typeof load_apertus> | ReturnType<typeof load_olmoe>
   'feature-extraction': ReturnType<typeof load_bert>
   'image-classification': ReturnType<typeof load_vit>
 }
@@ -65,6 +66,8 @@ export function load_model(
     return load_llama(directory)
   if (options.task === 'text-generation' && config.model_type === 'apertus')
     return load_apertus(directory)
+  if (options.task === 'text-generation' && config.model_type === 'olmoe')
+    return load_olmoe(directory)
   if (options.task === 'feature-extraction' && config.model_type === 'bert')
     return load_bert(directory)
   if (options.task === 'image-classification' && config.model_type === 'vit')

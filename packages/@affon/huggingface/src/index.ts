@@ -22,5 +22,6 @@ export { load_whisper_processor } from './processors/whisper.ts'
 
 export { load_llama } from './adapters/llama.ts'
 export { load_apertus } from './adapters/apertus.ts'
+export { load_olmoe } from './adapters/olmoe.ts'
 export { load_smollm2_processor, format_smollm2_chat } from './processors/smollm2.ts'
 export type { SmolLM2Message } from './processors/smollm2.ts'
