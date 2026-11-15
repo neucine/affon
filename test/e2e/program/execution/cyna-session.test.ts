@@ -1,6 +1,6 @@
 import { getEnv } from "std:process"
 import { describe, expect, test } from "std:test"
-import { add, embedding, gather, index_select, matmul, neg, permute, reshape, scatter_add, sin, slice, squeeze, sum, transpose, unsqueeze } from "affon:ops"
+import { add, embedding, gather, index_select, matmul, neg, permute, reduce_to_shape, reshape, scatter_add, sin, slice, squeeze, sum, transpose, unsqueeze } from "affon:ops"
 import { Session, Tensor, program } from "affon:core"
 
 const backendSymbol = Symbol.for("affon.compute.executable_backend")
@@ -100,7 +100,10 @@ describe("public CPU Session Cyna execution", () => {
     })
     const session = new Session({ device: "cpu" })
     const executable = session.compile(source)
-    if (requireCyna) expect((executable as any)[backendSymbol]()).toBe("cyna")
+    if (requireCyna) {
+      expect((executable as any)[routingSymbol]().reason).toBe("lowered")
+      expect((executable as any)[backendSymbol]()).toBe("cyna")
+    }
 
     const value = session.tensor([2, -3])
     const result = executable.run({ value }) as any
@@ -129,10 +132,9 @@ describe("public CPU Session Cyna execution", () => {
   })
 
   test("reports unsupported lowering details before using the Zig fallback", () => {
-    const source = program("cyna_unsupported_keepdim", p => sum(
-      p.argument("value", Tensor.f32([2, 2])),
-      1,
-      true,
+    const source = program("cyna_unsupported_reduce_shape", p => reduce_to_shape(
+      p.argument("value", Tensor.f32([2, 3])),
+      [1, 3],
     ))
     const session = new Session({ device: "cpu" })
     const executable = session.compile(source)
@@ -142,9 +144,34 @@ describe("public CPU Session Cyna execution", () => {
       expect(routing.backend).toBe("zig")
       expect(routing.category).toBe("operation")
       expect(routing.reason).toBe("InvalidProgram")
-      expect(routing.operation).toBe("sum_axis")
-      expect(routing.option).toBe("reduce_axis")
+      expect(routing.operation).toBe("reduce_to_shape")
+      expect(routing.option).toBe("reduce_to_shape")
     } else expect(routing.reason).toBe("cyna_disabled")
+    executable.dispose()
+    session.dispose()
+  })
+
+  test("routes axis and whole keepdim reductions through Cyna", () => {
+    const source = program("cyna_keepdim_reductions", p => {
+      const value = p.argument("value", Tensor.f32([2, 2]))
+      return [sum(value, 1, true), sum(value, undefined, true)]
+    })
+    const session = new Session({ device: "cpu" })
+    const executable = session.compile(source)
+    if (requireCyna) {
+      expect((executable as any)[routingSymbol]().reason).toBe("lowered")
+      expect((executable as any)[backendSymbol]()).toBe("cyna")
+    }
+
+    const value = session.tensor([[1, 2], [3, 4]])
+    const outputs = executable.run({ value }) as any[]
+    expect(outputs[0].shape).toEqual([2, 1])
+    expect(outputs[0].to_array()).toEqual([[3], [7]])
+    expect(outputs[1].shape).toEqual([1, 1])
+    expect(outputs[1].to_array()).toEqual([[10]])
+
+    for (const output of outputs) output.dispose()
+    value.dispose()
     executable.dispose()
     session.dispose()
   })

@@ -263,6 +263,7 @@ pub fn lower(
     for (program.instructions()) |*instruction| {
         const mapped = try mapInstruction(
             temporary,
+            program,
             instruction,
             mapping,
             produced,
@@ -274,7 +275,7 @@ pub fn lower(
             if (index >= mapping.len or mapping[index] != no_value) return error.InvalidProgram;
             mapping[index] = output_graph_id;
         }
-        produced = std.math.add(usize, produced, instruction.outputs().len) catch
+        produced = std.math.add(usize, input_descriptors.items.len, steps.items.len) catch
             return error.InvalidProgram;
     }
 
@@ -357,6 +358,7 @@ pub fn lower(
 
 fn mapInstruction(
     allocator: std.mem.Allocator,
+    program: *const compute.Program,
     instruction: anytype,
     mapping: []const usize,
     produced: usize,
@@ -468,20 +470,53 @@ fn mapInstruction(
             };
         },
         .sum_all, .mean_all, .min_all, .max_all, .variance_all, .std_all, .argmin_all, .argmax_all => {
-            if (operands.len != 1 or output_ids.len != 1 or options != .reduce_all or
-                options.reduce_all.keepdim)
+            if (operands.len != 1 or output_ids.len != 1 or options != .reduce_all)
                 return error.InvalidProgram;
-            step = .{ .operation = reductionOperation(tag), .lhs = operands[0] };
+            const reduction_output = produced;
+            try steps.append(allocator, .{
+                .operation = reductionOperation(tag),
+                .lhs = operands[0],
+            });
+            if (!options.reduce_all.keepdim) {
+                output_ids[0] = reduction_output;
+                return output_ids;
+            }
+            const source_value = program.value(instruction.inputs()[0]) orelse
+                return error.InvalidProgram;
+            const shape = try allocator.alloc(usize, source_value.spec().dimensions().len);
+            @memset(shape, 1);
+            const expanded = std.math.add(usize, reduction_output, 1) catch
+                return error.InvalidProgram;
+            try steps.append(allocator, .{
+                .operation = .reshape,
+                .lhs = reduction_output,
+                .metadata = shape,
+            });
+            output_ids[0] = expanded;
+            return output_ids;
         },
         .sum_axis, .mean_axis, .min_axis, .max_axis, .variance_axis, .std_axis, .argmin_axis, .argmax_axis => {
-            if (operands.len != 1 or output_ids.len != 1 or options != .reduce_axis or
-                options.reduce_axis.keepdim)
+            if (operands.len != 1 or output_ids.len != 1 or options != .reduce_axis)
                 return error.InvalidProgram;
-            step = .{
+            const reduction_output = produced;
+            try steps.append(allocator, .{
                 .operation = reductionOperation(tag),
                 .lhs = operands[0],
                 .rhs = options.reduce_axis.axis,
-            };
+            });
+            if (!options.reduce_axis.keepdim) {
+                output_ids[0] = reduction_output;
+                return output_ids;
+            }
+            const expanded = std.math.add(usize, reduction_output, 1) catch
+                return error.InvalidProgram;
+            try steps.append(allocator, .{
+                .operation = .unsqueeze,
+                .lhs = reduction_output,
+                .rhs = options.reduce_axis.axis,
+            });
+            output_ids[0] = expanded;
+            return output_ids;
         },
         .cat, .stack => {
             if (operands.len < 2 or output_ids.len != 1) return error.InvalidProgram;
@@ -618,14 +653,22 @@ fn unaryOperation(tag: compute.OpTag) core.DenseOperation {
 
 fn reductionOperation(tag: compute.OpTag) core.DenseOperation {
     return switch (tag) {
-        .sum_all, .sum_axis => .sum_all,
-        .mean_all, .mean_axis => .mean_all,
-        .min_all, .min_axis => .min_all,
-        .max_all, .max_axis => .max_all,
-        .argmin_all, .argmin_axis => .argmin_all,
-        .argmax_all, .argmax_axis => .argmax_all,
-        .variance_all, .variance_axis => .variance_all,
-        .std_all, .std_axis => .std_all,
+        .sum_all => .sum_all,
+        .sum_axis => .sum_axis,
+        .mean_all => .mean_all,
+        .mean_axis => .mean_axis,
+        .min_all => .min_all,
+        .min_axis => .min_axis,
+        .max_all => .max_all,
+        .max_axis => .max_axis,
+        .argmin_all => .argmin_all,
+        .argmin_axis => .argmin_axis,
+        .argmax_all => .argmax_all,
+        .argmax_axis => .argmax_axis,
+        .variance_all => .variance_all,
+        .variance_axis => .variance_axis,
+        .std_all => .std_all,
+        .std_axis => .std_axis,
         else => unreachable,
     };
 }
