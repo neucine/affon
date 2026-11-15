@@ -28,9 +28,41 @@ fn addComputeBackends(compute_dep: *std.Build.Dependency, module: *std.Build.Mod
     } else module.addCSourceFile(.{ .file = compute_dep.path("src/backend/cuda/ffi_stub.c"), .flags = &.{"-std=c11"} });
 }
 
+fn addComputeCynaLibraries(
+    module: *std.Build.Module,
+    compute_core_lib_dir: []const u8,
+    cyna_lib_dir: []const u8,
+) void {
+    module.addLibraryPath(.{ .cwd_relative = compute_core_lib_dir });
+    module.addLibraryPath(.{ .cwd_relative = cyna_lib_dir });
+    module.linkSystemLibrary("compute-core", .{});
+    module.linkSystemLibrary("cyna_std", .{});
+    module.linkSystemLibrary("cyna", .{});
+    module.linkSystemLibrary("m", .{});
+    module.linkSystemLibrary("c", .{});
+}
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const compute_cyna = b.option(
+        bool,
+        "compute-cyna",
+        "Route covered CPU Program execution through compute-core and Cyna",
+    ) orelse false;
+    const compute_core_lib_dir = b.option(
+        []const u8,
+        "compute-core-lib-dir",
+        "Directory containing compute-core's static library",
+    ) orelse b.graph.environ_map.get("AFFON_COMPUTE_CORE_LIB_DIR") orelse "../compute-core/build";
+    const cyna_lib_dir = b.option(
+        []const u8,
+        "cyna-lib-dir",
+        "Directory containing the Cyna runtime static libraries",
+    ) orelse b.graph.environ_map.get("AFFON_CYNA_LIB_DIR");
+    if (compute_cyna and cyna_lib_dir == null) {
+        @panic("-Dcompute-cyna requires -Dcyna-lib-dir, AFFON_CYNA_LIB_DIR, or explicit Cyna runtime libraries");
+    }
     const windows_unwind = b.option(
         []const u8,
         "windows-gnu-libunwind",
@@ -47,6 +79,9 @@ pub fn build(b: *std.Build) void {
     const hao_module = hao.module("hao");
     hao_module.addImport("zig_libs", zig_libs);
     const compute = compute_dep.module("compute");
+    const options = b.addOptions();
+    options.addOption(bool, "compute_cyna", compute_cyna);
+    const build_options = options.createModule();
 
     _ = b.addModule("affon", .{
         .root_source_file = b.path("src/affon.zig"),
@@ -56,6 +91,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "hao", .module = hao_module },
             .{ .name = "zig_libs", .module = zig_libs },
             .{ .name = "compute", .module = compute },
+            .{ .name = "build_options", .module = build_options },
         },
     });
 
@@ -82,6 +118,11 @@ pub fn build(b: *std.Build) void {
     }
     addWindowsUnwind(cli.root_module, target, windows_unwind);
     addComputeBackends(compute_dep, cli.root_module, target);
+    if (compute_cyna) addComputeCynaLibraries(
+        cli.root_module,
+        compute_core_lib_dir,
+        cyna_lib_dir.?,
+    );
     b.installArtifact(cli);
 
     const tests = b.addTest(.{
@@ -93,6 +134,7 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "hao", .module = hao_module },
                 .{ .name = "zig_libs", .module = zig_libs },
                 .{ .name = "compute", .module = compute },
+                .{ .name = "build_options", .module = build_options },
             },
         }),
     });
@@ -103,6 +145,11 @@ pub fn build(b: *std.Build) void {
     }
     addWindowsUnwind(tests.root_module, target, windows_unwind);
     addComputeBackends(compute_dep, tests.root_module, target);
+    if (compute_cyna) addComputeCynaLibraries(
+        tests.root_module,
+        compute_core_lib_dir,
+        cyna_lib_dir.?,
+    );
     const run_tests = b.addRunArtifact(tests);
     const test_step = b.step("test", "Run Affon tests");
     test_step.dependOn(&run_tests.step);

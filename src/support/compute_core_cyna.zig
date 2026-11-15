@@ -552,6 +552,32 @@ pub const DenseGraphBytesResult = struct {
     }
 };
 
+pub const DenseGraphInferred = struct {
+    ranks: []usize,
+    elements: []usize,
+    dimensions: []usize,
+    dtypes: []c_int,
+
+    pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
+        allocator.free(self.ranks);
+        allocator.free(self.elements);
+        allocator.free(self.dimensions);
+        allocator.free(self.dtypes);
+    }
+
+    pub fn dtype(self: @This(), index: usize) DenseDType {
+        std.debug.assert(index < self.dtypes.len);
+        return @enumFromInt(self.dtypes[index]);
+    }
+
+    pub fn shape(self: @This(), index: usize) []const usize {
+        std.debug.assert(index < self.ranks.len);
+        var offset: usize = 0;
+        for (self.ranks[0..index]) |rank| offset += rank;
+        return self.dimensions[offset..][0..self.ranks[index]];
+    }
+};
+
 pub const HandleIdentity = struct {
     owner: usize,
     slot: usize,
@@ -1220,6 +1246,86 @@ pub fn allocDenseGraphMultiBytes(
     steps: []const DenseStep, selected: []const usize, goal: DenseGoal,
 ) (Error || std.mem.Allocator.Error)!DenseGraphBytesResult {
     return allocDenseGraphMultiBytesMode(false, allocator, inputs, steps, selected, goal);
+}
+
+pub fn inferDenseGraphMulti(
+    allocator: std.mem.Allocator, inputs: []const DenseByteInput,
+    steps: []const DenseStep, selected: []const usize,
+) (Error || std.mem.Allocator.Error)!DenseGraphInferred {
+    if (inputs.len == 0 or selected.len == 0) return error.InvalidShape;
+    var dimension_count: usize = 0;
+    for (inputs) |input| {
+        if (input.shape.len > 8) return error.InvalidShape;
+        dimension_count = std.math.add(usize, dimension_count, input.shape.len) catch
+            return error.InvalidShape;
+    }
+    const input_ranks = try allocator.alloc(usize, inputs.len);
+    defer allocator.free(input_ranks);
+    const input_dimensions = try allocator.alloc(usize, dimension_count);
+    defer allocator.free(input_dimensions);
+    const input_dtypes = try allocator.alloc(c_int, inputs.len);
+    defer allocator.free(input_dtypes);
+    const operations = try allocator.alloc(c_int, steps.len);
+    defer allocator.free(operations);
+    const lhs_ids = try allocator.alloc(usize, steps.len);
+    defer allocator.free(lhs_ids);
+    const rhs_ids = try allocator.alloc(usize, steps.len);
+    defer allocator.free(rhs_ids);
+    const third_ids = try allocator.alloc(usize, steps.len);
+    defer allocator.free(third_ids);
+    var metadata_count: usize = 0;
+    for (steps) |step| metadata_count = std.math.add(usize, metadata_count, step.metadata.len) catch
+        return error.InvalidShape;
+    const metadata_offsets = try allocator.alloc(usize, steps.len + 1);
+    defer allocator.free(metadata_offsets);
+    const metadata_values = try allocator.alloc(usize, metadata_count);
+    defer allocator.free(metadata_values);
+    var dimension_cursor: usize = 0;
+    for (inputs, 0..) |input, index| {
+        input_ranks[index] = input.shape.len;
+        input_dtypes[index] = @backingInt(input.dtype);
+        @memcpy(input_dimensions[dimension_cursor..][0..input.shape.len], input.shape);
+        dimension_cursor += input.shape.len;
+    }
+    metadata_offsets[0] = 0;
+    var metadata_cursor: usize = 0;
+    for (steps, 0..) |step, index| {
+        operations[index] = @backingInt(step.operation);
+        lhs_ids[index] = step.lhs;
+        rhs_ids[index] = step.rhs;
+        third_ids[index] = step.third;
+        @memcpy(metadata_values[metadata_cursor..][0..step.metadata.len], step.metadata);
+        metadata_cursor += step.metadata.len;
+        metadata_offsets[index + 1] = metadata_cursor;
+    }
+    const ranks = try allocator.alloc(usize, selected.len);
+    errdefer allocator.free(ranks);
+    const elements = try allocator.alloc(usize, selected.len);
+    errdefer allocator.free(elements);
+    const dtypes = try allocator.alloc(c_int, selected.len);
+    errdefer allocator.free(dtypes);
+    const max_dimensions = std.math.mul(usize, selected.len, 8) catch
+        return error.InvalidShape;
+    const dimension_buffer = try allocator.alloc(usize, max_dimensions);
+    defer allocator.free(dimension_buffer);
+    switch (compute_core_infer_dense_graph_multi_layout_typed(
+        input_dtypes.ptr, input_ranks.ptr, inputs.len,
+        input_dimensions.ptr, input_dimensions.len, operations.ptr, lhs_ids.ptr,
+        rhs_ids.ptr, third_ids.ptr, metadata_offsets.ptr, metadata_values.ptr,
+        metadata_values.len, steps.len, selected.ptr, selected.len, ranks.ptr,
+        elements.ptr, dimension_buffer.ptr, dimension_buffer.len, dtypes.ptr,
+    )) {
+        0 => {},
+        1 => return error.InvalidShape,
+        else => return error.CoreFailure,
+    }
+    var written: usize = 0;
+    for (ranks) |rank| written = std.math.add(usize, written, rank) catch
+        return error.CoreFailure;
+    const dimensions = try allocator.dupe(usize, dimension_buffer[0..written]);
+    errdefer allocator.free(dimensions);
+    return .{ .ranks = ranks, .elements = elements, .dimensions = dimensions,
+        .dtypes = dtypes };
 }
 
 pub fn allocDenseGraphResidentMultiBytes(

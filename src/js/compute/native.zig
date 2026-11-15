@@ -1,6 +1,8 @@
 const std = @import("std");
 const hao = @import("hao");
 const compute = @import("compute");
+const build_options = @import("build_options");
+const cyna_program = @import("../../support/cyna_program.zig");
 const telemetry = @import("zig_libs").telemetry;
 const config = @import("../../config.zig");
 const compat = @import("../../support/compat.zig");
@@ -218,6 +220,7 @@ const SessionObject = struct {
     capture_records: ?[]compute.EvidenceRecord = null,
     capture_collector: ?compute.TraceCollector = null,
     bridge_timing: bool = false,
+    requires_compute_evidence: bool = false,
     children: usize = 0,
     disposed: bool = false,
     host_alive: bool = true,
@@ -231,6 +234,7 @@ const TensorObject = struct {
 
 const ExecutableObject = struct {
     value: ?*compute.Executable,
+    cyna: ?*anyopaque = null,
     owner: *SessionObject,
     explanation_json: []u8,
     needs_seed: bool,
@@ -310,6 +314,10 @@ fn sessionFinalizer(_: u32, handle: u64) callconv(.c) void {
 fn executableFinalizer(_: u32, handle: u64) callconv(.c) void {
     const object: *ExecutableObject = @ptrFromInt(@as(usize, @intCast(handle)));
     if (object.value) |value| value.deinit();
+    if (comptime build_options.compute_cyna) if (object.cyna) |raw| {
+        const value: *cyna_program.Executable = @ptrCast(@alignCast(raw));
+        value.deinit();
+    };
     if (!object.owner_released) releaseSession(object.owner);
     allocator.free(object.explanation_json);
     allocator.destroy(object);
@@ -972,14 +980,31 @@ fn buildJsonProgram(source: JsonProgram, output_ids: []const usize) !BuiltProgra
     return .{ .value = try builder.finish(outputs), .mapped = mapped };
 }
 
-fn createExecutableObject(ctx: abi.JSContext, value: *compute.Executable, owner: *SessionObject, needs_seed: bool, explanation_json: []u8) abi.JSValue {
+fn createExecutableObject(
+    ctx: abi.JSContext,
+    value: *compute.Executable,
+    cyna_value: ?*anyopaque,
+    owner: *SessionObject,
+    needs_seed: bool,
+    explanation_json: []u8,
+) abi.JSValue {
     const object = allocator.create(ExecutableObject) catch {
         allocator.free(explanation_json);
         value.deinit();
+        if (comptime build_options.compute_cyna) if (cyna_value) |raw| {
+            const cyna_value_ptr: *cyna_program.Executable = @ptrCast(@alignCast(raw));
+            cyna_value_ptr.deinit();
+        };
         return errorValue(ctx, "out of memory");
     };
     retainSession(owner);
-    object.* = .{ .value = value, .owner = owner, .needs_seed = needs_seed, .explanation_json = explanation_json };
+    object.* = .{
+        .value = value,
+        .cyna = cyna_value,
+        .owner = owner,
+        .needs_seed = needs_seed,
+        .explanation_json = explanation_json,
+    };
     const result = abi.createJSHostObject(ctx, executable_type_id, @intCast(@intFromPtr(object)), executableFinalizer);
     if (abi.jsIsException(result)) {
         executableFinalizer(executable_type_id, @intCast(@intFromPtr(object)));
@@ -1082,6 +1107,10 @@ fn jsCreateSession(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [
         .hardware_metrics = telemetry_options.hardwareMetrics,
         .profiler_markers = telemetry_options.profilerMarkers,
     };
+    object.requires_compute_evidence =
+        observation.timing != .none or
+        observation.hardware_metrics or
+        observation.profiler_markers;
     if (telemetry_options.captureRecords) |count| {
         if (count == 0 or count > 4_194_304) {
             allocator.destroy(object);
@@ -1093,6 +1122,7 @@ fn jsCreateSession(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [
         };
         object.capture_collector = compute.TraceCollector.init(object.capture_records.?);
         object.telemetry_sink.capture_collector = &object.capture_collector.?;
+        object.requires_compute_evidence = true;
     }
     const value = compute.createConfiguredSession(allocator, backend, .{
         .determinism = determinism,
@@ -1320,9 +1350,37 @@ fn compileNativeProgram(ctx: abi.JSContext, owner: *SessionObject, program_value
         compilation.deinit();
         return errorValue(ctx, "Program explanation serialization failed");
     };
+    var cyna_executable: ?*cyna_program.Executable = null;
+    if (comptime build_options.compute_cyna) {
+        if (owner.backend == .cpu and
+            owner.capture_collector == null and
+            !owner.requires_compute_evidence and
+            !dense_inputs)
+        {
+            const goal: @import("../../support/compute_core_cyna.zig").DenseGoal =
+                if (options.optimization_goal == .memory) .memory else .baseline;
+            if (cyna_program.lower(allocator, program_value, goal) catch null) |lowered| {
+                cyna_executable = allocator.create(cyna_program.Executable) catch {
+                    var owned = lowered;
+                    owned.deinit();
+                    compilation.deinit();
+                    allocator.free(explanation_json);
+                    return errorValue(ctx, "out of memory");
+                };
+                cyna_executable.?.* = lowered;
+            }
+        }
+    }
     executable.retain();
     compilation.deinit();
-    return createExecutableObject(ctx, executable, owner, needs_seed, explanation_json);
+    return createExecutableObject(
+        ctx,
+        executable,
+        cyna_executable,
+        owner,
+        needs_seed,
+        explanation_json,
+    );
 }
 
 fn jsCompileProgram(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
@@ -1388,6 +1446,11 @@ fn jsDisposeExecutable(ctx: abi.JSContext, this_value: abi.JSValueConst, _: c_in
         value.deinit();
         object.value = null;
     }
+    if (comptime build_options.compute_cyna) if (object.cyna) |raw| {
+        const value: *cyna_program.Executable = @ptrCast(@alignCast(raw));
+        value.deinit();
+        object.cyna = null;
+    };
     if (!object.owner_released) {
         releaseSession(object.owner);
         object.owner_released = true;
@@ -1404,6 +1467,19 @@ fn runComputeWithSpan(owner: *SessionObject, executable: *compute.Executable, in
         if (succeeded) active.end() else active.endError();
     };
     const outputs = try owner.value.?.run(executable, inputs);
+    succeeded = true;
+    return outputs;
+}
+
+fn runCynaWithSpan(owner: *SessionObject, executable: *cyna_program.Executable, inputs: []const *compute.Tensor, parent: ?telemetry.Scope) ![]*compute.Tensor {
+    const scope = if (parent) |outer| outer.child("affon.bridge.compute_call", .internal, &.{}) else null;
+    const context_guard = if (scope) |active| telemetry.trace.ContextScope.enter(active.context) else null;
+    defer if (context_guard) |guard| guard.exit();
+    var succeeded = false;
+    defer if (scope) |active| {
+        if (succeeded) active.end() else active.endError();
+    };
+    const outputs = try executable.run(owner.value.?, inputs);
     succeeded = true;
     return outputs;
 }
@@ -1462,7 +1538,13 @@ fn jsRunExecutable(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [
     }
     if (input_scope) |scope| scope.end();
     input_bound = true;
-    const outputs = runComputeWithSpan(object.owner, executable, inputs, bridge_scope) catch |err| {
+    const outputs = blk: {
+        if (comptime build_options.compute_cyna) if (object.cyna) |raw| {
+            const cyna_executable: *cyna_program.Executable = @ptrCast(@alignCast(raw));
+            break :blk runCynaWithSpan(object.owner, cyna_executable, inputs, bridge_scope);
+        };
+        break :blk runComputeWithSpan(object.owner, executable, inputs, bridge_scope);
+    } catch |err| {
         var message: [160]u8 = undefined;
         const rendered = std.mem.printSentinel(&message, "Program execution failed: {s}", .{@errorName(err)}, 0) catch return errorValue(ctx, "Program execution failed");
         return errorValue(ctx, rendered.ptr);
@@ -1477,6 +1559,13 @@ fn jsRunExecutable(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [
     output_wrapped = true;
     bridge_succeeded = true;
     return result;
+}
+
+fn jsExecutableBackend(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    if (argc < 1) return typeError(ctx, "executableBackend expects Executable");
+    const object = executableObject(ctx, argv[0]) orelse return typeError(ctx, "invalid Executable");
+    if (object.value == null) return typeError(ctx, "Executable has been disposed");
+    return abi.jsString(ctx, if (object.cyna == null) "zig" else "cyna");
 }
 
 fn jsResetEvidenceCapture(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
@@ -1893,6 +1982,7 @@ const functions = [_]abi.JSFunction{
     .{ .name = "sessionFull", .callback = jsSessionFull, .length = 4 },
     .{ .name = "compileProgram", .callback = jsCompileProgram, .length = 3 },
     .{ .name = "explainExecutable", .callback = jsExplainExecutable, .length = 1 },
+    .{ .name = "executableBackend", .callback = jsExecutableBackend, .length = 1 },
     .{ .name = "runExecutable", .callback = jsRunExecutable, .length = 2 },
     .{ .name = "resetEvidenceCapture", .callback = jsResetEvidenceCapture, .length = 1 },
     .{ .name = "exportEvidenceCapture", .callback = jsExportEvidenceCapture, .length = 2 },

@@ -24,6 +24,7 @@ declare module "affon:core/native" {
     sessionFull(session: NativeSession, shape: readonly number[], value: number, dtype: "bf16" | "f32" | "f64" | "u32" | "i64"): NativeTensor;
     compileProgram(session: NativeSession, program_json: string, options_json?: string): NativeExecutable;
     explainExecutable(executable: NativeExecutable): string;
+    executableBackend(executable: NativeExecutable): "zig" | "cyna";
     runExecutable(executable: NativeExecutable, inputs: readonly NativeTensor[]): NativeTensor[];
     resetEvidenceCapture(session: NativeSession): void;
     exportEvidenceCapture(session: NativeSession, executable: NativeExecutable): string;
