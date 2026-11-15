@@ -1215,8 +1215,36 @@ test "Affon reuses and closes a persistent Cyna graph" {
     tensor_copy = @splat(0xaa);
     try std.testing.expectError(error.InvalidShape, other.readTensor(token, &tensor_copy));
     for (tensor_copy) |byte| try std.testing.expectEqual(@as(u8, 0xaa), byte);
+    const right_token = try graph.createInputTensor(1, std.mem.sliceAsBytes(&right));
+    var selected_tokens: [3]cyna.DenseGraphHandle.TensorToken = undefined;
+    const resident_inputs = [_]cyna.DenseGraphHandle.TensorToken{ token, right_token };
+    for (0..2) |_| {
+        try graph.runTensors(std.testing.allocator, &resident_inputs, &selected_tokens);
+        var result_matrix: [16]u8 = undefined;
+        var result_sum: [4]u8 = undefined;
+        var result_mean: [4]u8 = undefined;
+        try graph.readTensor(selected_tokens[0], &result_matrix);
+        try graph.readTensor(selected_tokens[1], &result_sum);
+        try graph.readTensor(selected_tokens[2], &result_mean);
+        try std.testing.expectEqualSlices(u8, output[0..16], &result_matrix);
+        try std.testing.expectEqualSlices(u8, output[16..20], &result_sum);
+        try std.testing.expectEqualSlices(u8, output[20..24], &result_mean);
+        for (selected_tokens) |result| try graph.releaseTensor(result);
+    }
+    try std.testing.expectEqual(@as(usize, 3), graph.cacheHits());
+    try std.testing.expectEqual(@as(usize, 1), graph.cacheMisses());
+    var rejected_tokens: [3]cyna.DenseGraphHandle.TensorToken = @splat(.{ .owner = 91, .slot = 92, .generation = 93 });
+    try std.testing.expectError(error.InvalidShape,
+        other.runTensors(std.testing.allocator, &resident_inputs, &rejected_tokens));
+    try std.testing.expectEqual(@as(usize, 91), rejected_tokens[0].owner);
+    try std.testing.expectError(error.InvalidShape,
+        graph.runTensors(std.testing.allocator, &resident_inputs, rejected_tokens[0..2]));
+    try std.testing.expectEqual(@as(usize, 91), rejected_tokens[0].owner);
     try graph.releaseTensor(token);
     try std.testing.expectError(error.InvalidShape, graph.readTensor(token, &tensor_copy));
+    try std.testing.expectError(error.InvalidShape,
+        graph.runTensors(std.testing.allocator, &resident_inputs, &rejected_tokens));
+    try graph.releaseTensor(right_token);
     const replacement = try graph.createInputTensor(0, std.mem.sliceAsBytes(&left));
     try std.testing.expect(token.slot != replacement.slot or token.generation != replacement.generation);
     try graph.releaseTensor(replacement);

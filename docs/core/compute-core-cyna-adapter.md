@@ -33,8 +33,12 @@ miss followed by one hit, a short output buffer, and cleanup.
 The same graph owner can create a CPU tensor from bytes for one graph input,
 read its bytes, and release it. Each tensor token carries the owning session,
 slot, and generation. A token from another graph or a released slot is rejected
-before reading or writing the caller's buffer. These calls establish the tensor
-identity boundary; graph execution still uses packed input bytes.
+before reading or writing the caller's buffer.
+
+The owner can pass input tokens to `runTensors` and receive one token per
+selected output. Each output stays resident until the caller reads or releases
+it. Input tokens remain live across runs. The adapter also supports the packed
+byte run path.
 
 Affon's public `affon:core` Session still uses the Zig engine. This adapter
 is an isolated CPU integration gate; device handles remain to be integrated.

@@ -458,6 +458,10 @@ extern fn compute_core_read_dense_graph_tensor(
     handle: ?*anyopaque, owner: usize, slot: usize, generation: usize,
     output: [*]u8, byte_count: usize,
 ) c_int;
+extern fn compute_core_run_dense_graph_tensors(
+    handle: ?*anyopaque, input_tokens: [*]const usize, input_count: usize,
+    output_tokens: [*]usize, output_count: usize,
+) c_int;
 extern fn compute_core_release_dense_graph_tensor(
     handle: ?*anyopaque, owner: usize, slot: usize, generation: usize,
 ) c_int;
@@ -758,6 +762,8 @@ pub fn allocDenseGraphBytes(
 pub const DenseGraphHandle = struct {
     raw: ?*anyopaque,
     input_byte_count: usize,
+    input_count: usize,
+    output_count: usize,
 
     pub fn deinit(self: *DenseGraphHandle) void {
         if (self.raw) |raw| {
@@ -803,6 +809,33 @@ pub const DenseGraphHandle = struct {
         switch (compute_core_release_dense_graph_tensor(self.raw, token.owner,
             token.slot, token.generation)) {
             0 => {}, 1 => return error.InvalidShape, else => return error.CoreFailure,
+        }
+    }
+
+    pub fn runTensors(self: *const DenseGraphHandle, allocator: std.mem.Allocator,
+        inputs: []const TensorToken, outputs: []TensorToken,
+    ) (Error || std.mem.Allocator.Error)!void {
+        if (self.raw == null or inputs.len != self.input_count or
+            outputs.len != self.output_count) return error.InvalidShape;
+        const input_words = std.math.mul(usize, inputs.len, 3) catch return error.InvalidShape;
+        const output_words = std.math.mul(usize, outputs.len, 3) catch return error.InvalidShape;
+        const packed_inputs = try allocator.alloc(usize, input_words);
+        defer allocator.free(packed_inputs);
+        const packed_outputs = try allocator.alloc(usize, output_words);
+        defer allocator.free(packed_outputs);
+        for (inputs, 0..) |token, index| {
+            packed_inputs[index * 3] = token.owner;
+            packed_inputs[index * 3 + 1] = token.slot;
+            packed_inputs[index * 3 + 2] = token.generation;
+        }
+        switch (compute_core_run_dense_graph_tensors(self.raw, packed_inputs.ptr,
+            inputs.len, packed_outputs.ptr, outputs.len)) {
+            0 => {}, 1 => return error.InvalidShape, else => return error.CoreFailure,
+        }
+        for (outputs, 0..) |*token, index| {
+            token.* = .{ .owner = packed_outputs[index * 3],
+                .slot = packed_outputs[index * 3 + 1],
+                .generation = packed_outputs[index * 3 + 2] };
         }
     }
 
@@ -877,7 +910,8 @@ pub fn createDenseGraphHandle(
         byte_count, ranks.ptr, inputs.len, dimensions.ptr, dimensions.len,
         operations.ptr, lhs_ids.ptr, rhs_ids.ptr, third_ids.ptr, offsets.ptr,
         metadata.ptr, metadata.len, steps.len, selected.ptr, selected.len) orelse return error.InvalidShape;
-    return .{ .raw = raw, .input_byte_count = byte_count };
+    return .{ .raw = raw, .input_byte_count = byte_count,
+        .input_count = inputs.len, .output_count = selected.len };
 }
 
 fn allocDenseGraphMultiBytesMode(
