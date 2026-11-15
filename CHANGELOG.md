@@ -6,6 +6,19 @@ The format is based on Keep a Changelog and the project follows Semantic Version
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-11-15
+
+### Added
+
+- added an OLMoE model and checkpoint loader
+- added a Chinese getting started guide
+
+### Changed
+
+- improved training and inference paths and public program types
+- moved checks and approved macOS and Linux releases to one Buildkite pipeline
+- ended Windows releases; v0.4.1 remains the last Windows build
+
 ## [0.4.1] - 2026-11-13
 
 ### Changed
