@@ -466,6 +466,36 @@ extern fn compute_core_release_dense_graph_tensor(
     handle: ?*anyopaque, owner: usize, slot: usize, generation: usize,
 ) c_int;
 
+extern fn compute_core_create_cpu_device_handle() ?*anyopaque;
+extern fn compute_core_read_device_identity(
+    handle: ?*anyopaque, output: *[3]usize,
+) c_int;
+extern fn compute_core_create_device_session(
+    handle: ?*anyopaque, device_owner: usize, device_slot: usize,
+    device_generation: usize, has_limit: c_int, max_resident_bytes: usize,
+    output: *[3]usize,
+) c_int;
+extern fn compute_core_destroy_device_session(
+    handle: ?*anyopaque, session_owner: usize, session_slot: usize,
+    session_generation: usize,
+) c_int;
+extern fn compute_core_create_device_tensor(
+    handle: ?*anyopaque, session_owner: usize, session_slot: usize,
+    session_generation: usize, dtype: c_int, dimensions: [*]const usize,
+    rank: usize, bytes: [*]const u8, byte_count: usize, output: *[3]usize,
+) c_int;
+extern fn compute_core_read_device_tensor(
+    handle: ?*anyopaque, session_owner: usize, session_slot: usize,
+    session_generation: usize, tensor_owner: usize, tensor_slot: usize,
+    tensor_generation: usize, output: [*]u8, byte_count: usize,
+) c_int;
+extern fn compute_core_release_device_tensor(
+    handle: ?*anyopaque, session_owner: usize, session_slot: usize,
+    session_generation: usize, tensor_owner: usize, tensor_slot: usize,
+    tensor_generation: usize,
+) c_int;
+extern fn compute_core_destroy_device_handle(handle: ?*anyopaque) c_int;
+
 pub const DenseGoal = enum(c_int) { baseline = 0, memory = 1 };
 
 fn denseInput(comptime T: type) type {
@@ -519,6 +549,163 @@ pub const DenseGraphBytesResult = struct {
             offset += count * denseDTypeWidth(@enumFromInt(code));
         }
         return self.bytes[offset..][0 .. self.elements[index] * denseDTypeWidth(self.dtype(index))];
+    }
+};
+
+pub const HandleIdentity = struct {
+    owner: usize,
+    slot: usize,
+    generation: usize,
+};
+
+/// Persistent CPU device. Destroy its sessions before calling `deinit`.
+pub const CpuDeviceHandle = struct {
+    raw: ?*anyopaque,
+    identity: HandleIdentity,
+
+    pub fn create() Error!CpuDeviceHandle {
+        const raw = compute_core_create_cpu_device_handle() orelse return error.CoreFailure;
+        var parts: [3]usize = undefined;
+        switch (compute_core_read_device_identity(raw, &parts)) {
+            0 => return .{
+                .raw = raw,
+                .identity = .{ .owner = parts[0], .slot = parts[1], .generation = parts[2] },
+            },
+            1 => return error.InvalidShape,
+            else => return error.CoreFailure,
+        }
+    }
+
+    pub fn deinit(self: *CpuDeviceHandle) void {
+        if (self.raw) |raw| {
+            const status = compute_core_destroy_device_handle(raw);
+            std.debug.assert(status == 0);
+            self.raw = null;
+        }
+    }
+
+    pub fn createSession(
+        self: *const CpuDeviceHandle,
+        max_resident_bytes: ?usize,
+    ) Error!CpuSessionHandle {
+        if (self.raw == null) return error.InvalidShape;
+        var parts: [3]usize = undefined;
+        const has_limit: c_int = if (max_resident_bytes == null) 0 else 1;
+        switch (compute_core_create_device_session(
+            self.raw,
+            self.identity.owner,
+            self.identity.slot,
+            self.identity.generation,
+            has_limit,
+            max_resident_bytes orelse 0,
+            &parts,
+        )) {
+            0 => return .{
+                .raw = self.raw,
+                .device_identity = self.identity,
+                .identity = .{ .owner = parts[0], .slot = parts[1], .generation = parts[2] },
+            },
+            1 => return error.InvalidShape,
+            else => return error.CoreFailure,
+        }
+    }
+};
+
+pub const CpuSessionHandle = struct {
+    raw: ?*anyopaque,
+    device_identity: HandleIdentity,
+    identity: HandleIdentity,
+
+    pub fn deinit(self: *CpuSessionHandle) void {
+        if (self.raw) |raw| {
+            const status = compute_core_destroy_device_session(
+                raw,
+                self.identity.owner,
+                self.identity.slot,
+                self.identity.generation,
+            );
+            std.debug.assert(status == 0);
+            self.raw = null;
+        }
+    }
+
+    pub fn createTensor(
+        self: *const CpuSessionHandle,
+        dtype: DenseDType,
+        shape: []const usize,
+        bytes: []const u8,
+    ) Error!HandleIdentity {
+        if (self.raw == null or shape.len > 8) return error.InvalidShape;
+        var expected: usize = 1;
+        for (shape) |dimension| {
+            if (dimension == 0) return error.InvalidShape;
+            expected = std.math.mul(usize, expected, dimension) catch return error.InvalidShape;
+        }
+        const byte_count = std.math.mul(usize, expected, denseDTypeWidth(dtype)) catch
+            return error.InvalidShape;
+        if (byte_count != bytes.len) return error.InvalidShape;
+        var parts: [3]usize = undefined;
+        const scalar_dimensions = [_]usize{0};
+        const dimensions: [*]const usize = if (shape.len == 0) &scalar_dimensions else shape.ptr;
+        switch (compute_core_create_device_tensor(
+            self.raw,
+            self.identity.owner,
+            self.identity.slot,
+            self.identity.generation,
+            @backingInt(dtype),
+            dimensions,
+            shape.len,
+            bytes.ptr,
+            bytes.len,
+            &parts,
+        )) {
+            0 => return .{ .owner = parts[0], .slot = parts[1], .generation = parts[2] },
+            1 => return error.InvalidShape,
+            else => return error.CoreFailure,
+        }
+    }
+
+    pub fn readTensor(
+        self: *const CpuSessionHandle,
+        token: HandleIdentity,
+        output: []u8,
+    ) Error!void {
+        if (self.raw == null) return error.InvalidShape;
+        switch (compute_core_read_device_tensor(
+            self.raw,
+            self.identity.owner,
+            self.identity.slot,
+            self.identity.generation,
+            token.owner,
+            token.slot,
+            token.generation,
+            output.ptr,
+            output.len,
+        )) {
+            0 => {},
+            1 => return error.InvalidShape,
+            else => return error.CoreFailure,
+        }
+    }
+
+    pub fn releaseTensor(
+        self: *const CpuSessionHandle,
+        token: HandleIdentity,
+    ) Error!void {
+        if (self.raw == null) return error.InvalidShape;
+        switch (compute_core_release_device_tensor(
+            self.raw,
+            self.identity.owner,
+            self.identity.slot,
+            self.identity.generation,
+            token.owner,
+            token.slot,
+            token.generation,
+        )) {
+            0 => {},
+            1 => return error.InvalidShape,
+            else => return error.CoreFailure,
+        }
     }
 };
 

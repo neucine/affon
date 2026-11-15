@@ -1252,3 +1252,47 @@ test "Affon reuses and closes a persistent Cyna graph" {
     graph.deinit();
     try std.testing.expectError(error.InvalidShape, graph.run(&input_buffer, &output));
 }
+
+test "Affon owns persistent Cyna device sessions and tensor tokens" {
+    var device = try cyna.CpuDeviceHandle.create();
+    defer device.deinit();
+    var first = try device.createSession(null);
+    defer first.deinit();
+    var second = try device.createSession(16);
+    defer second.deinit();
+
+    const values = [_]i64{ 9007199254740993, -9007199254740993, 7, -8 };
+    const bytes = std.mem.sliceAsBytes(&values);
+    const token = try first.createTensor(.i64, &.{ 2, 2 }, bytes);
+    var output: [32]u8 = @splat(0);
+    try first.readTensor(token, &output);
+    try std.testing.expectEqualSlices(u8, bytes, &output);
+
+    const rejected_bytes: [32]u8 = @splat(0xaa);
+    var unchanged = rejected_bytes;
+    try std.testing.expectError(error.InvalidShape, second.readTensor(token, &unchanged));
+    try std.testing.expectEqualSlices(u8, &rejected_bytes, &unchanged);
+
+    try first.releaseTensor(token);
+    try std.testing.expectError(error.InvalidShape, first.readTensor(token, &output));
+    try std.testing.expectError(error.InvalidShape, first.releaseTensor(token));
+
+    const replacement = try first.createTensor(.f32, &.{ 2, 2 }, std.mem.sliceAsBytes(&[_]f32{ 1, 2, 3, 4 }));
+    try std.testing.expect(token.slot != replacement.slot or token.generation != replacement.generation);
+    try first.releaseTensor(replacement);
+
+    const too_large = [_]f32{ 1, 2, 3, 4, 5 };
+    try std.testing.expectError(
+        error.CoreFailure,
+        second.createTensor(.f32, &.{5}, std.mem.sliceAsBytes(&too_large)),
+    );
+}
+
+test "Affon closes live Cyna tensors when a device is destroyed" {
+    var device = try cyna.CpuDeviceHandle.create();
+    var session = try device.createSession(null);
+    const values = [_]f32{ 1, 2, 3, 4 };
+    _ = try session.createTensor(.f32, &.{ 2, 2 }, std.mem.sliceAsBytes(&values));
+    device.deinit();
+    session.raw = null;
+}
