@@ -1,0 +1,52 @@
+steps:
+  - label: ":mag: Fast Affon checks"
+    key: fast
+    if: 'build.tag == null && build.branch !~ /^release\/v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$/'
+    command: tools/buildkite/release-build.sh fast
+    agents:
+      queue: macos-local
+    secrets:
+      - PRIVATE_REPO_READ_TOKEN
+
+  - label: ":bookmark: Detect merged release"
+    key: detect-merged-release
+    if: 'build.tag == null && build.branch == "main"'
+    command: python3 tools/buildkite/ci.py detect
+    agents:
+      queue: macos-local
+
+  - label: ":bookmark: Check candidate version"
+    key: candidate-version
+    if: 'build.tag == null && build.branch =~ /^release\/v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$/'
+    command: python3 tools/buildkite/ci.py candidate
+    agents:
+      queue: macos-local
+
+  - wait: ~
+
+  - label: ":mac: Verify macOS candidate"
+    key: candidate-macos
+    if: 'build.tag == null && build.branch =~ /^release\/v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$/'
+    command: tools/buildkite/release-build.sh darwin-arm64
+    agents:
+      queue: macos-local
+    secrets:
+      - PRIVATE_REPO_READ_TOKEN
+
+  - label: ":linux: Verify Linux candidate"
+    key: candidate-linux
+    if: 'build.tag == null && build.branch =~ /^release\/v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$/'
+    command: tools/buildkite/release-build.sh linux-x64
+    agents:
+      queue: linux-local-gpu
+    secrets:
+      - PRIVATE_REPO_READ_TOKEN
+
+  - wait: ~
+
+  - label: ":package: Check candidate archives"
+    key: candidate-collect
+    if: 'build.tag == null && build.branch =~ /^release\/v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$/'
+    command: python3 tools/buildkite/ci.py collect candidate
+    agents:
+      queue: macos-local

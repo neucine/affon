@@ -6,7 +6,7 @@ On macOS arm64 or Linux x64, run:
 curl -fsSL https://affon.ai/install.sh | bash
 ```
 
-On Windows x64, run in PowerShell:
+The last Windows x64 release is v0.4.1. To install it, run in PowerShell:
 
 ```powershell
 irm https://downloads.affon.ai/install.ps1 | iex

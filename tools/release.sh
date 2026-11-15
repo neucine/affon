@@ -281,8 +281,7 @@ require_install_script() {
   [ -f "$ROOT/install.ps1" ] || fail "missing PowerShell installer at install.ps1"
   grep -q "AFFON_RELEASE_VERSION=\"\${AFFON_RELEASE_VERSION:-$version}\"" "$ROOT/install.sh" || \
     fail "install.sh release version must match build.zig.zon version $version"
-  grep -q "else { \"$version\" }" "$ROOT/install.ps1" || \
-    fail "install.ps1 release version must match build.zig.zon version $version"
+  # The Windows installer stays pinned to its last published Windows release.
   grep -q 'downloads\.affon\.ai/releases/v${AFFON_RELEASE_VERSION}\.json' "$ROOT/install.sh" || \
     fail "install.sh must default to the AFFON downloads endpoint"
   grep -q 'downloads\.affon\.ai/releases/v$ReleaseVersion\.json' "$ROOT/install.ps1" || \
@@ -324,7 +323,7 @@ PY
 verify_release_set() {
   local tag platform stem binary expected actual
   tag="$(release_tag)"
-  for platform in darwin-arm64 linux-x64 windows-x64; do
+  for platform in darwin-arm64 linux-x64; do
     stem="affon-$tag-$platform"
     binary="$stem"
     if [ "$platform" = "windows-x64" ]; then binary="$stem.exe"; fi
@@ -466,20 +465,22 @@ smoke_remote() {
 }
 
 github_release_notes() {
-  local tag previous range sha
+  local tag previous range platform stem
   tag="$(release_tag)"
   previous="$(git -C "$ROOT" describe --tags --abbrev=0 "$tag^" 2>/dev/null || true)"
   range="$tag"
   if [ -n "$previous" ]; then
     range="$previous..$tag"
   fi
-  sha="$(awk '{print $1}' "$DIST_DIR/$(asset_stem).tar.gz.sha256")"
-
   {
     printf '## Affon %s\n\n' "${tag#v}"
     printf '### Downloads\n\n'
-    printf -- '- %s: %s\n' "$(asset_stem)" "$(release_url "$(asset_stem).tar.gz")"
-    printf -- '- SHA256: `%s`\n\n' "$sha"
+    for platform in darwin-arm64 linux-x64; do
+      stem="affon-$tag-$platform"
+      printf -- '- %s: %s\n' "$stem" "$(release_url "$stem.tar.gz")"
+      printf -- '  SHA256: `%s`\n' "$(awk '{print $1}' "$DIST_DIR/$stem.tar.gz.sha256")"
+    done
+    printf '\n'
     printf '### Changelog\n\n'
     git -C "$ROOT" log --pretty=format:'- %s (%h)' "$range" 2>/dev/null || printf -- '- No commits found for this release.'
     printf '\n'
@@ -496,7 +497,16 @@ create_github_release() {
 
   tag="$(release_tag)"
   if gh release view "$tag" --repo "$GITHUB_REPO" >/dev/null 2>&1; then
-    fail "github release already exists: $tag"
+    local download file
+    download="$(mktemp -d "${TMPDIR:-/tmp}/affon-release-existing.XXXXXX")"
+    gh release download "$tag" --repo "$GITHUB_REPO" --dir "$download"
+    for file in "$DIST_DIR"/*; do
+      [ -f "$file" ] || continue
+      cmp "$file" "$download/$(basename "$file")" || fail "GitHub asset differs: $(basename "$file")"
+    done
+    rm -rf "$download"
+    info "GitHub release $tag already has the verified assets"
+    return
   fi
 
   notes="$(mktemp "${TMPDIR:-/tmp}/affon-release-notes.XXXXXX.md")"
