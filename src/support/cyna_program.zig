@@ -96,9 +96,34 @@ pub const Executable = struct {
         if (dynamic_index != dynamic_inputs.len or cursor != input_bytes.len)
             return error.InvalidShape;
 
-        const output_bytes = try self.allocator.alloc(u8, self.output_byte_count);
-        defer self.allocator.free(output_bytes);
-        try self.handle.run(input_bytes, output_bytes);
+        const input_tokens = try self.allocator.alloc(core.DenseGraphHandle.TensorToken, self.inputs.len);
+        defer self.allocator.free(input_tokens);
+        var created_inputs: usize = 0;
+        defer for (input_tokens[0..created_inputs]) |token| {
+            self.handle.releaseTensor(token) catch {};
+        };
+        cursor = 0;
+        for (self.inputs, 0..) |input, index| {
+            const byte_count = switch (input) {
+                .dynamic => |descriptor| byteCount(descriptor.dimensions, descriptor.dtype) catch
+                    return error.InvalidShape,
+                .constant => |constant| constant.bytes.len,
+            };
+            input_tokens[index] = try self.handle.createInputTensor(
+                index,
+                input_bytes[cursor..][0..byte_count],
+            );
+            created_inputs += 1;
+            cursor += byte_count;
+        }
+
+        const output_tokens = try self.allocator.alloc(core.DenseGraphHandle.TensorToken, self.outputs.len);
+        defer self.allocator.free(output_tokens);
+        try self.handle.runTensors(self.allocator, input_tokens, output_tokens);
+        var created_outputs: usize = 0;
+        defer for (output_tokens[0..created_outputs]) |token| {
+            self.handle.releaseTensor(token) catch {};
+        };
 
         const results = try self.allocator.alloc(*compute.Tensor, self.outputs.len);
         var created: usize = 0;
@@ -106,12 +131,41 @@ pub const Executable = struct {
             for (results[0..created]) |value| value.deinit();
             self.allocator.free(results);
         }
-        cursor = 0;
         for (self.outputs, 0..) |output, index| {
-            const bytes = output_bytes[cursor..][0..output.byte_count];
-            results[index] = try zig_session.createTensor(output.spec(self.allocator), bytes);
+            const stride_words = try self.allocator.alloc(usize, output.dimensions.len);
+            defer self.allocator.free(stride_words);
+            const layout = try self.handle.tensorLayout(output_tokens[index], stride_words);
+            created_outputs += 1;
+            if (layout.rank != output.dimensions.len) return error.InvalidShape;
+
+            const width = output.spec(self.allocator).dtype().size();
+            if (layout.backing_bytes == 0 or layout.backing_bytes % width != 0 or
+                layout.offset_bytes % width != 0)
+                return error.InvalidShape;
+            const backing_dimensions = [_]usize{layout.backing_bytes / width};
+            var backing_spec = try compute.TensorSpec.init(
+                self.allocator,
+                output.spec(self.allocator).dtype(),
+                &backing_dimensions,
+                null,
+            );
+            defer backing_spec.deinit();
+            const backing_bytes = try self.allocator.alloc(u8, layout.backing_bytes);
+            defer self.allocator.free(backing_bytes);
+            try self.handle.readTensorBacking(output_tokens[index], backing_bytes);
+            const backing = try zig_session.createTensor(backing_spec, backing_bytes);
+            defer backing.deinit();
+
+            const layout_strides = try self.allocator.alloc(isize, output.dimensions.len);
+            defer self.allocator.free(layout_strides);
+            for (stride_words, layout_strides) |stride, *destination|
+                destination.* = std.math.cast(isize, stride) orelse return error.InvalidShape;
+            results[index] = try backing.createLayoutView(
+                output.spec(self.allocator),
+                layout_strides,
+                layout.offset_bytes,
+            );
             created += 1;
-            cursor += output.byte_count;
         }
         return results;
     }
@@ -131,8 +185,6 @@ pub fn lower(
     const temporary = arena.allocator();
     const mapping = try temporary.alloc(usize, program.values().len);
     @memset(mapping, no_value);
-    const layout_sensitive = try temporary.alloc(bool, program.values().len);
-    @memset(layout_sensitive, false);
 
     var inputs: std.ArrayList(Input) = .empty;
     errdefer inputs.deinit(allocator);
@@ -203,15 +255,10 @@ pub fn lower(
     var produced: usize = input_descriptors.items.len;
     for (program.instructions()) |*instruction| {
         const mapped = try mapInstruction(temporary, instruction, mapping, produced, &steps);
-        const keeps_layout = switch (instruction.tag()) {
-            .reshape, .transpose, .permute, .squeeze, .unsqueeze, .slice => true,
-            else => false,
-        };
         for (instruction.outputs(), mapped) |output_id, output_graph_id| {
             const index = output_id.int();
             if (index >= mapping.len or mapping[index] != no_value) return error.InvalidProgram;
             mapping[index] = output_graph_id;
-            layout_sensitive[index] = keeps_layout;
         }
         produced = std.math.add(usize, produced, instruction.outputs().len) catch
             return error.InvalidProgram;
@@ -221,10 +268,6 @@ pub fn lower(
     for (program.outputs(), selected) |output_id, *graph_id| {
         const index = output_id.int();
         if (index >= mapping.len or mapping[index] == no_value) return error.InvalidProgram;
-        // These operations can expose views. Cyna currently materializes every
-        // graph output as a dense tensor, so retain the established Zig path
-        // when one of them is a public output.
-        if (layout_sensitive[index]) return null;
         graph_id.* = mapping[index];
     }
     const inferred = core.inferDenseGraphMulti(

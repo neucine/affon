@@ -458,6 +458,15 @@ extern fn compute_core_read_dense_graph_tensor(
     handle: ?*anyopaque, owner: usize, slot: usize, generation: usize,
     output: [*]u8, byte_count: usize,
 ) c_int;
+extern fn compute_core_describe_dense_graph_tensor(
+    handle: ?*anyopaque, owner: usize, slot: usize, generation: usize,
+    rank: *usize, backing_bytes: *usize, offset_bytes: *usize,
+    strides: [*]usize, stride_count: usize,
+) c_int;
+extern fn compute_core_read_dense_graph_tensor_backing(
+    handle: ?*anyopaque, owner: usize, slot: usize, generation: usize,
+    output: [*]u8, byte_count: usize,
+) c_int;
 extern fn compute_core_run_dense_graph_tensors(
     handle: ?*anyopaque, input_tokens: [*]const usize, input_count: usize,
     output_tokens: [*]usize, output_count: usize,
@@ -998,6 +1007,11 @@ pub const DenseGraphHandle = struct {
     }
 
     pub const TensorToken = struct { owner: usize, slot: usize, generation: usize };
+    pub const TensorLayout = struct {
+        rank: usize,
+        backing_bytes: usize,
+        offset_bytes: usize,
+    };
 
     pub fn createInputTensor(self: *const DenseGraphHandle, input_index: usize,
         bytes: []const u8) Error!TensorToken {
@@ -1017,6 +1031,38 @@ pub const DenseGraphHandle = struct {
         switch (compute_core_read_dense_graph_tensor(self.raw, token.owner, token.slot,
             token.generation, output.ptr, output.len)) {
             0 => {}, 1 => return error.InvalidShape, else => return error.CoreFailure,
+        }
+    }
+
+    pub fn tensorLayout(self: *const DenseGraphHandle, token: TensorToken,
+        strides: []usize) Error!TensorLayout {
+        if (self.raw == null) return error.InvalidShape;
+        var rank: usize = 0;
+        var backing_bytes: usize = 0;
+        var offset_bytes: usize = 0;
+        switch (compute_core_describe_dense_graph_tensor(self.raw, token.owner,
+            token.slot, token.generation, &rank, &backing_bytes, &offset_bytes,
+            strides.ptr, strides.len)) {
+            0 => {},
+            1 => return error.InvalidShape,
+            else => return error.CoreFailure,
+        }
+        if (rank > strides.len) return error.InvalidShape;
+        return .{
+            .rank = rank,
+            .backing_bytes = backing_bytes,
+            .offset_bytes = offset_bytes,
+        };
+    }
+
+    pub fn readTensorBacking(self: *const DenseGraphHandle, token: TensorToken,
+        output: []u8) Error!void {
+        if (self.raw == null) return error.InvalidShape;
+        switch (compute_core_read_dense_graph_tensor_backing(self.raw, token.owner,
+            token.slot, token.generation, output.ptr, output.len)) {
+            0 => {},
+            1 => return error.InvalidShape,
+            else => return error.CoreFailure,
         }
     }
 
@@ -1046,7 +1092,10 @@ pub const DenseGraphHandle = struct {
         }
         switch (compute_core_run_dense_graph_tensors(self.raw, packed_inputs.ptr,
             inputs.len, packed_outputs.ptr, outputs.len)) {
-            0 => {}, 1 => return error.InvalidShape, else => return error.CoreFailure,
+            0 => {},
+            1 => return error.InvalidShape,
+            3 => return error.InvalidCommand,
+            else => return error.CoreFailure,
         }
         for (outputs, 0..) |*token, index| {
             token.* = .{ .owner = packed_outputs[index * 3],

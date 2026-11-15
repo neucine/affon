@@ -1,6 +1,6 @@
 import { getEnv } from "std:process"
 import { describe, expect, test } from "std:test"
-import { add, embedding, gather, index_select, matmul, scatter_add, sin, transpose } from "affon:ops"
+import { add, embedding, gather, index_select, matmul, permute, reshape, scatter_add, sin, slice, squeeze, transpose, unsqueeze } from "affon:ops"
 import { Session, Tensor, program } from "affon:core"
 
 const backendSymbol = Symbol.for("affon.compute.executable_backend")
@@ -65,6 +65,63 @@ describe("public CPU Session Cyna execution", () => {
     generic.run({ x: view }).dispose()
     view.dispose()
     input.dispose()
+    session.dispose()
+  })
+
+  test("returns public layout views from Cyna without losing stride guards", () => {
+    const source = program("cyna_public_layout_views", p => {
+      const matrix = p.argument("matrix", Tensor.f32([2, 3]))
+      const batch = p.argument("batch", Tensor.f32([2, 3, 1]))
+      const padded = p.argument("padded", Tensor.f32([1, 2, 1]))
+      const wide = p.argument("wide", Tensor.f32([3, 4]))
+      return [
+        transpose(matrix, [1, 0]),
+        permute(batch, [2, 0, 1]),
+        reshape(matrix, [3, 2]),
+        squeeze(padded),
+        unsqueeze(matrix, 1),
+        slice(wide, [{ start: 1, stop: 3 }, { start: 1, stop: 4, step: 2 }]),
+      ]
+    })
+    const denseSource = program("cyna_layout_guard", p => sin(
+      p.argument("x", Tensor.f32([3, 2])),
+    ))
+    const session = new Session({ device: "cpu" })
+    const executable = session.compile(source)
+    const dense = session.compile(denseSource, { denseInputs: true })
+    if (requireCyna) expect((executable as any)[backendSymbol]()).toBe("cyna")
+
+    const matrix = session.tensor([[1, 2, 3], [4, 5, 6]])
+    const batch = session.tensor([[[1], [2], [3]], [[4], [5], [6]]])
+    const padded = session.tensor([[[7], [8]]])
+    const wide = session.tensor([[0, 1, 2, 3], [4, 5, 6, 7], [8, 9, 10, 11]])
+    const wrong = session.tensor([1, 2, 3, 4, 5, 6])
+    expect(() => executable.run({
+      matrix: wrong as any,
+      batch,
+      padded,
+      wide,
+    })).toThrow("TensorSpec")
+    const outputs = executable.run({ matrix, batch, padded, wide }) as any[]
+    expect(outputs[0].to_array()).toEqual([[1, 4], [2, 5], [3, 6]])
+    expect(outputs[1].to_array()).toEqual([[[1, 2, 3], [4, 5, 6]]])
+    expect(outputs[2].to_array()).toEqual([[1, 2], [3, 4], [5, 6]])
+    expect(outputs[3].to_array()).toEqual([7, 8])
+    expect(outputs[4].to_array()).toEqual([[[1, 2, 3]], [[4, 5, 6]]])
+    expect(outputs[5].to_array()).toEqual([[5, 7], [9, 11]])
+    expect(() => dense.run({ x: outputs[0] })).toThrow("GuardMismatch")
+    const denseInput = session.tensor([[1, 4], [2, 5], [3, 6]])
+    dense.run({ x: denseInput }).dispose()
+
+    denseInput.dispose()
+    for (const output of outputs) output.dispose()
+    wrong.dispose()
+    wide.dispose()
+    padded.dispose()
+    batch.dispose()
+    matrix.dispose()
+    dense.dispose()
+    executable.dispose()
     session.dispose()
   })
 
