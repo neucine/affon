@@ -23,6 +23,12 @@ static library, links it into a Zig test, and checks Affon's reference outputs
 and invalid-shape behavior, including the selected Zig R01 quantized fixture
 whole or axis reduction values, and a matmul followed by two reductions.
 
-Affon's public `affon:core` Session still uses the Zig engine. The adapter
-is a consumer integration gate for synchronous CPU workloads; it does not
-yet provide persistent graph or device handles.
+Affon can create a persistent dense CPU graph with `createDenseGraphHandle`,
+run it with packed input bytes, read cache hit and miss counts, and release it
+with `deinit`. Input shapes and dtypes are fixed at creation. Each run needs
+the same input byte count and a correctly sized output buffer. A failed run
+leaves the output buffer unchanged. The linked gate checks two runs, one cache
+miss followed by one hit, a short output buffer, and cleanup.
+
+Affon's public `affon:core` Session still uses the Zig engine. This adapter
+is an isolated CPU integration gate; device handles remain to be integrated.

@@ -1173,3 +1173,39 @@ test "Affon selects the Cyna memory graph goal" {
     try cyna.runDenseGraphWithGoalF32(std.testing.allocator, &inputs, &steps, &selected, &output, .memory);
     try std.testing.expectEqualSlices(f32, &.{ 8, 14 }, &output);
 }
+
+test "Affon reuses and closes a persistent Cyna graph" {
+    const left = [_]f32{ 1, 2, 3, 4 };
+    const right = [_]f32{ 5, 6, 7, 8 };
+    const inputs = [_]cyna.DenseByteInput{
+        .{ .dtype = .f32, .shape = &.{ 2, 2 }, .bytes = std.mem.sliceAsBytes(&left) },
+        .{ .dtype = .f32, .shape = &.{ 2, 2 }, .bytes = std.mem.sliceAsBytes(&right) },
+    };
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .matmul, .lhs = 0, .rhs = 1 },
+        .{ .operation = .sum_all, .lhs = 2 },
+        .{ .operation = .mean_all, .lhs = 2 },
+    };
+    var graph = try cyna.createDenseGraphHandle(std.testing.allocator, &inputs, &steps, &.{ 2, 3, 4 }, .baseline);
+    defer graph.deinit();
+    var input_buffer: [32]u8 = undefined;
+    @memcpy(input_buffer[0..16], std.mem.sliceAsBytes(&left));
+    @memcpy(input_buffer[16..32], std.mem.sliceAsBytes(&right));
+    var output: [24]u8 = @splat(0);
+    try graph.run(&input_buffer, &output);
+    for ([_]f32{ 19, 22, 43, 50, 134, 33.5 }, 0..) |expected, index| {
+        const bits = std.mem.readInt(u32, output[index * 4 ..][0..4], .little);
+        try std.testing.expectEqual(expected, @as(f32, @bitCast(bits)));
+    }
+    try std.testing.expectEqual(@as(usize, 0), graph.cacheHits());
+    try std.testing.expectEqual(@as(usize, 1), graph.cacheMisses());
+    output = @splat(0);
+    try graph.run(&input_buffer, &output);
+    try std.testing.expectEqual(@as(usize, 1), graph.cacheHits());
+    try std.testing.expectEqual(@as(usize, 1), graph.cacheMisses());
+    var short: [20]u8 = @splat(0xaa);
+    try std.testing.expectError(error.InvalidShape, graph.run(&input_buffer, &short));
+    for (short) |byte| try std.testing.expectEqual(@as(u8, 0xaa), byte);
+    graph.deinit();
+    try std.testing.expectError(error.InvalidShape, graph.run(&input_buffer, &output));
+}
