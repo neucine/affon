@@ -4,6 +4,13 @@ const core = @import("compute_core_cyna.zig");
 
 const no_value = std.math.maxInt(usize);
 
+pub const LoweringDiagnostic = struct {
+    category: []const u8 = "lowering",
+    reason: []const u8 = "unsupported",
+    operation: ?compute.OpTag = null,
+    option: ?[]const u8 = null,
+};
+
 const DynamicInput = struct {
     dtype: compute.DType,
     dimensions: []const usize,
@@ -178,6 +185,7 @@ pub fn lower(
     program: *const compute.Program,
     goal: core.DenseGoal,
     dense_inputs: bool,
+    diagnostic: *LoweringDiagnostic,
 ) !?Executable {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
@@ -253,7 +261,14 @@ pub fn lower(
     defer steps.deinit(temporary);
     var produced: usize = input_descriptors.items.len;
     for (program.instructions()) |*instruction| {
-        const mapped = try mapInstruction(temporary, instruction, mapping, produced, &steps);
+        const mapped = try mapInstruction(
+            temporary,
+            instruction,
+            mapping,
+            produced,
+            &steps,
+            diagnostic,
+        );
         for (instruction.outputs(), mapped) |output_id, output_graph_id| {
             const index = output_id.int();
             if (index >= mapping.len or mapping[index] != no_value) return error.InvalidProgram;
@@ -276,7 +291,13 @@ pub fn lower(
         selected,
     ) catch |err| switch (err) {
         error.OutOfMemory => return err,
-        else => return null,
+        else => {
+            diagnostic.* = .{
+                .category = "dense_graph",
+                .reason = @errorName(err),
+            };
+            return null;
+        },
     };
     defer inferred.deinit(temporary);
     if (inferred.ranks.len != program.outputs().len) return error.InvalidProgram;
@@ -313,7 +334,13 @@ pub fn lower(
         goal,
     ) catch |err| switch (err) {
         error.OutOfMemory => return err,
-        else => return null,
+        else => {
+            diagnostic.* = .{
+                .category = "dense_graph",
+                .reason = @errorName(err),
+            };
+            return null;
+        },
     };
     errdefer handle.deinit();
     return .{
@@ -334,6 +361,7 @@ fn mapInstruction(
     mapping: []const usize,
     produced: usize,
     steps: *std.ArrayList(core.DenseStep),
+    diagnostic: *LoweringDiagnostic,
 ) ![]usize {
     const operands = try allocator.alloc(usize, instruction.inputs().len);
     for (instruction.inputs(), operands) |value_id, *graph_id| {
@@ -346,6 +374,12 @@ fn mapInstruction(
 
     const tag = instruction.tag();
     const options = instruction.options().*;
+    diagnostic.* = .{
+        .category = "operation",
+        .reason = "unsupported",
+        .operation = tag,
+        .option = @tagName(std.meta.activeTag(options)),
+    };
     var step: core.DenseStep = undefined;
     switch (tag) {
         .add, .sub, .mul, .div, .eq, .lt, .gt, .matmul, .dot => {

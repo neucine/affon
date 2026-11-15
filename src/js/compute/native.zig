@@ -232,11 +232,21 @@ const TensorObject = struct {
     owner: ?*SessionObject = null,
 };
 
+const ExecutableRouting = struct {
+    execution_backend: []const u8,
+    configured_backend: []const u8,
+    category: []const u8,
+    reason: []const u8,
+    operation: ?[]const u8 = null,
+    option: ?[]const u8 = null,
+};
+
 const ExecutableObject = struct {
     value: ?*compute.Executable,
     cyna: ?*anyopaque = null,
     owner: *SessionObject,
     explanation_json: []u8,
+    routing: ExecutableRouting,
     needs_seed: bool,
     owner_released: bool = false,
 };
@@ -987,6 +997,7 @@ fn createExecutableObject(
     owner: *SessionObject,
     needs_seed: bool,
     explanation_json: []u8,
+    routing: ExecutableRouting,
 ) abi.JSValue {
     const object = allocator.create(ExecutableObject) catch {
         allocator.free(explanation_json);
@@ -1004,6 +1015,7 @@ fn createExecutableObject(
         .owner = owner,
         .needs_seed = needs_seed,
         .explanation_json = explanation_json,
+        .routing = routing,
     };
     const result = abi.createJSHostObject(ctx, executable_type_id, @intCast(@intFromPtr(object)), executableFinalizer);
     if (abi.jsIsException(result)) {
@@ -1351,23 +1363,71 @@ fn compileNativeProgram(ctx: abi.JSContext, owner: *SessionObject, program_value
         return errorValue(ctx, "Program explanation serialization failed");
     };
     var cyna_executable: ?*cyna_program.Executable = null;
+    var routing = ExecutableRouting{
+        .execution_backend = "zig",
+        .configured_backend = @tagName(owner.backend),
+        .category = "configuration",
+        .reason = "cyna_disabled",
+    };
     if (comptime build_options.compute_cyna) {
-        if (owner.backend == .cpu and
-            owner.capture_collector == null and
-            !owner.requires_compute_evidence)
-        {
+        if (owner.backend != .cpu) {
+            routing = .{
+                .execution_backend = "zig",
+                .configured_backend = @tagName(owner.backend),
+                .category = "backend",
+                .reason = "non_cpu_backend",
+            };
+        } else if (owner.capture_collector != null) {
+            routing = .{
+                .execution_backend = "zig",
+                .configured_backend = "cpu",
+                .category = "observability",
+                .reason = "evidence_capture",
+            };
+        } else if (owner.requires_compute_evidence) {
+            routing = .{
+                .execution_backend = "zig",
+                .configured_backend = "cpu",
+                .category = "observability",
+                .reason = "compute_evidence",
+            };
+        } else {
             const goal: @import("../../support/compute_core_cyna.zig").DenseGoal =
                 if (options.optimization_goal == .memory) .memory else .baseline;
-            if (cyna_program.lower(allocator, program_value, goal, dense_inputs) catch null) |lowered| {
+            var diagnostic = cyna_program.LoweringDiagnostic{};
+            const lowered = cyna_program.lower(
+                allocator,
+                program_value,
+                goal,
+                dense_inputs,
+                &diagnostic,
+            ) catch |err| blk: {
+                diagnostic.reason = @errorName(err);
+                break :blk null;
+            };
+            if (lowered) |value| {
                 cyna_executable = allocator.create(cyna_program.Executable) catch {
-                    var owned = lowered;
+                    var owned = value;
                     owned.deinit();
                     compilation.deinit();
                     allocator.free(explanation_json);
                     return errorValue(ctx, "out of memory");
                 };
-                cyna_executable.?.* = lowered;
-            }
+                cyna_executable.?.* = value;
+                routing = .{
+                    .execution_backend = "cyna",
+                    .configured_backend = "cpu",
+                    .category = "success",
+                    .reason = "lowered",
+                };
+            } else routing = .{
+                .execution_backend = "zig",
+                .configured_backend = "cpu",
+                .category = diagnostic.category,
+                .reason = diagnostic.reason,
+                .operation = if (diagnostic.operation) |tag| @tagName(tag) else null,
+                .option = diagnostic.option,
+            };
         }
     }
     executable.retain();
@@ -1379,6 +1439,7 @@ fn compileNativeProgram(ctx: abi.JSContext, owner: *SessionObject, program_value
         owner,
         needs_seed,
         explanation_json,
+        routing,
     );
 }
 
@@ -1564,6 +1625,42 @@ fn jsRunExecutable(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [
     output_wrapped = true;
     bridge_succeeded = true;
     return result;
+}
+
+fn routingJson(routing: ExecutableRouting) ![]u8 {
+    if (routing.operation) |operation| {
+        if (routing.option) |option| return std.fmt.allocPrint(
+            allocator,
+            "{{\"schema_version\":1,\"backend\":\"{s}\",\"configured_backend\":\"{s}\",\"category\":\"{s}\",\"reason\":\"{s}\",\"operation\":\"{s}\",\"option\":\"{s}\"}}",
+            .{
+                routing.execution_backend,
+                routing.configured_backend,
+                routing.category,
+                routing.reason,
+                operation,
+                option,
+            },
+        );
+        return std.fmt.allocPrint(
+            allocator,
+            "{{\"schema_version\":1,\"backend\":\"{s}\",\"configured_backend\":\"{s}\",\"category\":\"{s}\",\"reason\":\"{s}\",\"operation\":\"{s}\",\"option\":null}}",
+            .{ routing.execution_backend, routing.configured_backend, routing.category, routing.reason, operation },
+        );
+    }
+    return std.fmt.allocPrint(
+        allocator,
+        "{{\"schema_version\":1,\"backend\":\"{s}\",\"configured_backend\":\"{s}\",\"category\":\"{s}\",\"reason\":\"{s}\",\"operation\":null,\"option\":null}}",
+        .{ routing.execution_backend, routing.configured_backend, routing.category, routing.reason },
+    );
+}
+
+fn jsExecutableRouting(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    if (argc < 1) return typeError(ctx, "executableRouting expects Executable");
+    const object = executableObject(ctx, argv[0]) orelse return typeError(ctx, "invalid Executable");
+    if (object.value == null) return typeError(ctx, "Executable has been disposed");
+    const json = routingJson(object.routing) catch return errorValue(ctx, "routing report serialization failed");
+    defer allocator.free(json);
+    return abi.jsString(ctx, json);
 }
 
 fn jsExecutableBackend(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
@@ -1987,6 +2084,7 @@ const functions = [_]abi.JSFunction{
     .{ .name = "sessionFull", .callback = jsSessionFull, .length = 4 },
     .{ .name = "compileProgram", .callback = jsCompileProgram, .length = 3 },
     .{ .name = "explainExecutable", .callback = jsExplainExecutable, .length = 1 },
+    .{ .name = "executableRouting", .callback = jsExecutableRouting, .length = 1 },
     .{ .name = "executableBackend", .callback = jsExecutableBackend, .length = 1 },
     .{ .name = "runExecutable", .callback = jsRunExecutable, .length = 2 },
     .{ .name = "resetEvidenceCapture", .callback = jsResetEvidenceCapture, .length = 1 },

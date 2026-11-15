@@ -1,9 +1,10 @@
 import { getEnv } from "std:process"
 import { describe, expect, test } from "std:test"
-import { add, embedding, gather, index_select, matmul, neg, permute, reshape, scatter_add, sin, slice, squeeze, transpose, unsqueeze } from "affon:ops"
+import { add, embedding, gather, index_select, matmul, neg, permute, reshape, scatter_add, sin, slice, squeeze, sum, transpose, unsqueeze } from "affon:ops"
 import { Session, Tensor, program } from "affon:core"
 
 const backendSymbol = Symbol.for("affon.compute.executable_backend")
+const routingSymbol = Symbol.for("affon.compute.executable_routing")
 const requireCyna = getEnv("AFFON_TEST_CYNA_SESSION") === "1"
 
 describe("public CPU Session Cyna execution", () => {
@@ -26,6 +27,14 @@ describe("public CPU Session Cyna execution", () => {
     if (requireCyna) {
       expect(backend).toBe("cyna")
       expect((denseGuarded as any)[backendSymbol]()).toBe("cyna")
+      const routing = (executable as any)[routingSymbol]()
+      expect(routing.schema_version).toBe(1)
+      expect(routing.backend).toBe("cyna")
+      expect(routing.configured_backend).toBe("cpu")
+      expect(routing.category).toBe("success")
+      expect(routing.reason).toBe("lowered")
+      expect(routing.operation).toBe(null)
+      expect(routing.option).toBe(null)
     }
 
     const leftSource = session.tensor([[1, 4], [2, 5], [3, 6]])
@@ -115,6 +124,59 @@ describe("public CPU Session Cyna execution", () => {
 
     result.dispose()
     value.dispose()
+    executable.dispose()
+    session.dispose()
+  })
+
+  test("reports unsupported lowering details before using the Zig fallback", () => {
+    const source = program("cyna_unsupported_keepdim", p => sum(
+      p.argument("value", Tensor.f32([2, 2])),
+      1,
+      true,
+    ))
+    const session = new Session({ device: "cpu" })
+    const executable = session.compile(source)
+    const routing = (executable as any)[routingSymbol]()
+    expect(routing.configured_backend).toBe("cpu")
+    if (requireCyna) {
+      expect(routing.backend).toBe("zig")
+      expect(routing.category).toBe("operation")
+      expect(routing.reason).toBe("InvalidProgram")
+      expect(routing.operation).toBe("sum_axis")
+      expect(routing.option).toBe("reduce_axis")
+    } else expect(routing.reason).toBe("cyna_disabled")
+    executable.dispose()
+    session.dispose()
+  })
+
+  test("reports evidence capture as a routing fallback", () => {
+    const source = program("cyna_evidence_fallback", p => sin(
+      p.argument("value", Tensor.f32([2])),
+    ))
+    const session = new Session({ device: "cpu", telemetry: { captureRecords: 32 } })
+    const executable = session.compile(source)
+    const routing = (executable as any)[routingSymbol]()
+    if (requireCyna) {
+      expect(routing.backend).toBe("zig")
+      expect(routing.category).toBe("observability")
+      expect(routing.reason).toBe("evidence_capture")
+    }
+    executable.dispose()
+    session.dispose()
+  })
+
+  test("reports compute timing as a routing fallback", () => {
+    const source = program("cyna_timing_fallback", p => sin(
+      p.argument("value", Tensor.f32([2])),
+    ))
+    const session = new Session({ device: "cpu", telemetry: { computeTiming: "invocation" } })
+    const executable = session.compile(source)
+    const routing = (executable as any)[routingSymbol]()
+    if (requireCyna) {
+      expect(routing.backend).toBe("zig")
+      expect(routing.category).toBe("observability")
+      expect(routing.reason).toBe("compute_evidence")
+    }
     executable.dispose()
     session.dispose()
   })

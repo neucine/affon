@@ -244,6 +244,7 @@ const EMIT = Symbol("affon.compute.emit_operation")
 const FORMAL_OPERATION = Symbol("affon.compute.formal_operation")
 const FORMAL_SCALAR = Symbol("affon.compute.formal_scalar")
 const EXECUTABLE_BACKEND = Symbol.for("affon.compute.executable_backend")
+const EXECUTABLE_ROUTING = Symbol.for("affon.compute.executable_routing")
 const parameterUpdateSources = new WeakMap<Program, {
   source: Program<Record<string, FormalTensor>, FormalTensor>
   gradients: Program<Record<string, FormalTensor>, FormalTensor | readonly FormalTensor[]>
@@ -1610,6 +1611,18 @@ export class Executable<Out extends FormalTensor | readonly FormalTensor[] = For
   }
   get disposed(): boolean { return this.#disposed }
   [EXECUTABLE_NATIVE](): any { return this.nativeExecutable }
+  [EXECUTABLE_ROUTING](): Readonly<{
+    schema_version: 1
+    backend: "zig" | "cyna"
+    configured_backend: "cpu" | "metal" | "cuda"
+    category: "success" | "configuration" | "backend" | "observability" | "lowering" | "operation" | "dense_graph"
+    reason: string
+    operation: string | null
+    option: string | null
+  }> {
+    if (this.#disposed) throw new Error("Executable has been disposed")
+    return freezeJson(JSON.parse(native.executableRouting(this.nativeExecutable)))
+  }
   [EXECUTABLE_BACKEND](): "zig" | "cyna" {
     if (this.#disposed) throw new Error("Executable has been disposed")
     return native.executableBackend(this.nativeExecutable)
