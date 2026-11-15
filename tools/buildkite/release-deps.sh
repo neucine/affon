@@ -48,7 +48,8 @@ clone_pinned() {
   test "$(git -C "$destination" rev-parse HEAD)" = "$ref"
 }
 
-clone_pinned hao 7c73a564056af4cbb47998278b5253d726e03d9f hao-legacy
+export AFFON_SITE_HAO_REF=7c73a564056af4cbb47998278b5253d726e03d9f
+clone_pinned hao "$AFFON_SITE_HAO_REF" hao-legacy
 clone_pinned compute dc66696c6444d4077bea9e172e1f6e1d990ed223 compute
 clone_pinned zig-libs c5b61fbdd2c7c02d875212e7111a27be3aaf2f17 zig-libs
 
