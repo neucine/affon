@@ -1354,12 +1354,11 @@ fn compileNativeProgram(ctx: abi.JSContext, owner: *SessionObject, program_value
     if (comptime build_options.compute_cyna) {
         if (owner.backend == .cpu and
             owner.capture_collector == null and
-            !owner.requires_compute_evidence and
-            !dense_inputs)
+            !owner.requires_compute_evidence)
         {
             const goal: @import("../../support/compute_core_cyna.zig").DenseGoal =
                 if (options.optimization_goal == .memory) .memory else .baseline;
-            if (cyna_program.lower(allocator, program_value, goal) catch null) |lowered| {
+            if (cyna_program.lower(allocator, program_value, goal, dense_inputs) catch null) |lowered| {
                 cyna_executable = allocator.create(cyna_program.Executable) catch {
                     var owned = lowered;
                     owned.deinit();
@@ -1480,6 +1479,12 @@ fn runCynaWithSpan(owner: *SessionObject, executable: *cyna_program.Executable, 
         if (succeeded) active.end() else active.endError();
     };
     const outputs = try executable.run(owner.value.?, inputs);
+    telemetry.add(ComputeTelemetrySink.metric(
+        "compute.execution",
+        "runs_total",
+        .counter,
+        .count,
+    ), 1);
     succeeded = true;
     return outputs;
 }

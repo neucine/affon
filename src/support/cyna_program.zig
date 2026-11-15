@@ -46,6 +46,7 @@ pub const Executable = struct {
     handle: core.DenseGraphHandle,
     inputs: []Input,
     outputs: []Output,
+    dense_inputs: bool,
     dynamic_byte_count: usize,
     constant_byte_count: usize,
     output_byte_count: usize,
@@ -82,6 +83,7 @@ pub const Executable = struct {
                 if (tensor.spec().dtype() != descriptor.dtype or
                     !std.mem.eql(usize, tensor.spec().dimensions(), descriptor.dimensions))
                     return error.InvalidShape;
+                if (self.dense_inputs and !denseTensor(tensor)) return error.GuardMismatch;
                 const expected = byteCount(descriptor.dimensions, descriptor.dtype) catch
                     return error.InvalidShape;
                 copyTensorBytes(tensor, input_bytes[cursor..][0..expected]) catch
@@ -175,11 +177,8 @@ pub fn lower(
     allocator: std.mem.Allocator,
     program: *const compute.Program,
     goal: core.DenseGoal,
+    dense_inputs: bool,
 ) !?Executable {
-    // Identity Programs and duplicated binary operands still expose separate
-    // Cyna resident-session failures. Keep them on the established Zig path
-    // until those runtime contracts have their own parity evidence.
-    if (program.instructions().len == 0) return null;
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const temporary = arena.allocator();
@@ -322,6 +321,7 @@ pub fn lower(
         .handle = handle,
         .inputs = try inputs.toOwnedSlice(allocator),
         .outputs = outputs,
+        .dense_inputs = dense_inputs,
         .dynamic_byte_count = dynamic_byte_count,
         .constant_byte_count = constant_byte_count,
         .output_byte_count = output_byte_count,
@@ -350,10 +350,9 @@ fn mapInstruction(
     switch (tag) {
         .add, .sub, .mul, .div, .eq, .lt, .gt, .matmul, .dot => {
             if (operands.len != 2 or output_ids.len != 1) return error.InvalidProgram;
-            if (operands[0] == operands[1]) return error.InvalidProgram;
             step = .{ .operation = binaryOperation(tag), .lhs = operands[0], .rhs = operands[1] };
         },
-        .abs, .relu, .exp, .log, .sqrt, .sign, .sigmoid, .silu, .tanh, .erf, .gelu, .sin, .cos => {
+        .abs, .neg, .relu, .exp, .log, .sqrt, .sign, .sigmoid, .silu, .tanh, .erf, .gelu, .sin, .cos => {
             if (operands.len != 1 or output_ids.len != 1) return error.InvalidProgram;
             step = .{ .operation = unaryOperation(tag), .lhs = operands[0] };
         },
@@ -566,6 +565,7 @@ fn binaryOperation(tag: compute.OpTag) core.DenseOperation {
 fn unaryOperation(tag: compute.OpTag) core.DenseOperation {
     return switch (tag) {
         .abs => .abs,
+        .neg => .neg,
         .relu => .relu,
         .exp => .exp,
         .log => .log,
@@ -658,6 +658,17 @@ fn copyTensorBytes(tensor: *const compute.Tensor, output: []u8) !void {
             return error.InvalidShape;
         @memcpy(output[linear * width ..][0..width], source[byte_offset..][0..width]);
     }
+}
+
+fn denseTensor(tensor: *const compute.Tensor) bool {
+    var stride: isize = 1;
+    var axis = tensor.spec().dimensions().len;
+    while (axis > 0) {
+        axis -= 1;
+        if (tensor.strides()[axis] != stride) return false;
+        stride *= @intCast(tensor.spec().dimensions()[axis]);
+    }
+    return tensor.offsetBytes() == 0;
 }
 
 fn elementCount(dimensions: []const usize) !usize {

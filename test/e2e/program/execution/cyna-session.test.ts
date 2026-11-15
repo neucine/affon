@@ -1,6 +1,6 @@
 import { getEnv } from "std:process"
 import { describe, expect, test } from "std:test"
-import { add, embedding, gather, index_select, matmul, permute, reshape, scatter_add, sin, slice, squeeze, transpose, unsqueeze } from "affon:ops"
+import { add, embedding, gather, index_select, matmul, neg, permute, reshape, scatter_add, sin, slice, squeeze, transpose, unsqueeze } from "affon:ops"
 import { Session, Tensor, program } from "affon:core"
 
 const backendSymbol = Symbol.for("affon.compute.executable_backend")
@@ -25,7 +25,7 @@ describe("public CPU Session Cyna execution", () => {
     expect(["cyna", "zig"]).toContain(backend)
     if (requireCyna) {
       expect(backend).toBe("cyna")
-      expect((denseGuarded as any)[backendSymbol]()).toBe("zig")
+      expect((denseGuarded as any)[backendSymbol]()).toBe("cyna")
     }
 
     const leftSource = session.tensor([[1, 4], [2, 5], [3, 6]])
@@ -49,14 +49,14 @@ describe("public CPU Session Cyna execution", () => {
     session.dispose()
   })
 
-  test("keeps dense-input guards on the Zig artifact", () => {
+  test("enforces dense-input guards on the Cyna artifact", () => {
     const source = program("cyna_dense_guard", p => sin(p.argument("x", Tensor.f32([2, 2]))))
     const session = new Session({ device: "cpu" })
     const dense = session.compile(source, { denseInputs: true })
     const generic = session.compile(source)
     if (requireCyna) {
       expect((generic as any)[backendSymbol]()).toBe("cyna")
-      expect((dense as any)[backendSymbol]()).toBe("zig")
+      expect((dense as any)[backendSymbol]()).toBe("cyna")
     }
     const input = session.tensor([[0, 1], [2, 3]])
     const view = transpose(input, [1, 0])
@@ -65,6 +65,57 @@ describe("public CPU Session Cyna execution", () => {
     generic.run({ x: view }).dispose()
     view.dispose()
     input.dispose()
+    session.dispose()
+  })
+
+  test("routes identity Programs through Cyna", () => {
+    const identity = program("cyna_identity", p => p.argument("value", Tensor.f32([2])))
+    const session = new Session({ device: "cpu" })
+    const identityExecutable = session.compile(identity)
+    if (requireCyna) expect((identityExecutable as any)[backendSymbol]()).toBe("cyna")
+
+    const value = session.tensor([2, -3])
+    const identityResult = identityExecutable.run({ value }) as any
+    expect(identityResult.to_array()).toEqual([2, -3])
+
+    identityResult.dispose()
+    value.dispose()
+    identityExecutable.dispose()
+    session.dispose()
+  })
+
+  test("routes repeated binary operands through Cyna", () => {
+    const source = program("cyna_repeated_operand", p => {
+      const value = p.argument("value", Tensor.f32([2]))
+      return add(value, value)
+    })
+    const session = new Session({ device: "cpu" })
+    const executable = session.compile(source)
+    if (requireCyna) expect((executable as any)[backendSymbol]()).toBe("cyna")
+
+    const value = session.tensor([2, -3])
+    const result = executable.run({ value }) as any
+    expect(result.to_array()).toEqual([4, -6])
+
+    result.dispose()
+    value.dispose()
+    executable.dispose()
+    session.dispose()
+  })
+
+  test("routes negation through Cyna", () => {
+    const source = program("cyna_neg", p => neg(p.argument("value", Tensor.f32([2]))))
+    const session = new Session({ device: "cpu" })
+    const executable = session.compile(source)
+    if (requireCyna) expect((executable as any)[backendSymbol]()).toBe("cyna")
+
+    const value = session.tensor([2, -3])
+    const result = executable.run({ value }) as any
+    expect(result.to_array()).toEqual([-2, 3])
+
+    result.dispose()
+    value.dispose()
+    executable.dispose()
     session.dispose()
   })
 
