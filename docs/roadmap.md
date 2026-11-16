@@ -73,19 +73,22 @@ All 13 imported and model additions route through Cyna. The other two Programs
 request observability evidence that still requires Zig, so the broader sample
 still has no portable lowering target.
 
-Bounded execution evidence now covers nine f32 Programs through public CPU
-Sessions, including all three prepared ONNX fixtures, small GPT-2, BERT, and ViT
-models, and Llama prefill plus cached decode. Each Cyna output matches an
-evidence-forced Zig execution within `3e-4` absolute plus relative tolerance.
+Bounded execution evidence now covers 11 test cases and 16 representative
+Programs through public CPU Sessions. The corpus includes all three prepared
+ONNX fixtures, small GPT-2, BERT, and ViT models, and Llama prefill plus cached
+decode. Focused f64 and BF16 unary, reduction, and matmul Programs add dtype and
+shape coverage, and a small GPT-2 Program exercises BF16 parameter storage
+through public model constructors. Each Cyna output matches an evidence-forced
+Zig execution. f32 uses `3e-4` absolute plus relative tolerance, f64 uses
+`1e-12`, and BF16 output uses one BF16 relative unit (`1/128`).
+
 This establishes representative numerical agreement, not complete model,
 dtype, quality, or performance coverage. Keep the compile-only survey as the
-lower barrier that reports new fallbacks as the corpus grows.
-
-The next milestone is backend maturity for the covered CPU Programs: widen
-numerical-parity coverage across dtypes and shapes, then measure Cyna against
-Zig on representative decode and prefill workloads. Default Cyna execution
-should require both numerical coverage and measured performance, rather than
-compile routing alone.
+lower barrier that reports new fallbacks as the corpus grows. The remaining
+backend-maturity step is to measure Cyna against Zig on representative prefill
+and decode workloads, recording hardware, shapes, dtypes, warmup, repetitions,
+and variance. Default Cyna execution should require both numerical coverage and
+measured performance, rather than compile routing alone.
 
 ### Expand model evidence
 

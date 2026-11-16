@@ -67,40 +67,59 @@ Program and does not count an unsupported Program as a Cyna success.
 
 ## Runtime parity
 
-The bounded runtime check covers nine f32 Programs. It runs each Program in two
-public CPU Sessions: one lowers to Cyna, while the other requests evidence
-capture and therefore executes on Zig. The check requires the Cyna route to
-report `lowered`, the comparison route to report `evidence_capture`, and every
-output to have the same shape, dtype, and finite values. Numerical values must
-agree within `3e-4` absolute plus `3e-4` relative tolerance.
+The bounded runtime check has 11 test cases covering 16 Programs. Each case runs
+the same Program in two public CPU Sessions: one lowers to Cyna, while the other
+requests evidence capture and therefore executes on Zig. The check requires the
+Cyna route to report `lowered`, the comparison route to report
+`evidence_capture`, and every output to have the same shape, dtype, and finite
+values.
+
+| Dtype path | Absolute tolerance | Relative tolerance |
+| --- | ---: | ---: |
+| f32 | `3e-4` | `3e-4` |
+| f64 | `1e-12` | `1e-12` |
+| BF16 output | `1/128` | `1/128` |
+
+The BF16 tolerance represents one BF16 relative unit. The f64 result is tighter
+than the f32 result because it has substantially more precision. A BF16-stored
+GPT-2 model still uses the f32 tolerance because the model constructor casts its
+parameters to f32 for arithmetic.
 
 Run it with:
 
 ```sh
 AFFON_TEST_CYNA_SESSION=1 ./zig-out/bin/affon \
-  test/benchmark/cyna-routing/runtime-parity.test.ts
+  test test/benchmark/cyna-routing/runtime-parity.test.ts
 ```
 
 The passing Programs are:
 
-| Corpus | Program |
-| --- | --- |
-| Authored | transformer block with layer norm, attention, residual, and RMS norm |
-| Imported ONNX | generic fixture |
-| Imported ONNX | spatial fixture |
-| Imported ONNX | Conv1d fixture |
-| GPT-2 | small f32 prefill |
-| BERT | small f32 encoder |
-| ViT | small f32 image encoder |
-| Llama | small f32 prefill |
-| Llama | small f32 cached decode |
+| Corpus | Program | Shapes | Output dtype |
+| --- | --- | --- | --- |
+| Authored | transformer block with layer norm, attention, residual, and RMS norm | `[2,4,8]` with `[8,8]` weights | f32 |
+| Imported ONNX | generic fixture | fixture-defined | fixture-defined |
+| Imported ONNX | spatial fixture | fixture-defined | fixture-defined |
+| Imported ONNX | Conv1d fixture | fixture-defined | fixture-defined |
+| Dtype | exponential | `[2,3]` | f64 |
+| Dtype | axis-one sum | `[2,3]` to `[2]` | f64 |
+| Dtype | matrix multiplication | `[2,3] x [3,4]` to `[2,4]` | f64 |
+| Dtype | exponential | `[2,3]` | BF16 |
+| Dtype | axis-one sum | `[2,3]` to `[2]` | BF16 |
+| Dtype | matrix multiplication | `[2,3] x [3,4]` to `[2,4]` | BF16 |
+| GPT-2 | small f32 prefill | sequence 3, width 4 | f32 |
+| GPT-2 | small BF16-stored prefill | sequence 3, width 4 | f32 |
+| BERT | small f32 encoder | two tokens, width 4 | f32 |
+| ViT | small f32 image encoder | one `3x2x2` image, width 4 | f32 |
+| Llama | small f32 prefill | sequence 3, width 4 | f32 |
+| Llama | small f32 cached decode | one new token, width 4 | f32 |
 
-These are parity checks, not model-quality or performance claims. Parameters
-and activations use f32; BF16 and f64 routes appear in the compile survey but
-have no runtime-parity evidence yet. The models are tiny constructor fixtures,
-not trained checkpoints. The ONNX evidence covers all three prepared importer
-fixtures, but not arbitrary ONNX graphs. All comparisons use the CPU backend.
-No result in this directory measures Cyna speed relative to Zig.
+These are parity checks, not model-quality or performance claims. The focused
+BF16 Programs exercise BF16 arithmetic. The BF16 GPT-2 case exercises BF16
+parameter storage through public model constructors, while its arithmetic
+remains f32. The models are tiny constructor fixtures, not trained checkpoints.
+The ONNX evidence covers all three prepared importer fixtures, but not arbitrary
+ONNX graphs. All comparisons use the CPU backend. No result in this directory
+measures Cyna speed relative to Zig.
 
 ## Decision
 
@@ -119,7 +138,7 @@ Keep the following limits explicit when comparing later runs:
 
 - coverage means this registry, not every valid `affon:core` Program
 - these are tiny constructor and importer fixtures, not complete trained models
-- runtime parity covers nine f32 Programs and does not imply complete model support
+- runtime parity covers 16 representative Programs and does not imply complete model support
 - compilation and parity say nothing about runtime speed
 - the centralized observability fallbacks are expected until their evidence
   semantics exist on the Cyna path

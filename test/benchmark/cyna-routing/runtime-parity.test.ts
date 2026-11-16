@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'std:test'
 import fs from 'std:fs'
 import { Session, Tensor, program } from 'affon:core'
-import { add, layer_norm, matmul, rms_norm, softmax, transpose } from 'affon:ops'
+import { add, exp, layer_norm, matmul, rms_norm, softmax, sum, transpose } from 'affon:ops'
 import { load_graph } from '../../../packages/@affon/onnx/src/runtime.ts'
 import { create_bert } from '../../../packages/@affon/models/src/bert/model.ts'
 import { create_gpt2 } from '../../../packages/@affon/models/src/gpt2/model.ts'
@@ -10,7 +10,10 @@ import { create_vit } from '../../../packages/@affon/models/src/vit/model.ts'
 
 const backendSymbol = Symbol.for('affon.compute.executable_backend')
 const routingSymbol = Symbol.for('affon.compute.executable_routing')
-const tolerance = 3e-4
+type NumericTolerance = Readonly<{ absolute: number; relative: number }>
+const f32Tolerance: NumericTolerance = { absolute: 3e-4, relative: 3e-4 }
+const f64Tolerance: NumericTolerance = { absolute: 1e-12, relative: 1e-12 }
+const bf16Tolerance: NumericTolerance = { absolute: 1 / 128, relative: 1 / 128 }
 
 type InputFactory = (session: Session) => Record<string, Tensor>
 
@@ -38,7 +41,7 @@ function runPaired(
   source: any,
   parameters: Record<string, Tensor> | undefined,
   inputs: InputFactory,
-  comparisonTolerance = tolerance,
+  comparisonTolerance: NumericTolerance = f32Tolerance,
 ): void {
   const cyna = new Session({ device: 'cpu' })
   const zig = new Session({ device: 'cpu', telemetry: { captureRecords: 32 } })
@@ -73,8 +76,10 @@ function runPaired(
       for (let element = 0; element < actualValues.length; element++) {
         const a = actualValues[element]
         const e = expectedValues[element]
-        if (!Number.isFinite(a) || !Number.isFinite(e) || Math.abs(a - e) > comparisonTolerance + comparisonTolerance * Math.abs(e)) {
-          throw new Error(`${name}: output ${index} element ${element}: cyna=${a}, zig=${e}`)
+        const difference = Math.abs(a - e)
+        const limit = comparisonTolerance.absolute + comparisonTolerance.relative * Math.abs(e)
+        if (!Number.isFinite(a) || !Number.isFinite(e) || difference > limit) {
+          throw new Error(`${name}: output ${index} element ${element}: cyna=${a}, zig=${e}, difference=${difference}, tolerance=${limit}`)
         }
       }
     }
@@ -112,6 +117,48 @@ describe('Cyna runtime numerical parity', () => {
       value_weight: session.tensor(nested([8, 8], 4)),
       output_weight: session.tensor(nested([8, 8], 5)),
     }))
+  })
+
+  test('f64 unary, reduction, and matmul match Zig Session', () => {
+    const unary = program('cyna_parity_f64_unary', p => exp(p.argument('x', Tensor.f64([2, 3]))))
+    runPaired('f64 unary', unary, undefined, session => ({
+      x: session.tensor([[-1.25, -0.5, -0.125], [0.125, 0.5, 1.25]], { dtype: 'f64' }),
+    }), f64Tolerance)
+
+    const reduction = program('cyna_parity_f64_reduction', p => sum(p.argument('x', Tensor.f64([2, 3])), 1))
+    runPaired('f64 reduction', reduction, undefined, session => ({
+      x: session.tensor([[0.125, -0.5, 1.25], [-1.25, 0.5, -0.125]], { dtype: 'f64' }),
+    }), f64Tolerance)
+
+    const matrix = program('cyna_parity_f64_matmul', p => matmul(
+      p.argument('left', Tensor.f64([2, 3])),
+      p.argument('right', Tensor.f64([3, 4])),
+    ))
+    runPaired('f64 matmul', matrix, undefined, session => ({
+      left: session.tensor([[1, -2, 0.5], [3, 0.25, -1]], { dtype: 'f64' }),
+      right: session.tensor([[0.5, 1, -1, 2], [2, -0.5, 0.25, 3], [-1, 4, 1.5, 0]], { dtype: 'f64' }),
+    }), f64Tolerance)
+  })
+
+  test('bf16 unary, reduction, and matmul match Zig Session', () => {
+    const unary = program('cyna_parity_bf16_unary', p => exp(p.argument('x', Tensor.bf16([2, 3]))))
+    runPaired('bf16 unary', unary, undefined, session => ({
+      x: session.tensor([[-1, -0.5, -0.125], [0.125, 0.5, 1]], { dtype: 'bf16' }),
+    }), bf16Tolerance)
+
+    const reduction = program('cyna_parity_bf16_reduction', p => sum(p.argument('x', Tensor.bf16([2, 3])), 1))
+    runPaired('bf16 reduction', reduction, undefined, session => ({
+      x: session.tensor([[1, -2, 0.5], [-1, 2, -0.5]], { dtype: 'bf16' }),
+    }), bf16Tolerance)
+
+    const matrix = program('cyna_parity_bf16_matmul', p => matmul(
+      p.argument('left', Tensor.bf16([2, 3])),
+      p.argument('right', Tensor.bf16([3, 4])),
+    ))
+    runPaired('bf16 matmul', matrix, undefined, session => ({
+      left: session.tensor([[1, -2, 0.5], [3, 0.25, -1]], { dtype: 'bf16' }),
+      right: session.tensor([[0.5, 1, -1, 2], [2, -0.5, 0.25, 3], [-1, 4, 1.5, 0]], { dtype: 'bf16' }),
+    }), bf16Tolerance)
   })
 
   for (const fixture of [
@@ -154,6 +201,31 @@ describe('Cyna runtime numerical parity', () => {
         positions: session.tensor([0, 1, 2], { dtype: 'i64' }),
         mask: session.tensor([[[[0, 1, 1], [0, 0, 1], [0, 0, 0]]]], { dtype: 'i64' }),
       }))
+    } finally {
+      sourceSession.dispose()
+    }
+  })
+
+  test('small BF16-stored GPT-2 prefill matches Zig Session', () => {
+    const sourceSession = new Session({ device: 'cpu' })
+    try {
+      const value = (shape: readonly number[], seed: number, scale = 0.1): Tensor => sourceSession.tensor(nested(shape, seed, scale), { dtype: 'bf16' })
+      const affine = (input: number, output: number, seed: number) => ({ weight: value([input, output], seed), bias: value([output], seed + 1, 0) })
+      const norm = (seed: number) => ({ weight: value([4], seed, 1), bias: value([4], seed + 1, 0) })
+      const model = create_gpt2(
+        { width: 4, heads: 2, layers: 1, contextLength: 4, vocabSize: 7, epsilon: 1e-5 },
+        {
+          tokenEmbedding: value([7, 4], 30),
+          positionEmbedding: value([4, 4], 31),
+          finalNorm: norm(32),
+          blocks: [{ attentionNorm: norm(33), feedForwardNorm: norm(34), qkv: affine(4, 12, 35), attentionOutput: affine(4, 4, 37), expand: affine(4, 8, 39), contract: affine(8, 4, 41) }],
+        },
+      )
+      runPaired('BF16-stored GPT-2 prefill', model.forward(3), model.parameters, session => ({
+        ids: session.tensor([1, 2, 3], { dtype: 'i64' }),
+        positions: session.tensor([0, 1, 2], { dtype: 'i64' }),
+        mask: session.tensor([[[[0, 1, 1], [0, 0, 1], [0, 0, 0]]]], { dtype: 'i64' }),
+      }), f32Tolerance)
     } finally {
       sourceSession.dispose()
     }
