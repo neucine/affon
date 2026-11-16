@@ -1,6 +1,6 @@
 import { getEnv } from "std:process"
 import { describe, expect, test } from "std:test"
-import { add, embedding, gather, index_select, matmul, neg, permute, reduce_to_shape, reshape, scatter_add, sin, slice, squeeze, sum, transpose, unsqueeze } from "affon:ops"
+import { add, cross_entropy, dense_cross_entropy, embedding, gather, index_select, log_softmax_nll, matmul, neg, permute, quantized_matmul, reduce_to_shape, reshape, scatter_add, sin, slice, squeeze, sum, transpose, unsqueeze } from "affon:ops"
 import { Session, Tensor, program } from "affon:core"
 
 const backendSymbol = Symbol.for("affon.compute.executable_backend")
@@ -131,22 +131,94 @@ describe("public CPU Session Cyna execution", () => {
     session.dispose()
   })
 
-  test("reports unsupported lowering details before using the Zig fallback", () => {
-    const source = program("cyna_unsupported_reduce_shape", p => reduce_to_shape(
+  test("routes reduce_to_shape through Cyna", () => {
+    const source = program("cyna_reduce_shape", p => reduce_to_shape(
       p.argument("value", Tensor.f32([2, 3])),
       [1, 3],
     ))
     const session = new Session({ device: "cpu" })
     const executable = session.compile(source)
-    const routing = (executable as any)[routingSymbol]()
-    expect(routing.configured_backend).toBe("cpu")
     if (requireCyna) {
-      expect(routing.backend).toBe("zig")
-      expect(routing.category).toBe("operation")
-      expect(routing.reason).toBe("InvalidProgram")
-      expect(routing.operation).toBe("reduce_to_shape")
-      expect(routing.option).toBe("reduce_to_shape")
-    } else expect(routing.reason).toBe("cyna_disabled")
+      expect((executable as any)[routingSymbol]().reason).toBe("lowered")
+      expect((executable as any)[backendSymbol]()).toBe("cyna")
+    }
+
+    const value = session.tensor([[1, 2, 3], [4, 5, 6]])
+    const result = executable.run({ value }) as any
+    expect(result.shape).toEqual([1, 3])
+    expect(result.to_array()).toEqual([[5, 7, 9]])
+
+    result.dispose()
+    value.dispose()
+    executable.dispose()
+    session.dispose()
+  })
+
+  test("routes quantized matmul through Cyna", () => {
+    const source = program("cyna_quantized_matmul", p => quantized_matmul(
+      p.argument("x", Tensor.f32([1, 4])),
+      p.argument("packed", Tensor.u32([1, 1])),
+      p.argument("scales", Tensor.bf16([1, 1])),
+      p.argument("biases", Tensor.bf16([1, 1])),
+      { bits: 8, group_size: 4 },
+    ))
+    const session = new Session({ device: "cpu" })
+    const executable = session.compile(source)
+    if (requireCyna) {
+      const routing = (executable as any)[routingSymbol]()
+      expect(routing.backend).toBe("cyna")
+      expect(routing.reason).toBe("lowered")
+      expect((executable as any)[backendSymbol]()).toBe("cyna")
+    }
+
+    const x = session.tensor([[1, 2, 3, 4]])
+    const packed = session.tensor([[0x04030201]], { dtype: "u32" })
+    const scales = session.tensor([[1]], { dtype: "bf16" })
+    const biases = session.tensor([[0]], { dtype: "bf16" })
+    const result = executable.run({ x, packed, scales, biases }) as any
+    expect(result.to_array()).toEqual([[30]])
+
+    result.dispose()
+    biases.dispose()
+    scales.dispose()
+    packed.dispose()
+    x.dispose()
+    executable.dispose()
+    session.dispose()
+  })
+
+  test("routes indexed and dense losses through Cyna", () => {
+    const source = program("cyna_losses", p => {
+      const logits = p.argument("logits", Tensor.f32([2, 3]))
+      const targets = p.argument("targets", Tensor.f32([2, 3]))
+      return [
+        cross_entropy(logits, p.argument("labels", Tensor.i64([2]))),
+        dense_cross_entropy(logits, targets),
+        log_softmax_nll(logits, targets),
+      ]
+    })
+    const session = new Session({ device: "cpu" })
+    const executable = session.compile(source)
+    if (requireCyna) {
+      const routing = (executable as any)[routingSymbol]()
+      expect(routing.backend).toBe("cyna")
+      expect(routing.reason).toBe("lowered")
+      expect((executable as any)[backendSymbol]()).toBe("cyna")
+    }
+
+    const logits = session.tensor([[0, 0, 0], [0, 0, 0]])
+    const labels = session.tensor([0, 2], { dtype: "i64" })
+    const targets = session.tensor([[0.5, 0.5, 0], [0, 0.5, 0.5]])
+    const results = executable.run({ logits, labels, targets }) as any[]
+    for (const result of results) {
+      expect(result.shape).toEqual([1])
+      expect(Math.abs((result.to_array() as number[])[0] - Math.log(3)) < 1e-6).toBe(true)
+    }
+
+    for (const result of results) result.dispose()
+    targets.dispose()
+    labels.dispose()
+    logits.dispose()
     executable.dispose()
     session.dispose()
   })

@@ -388,6 +388,21 @@ fn mapInstruction(
             if (operands.len != 2 or output_ids.len != 1) return error.InvalidProgram;
             step = .{ .operation = binaryOperation(tag), .lhs = operands[0], .rhs = operands[1] };
         },
+        .quantized_matmul => {
+            if (operands.len != 4 or output_ids.len != 1 or options != .quantized_matmul)
+                return error.InvalidProgram;
+            const metadata = try allocator.alloc(usize, 3);
+            metadata[0] = operands[3];
+            metadata[1] = options.quantized_matmul.bits;
+            metadata[2] = options.quantized_matmul.group_size;
+            step = .{
+                .operation = .quantized_matmul,
+                .lhs = operands[0],
+                .rhs = operands[1],
+                .third = operands[2],
+                .metadata = metadata,
+            };
+        },
         .abs, .neg, .relu, .exp, .log, .sqrt, .sign, .sigmoid, .silu, .tanh, .erf, .gelu, .sin, .cos => {
             if (operands.len != 1 or output_ids.len != 1) return error.InvalidProgram;
             step = .{ .operation = unaryOperation(tag), .lhs = operands[0] };
@@ -413,6 +428,15 @@ fn mapInstruction(
             if (operands.len != 1 or output_ids.len != 1 or options != .reshape)
                 return error.InvalidProgram;
             step = .{ .operation = .reshape, .lhs = operands[0], .metadata = options.reshape.shape };
+        },
+        .reduce_to_shape => {
+            if (operands.len != 1 or output_ids.len != 1 or options != .reduce_to_shape)
+                return error.InvalidProgram;
+            step = .{
+                .operation = .reduce_to_shape,
+                .lhs = operands[0],
+                .metadata = options.reduce_to_shape.shape,
+            };
         },
         .permute => {
             if (operands.len != 1 or output_ids.len != 1 or options != .permute)
@@ -540,6 +564,26 @@ fn mapInstruction(
                 .lhs = operands[0],
                 .rhs = axis,
                 .metadata = scalar,
+            };
+        },
+        .cross_entropy_indexed, .cross_entropy, .log_softmax_nll => {
+            if (operands.len != 2 or output_ids.len != 1) return error.InvalidProgram;
+            const axis = switch (options) {
+                .cross_entropy_indexed => |value| value.axis,
+                .cross_entropy => |value| value.axis,
+                .log_softmax_nll => |value| value.axis,
+                else => return error.InvalidProgram,
+            };
+            step = .{
+                .operation = switch (tag) {
+                    .cross_entropy_indexed => .cross_entropy_indexed,
+                    .cross_entropy => .cross_entropy,
+                    .log_softmax_nll => .log_softmax_nll,
+                    else => unreachable,
+                },
+                .lhs = operands[0],
+                .rhs = operands[1],
+                .third = axis,
             };
         },
         .one_hot => {
