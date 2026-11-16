@@ -84,11 +84,19 @@ Zig execution. f32 uses `3e-4` absolute plus relative tolerance, f64 uses
 
 This establishes representative numerical agreement, not complete model,
 dtype, quality, or performance coverage. Keep the compile-only survey as the
-lower barrier that reports new fallbacks as the corpus grows. The remaining
-backend-maturity step is to measure Cyna against Zig on representative prefill
-and decode workloads, recording hardware, shapes, dtypes, warmup, repetitions,
-and variance. Default Cyna execution should require both numerical coverage and
-measured performance, rather than compile routing alone.
+lower barrier that reports new fallbacks as the corpus grows.
+
+The first bounded performance comparison now covers synthetic f32 Llama prefill
+and cached decode in separate ReleaseFast processes. On an Apple M4 running
+macOS 26.6.2, Cyna's median time was 5.95 times Zig's for 64-token prefill and
+37.96 times Zig's for one cached decode token. Outputs agreed within the f32
+tolerance. The benchmark excludes model construction, compilation, state and
+input setup, and warmup, and records raw samples, median, and variance. The
+large measured slowdown means backend performance parity is not yet established.
+The next backend milestone is to remove the prefill and decode performance gaps
+and repeat the comparison across representative shapes and dtypes. Default Cyna
+execution should require both numerical coverage and measured performance,
+rather than compile routing alone.
 
 ### Expand model evidence
 

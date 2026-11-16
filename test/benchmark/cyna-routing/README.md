@@ -118,8 +118,57 @@ BF16 Programs exercise BF16 arithmetic. The BF16 GPT-2 case exercises BF16
 parameter storage through public model constructors, while its arithmetic
 remains f32. The models are tiny constructor fixtures, not trained checkpoints.
 The ONNX evidence covers all three prepared importer fixtures, but not arbitrary
-ONNX graphs. All comparisons use the CPU backend. No result in this directory
-measures Cyna speed relative to Zig.
+ONNX graphs. All comparisons use the CPU backend.
+
+## Llama performance
+
+`run.py` builds two ReleaseFast Affon executables: one with Cyna enabled and one
+with the normal Zig CPU path. Each executable runs `performance.ts` in its own
+process. The benchmark creates a deterministic synthetic Llama, compiles prefill
+and cached decode Programs, checks both routes, and compares their logits. Model
+construction, Program creation, compilation, state initialization, parameter
+creation, input creation, and warmup are outside the timed region. Each sample
+times invocation through disposal of every output, with the same parameters and
+inputs reused.
+
+The measured workload uses f32 arithmetic with width 128, inner width 344, four
+query heads, two KV heads, two layers, context length 256, vocabulary size 1024,
+prefill length 64, and cached decode position 128. The weights are generated
+deterministically from fixed seeds. This measures runtime speed and numerical
+agreement, not trained-model quality.
+
+Run the benchmark with:
+
+```sh
+python3 test/benchmark/cyna-routing/run.py
+```
+
+The script prints the output directory and writes `summary.json`, the separate
+runtime reports, and build/run logs. It requires local Cyna and compute-core
+libraries; pass `--cyna-lib-dir` and `--compute-core-lib-dir` when they are not
+in the default development locations.
+
+On 2026-11-16, an Apple M4 with 16 GB memory running macOS 26.6.2 produced these
+ReleaseFast results after two warmups and seven timed samples:
+
+| Backend | Workload | Tokens | Samples (ms) | Median (ms) | Standard deviation (ms) | Tokens/s |
+| --- | --- | ---: | --- | ---: | ---: | ---: |
+| Cyna | prefill | 64 | 188.294, 187.562, 186.803, 186.924, 187.299, 187.239, 187.175 | 187.239 | 0.493 | 341.81 |
+| Zig | prefill | 64 | 31.477, 31.491, 31.677, 31.313, 31.622, 31.419, 31.153 | 31.477 | 0.179 | 2033.23 |
+| Cyna | cached decode | 1 | 62.063, 61.825, 61.273, 62.083, 62.320, 61.746, 63.738 | 62.063 | 0.775 | 16.11 |
+| Zig | cached decode | 1 | 1.635, 1.627, 1.643, 1.647, 1.641, 1.620, 1.590 | 1.635 | 0.020 | 611.62 |
+
+Cyna's median wall time was 5.95 times the Zig time for prefill and 37.96 times
+the Zig time for cached decode in this run. The outputs agreed numerically:
+prefill had at most `5.96e-7` absolute difference and cached decode had at most
+`3.58e-7`, with no values outside the f32 `3e-4` absolute plus relative
+tolerance. These results make Cyna's current performance cost visible; they do
+not show that Cyna is faster on representative Llama execution.
+
+The environment used Affon `38aef3180`, Cyna `113a283543b`, and compute-core
+`9eace48b66f`. Results are host- and shape-specific. Sequential process runs
+can still be affected by host activity, and this one shape does not establish
+performance for other models, dtypes, batch sizes, or CPU hardware.
 
 ## Decision
 
@@ -128,18 +177,19 @@ sample. Every added Program routes through Cyna. The remaining fallbacks request
 observability behavior outside this lowering question. Adding another lowering
 rule now would be driven by vocabulary shape rather than a measured fallback.
 
-The bounded execution milestone is now met for the nine Programs above.
-Compile coverage still does not imply complete numerical, dtype, or model
-coverage. Keep looking for repeated lowering fallbacks as the corpus grows, and
-extend runtime evidence before turning any compile-only route into a broader
-support claim.
+The bounded execution milestone is now met for the Programs above. A first
+Llama performance comparison is also complete, but it shows a large Cyna
+slowdown rather than backend parity. Compile coverage still does not imply
+complete numerical, dtype, or model coverage. Keep looking for repeated
+lowering fallbacks as the corpus grows, and extend runtime evidence before
+turning any compile-only route into a broader support claim.
 
 Keep the following limits explicit when comparing later runs:
 
 - coverage means this registry, not every valid `affon:core` Program
 - these are tiny constructor and importer fixtures, not complete trained models
 - runtime parity covers 16 representative Programs and does not imply complete model support
-- compilation and parity say nothing about runtime speed
+- one Llama measurement does not establish performance for other shapes, dtypes, or models
 - the centralized observability fallbacks are expected until their evidence
   semantics exist on the Cyna path
 - non-CPU backends and disabled-Cyna configurations are outside this survey
