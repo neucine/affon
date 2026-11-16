@@ -73,10 +73,19 @@ All 13 imported and model additions route through Cyna. The other two Programs
 request observability evidence that still requires Zig, so the broader sample
 still has no portable lowering target.
 
-The next milestone is bounded execution evidence for these routes: initialize
-parameters, run representative Programs, and compare outputs against the Zig
-path or an independent reference. Keep the compile-only survey as the lower
-barrier that reports new fallbacks as the corpus grows.
+Bounded execution evidence now covers nine f32 Programs through public CPU
+Sessions, including all three prepared ONNX fixtures, small GPT-2, BERT, and ViT
+models, and Llama prefill plus cached decode. Each Cyna output matches an
+evidence-forced Zig execution within `3e-4` absolute plus relative tolerance.
+This establishes representative numerical agreement, not complete model,
+dtype, quality, or performance coverage. Keep the compile-only survey as the
+lower barrier that reports new fallbacks as the corpus grows.
+
+The next milestone is backend maturity for the covered CPU Programs: widen
+numerical-parity coverage across dtypes and shapes, then measure Cyna against
+Zig on representative decode and prefill workloads. Default Cyna execution
+should require both numerical coverage and measured performance, rather than
+compile routing alone.
 
 ### Expand model evidence
 

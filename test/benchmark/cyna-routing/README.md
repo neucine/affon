@@ -65,6 +65,43 @@ Each Session is CPU-only. The runner reads the executable's internal routing
 record, disposes the executable, and then disposes the Session. It never runs a
 Program and does not count an unsupported Program as a Cyna success.
 
+## Runtime parity
+
+The bounded runtime check covers nine f32 Programs. It runs each Program in two
+public CPU Sessions: one lowers to Cyna, while the other requests evidence
+capture and therefore executes on Zig. The check requires the Cyna route to
+report `lowered`, the comparison route to report `evidence_capture`, and every
+output to have the same shape, dtype, and finite values. Numerical values must
+agree within `3e-4` absolute plus `3e-4` relative tolerance.
+
+Run it with:
+
+```sh
+AFFON_TEST_CYNA_SESSION=1 ./zig-out/bin/affon \
+  test/benchmark/cyna-routing/runtime-parity.test.ts
+```
+
+The passing Programs are:
+
+| Corpus | Program |
+| --- | --- |
+| Authored | transformer block with layer norm, attention, residual, and RMS norm |
+| Imported ONNX | generic fixture |
+| Imported ONNX | spatial fixture |
+| Imported ONNX | Conv1d fixture |
+| GPT-2 | small f32 prefill |
+| BERT | small f32 encoder |
+| ViT | small f32 image encoder |
+| Llama | small f32 prefill |
+| Llama | small f32 cached decode |
+
+These are parity checks, not model-quality or performance claims. Parameters
+and activations use f32; BF16 and f64 routes appear in the compile survey but
+have no runtime-parity evidence yet. The models are tiny constructor fixtures,
+not trained checkpoints. The ONNX evidence covers all three prepared importer
+fixtures, but not arbitrary ONNX graphs. All comparisons use the CPU backend.
+No result in this directory measures Cyna speed relative to Zig.
+
 ## Decision
 
 No portable Cyna lowering target appears in the authored, imported, or model
@@ -72,17 +109,18 @@ sample. Every added Program routes through Cyna. The remaining fallbacks request
 observability behavior outside this lowering question. Adding another lowering
 rule now would be driven by vocabulary shape rather than a measured fallback.
 
-The next useful milestone is execution evidence for a bounded subset of these
-Cyna routes. Compile coverage does not show numerical agreement, parameter
-initialization, or runtime performance. Keep looking for repeated lowering
-fallbacks as the corpus grows, but require measured evidence before implementing
-one.
+The bounded execution milestone is now met for the nine Programs above.
+Compile coverage still does not imply complete numerical, dtype, or model
+coverage. Keep looking for repeated lowering fallbacks as the corpus grows, and
+extend runtime evidence before turning any compile-only route into a broader
+support claim.
 
 Keep the following limits explicit when comparing later runs:
 
 - coverage means this registry, not every valid `affon:core` Program
 - these are tiny constructor and importer fixtures, not complete trained models
-- compilation says nothing about numerical parity or runtime speed
+- runtime parity covers nine f32 Programs and does not imply complete model support
+- compilation and parity say nothing about runtime speed
 - the centralized observability fallbacks are expected until their evidence
   semantics exist on the Cyna path
 - non-CPU backends and disabled-Cyna configurations are outside this survey
