@@ -173,6 +173,14 @@ Cyna took 0.31 times as long as Zig for prefill and 0.73 times as long for
 cached decode. Set `AFFON_CYNA_PROFILE=1` to print per invocation pack, input
 creation, graph, and output times plus prepared cache hit and miss counts.
 
+The dense output path now creates the Zig tensor directly from Cyna's copied
+backing bytes. In the 128×128 dense matrix probe, the warm output stage fell
+from a 6 µs median to 4 µs. The full Cyna sample stayed near 46 µs, while the
+Zig sample was near 12 µs; graph execution remained about 17 µs. A paired
+Llama run after this change measured 9.452/29.928 ms prefill and 1.189/1.541 ms
+decode for Cyna/Zig, with all logits inside tolerance. These timings include
+host noise and do not isolate kernel work.
+
 The outputs agreed numerically: maximum absolute differences were `7.15e-7`
 for prefill and `4.47e-7` for decode, with no values outside the f32 `3e-4`
 absolute plus relative tolerance. The benchmark runner writes the full samples and build logs to its output

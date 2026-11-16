@@ -207,6 +207,20 @@ pub const Executable = struct {
             const backing_bytes = try self.allocator.alloc(u8, layout.backing_bytes);
             defer self.allocator.free(backing_bytes);
             try self.handle.readTensorBacking(output_tokens[index], backing_bytes);
+            var dense_output = layout.offset_bytes == 0 and layout.backing_bytes == output.byte_count;
+            var expected_stride: usize = 1;
+            var axis = output.dimensions.len;
+            while (axis > 0) {
+                axis -= 1;
+                if (stride_words[axis] != expected_stride) dense_output = false;
+                expected_stride = std.math.mul(usize, expected_stride, output.dimensions[axis]) catch
+                    return error.InvalidShape;
+            }
+            if (dense_output) {
+                results[index] = try zig_session.createTensor(output.spec(self.allocator), backing_bytes);
+                created += 1;
+                continue;
+            }
             const backing = try zig_session.createTensor(backing_spec, backing_bytes);
             defer backing.deinit();
 
