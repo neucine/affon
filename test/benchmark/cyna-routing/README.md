@@ -149,24 +149,25 @@ libraries; pass `--cyna-lib-dir` and `--compute-core-lib-dir` when they are not
 in the default development locations.
 
 On 2026-11-16, an Apple M4 with 16 GB memory running macOS 26.6.2 produced
-these ReleaseFast results after two warmups and seven timed samples. This run
-used the prepared CPU cache for graphs with internal layout views.
+these ReleaseFast results after two warmups and seven timed samples. The Cyna
+route reused unchanged input tensors and used an accelerated f32 matrix kernel
+where the matrix layout allowed it.
 
 | Backend | Workload | Median (ms) | Standard deviation (ms) | Tokens/s |
 | --- | --- | ---: | ---: | ---: |
-| Cyna | prefill, 64 tokens | 132.657 | 0.734 | 482.45 |
-| Zig | prefill, 64 tokens | 31.311 | 0.236 | 2044.01 |
-| Cyna | cached decode, 1 token | 61.973 | 0.402 | 16.14 |
-| Zig | cached decode, 1 token | 1.593 | 0.010 | 627.75 |
+| Cyna | prefill, 64 tokens | 46.107 | 0.231 | 1388.08 |
+| Zig | prefill, 64 tokens | 33.043 | 0.795 | 1936.87 |
+| Cyna | cached decode, 1 token | 27.613 | 0.118 | 36.21 |
+| Zig | cached decode, 1 token | 1.708 | 0.206 | 585.48 |
 
-Cyna took 4.24 times as long as Zig for prefill and 38.90 times as long for
-cached decode. A local cache counter probe showed one preparation miss followed
-by three hits for each Llama graph in a shorter run. The earlier uncached
-prefill median was 187.239 ms and decode was 62.063 ms. The new run reduced
-prefill time, while decode remains close to its earlier result.
+Cyna took 1.40 times as long as Zig for prefill and 16.17 times as long for
+cached decode. Set `AFFON_CYNA_PROFILE=1` to print per invocation pack, input
+creation, graph, and output times plus prepared cache hit and miss counts.
+The earlier prepared cache run measured 132.657 ms for prefill and 61.973 ms
+for decode on Cyna.
 
-The outputs agreed numerically: maximum absolute differences were `5.96e-7`
-for prefill and `3.58e-7` for decode, with no values outside the f32 `3e-4`
+The outputs agreed numerically: maximum absolute differences were `7.15e-7`
+for prefill and `4.17e-7` for decode, with no values outside the f32 `3e-4`
 absolute plus relative tolerance. The benchmark runner writes the full samples and build logs to its output
 directory. This shape and host do not establish performance for other models,
 dtypes, batch sizes, or CPU hardware.

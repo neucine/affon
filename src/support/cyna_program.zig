@@ -25,6 +25,11 @@ const Input = union(enum) {
     constant: ConstantInput,
 };
 
+const CachedInput = struct {
+    bytes: []u8,
+    token: core.DenseGraphHandle.TensorToken,
+};
+
 const Output = struct {
     dtype: core.DenseDType,
     dimensions: []usize,
@@ -45,6 +50,13 @@ const Output = struct {
     }
 };
 
+fn profileNow() u64 {
+    var timestamp: std.c.timespec = undefined;
+    if (std.c.clock_gettime(.MONOTONIC, &timestamp) != 0) return 0;
+    return @as(u64, @intCast(timestamp.sec)) * std.time.ns_per_s +
+        @as(u64, @intCast(timestamp.nsec));
+}
+
 /// A compiled Cyna graph that consumes the same ordered input tensors as a
 /// Compute Program. The original Zig executable is retained by the caller as a
 /// fallback, so this type only owns the Cyna graph and copied constant bytes.
@@ -52,6 +64,8 @@ pub const Executable = struct {
     allocator: std.mem.Allocator,
     handle: core.DenseGraphHandle,
     inputs: []Input,
+    constant_tokens: []?core.DenseGraphHandle.TensorToken,
+    cached_dynamic: []?CachedInput,
     outputs: []Output,
     dense_inputs: bool,
     dynamic_byte_count: usize,
@@ -59,6 +73,17 @@ pub const Executable = struct {
     output_byte_count: usize,
 
     pub fn deinit(self: *Executable) void {
+        for (self.constant_tokens) |token| {
+            if (token) |value| self.handle.releaseTensor(value) catch {};
+        }
+        self.allocator.free(self.constant_tokens);
+        for (self.cached_dynamic) |cached| {
+            if (cached) |entry| {
+                self.handle.releaseTensor(entry.token) catch {};
+                self.allocator.free(entry.bytes);
+            }
+        }
+        self.allocator.free(self.cached_dynamic);
         self.handle.deinit();
         for (self.inputs) |*input| switch (input.*) {
             .dynamic => |*dynamic| self.allocator.free(dynamic.dimensions),
@@ -71,15 +96,20 @@ pub const Executable = struct {
     }
 
     pub fn run(
-        self: *const Executable,
+        self: *Executable,
         zig_session: *compute.Session,
         dynamic_inputs: []const *compute.Tensor,
     ) ![]*compute.Tensor {
+        const profiling = std.c.getenv("AFFON_CYNA_PROFILE") != null;
+        const start_ns = if (profiling) profileNow() else 0;
+        var pack_ns: u64 = 0;
+        var create_ns: u64 = 0;
+        var graph_ns: u64 = 0;
+        var output_ns: u64 = 0;
         if (dynamic_inputs.len > self.inputs.len) return error.InvalidShape;
-        const total_bytes = std.math.add(usize, self.dynamic_byte_count, self.constant_byte_count) catch
-            return error.InvalidShape;
-        const input_bytes = try self.allocator.alloc(u8, total_bytes);
+        const input_bytes = try self.allocator.alloc(u8, self.dynamic_byte_count);
         defer self.allocator.free(input_bytes);
+        const pack_start = if (profiling) profileNow() else 0;
         var cursor: usize = 0;
         var dynamic_index: usize = 0;
         for (self.inputs) |input| switch (input) {
@@ -97,38 +127,53 @@ pub const Executable = struct {
                     return error.InvalidShape;
                 cursor += expected;
             },
-            .constant => |constant| {
-                @memcpy(input_bytes[cursor..][0..constant.bytes.len], constant.bytes);
-                cursor += constant.bytes.len;
-            },
+            .constant => {},
         };
         if (dynamic_index != dynamic_inputs.len or cursor != input_bytes.len)
             return error.InvalidShape;
 
+        if (profiling) pack_ns = profileNow() - pack_start;
+        const create_start = if (profiling) profileNow() else 0;
         const input_tokens = try self.allocator.alloc(core.DenseGraphHandle.TensorToken, self.inputs.len);
         defer self.allocator.free(input_tokens);
-        var created_inputs: usize = 0;
-        defer for (input_tokens[0..created_inputs]) |token| {
-            self.handle.releaseTensor(token) catch {};
-        };
         cursor = 0;
-        for (self.inputs, 0..) |input, index| {
-            const byte_count = switch (input) {
-                .dynamic => |descriptor| byteCount(descriptor.dimensions, descriptor.dtype) catch
-                    return error.InvalidShape,
-                .constant => |constant| constant.bytes.len,
-            };
-            input_tokens[index] = try self.handle.createInputTensor(
-                index,
-                input_bytes[cursor..][0..byte_count],
-            );
-            created_inputs += 1;
-            cursor += byte_count;
-        }
+        for (self.inputs, 0..) |input, index| switch (input) {
+            .dynamic => |descriptor| {
+                const byte_count = byteCount(descriptor.dimensions, descriptor.dtype) catch
+                    return error.InvalidShape;
+                const bytes = input_bytes[cursor..][0..byte_count];
+                if (self.cached_dynamic[index]) |cached| {
+                    if (std.mem.eql(u8, cached.bytes, bytes)) {
+                        input_tokens[index] = cached.token;
+                        cursor += byte_count;
+                        continue;
+                    }
+                }
+                const owned_bytes = try self.allocator.dupe(u8, bytes);
+                const token = self.handle.createInputTensor(index, bytes) catch |err| {
+                    self.allocator.free(owned_bytes);
+                    return err;
+                };
+                if (self.cached_dynamic[index]) |cached| {
+                    self.handle.releaseTensor(cached.token) catch {};
+                    self.allocator.free(cached.bytes);
+                }
+                self.cached_dynamic[index] = .{ .bytes = owned_bytes, .token = token };
+                input_tokens[index] = token;
+                cursor += byte_count;
+            },
+            .constant => {
+                input_tokens[index] = self.constant_tokens[index] orelse return error.InvalidShape;
+            },
+        };
 
+        if (profiling) create_ns = profileNow() - create_start;
+        const graph_start = if (profiling) profileNow() else 0;
         const output_tokens = try self.allocator.alloc(core.DenseGraphHandle.TensorToken, self.outputs.len);
         defer self.allocator.free(output_tokens);
         try self.handle.runTensors(self.allocator, input_tokens, output_tokens);
+        if (profiling) graph_ns = profileNow() - graph_start;
+        const output_start = if (profiling) profileNow() else 0;
         var created_outputs: usize = 0;
         defer for (output_tokens[0..created_outputs]) |token| {
             self.handle.releaseTensor(token) catch {};
@@ -176,6 +221,15 @@ pub const Executable = struct {
             );
             created += 1;
         }
+        if (profiling) {
+            output_ns = profileNow() - output_start;
+            std.debug.print("AFFON_CYNA_PROFILE pack_us={d} create_us={d} graph_us={d} output_us={d} total_us={d} hits={d} misses={d}\n", .{
+                pack_ns / std.time.ns_per_us, create_ns / std.time.ns_per_us,
+                graph_ns / std.time.ns_per_us, output_ns / std.time.ns_per_us,
+                (profileNow() - start_ns) / std.time.ns_per_us,
+                self.handle.cacheHits(), self.handle.cacheMisses(),
+            });
+        }
         return results;
     }
 };
@@ -194,7 +248,13 @@ pub fn lower(
     @memset(mapping, no_value);
 
     var inputs: std.ArrayList(Input) = .empty;
-    errdefer inputs.deinit(allocator);
+    errdefer {
+        for (inputs.items) |input| switch (input) {
+            .dynamic => |dynamic| allocator.free(dynamic.dimensions),
+            .constant => |constant| allocator.free(constant.bytes),
+        };
+        inputs.deinit(allocator);
+    }
     var input_descriptors: std.ArrayList(core.DenseByteInput) = .empty;
     defer input_descriptors.deinit(temporary);
     var dynamic_byte_count: usize = 0;
@@ -344,10 +404,36 @@ pub fn lower(
         },
     };
     errdefer handle.deinit();
+    const owned_inputs = try inputs.toOwnedSlice(allocator);
+    errdefer {
+        for (owned_inputs) |input| switch (input) {
+            .dynamic => |dynamic| allocator.free(dynamic.dimensions),
+            .constant => |constant| allocator.free(constant.bytes),
+        };
+        allocator.free(owned_inputs);
+    }
+    const constant_tokens = try allocator.alloc(?core.DenseGraphHandle.TensorToken, owned_inputs.len);
+    @memset(constant_tokens, null);
+    errdefer {
+        for (constant_tokens) |token| {
+            if (token) |value| handle.releaseTensor(value) catch {};
+        }
+        allocator.free(constant_tokens);
+    }
+    for (owned_inputs, 0..) |input, index| switch (input) {
+        .dynamic => {},
+        .constant => |constant| {
+            constant_tokens[index] = try handle.createInputTensor(index, constant.bytes);
+        },
+    };
+    const cached_dynamic = try allocator.alloc(?CachedInput, owned_inputs.len);
+    @memset(cached_dynamic, null);
     return .{
         .allocator = allocator,
         .handle = handle,
-        .inputs = try inputs.toOwnedSlice(allocator),
+        .inputs = owned_inputs,
+        .constant_tokens = constant_tokens,
+        .cached_dynamic = cached_dynamic,
         .outputs = outputs,
         .dense_inputs = dense_inputs,
         .dynamic_byte_count = dynamic_byte_count,

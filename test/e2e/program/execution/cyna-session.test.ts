@@ -49,6 +49,15 @@ describe("public CPU Session Cyna execution", () => {
     expect(output.to_bytes().byteLength).toBe(16)
     expect(output.to_array()).toEqual([[33, 49], [81, 106]])
 
+    const repeated = executable.run({ left, right, bias }) as any
+    expect(repeated.to_array()).toEqual([[33, 49], [81, 106]])
+    const changedLeft = session.tensor([[2, 3, 4], [5, 6, 7]])
+    const changed = executable.run({ left: changedLeft, right, bias }) as any
+    expect(changed.to_array()).toEqual([[42, 61], [90, 118]])
+
+    changed.dispose()
+    changedLeft.dispose()
+    repeated.dispose()
     output.dispose()
     bias.dispose()
     right.dispose()
