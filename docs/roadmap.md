@@ -90,13 +90,13 @@ The bounded performance comparison covers synthetic f32 Llama prefill and
 cached decode in separate ReleaseFast processes. With prepared CPU caching for
 internal layout views, a local probe showed one miss followed by three hits
 per graph. With input reuse and accelerated f32 matrix multiplication on an
-Apple M4 running macOS 26.6.2, Cyna's median time was 1.40 times Zig's for
-64-token prefill and 16.17 times Zig's for one cached decode
-token. Outputs agreed within the f32 tolerance. The benchmark excludes model
+Apple M4 running macOS 26.6.2, the latest CPU kernel source changes brought
+Cyna's median time to 0.34 times Zig's for 64-token prefill and 1.26 times
+Zig's for one cached decode token. Outputs agreed within the f32 tolerance.
+The benchmark excludes model
 construction, compilation, state and input setup, and warmup. Prepared caching
-and input reuse reduce prefill time. The decode performance gap remains large.
-The next backend milestone is to find and reduce the remaining execution cost, then
-repeat the comparison across representative shapes and dtypes.
+and input reuse reduce prefill time. The remaining decode gap and other shapes
+and dtypes still need measurement before broad CPU performance parity is claimed.
 
 ### Expand model evidence
 

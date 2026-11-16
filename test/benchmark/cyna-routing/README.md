@@ -148,26 +148,25 @@ runtime reports, and build/run logs. It requires local Cyna and compute-core
 libraries; pass `--cyna-lib-dir` and `--compute-core-lib-dir` when they are not
 in the default development locations.
 
-On 2026-11-16, an Apple M4 with 16 GB memory running macOS 26.6.2 produced
-these ReleaseFast results after two warmups and seven timed samples. The Cyna
-route reused unchanged input tensors and used an accelerated f32 matrix kernel
-where the matrix layout allowed it.
+On 2026-11-17 in New Zealand, an Apple M4 with 16 GB memory running macOS
+26.6.2 produced these ReleaseFast results after two warmups and seven timed
+samples. The Cyna route reused unchanged input tensors. The CPU source changes
+include dense softmax, embedding, index selection, view copies, and structural
+copies, plus an accelerated f32 dot product.
 
 | Backend | Workload | Median (ms) | Standard deviation (ms) | Tokens/s |
 | --- | --- | ---: | ---: | ---: |
-| Cyna | prefill, 64 tokens | 46.107 | 0.231 | 1388.08 |
-| Zig | prefill, 64 tokens | 33.043 | 0.795 | 1936.87 |
-| Cyna | cached decode, 1 token | 27.613 | 0.118 | 36.21 |
-| Zig | cached decode, 1 token | 1.708 | 0.206 | 585.48 |
+| Cyna | prefill, 64 tokens | 10.526 | 0.016 | 6080.18 |
+| Zig | prefill, 64 tokens | 31.399 | 0.087 | 2038.28 |
+| Cyna | cached decode, 1 token | 2.034 | 0.014 | 491.64 |
+| Zig | cached decode, 1 token | 1.610 | 0.015 | 621.12 |
 
-Cyna took 1.40 times as long as Zig for prefill and 16.17 times as long for
+Cyna took 0.34 times as long as Zig for prefill and 1.26 times as long for
 cached decode. Set `AFFON_CYNA_PROFILE=1` to print per invocation pack, input
 creation, graph, and output times plus prepared cache hit and miss counts.
-The earlier prepared cache run measured 132.657 ms for prefill and 61.973 ms
-for decode on Cyna.
 
 The outputs agreed numerically: maximum absolute differences were `7.15e-7`
-for prefill and `4.17e-7` for decode, with no values outside the f32 `3e-4`
+for prefill and `4.47e-7` for decode, with no values outside the f32 `3e-4`
 absolute plus relative tolerance. The benchmark runner writes the full samples and build logs to its output
 directory. This shape and host do not establish performance for other models,
 dtypes, batch sizes, or CPU hardware.
