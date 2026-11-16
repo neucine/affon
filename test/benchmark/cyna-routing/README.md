@@ -148,27 +148,28 @@ runtime reports, and build/run logs. It requires local Cyna and compute-core
 libraries; pass `--cyna-lib-dir` and `--compute-core-lib-dir` when they are not
 in the default development locations.
 
-On 2026-11-16, an Apple M4 with 16 GB memory running macOS 26.6.2 produced these
-ReleaseFast results after two warmups and seven timed samples:
+On 2026-11-16, an Apple M4 with 16 GB memory running macOS 26.6.2 produced
+these ReleaseFast results after two warmups and seven timed samples. This run
+used the prepared CPU cache for graphs with internal layout views.
 
-| Backend | Workload | Tokens | Samples (ms) | Median (ms) | Standard deviation (ms) | Tokens/s |
-| --- | --- | ---: | --- | ---: | ---: | ---: |
-| Cyna | prefill | 64 | 188.294, 187.562, 186.803, 186.924, 187.299, 187.239, 187.175 | 187.239 | 0.493 | 341.81 |
-| Zig | prefill | 64 | 31.477, 31.491, 31.677, 31.313, 31.622, 31.419, 31.153 | 31.477 | 0.179 | 2033.23 |
-| Cyna | cached decode | 1 | 62.063, 61.825, 61.273, 62.083, 62.320, 61.746, 63.738 | 62.063 | 0.775 | 16.11 |
-| Zig | cached decode | 1 | 1.635, 1.627, 1.643, 1.647, 1.641, 1.620, 1.590 | 1.635 | 0.020 | 611.62 |
+| Backend | Workload | Median (ms) | Standard deviation (ms) | Tokens/s |
+| --- | --- | ---: | ---: | ---: |
+| Cyna | prefill, 64 tokens | 132.657 | 0.734 | 482.45 |
+| Zig | prefill, 64 tokens | 31.311 | 0.236 | 2044.01 |
+| Cyna | cached decode, 1 token | 61.973 | 0.402 | 16.14 |
+| Zig | cached decode, 1 token | 1.593 | 0.010 | 627.75 |
 
-Cyna's median wall time was 5.95 times the Zig time for prefill and 37.96 times
-the Zig time for cached decode in this run. The outputs agreed numerically:
-prefill had at most `5.96e-7` absolute difference and cached decode had at most
-`3.58e-7`, with no values outside the f32 `3e-4` absolute plus relative
-tolerance. These results make Cyna's current performance cost visible; they do
-not show that Cyna is faster on representative Llama execution.
+Cyna took 4.24 times as long as Zig for prefill and 38.90 times as long for
+cached decode. A local cache counter probe showed one preparation miss followed
+by three hits for each Llama graph in a shorter run. The earlier uncached
+prefill median was 187.239 ms and decode was 62.063 ms. The new run reduced
+prefill time, while decode remains close to its earlier result.
 
-The environment used Affon `38aef3180`, Cyna `113a283543b`, and compute-core
-`9eace48b66f`. Results are host- and shape-specific. Sequential process runs
-can still be affected by host activity, and this one shape does not establish
-performance for other models, dtypes, batch sizes, or CPU hardware.
+The outputs agreed numerically: maximum absolute differences were `5.96e-7`
+for prefill and `3.58e-7` for decode, with no values outside the f32 `3e-4`
+absolute plus relative tolerance. The benchmark runner writes the full samples and build logs to its output
+directory. This shape and host do not establish performance for other models,
+dtypes, batch sizes, or CPU hardware.
 
 ## Decision
 

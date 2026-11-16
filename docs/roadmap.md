@@ -86,17 +86,16 @@ This establishes representative numerical agreement, not complete model,
 dtype, quality, or performance coverage. Keep the compile-only survey as the
 lower barrier that reports new fallbacks as the corpus grows.
 
-The first bounded performance comparison now covers synthetic f32 Llama prefill
-and cached decode in separate ReleaseFast processes. On an Apple M4 running
-macOS 26.6.2, Cyna's median time was 5.95 times Zig's for 64-token prefill and
-37.96 times Zig's for one cached decode token. Outputs agreed within the f32
-tolerance. The benchmark excludes model construction, compilation, state and
-input setup, and warmup, and records raw samples, median, and variance. The
-large measured slowdown means backend performance parity is not yet established.
-The next backend milestone is to remove the prefill and decode performance gaps
-and repeat the comparison across representative shapes and dtypes. Default Cyna
-execution should require both numerical coverage and measured performance,
-rather than compile routing alone.
+The bounded performance comparison covers synthetic f32 Llama prefill and
+cached decode in separate ReleaseFast processes. With prepared CPU caching for
+internal layout views, a local probe showed one miss followed by three hits
+per graph. On an Apple M4 running macOS 26.6.2, Cyna's median time was 4.24
+times Zig's for 64-token prefill and 38.90 times Zig's for one cached decode
+token. Outputs agreed within the f32 tolerance. The benchmark excludes model
+construction, compilation, state and input setup, and warmup. Prepared caching
+reduces prefill time, while the decode performance gap remains large. The next
+backend milestone is to find and reduce the remaining execution cost, then
+repeat the comparison across representative shapes and dtypes.
 
 ### Expand model evidence
 
