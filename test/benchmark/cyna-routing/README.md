@@ -148,6 +148,12 @@ runtime reports, and build/run logs. It requires local Cyna and compute-core
 libraries; pass `--cyna-lib-dir` and `--compute-core-lib-dir` when they are not
 in the default development locations.
 
+For a focused f32 matrix check, run `transpose-matmul.ts` with a ReleaseFast
+Affon executable and `AFFON_TEST_CYNA_SESSION=1`. It measures a 128×128 matrix
+product with a transposed right operand. Set `AFFON_PROBE_TRANSPOSE=0` for the
+dense control. Each route warms up, then runs seven samples of 20 invocations;
+the script compares every output value and prints JSON timing samples.
+
 On 2026-11-17 in New Zealand, an Apple M4 with 16 GB memory running macOS
 26.6.2 produced these ReleaseFast results after two warmups and seven timed
 samples. The Cyna route reused unchanged input tensors. The CPU source changes
@@ -156,12 +162,12 @@ copies, plus an accelerated f32 dot product.
 
 | Backend | Workload | Median (ms) | Standard deviation (ms) | Tokens/s |
 | --- | --- | ---: | ---: | ---: |
-| Cyna | prefill, 64 tokens | 10.526 | 0.016 | 6080.18 |
-| Zig | prefill, 64 tokens | 31.399 | 0.087 | 2038.28 |
-| Cyna | cached decode, 1 token | 2.034 | 0.014 | 491.64 |
-| Zig | cached decode, 1 token | 1.610 | 0.015 | 621.12 |
+| Cyna | prefill, 64 tokens | 10.151 | 0.018 | 6304.80 |
+| Zig | prefill, 64 tokens | 31.490 | 0.226 | 2032.39 |
+| Cyna | cached decode, 1 token | 1.648 | 0.020 | 606.80 |
+| Zig | cached decode, 1 token | 1.634 | 0.017 | 612.00 |
 
-Cyna took 0.34 times as long as Zig for prefill and 1.26 times as long for
+Cyna took 0.32 times as long as Zig for prefill and 1.01 times as long for
 cached decode. Set `AFFON_CYNA_PROFILE=1` to print per invocation pack, input
 creation, graph, and output times plus prepared cache hit and miss counts.
 

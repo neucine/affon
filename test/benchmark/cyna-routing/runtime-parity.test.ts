@@ -98,6 +98,19 @@ function runPaired(
 }
 
 describe('Cyna runtime numerical parity', () => {
+  test('transposed f32 matrix multiplication matches Zig Session', () => {
+    const source = program('cyna_parity_transposed_matmul', p => matmul(
+      p.argument('x', Tensor.f32([2, 3])),
+      transpose(p.argument('weight', Tensor.f32([4, 3])), [1, 0]),
+    ))
+    runPaired('transposed f32 matrix multiplication', source, undefined, session => ({
+      x: session.tensor([[1, -2, 3], [4, 5, -6]], { dtype: 'f32' }),
+      weight: session.tensor([
+        [1, 2, 3], [-4, 5, 6], [7, -8, 9], [10, 11, -12],
+      ], { dtype: 'f32' }),
+    }))
+  })
+
   test('authored transformer block matches Zig Session', () => {
     const source = program('cyna_parity_transformer_block', p => {
       const input = p.argument('x', Tensor.f32([2, 4, 8]))
