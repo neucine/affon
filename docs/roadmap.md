@@ -91,7 +91,7 @@ cached decode in separate ReleaseFast processes. With prepared CPU caching for
 internal layout views, a local probe showed one miss followed by three hits
 per graph. With input reuse and accelerated f32 matrix multiplication on an
 Apple M4 running macOS 26.6.2, the latest CPU kernel source changes brought
-Cyna's median time to 0.32 times Zig's for 64-token prefill and 1.01 times
+Cyna's median time to 0.32 times Zig's for 64-token prefill and 0.96 times
 Zig's for one cached decode token. Outputs agreed within the f32 tolerance.
 The benchmark excludes model
 construction, compilation, state and input setup, and warmup. Prepared caching
