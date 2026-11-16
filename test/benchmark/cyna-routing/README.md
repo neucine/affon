@@ -181,6 +181,13 @@ Llama run after this change measured 9.452/29.928 ms prefill and 1.189/1.541 ms
 decode for Cyna/Zig, with all logits inside tolerance. These timings include
 host noise and do not isolate kernel work.
 
+The dense input route now checks the tensor's backing bytes against the cached
+input without first making a packed copy. A paired 128×128 run measured a
+36.7 µs Cyna median and an 11.05 µs Zig median. The public runtime suite
+passed 26/26, and the paired Llama run passed numerical parity with Cyna/Zig
+medians of 9.668/31.656 ms prefill and 1.181/1.600 ms decode. The improvement
+in the small matrix run is modest and can vary with host activity.
+
 The outputs agreed numerically: maximum absolute differences were `7.15e-7`
 for prefill and `4.47e-7` for decode, with no values outside the f32 `3e-4`
 absolute plus relative tolerance. The benchmark runner writes the full samples and build logs to its output

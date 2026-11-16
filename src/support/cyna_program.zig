@@ -107,8 +107,8 @@ pub const Executable = struct {
         var graph_ns: u64 = 0;
         var output_ns: u64 = 0;
         if (dynamic_inputs.len > self.inputs.len) return error.InvalidShape;
-        const input_bytes = try self.allocator.alloc(u8, self.dynamic_byte_count);
-        defer self.allocator.free(input_bytes);
+        const input_bytes = if (self.dense_inputs) null else try self.allocator.alloc(u8, self.dynamic_byte_count);
+        defer if (input_bytes) |bytes| self.allocator.free(bytes);
         const pack_start = if (profiling) profileNow() else 0;
         var cursor: usize = 0;
         var dynamic_index: usize = 0;
@@ -123,13 +123,15 @@ pub const Executable = struct {
                 if (self.dense_inputs and !denseTensor(tensor)) return error.GuardMismatch;
                 const expected = byteCount(descriptor.dimensions, descriptor.dtype) catch
                     return error.InvalidShape;
-                copyTensorBytes(tensor, input_bytes[cursor..][0..expected]) catch
-                    return error.InvalidShape;
+                if (input_bytes) |buffer| {
+                    copyTensorBytes(tensor, buffer[cursor..][0..expected]) catch
+                        return error.InvalidShape;
+                } else if (tensor.bytes().len < expected) return error.InvalidShape;
                 cursor += expected;
             },
             .constant => {},
         };
-        if (dynamic_index != dynamic_inputs.len or cursor != input_bytes.len)
+        if (dynamic_index != dynamic_inputs.len or cursor != self.dynamic_byte_count)
             return error.InvalidShape;
 
         if (profiling) pack_ns = profileNow() - pack_start;
@@ -137,11 +139,16 @@ pub const Executable = struct {
         const input_tokens = try self.allocator.alloc(core.DenseGraphHandle.TensorToken, self.inputs.len);
         defer self.allocator.free(input_tokens);
         cursor = 0;
+        dynamic_index = 0;
         for (self.inputs, 0..) |input, index| switch (input) {
             .dynamic => |descriptor| {
                 const byte_count = byteCount(descriptor.dimensions, descriptor.dtype) catch
                     return error.InvalidShape;
-                const bytes = input_bytes[cursor..][0..byte_count];
+                const bytes = if (input_bytes) |buffer|
+                    buffer[cursor..][0..byte_count]
+                else
+                    dynamic_inputs[dynamic_index].bytes()[0..byte_count];
+                dynamic_index += 1;
                 if (self.cached_dynamic[index]) |cached| {
                     if (std.mem.eql(u8, cached.bytes, bytes)) {
                         input_tokens[index] = cached.token;
