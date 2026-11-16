@@ -152,7 +152,9 @@ For a focused f32 matrix check, run `transpose-matmul.ts` with a ReleaseFast
 Affon executable and `AFFON_TEST_CYNA_SESSION=1`. It measures a 128×128 matrix
 product with a transposed right operand. Set `AFFON_PROBE_TRANSPOSE=0` for the
 dense control. Each route warms up, then runs seven samples of 20 invocations;
-the script compares every output value and prints JSON timing samples.
+the script compares every output value and prints JSON timing samples. Set
+`AFFON_PROBE_SAMPLES` to a larger count when collecting a CPU stack sample, or
+`AFFON_PROBE_SIZE` to compare square matrix sizes.
 
 On 2026-11-17 in New Zealand, an Apple M4 with 16 GB memory running macOS
 26.6.2 produced these ReleaseFast results after two warmups and seven timed

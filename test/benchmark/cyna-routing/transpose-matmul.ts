@@ -3,12 +3,17 @@ import { Session, Tensor, program } from 'affon:core'
 import { getEnv } from 'std:process'
 import { matmul, transpose } from 'affon:ops'
 
-const size = 128
+const size = Number(getEnv('AFFON_PROBE_SIZE') ?? '128')
+if (!Number.isInteger(size) || size < 1 || size > 1024) {
+  throw Error('AFFON_PROBE_SIZE must be an integer from 1 to 1024')
+}
 const matrix = (seed: number): number[][] => Array.from({ length: size }, (_, row) =>
   Array.from({ length: size }, (_, column) =>
     (((row * 131 + column * 17 + seed) % 101) - 50) / 101))
 
 const transposed = getEnv('AFFON_PROBE_TRANSPOSE') !== '0'
+const sampleCount = Number(getEnv('AFFON_PROBE_SAMPLES') ?? '7')
+if (!Number.isInteger(sampleCount) || sampleCount < 7) throw Error('AFFON_PROBE_SAMPLES must be at least 7')
 const source = program('transpose_matmul_probe', p => matmul(
   p.argument('left', Tensor.f32([size, size])),
   transposed
@@ -31,7 +36,7 @@ function measure(forceZig: boolean) {
   try {
     for (let index = 0; index < 3; index++) run().dispose()
     const samples: number[] = []
-    for (let sample = 0; sample < 7; sample++) {
+    for (let sample = 0; sample < sampleCount; sample++) {
       const start = performance.now()
       for (let index = 0; index < 20; index++) run().dispose()
       samples.push((performance.now() - start) / 20)
@@ -41,7 +46,7 @@ function measure(forceZig: boolean) {
       const values = (output.to_array() as number[][]).flat()
       return {
         backend: (executable as any)[backendSymbol](),
-        median_ms: [...samples].sort((a, b) => a - b)[3],
+        median_ms: [...samples].sort((a, b) => a - b)[Math.floor(samples.length / 2)],
         samples_ms: samples,
         values,
       }
