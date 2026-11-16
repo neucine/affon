@@ -164,12 +164,12 @@ copies, plus an accelerated f32 dot product.
 
 | Backend | Workload | Median (ms) | Standard deviation (ms) | Tokens/s |
 | --- | --- | ---: | ---: | ---: |
-| Cyna | prefill, 64 tokens | 9.686 | 0.024 | 6607.47 |
-| Zig | prefill, 64 tokens | 31.389 | 0.216 | 2038.93 |
-| Cyna | cached decode, 1 token | 1.196 | 0.008 | 836.12 |
-| Zig | cached decode, 1 token | 1.614 | 0.026 | 619.58 |
+| Cyna | prefill, 64 tokens | 9.704 | 0.016 | 6595.22 |
+| Zig | prefill, 64 tokens | 31.533 | 0.093 | 2029.62 |
+| Cyna | cached decode, 1 token | 1.175 | 0.003 | 851.06 |
+| Zig | cached decode, 1 token | 1.614 | 0.019 | 619.58 |
 
-Cyna took 0.31 times as long as Zig for prefill and 0.74 times as long for
+Cyna took 0.31 times as long as Zig for prefill and 0.73 times as long for
 cached decode. Set `AFFON_CYNA_PROFILE=1` to print per invocation pack, input
 creation, graph, and output times plus prepared cache hit and miss counts.
 
