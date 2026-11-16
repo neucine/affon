@@ -6,12 +6,12 @@ description: Run Affon's WikiText-2 decoder example, inspect its Program, and ch
 Can a TypeScript program train a language model, rather than only call one? This
 example trains a small decoder on the bundled WikiText-2 data. It covers text
 preparation, a model with attention, a training step, validation, and a saved
-checkpoint. The short run below checks that the path works; it does not train a
-useful text generator.
+checkpoint. The run below shows the model learning over 256 training batches;
+it does not train a useful text generator.
 
-## Run the short training check
+## Train with a smaller tokenizer
 
-This run was checked with **Affon 0.4.2 on macOS arm64 using Metal**. Install
+This workflow uses **Affon 0.4.2 on macOS arm64 using Metal**. Install
 [Affon](/docs/getting-started/installation/), open a new terminal if the
 installer updated your `PATH`, and check `affon --version`. Then run from a
 fresh source checkout:
@@ -19,22 +19,25 @@ fresh source checkout:
 ```sh
 git clone https://github.com/neucine/affon.git
 cd affon
+mkdir -p apps/decoder-lm/artifacts/wikitext-8k
 RUNTIME_PACKAGE_PATH="$PWD/packages" \
-  AFFON_TRAIN_CONFIG=apps/decoder-lm/configs/train-decoder-lm-wikitext-debug.config.json \
+  AFFON_TRAIN_CONFIG=apps/decoder-lm/configs/train-decoder-lm-wikitext-8k.config.json \
   affon run apps/decoder-lm/train.ts
 ```
 
-The configuration uses a six-layer decoder, 256-token windows, 32 training
-batches, and eight validation batches. It writes token caches, a summary, and a
-checkpoint under `apps/decoder-lm/artifacts/wikitext/` in the checkout. It also
-generates a short text sample; do not judge model quality from this small run.
+The configuration uses a tokenizer trained on the WikiText-2 training split
+with **8,192 tokens**, a six-layer decoder, and 256-token windows. It caps
+training at 256 batches and evaluates up to 32 validation batches. It writes
+token caches, a summary, and a checkpoint under
+`apps/decoder-lm/artifacts/wikitext-8k/` in the checkout. Training takes
+longer than a quick installation check.
 
-In the verified run, validation loss fell from **10.832 to 9.833** after 32
-steps, and the app saved `clean-debug-run-epoch-1`. Your exact numbers may
-vary. The final lines should include `training complete`, `steps: 32`,
-`initialValLoss`, `finalValLoss`, and a checkpoint path. A falling loss here
-shows that this bounded training path executed; it is not a quality or speed
-comparison with other runtimes.
+In the saved Metal run, validation loss fell from **9.070 to 6.579** after
+256 steps, final training loss was **7.093**, and the app saved
+`first-run-epoch-1`. Your exact numbers may vary. The generated sample still
+repeated words and symbols. This is a capped run within one epoch; the result
+shows learning on these batches, not useful text generation. Loss values from
+different tokenizers cannot be compared directly.
 
 ## Where Affon fits
 
@@ -53,10 +56,13 @@ belongs. See the [decoder app guide](https://github.com/neucine/affon/tree/main/
 for the code and the [compute concepts](/docs/core/compute/) for Program and
 Session.
 
-## Continue beyond the check
+## Continue training
 
 The [main WikiText configuration](https://github.com/neucine/affon/blob/main/apps/decoder-lm/configs/train-decoder-lm-wikitext.config.json)
-sets a longer run. Read its batch, epoch, checkpoint, and device settings
-before using it; the short command above is the place to confirm your
-installation first. For a smaller introduction to Programs, try the
+sets a longer run with the GPT-2 tokenizer. Its loss values use a different
+token vocabulary. Read its batch, epoch, checkpoint, and device settings
+before using it. To recreate the smaller tokenizer, install Python
+`tokenizers==0.22.2` and run
+`python3 apps/decoder-lm/train-wikitext-tokenizer.py` from the repository root.
+For a smaller introduction to Programs, try the
 [first Program](/docs/getting-started/first-program/).
