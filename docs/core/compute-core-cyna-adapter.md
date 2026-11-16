@@ -40,5 +40,10 @@ selected output. Each output stays resident until the caller reads or releases
 it. Input tokens remain live across runs. The adapter also supports the packed
 byte run path.
 
-Affon's public `affon:core` Session still uses the Zig engine. This adapter
-is an isolated CPU integration gate; device handles remain to be integrated.
+Affon's public `affon:core` CPU Session selects Cyna for covered dense
+Programs. If Cyna cannot preserve the requested behavior, the routing record
+names the category, reason, operation, and option, and the Session keeps Zig as
+the explicit fallback. Evidence capture and compute timing still select Zig.
+Non-CPU backends and configurations that disable Cyna also remain outside the
+Cyna CPU route. The adapter described above remains the isolated integration
+gate for the underlying Cyna ABI.

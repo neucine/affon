@@ -65,6 +65,14 @@ Connect stable Program nodes to lowering decisions and runtime evidence without
 making backend plans part of Program meaning. Reports should explain unsupported
 operations and fallbacks with the exact dtype, shape, and target involved.
 
+The public CPU Session now routes 102 of 104 Programs in the compile-only
+[Cyna routing survey](../test/benchmark/cyna-routing/README.md) through Cyna.
+The other two Programs request observability evidence that still requires Zig.
+No portable lowering gap remains in that sample, so the next lowering milestone
+is a broader corpus: imported models and additional model-like graphs, reported
+with the same routing method. Choose and implement another lowering feature only
+after those Programs show a repeated portable fallback.
+
 ### Expand model evidence
 
 Use bounded authored and imported models to validate the complete path:
