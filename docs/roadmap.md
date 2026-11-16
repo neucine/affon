@@ -65,13 +65,18 @@ Connect stable Program nodes to lowering decisions and runtime evidence without
 making backend plans part of Program meaning. Reports should explain unsupported
 operations and fallbacks with the exact dtype, shape, and target involved.
 
-The public CPU Session now routes 102 of 104 Programs in the compile-only
+The public CPU Session now routes 115 of 117 Programs in the compile-only
 [Cyna routing survey](../test/benchmark/cyna-routing/README.md) through Cyna.
-The other two Programs request observability evidence that still requires Zig.
-No portable lowering gap remains in that sample, so the next lowering milestone
-is a broader corpus: imported models and additional model-like graphs, reported
-with the same routing method. Choose and implement another lowering feature only
-after those Programs show a repeated portable fallback.
+The sample includes authored operation Programs, public ONNX importer fixtures,
+and GPT-2, BERT, ViT, and Llama Programs with f32 and BF16 parameter storage.
+All 13 imported and model additions route through Cyna. The other two Programs
+request observability evidence that still requires Zig, so the broader sample
+still has no portable lowering target.
+
+The next milestone is bounded execution evidence for these routes: initialize
+parameters, run representative Programs, and compare outputs against the Zig
+path or an independent reference. Keep the compile-only survey as the lower
+barrier that reports new fallbacks as the corpus grows.
 
 ### Expand model evidence
 

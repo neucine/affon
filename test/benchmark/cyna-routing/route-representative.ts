@@ -10,12 +10,14 @@ import {
   sqrt, square, squeeze, stack, std, sub, sum, tanh, topk, transpose, unsqueeze,
   variance, where,
 } from 'affon:ops'
-import { buildRoutingReport, type Routing, type RoutingEntry } from './route-report.ts'
+import { importedAndModelPrograms } from './route-model-corpus.ts'
+import { buildRoutingReport, type Routing, type RoutingCorpus, type RoutingEntry } from './route-report.ts'
 
 const routingSymbol = Symbol.for('affon.compute.executable_routing')
 
-type RegistryEntry = Readonly<{
+export type RegistryEntry = Readonly<{
   name: string
+  corpus: RoutingCorpus
   source: Program
   options?: Readonly<{ telemetry?: { captureRecords?: number; computeTiming?: 'none' | 'invocation' | 'kernel' } }>
 }>
@@ -25,6 +27,7 @@ const bf16Vector = (name: string, shape: readonly number[] = [4]) => (p: any) =>
 const f64Vector = (name: string, shape: readonly number[] = [4]) => (p: any) => p.argument(name, Tensor.f64(shape))
 const define = (name: string, author: (p: any) => Program | any, options?: RegistryEntry['options']): RegistryEntry => ({
   name,
+  corpus: 'authored',
   source: program(`routing_${name}`, author),
   options,
 })
@@ -160,13 +163,18 @@ export const representativePrograms: readonly RegistryEntry[] = Object.freeze([
   define('observability_compute_timing', p => add(vector('a')(p), vector('b')(p)), { telemetry: { computeTiming: 'invocation' } }),
 ])
 
-export function measureRepresentativeRouting(entries: readonly RegistryEntry[] = representativePrograms): RoutingEntry[] {
+export const routingPrograms: readonly RegistryEntry[] = Object.freeze([
+  ...representativePrograms,
+  ...importedAndModelPrograms,
+])
+
+export function measureRepresentativeRouting(entries: readonly RegistryEntry[] = routingPrograms): RoutingEntry[] {
   return entries.map(entry => {
     const session = new Session({ device: 'cpu', telemetry: entry.options?.telemetry })
     try {
       const executable = session.compile(entry.source)
       try {
-        return { name: entry.name, routing: Object.freeze((executable as any)[routingSymbol]() as Routing) }
+        return { name: entry.name, corpus: entry.corpus, routing: Object.freeze((executable as any)[routingSymbol]() as Routing) }
       } finally {
         executable.dispose()
       }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'std:test'
-import { buildRoutingReport, type Routing, type RoutingEntry } from './route-report.ts'
+import { buildRoutingReport, type Routing, type RoutingCorpus, type RoutingEntry } from './route-report.ts'
 
 function route(
   backend: Routing['backend'],
@@ -19,8 +19,8 @@ function route(
   }
 }
 
-function entry(name: string, routing: Routing): RoutingEntry {
-  return { name, routing }
+function entry(name: string, routing: Routing, corpus: RoutingCorpus = 'authored'): RoutingEntry {
+  return { name, corpus, routing }
 }
 
 const cyna = route('cyna', 'success', 'lowered')
@@ -47,6 +47,7 @@ describe('Cyna routing report', () => {
       operation: 'unsupported_op',
       option: 'shape',
       program_count: 2,
+      corpora: ['authored'],
       programs: ['a_program', 'z_program'],
     })
     expect(report.highest_impact_portable_lowering).toEqual(grouped)
@@ -67,6 +68,29 @@ describe('Cyna routing report', () => {
       'cyna_disabled',
       'evidence_capture',
     ])
+  })
+
+  test('adds corpus totals and provenance without changing global routing totals', () => {
+    const entries = [
+      entry('authored_cyna', cyna, 'authored'),
+      entry('authored_fallback', operation, 'authored'),
+      entry('imported_cyna', cyna, 'imported'),
+      entry('imported_fallback', operation, 'imported'),
+      entry('model_cyna', cyna, 'model'),
+      entry('model_observability', observability, 'model'),
+    ]
+    const forward = buildRoutingReport(entries)
+    const reverse = buildRoutingReport([...entries].reverse())
+
+    expect(reverse).toEqual(forward)
+    expect(forward.programs).toEqual({ total: 6, cyna: 3, zig: 3, cyna_percent: 50 })
+    expect(forward.corpora).toEqual([
+      { corpus: 'authored', total: 2, cyna: 1, zig: 1, cyna_percent: 50 },
+      { corpus: 'imported', total: 2, cyna: 1, zig: 1, cyna_percent: 50 },
+      { corpus: 'model', total: 2, cyna: 1, zig: 1, cyna_percent: 50 },
+    ])
+    expect(forward.fallback_groups.find(group => group.category === 'operation')?.corpora).toEqual(['authored', 'imported'])
+    expect(forward.fallback_groups.find(group => group.category === 'observability')?.corpora).toEqual(['model'])
   })
 
   test('keeps non-lowering limits out of the next-target selection', () => {
@@ -98,6 +122,7 @@ describe('Cyna routing report', () => {
   test('reports an empty suite as fully unmeasured', () => {
     const report = buildRoutingReport([])
     expect(report.programs).toEqual({ total: 0, cyna: 0, zig: 0, cyna_percent: 0 })
+    expect(report.corpora).toEqual([])
     expect(report.fallback_groups).toEqual([])
     expect(report.highest_impact_portable_lowering).toEqual(null)
   })
