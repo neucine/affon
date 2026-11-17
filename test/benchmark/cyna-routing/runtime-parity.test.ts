@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'std:test'
 import fs from 'std:fs'
 import { Session, Tensor, program } from 'affon:core'
-import { add, exp, layer_norm, matmul, rms_norm, softmax, sum, transpose } from 'affon:ops'
+import { add, embedding, eq, exp, gather, index_select, layer_norm, masked_fill, matmul, one_hot, rms_norm, scatter_add, softmax, sum, topk, transpose, where } from 'affon:ops'
 import { load_graph } from '../../../packages/@affon/onnx/src/runtime.ts'
 import { create_bert } from '../../../packages/@affon/models/src/bert/model.ts'
 import { create_gpt2 } from '../../../packages/@affon/models/src/gpt2/model.ts'
@@ -98,6 +98,106 @@ function runPaired(
 }
 
 describe('Cyna runtime numerical parity', () => {
+  test('broadcast comparison matches Zig Session', () => {
+    const source = program('cyna_parity_broadcast_comparison', p => eq(
+      p.argument('left', Tensor.f32([2, 3])),
+      p.argument('right', Tensor.f32([1, 3])),
+    ))
+    runPaired('broadcast comparison', source, undefined, session => ({
+      left: session.tensor([[1, 2, 3], [3, 2, 1]], { dtype: 'f32' }),
+      right: session.tensor([[1, 4, 3]], { dtype: 'f32' }),
+    }))
+  })
+
+  test('broadcast where matches Zig Session', () => {
+    const source = program('cyna_parity_broadcast_where', p => where(
+      p.argument('mask', Tensor.i64([2, 1])),
+      p.argument('when_true', Tensor.f32([2, 3])),
+      p.argument('when_false', Tensor.f32([1, 3])),
+    ))
+    runPaired('broadcast where', source, undefined, session => ({
+      mask: session.tensor([[1], [0]], { dtype: 'i64' }),
+      when_true: session.tensor([[1, 2, 3], [4, 5, 6]], { dtype: 'f32' }),
+      when_false: session.tensor([[7, 8, 9]], { dtype: 'f32' }),
+    }))
+  })
+
+  test('broadcast masked fill matches Zig Session', () => {
+    const source = program('cyna_parity_broadcast_masked_fill', p => masked_fill(
+      p.argument('value', Tensor.f32([2, 3])),
+      p.argument('mask', Tensor.i64([2, 1])),
+      -7,
+    ))
+    runPaired('broadcast masked fill', source, undefined, session => ({
+      value: session.tensor([[1, 2, 3], [4, 5, 6]], { dtype: 'f32' }),
+      mask: session.tensor([[0], [2]], { dtype: 'i64' }),
+    }))
+  })
+
+  test('embedding with repeated indices matches Zig Session', () => {
+    const source = program('cyna_parity_embedding', p => embedding(
+      p.argument('table', Tensor.f32([4, 3])),
+      p.argument('indices', Tensor.i64([2, 2])),
+    ))
+    runPaired('embedding', source, undefined, session => ({
+      table: session.tensor([[1, 2, 3], [4, 5, 6], [7, 8, 9], [10, 11, 12]], { dtype: 'f32' }),
+      indices: session.tensor([[2, 0], [2, 3]], { dtype: 'i64' }),
+    }))
+  })
+
+  test('index select with repeated indices matches Zig Session', () => {
+    const source = program('cyna_parity_index_select', p => index_select(
+      p.argument('value', Tensor.f32([3, 2])), 0,
+      p.argument('indices', Tensor.i64([3])),
+    ))
+    runPaired('index select', source, undefined, session => ({
+      value: session.tensor([[1, 2], [3, 4], [5, 6]], { dtype: 'f32' }),
+      indices: session.tensor([2, 0, 2], { dtype: 'i64' }),
+    }))
+  })
+
+  test('gather along a nonfinal axis matches Zig Session', () => {
+    const source = program('cyna_parity_gather', p => gather(
+      p.argument('value', Tensor.f32([3, 2])), 0,
+      p.argument('indices', Tensor.i64([2, 2])),
+    ))
+    runPaired('gather', source, undefined, session => ({
+      value: session.tensor([[1, 2], [3, 4], [5, 6]], { dtype: 'f32' }),
+      indices: session.tensor([[2, 0], [1, 2]], { dtype: 'i64' }),
+    }))
+  })
+
+  test('scatter add with duplicate indices matches Zig Session', () => {
+    const source = program('cyna_parity_scatter_add', p => scatter_add(
+      p.argument('base', Tensor.f32([3, 2])),
+      p.argument('indices', Tensor.i64([2, 2])),
+      p.argument('updates', Tensor.f32([2, 2])), 0,
+    ))
+    runPaired('scatter add', source, undefined, session => ({
+      base: session.tensor([[1, 2], [3, 4], [5, 6]], { dtype: 'f32' }),
+      indices: session.tensor([[1, 1], [1, 2]], { dtype: 'i64' }),
+      updates: session.tensor([[2, 3], [4, 5]], { dtype: 'f32' }),
+    }))
+  })
+
+  test('top-k ties and both outputs match Zig Session', () => {
+    const source = program('cyna_parity_topk', p => topk(
+      p.argument('value', Tensor.f32([2, 4])), 2, 1,
+    ))
+    runPaired('top-k', source, undefined, session => ({
+      value: session.tensor([[3, 5, 5, 1], [2, 2, 4, 3]], { dtype: 'f32' }),
+    }))
+  })
+
+  test('one-hot matches Zig Session', () => {
+    const source = program('cyna_parity_one_hot', p => one_hot(
+      p.argument('indices', Tensor.i64([2, 2])), 4,
+    ))
+    runPaired('one-hot', source, undefined, session => ({
+      indices: session.tensor([[1, 3], [0, 1]], { dtype: 'i64' }),
+    }))
+  })
+
   test('transposed f32 matrix multiplication matches Zig Session', () => {
     const source = program('cyna_parity_transposed_matmul', p => matmul(
       p.argument('x', Tensor.f32([2, 3])),

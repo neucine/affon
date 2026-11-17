@@ -67,8 +67,8 @@ Program and does not count an unsupported Program as a Cyna success.
 
 ## Runtime parity
 
-The bounded runtime check has 11 test cases covering 16 Programs. Each case runs
-the same Program in two public CPU Sessions: one lowers to Cyna, while the other
+The bounded runtime check has 21 test cases. Each case runs the same Program
+in two public CPU Sessions: one lowers to Cyna, while the other
 requests evidence capture and therefore executes on Zig. The check requires the
 Cyna route to report `lowered`, the comparison route to report
 `evidence_capture`, and every output to have the same shape, dtype, and finite
@@ -96,6 +96,8 @@ The passing Programs are:
 
 | Corpus | Program | Shapes | Output dtype |
 | --- | --- | --- | --- |
+| Selection | broadcast comparison, where, and masked fill | rank-two inputs with singleton axes | i64 or f32 |
+| Indexing | embedding, index select, gather, scatter-add, top-k, and one-hot | small vectors and matrices with repeated or tied indices | f32 or i64 |
 | Authored | transformer block with layer norm, attention, residual, and RMS norm | `[2,4,8]` with `[8,8]` weights | f32 |
 | Imported ONNX | generic fixture | fixture-defined | fixture-defined |
 | Imported ONNX | spatial fixture | fixture-defined | fixture-defined |
@@ -119,6 +121,12 @@ parameter storage through public model constructors, while its arithmetic
 remains f32. The models are tiny constructor fixtures, not trained checkpoints.
 The ONNX evidence covers all three prepared importer fixtures, but not arbitrary
 ONNX graphs. All comparisons use the CPU backend.
+
+For a focused selection and indexing timing probe, run
+`AFFON_TEST_CYNA_SESSION=1 ./zig-out/bin/affon test/benchmark/cyna-routing/selection-indexing.ts`
+with a ReleaseFast Cyna-enabled build. It checks both routes before reporting
+warm Session invocation times for comparison, `where`, embedding, scatter-add,
+and top-k. The detailed audit and remaining gaps live in daydream.
 
 ## Llama performance
 
