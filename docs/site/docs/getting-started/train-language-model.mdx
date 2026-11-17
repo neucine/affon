@@ -39,6 +39,33 @@ repeated words and symbols. This is a capped run within one epoch; the result
 shows learning on these batches, not useful text generation. Loss values from
 different tokenizers cannot be compared directly.
 
+## Two full epochs on CUDA
+
+A longer run used the same 8,192-token vocabulary, six decoder layers, and
+256-token windows on an RTX 3090. Each epoch covered 4,995 batches of four
+windows, followed by the full validation split.
+
+| Completed epoch | Training loss | Validation loss | Validation perplexity |
+| --- | ---: | ---: | ---: |
+| 1 | 6.1247 | 5.4641 | 236.1 |
+| 2 | 5.2572 | 5.1339 | 169.7 |
+
+Perplexity expresses next-token prediction error; lower is better for the
+same tokenizer and evaluation data. Training loss is the average while the
+weights change during each epoch. Validation uses the saved end-of-epoch
+weights on held-out text.
+
+The model is learning, but its text is still repetitive and incoherent.
+With the same prompt, `The history of`, epoch two began:
+
+> The history of the U.S.S.S.D.S.S.S. were would , was the of the B.S.S..
+
+Epoch one used the published Affon 0.4.2 binary. Epoch two restored its model
+and Adam optimizer checkpoint using a local runtime with a CUDA reduction
+fix. The first resumed loss agreed within 0.000001. That fix is not part of
+the published 0.4.2 binary. These are interim results from a continuing run,
+not a text-quality benchmark or a speed comparison with other frameworks.
+
 ## Where Affon fits
 
 The [model source](https://github.com/neucine/affon/blob/main/apps/decoder-lm/src/model.ts)
