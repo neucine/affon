@@ -433,79 +433,260 @@ extern fn compute_core_run_dense_graph_resident_multi_layout_bytes(
     output_byte_count: usize,
 ) c_int;
 
-extern fn compute_core_create_dense_graph_handle(
-    goal: c_int, input_dtypes: [*]const c_int, input_byte_count: usize,
-    input_ranks: [*]const usize, input_count: usize, dimensions: [*]const usize,
-    dimension_count: usize, operations: [*]const c_int, lhs_ids: [*]const usize,
-    rhs_ids: [*]const usize, third_ids: [*]const usize,
-    metadata_offsets: [*]const usize, metadata_values: [*]const usize,
-    metadata_count: usize, instruction_count: usize, output_ids: [*]const usize,
+extern fn compute_core_create_dense_graph_handle_guarded(
+    goal: c_int,
+    input_dtypes: [*]const c_int,
+    input_byte_count: usize,
+    input_ranks: [*]const usize,
+    input_count: usize,
+    dimensions: [*]const usize,
+    dimension_count: usize,
+    operations: [*]const c_int,
+    lhs_ids: [*]const usize,
+    rhs_ids: [*]const usize,
+    third_ids: [*]const usize,
+    metadata_offsets: [*]const usize,
+    metadata_values: [*]const usize,
+    metadata_count: usize,
+    instruction_count: usize,
+    output_ids: [*]const usize,
     selected_count: usize,
+    dense_inputs: c_int,
+) ?*anyopaque;
+extern fn compute_core_create_dense_graph_handle_with_residuals(
+    goal: c_int,
+    input_dtypes: [*]const c_int,
+    input_byte_count: usize,
+    input_ranks: [*]const usize,
+    input_count: usize,
+    dimensions: [*]const usize,
+    dimension_count: usize,
+    operations: [*]const c_int,
+    lhs_ids: [*]const usize,
+    rhs_ids: [*]const usize,
+    third_ids: [*]const usize,
+    metadata_offsets: [*]const usize,
+    metadata_values: [*]const usize,
+    metadata_count: usize,
+    instruction_count: usize,
+    output_ids: [*]const usize,
+    selected_count: usize,
+    dense_inputs: c_int,
+    requirements: [*]const usize,
+    requirement_count: usize,
+    uses: [*]const usize,
+    use_count: usize,
+    residual_policy: c_int,
+) ?*anyopaque;
+extern fn compute_core_create_dense_graph_handle_with_constants(
+    goal: c_int,
+    input_dtypes: [*]const c_int,
+    input_byte_count: usize,
+    input_ranks: [*]const usize,
+    input_count: usize,
+    dynamic_count: usize,
+    constant_bytes: [*]const u8,
+    constant_byte_count: usize,
+    dimensions: [*]const usize,
+    dimension_count: usize,
+    operations: [*]const c_int,
+    lhs_ids: [*]const usize,
+    rhs_ids: [*]const usize,
+    third_ids: [*]const usize,
+    metadata_offsets: [*]const usize,
+    metadata_values: [*]const usize,
+    metadata_count: usize,
+    instruction_count: usize,
+    output_ids: [*]const usize,
+    selected_count: usize,
+    dense_inputs: c_int,
+    requirements: [*]const usize,
+    requirement_count: usize,
+    uses: [*]const usize,
+    use_count: usize,
+    residual_policy: c_int,
+) ?*anyopaque;
+extern fn compute_core_create_dense_graph_handle_configured(
+    goal: c_int,
+    input_dtypes: [*]const c_int,
+    input_byte_count: usize,
+    input_ranks: [*]const usize,
+    input_count: usize,
+    dynamic_count: usize,
+    constant_bytes: [*]const u8,
+    constant_byte_count: usize,
+    dimensions: [*]const usize,
+    dimension_count: usize,
+    operations: [*]const c_int,
+    lhs_ids: [*]const usize,
+    rhs_ids: [*]const usize,
+    third_ids: [*]const usize,
+    metadata_offsets: [*]const usize,
+    metadata_values: [*]const usize,
+    metadata_count: usize,
+    instruction_count: usize,
+    output_ids: [*]const usize,
+    selected_count: usize,
+    dense_inputs: c_int,
+    requirements: [*]const usize,
+    requirement_count: usize,
+    uses: [*]const usize,
+    use_count: usize,
+    residual_policy: c_int,
+    search_limit_words: [*]const usize,
+    search_limit_count: usize,
 ) ?*anyopaque;
 extern fn compute_core_run_dense_graph_handle(
-    handle: ?*anyopaque, input_bytes: [*]const u8, input_byte_count: usize,
-    output_bytes: [*]u8, output_byte_count: usize,
+    handle: ?*anyopaque,
+    input_bytes: [*]const u8,
+    input_byte_count: usize,
+    output_bytes: [*]u8,
+    output_byte_count: usize,
 ) c_int;
 extern fn compute_core_dense_graph_handle_cache_hits(handle: ?*anyopaque) usize;
 extern fn compute_core_dense_graph_handle_cache_misses(handle: ?*anyopaque) usize;
+extern fn compute_core_dense_graph_handle_cache_bytes(handle: ?*anyopaque) usize;
+extern fn compute_core_configure_dense_graph_observation(handle: ?*anyopaque, limit: usize) c_int;
+extern fn compute_core_dense_graph_observation_count(handle: ?*anyopaque, dropped: *usize) usize;
+extern fn compute_core_read_dense_graph_run_state(handle: ?*anyopaque, output: [*]usize, word_count: usize) c_int;
+extern fn compute_core_read_dense_graph_selection(handle: ?*anyopaque, output: [*]usize, word_count: usize) c_int;
+extern fn compute_core_read_dense_graph_search(handle: ?*anyopaque, output: [*]usize, word_count: usize) c_int;
+extern fn compute_core_dense_graph_physical_node_count(handle: ?*anyopaque) usize;
+extern fn compute_core_dense_graph_physical_value_count(handle: ?*anyopaque) usize;
+extern fn compute_core_read_dense_graph_physical_values(handle: ?*anyopaque, output: [*]usize, word_count: usize) c_int;
+extern fn compute_core_read_dense_graph_physical_liveness(handle: ?*anyopaque, output: [*]usize, word_count: usize) c_int;
+extern fn compute_core_dense_graph_residual_decision_count(handle: ?*anyopaque) usize;
+extern fn compute_core_describe_dense_graph_residual_decision(handle: ?*anyopaque, index: usize, output: [*]usize, word_count: usize) c_int;
+extern fn compute_core_describe_dense_graph_physical_node(handle: ?*anyopaque, index: usize, words: [*]usize, word_count: usize, implementation: [*]u8, implementation_capacity: usize, implementation_length: *usize) c_int;
+extern fn compute_core_dense_graph_semantic_step_count(handle: ?*anyopaque) usize;
+extern fn compute_core_describe_dense_graph_semantic_step(handle: ?*anyopaque, index: usize, output: *[5]usize, word_count: usize) c_int;
+extern fn compute_core_read_dense_graph_observation(handle: ?*anyopaque, index: usize, output: *[9]usize, word_count: usize) c_int;
 extern fn compute_core_destroy_dense_graph_handle(handle: ?*anyopaque) c_int;
 
 extern fn compute_core_create_dense_graph_tensor(
-    handle: ?*anyopaque, input_index: usize, bytes: [*]const u8,
-    byte_count: usize, output: *[3]usize,
+    handle: ?*anyopaque,
+    input_index: usize,
+    bytes: [*]const u8,
+    byte_count: usize,
+    output: *[3]usize,
 ) c_int;
 extern fn compute_core_read_dense_graph_tensor(
-    handle: ?*anyopaque, owner: usize, slot: usize, generation: usize,
-    output: [*]u8, byte_count: usize,
+    handle: ?*anyopaque,
+    owner: usize,
+    slot: usize,
+    generation: usize,
+    output: [*]u8,
+    byte_count: usize,
 ) c_int;
 extern fn compute_core_describe_dense_graph_tensor(
-    handle: ?*anyopaque, owner: usize, slot: usize, generation: usize,
-    rank: *usize, backing_bytes: *usize, offset_bytes: *usize,
-    strides: [*]usize, stride_count: usize,
+    handle: ?*anyopaque,
+    owner: usize,
+    slot: usize,
+    generation: usize,
+    rank: *usize,
+    backing_bytes: *usize,
+    offset_bytes: *usize,
+    strides: [*]usize,
+    stride_count: usize,
 ) c_int;
 extern fn compute_core_read_dense_graph_tensor_backing(
-    handle: ?*anyopaque, owner: usize, slot: usize, generation: usize,
-    output: [*]u8, byte_count: usize,
+    handle: ?*anyopaque,
+    owner: usize,
+    slot: usize,
+    generation: usize,
+    output: [*]u8,
+    byte_count: usize,
 ) c_int;
 extern fn compute_core_run_dense_graph_tensors(
-    handle: ?*anyopaque, input_tokens: [*]const usize, input_count: usize,
-    output_tokens: [*]usize, output_count: usize,
+    handle: ?*anyopaque,
+    input_tokens: [*]const usize,
+    input_count: usize,
+    output_tokens: [*]usize,
+    output_count: usize,
+) c_int;
+extern fn compute_core_describe_dense_graph_tensors(
+    handle: ?*anyopaque,
+    tokens: [*]const usize,
+    count: usize,
+    words: [*]usize,
+    word_count: usize,
+) c_int;
+extern fn compute_core_read_dense_graph_tensors_and_release(
+    handle: ?*anyopaque,
+    tokens: [*]const usize,
+    count: usize,
+    destinations: [*]const usize,
+    byte_counts: [*]const usize,
 ) c_int;
 extern fn compute_core_release_dense_graph_tensor(
-    handle: ?*anyopaque, owner: usize, slot: usize, generation: usize,
+    handle: ?*anyopaque,
+    owner: usize,
+    slot: usize,
+    generation: usize,
 ) c_int;
 
 extern fn compute_core_create_cpu_device_handle() ?*anyopaque;
 extern fn compute_core_read_device_identity(
-    handle: ?*anyopaque, output: *[3]usize,
+    handle: ?*anyopaque,
+    output: *[3]usize,
 ) c_int;
 extern fn compute_core_create_device_session(
-    handle: ?*anyopaque, device_owner: usize, device_slot: usize,
-    device_generation: usize, has_limit: c_int, max_resident_bytes: usize,
+    handle: ?*anyopaque,
+    device_owner: usize,
+    device_slot: usize,
+    device_generation: usize,
+    has_limit: c_int,
+    max_resident_bytes: usize,
     output: *[3]usize,
 ) c_int;
 extern fn compute_core_destroy_device_session(
-    handle: ?*anyopaque, session_owner: usize, session_slot: usize,
+    handle: ?*anyopaque,
+    session_owner: usize,
+    session_slot: usize,
     session_generation: usize,
 ) c_int;
 extern fn compute_core_create_device_tensor(
-    handle: ?*anyopaque, session_owner: usize, session_slot: usize,
-    session_generation: usize, dtype: c_int, dimensions: [*]const usize,
-    rank: usize, bytes: [*]const u8, byte_count: usize, output: *[3]usize,
+    handle: ?*anyopaque,
+    session_owner: usize,
+    session_slot: usize,
+    session_generation: usize,
+    dtype: c_int,
+    dimensions: [*]const usize,
+    rank: usize,
+    bytes: [*]const u8,
+    byte_count: usize,
+    output: *[3]usize,
 ) c_int;
 extern fn compute_core_read_device_tensor(
-    handle: ?*anyopaque, session_owner: usize, session_slot: usize,
-    session_generation: usize, tensor_owner: usize, tensor_slot: usize,
-    tensor_generation: usize, output: [*]u8, byte_count: usize,
+    handle: ?*anyopaque,
+    session_owner: usize,
+    session_slot: usize,
+    session_generation: usize,
+    tensor_owner: usize,
+    tensor_slot: usize,
+    tensor_generation: usize,
+    output: [*]u8,
+    byte_count: usize,
 ) c_int;
 extern fn compute_core_release_device_tensor(
-    handle: ?*anyopaque, session_owner: usize, session_slot: usize,
-    session_generation: usize, tensor_owner: usize, tensor_slot: usize,
+    handle: ?*anyopaque,
+    session_owner: usize,
+    session_slot: usize,
+    session_generation: usize,
+    tensor_owner: usize,
+    tensor_slot: usize,
     tensor_generation: usize,
 ) c_int;
 extern fn compute_core_destroy_device_handle(handle: ?*anyopaque) c_int;
 
-pub const DenseGoal = enum(c_int) { baseline = 0, memory = 1 };
+pub const DenseGoal = enum(c_int) { baseline = 0, memory = 1, balanced = 2, latency = 3, throughput = 4 };
+pub const SearchLimits = struct {
+    structural_states: usize = 4_096,
+    structural_expansions: usize = 131_072,
+    complete_evaluations: usize = 16_384,
+    physical_work: usize = 8_192,
+    ready_work: usize = 16_384,
+};
 
 fn denseInput(comptime T: type) type {
     return struct { shape: []const usize, values: []const T };
@@ -521,7 +702,11 @@ pub const DenseDType = enum(c_int) { f32 = 1, f64 = 2, i64 = 3, u32 = 4, bf16 = 
 pub const DenseByteInput = struct { dtype: DenseDType, shape: []const usize, bytes: []const u8 };
 
 fn denseDTypeWidth(dtype: DenseDType) usize {
-    return switch (dtype) { .f64, .i64 => 8, .f32, .u32 => 4, .bf16 => 2 };
+    return switch (dtype) {
+        .f64, .i64 => 8,
+        .f32, .u32 => 4,
+        .bf16 => 2,
+    };
 }
 
 pub const DenseGraphBytesResult = struct {
@@ -541,7 +726,7 @@ pub const DenseGraphBytesResult = struct {
 
     pub fn dtype(self: @This(), index: usize) DenseDType {
         std.debug.assert(index < self.dtypes.len);
-        return @enumFromInt(self.dtypes[index]);
+        return @fromBackingInt(@intCast(self.dtypes[index]));
     }
 
     pub fn shape(self: @This(), index: usize) []const usize {
@@ -555,7 +740,7 @@ pub const DenseGraphBytesResult = struct {
         std.debug.assert(index < self.elements.len);
         var offset: usize = 0;
         for (self.elements[0..index], self.dtypes[0..index]) |count, code| {
-            offset += count * denseDTypeWidth(@enumFromInt(code));
+            offset += count * denseDTypeWidth(@fromBackingInt(@intCast(code)));
         }
         return self.bytes[offset..][0 .. self.elements[index] * denseDTypeWidth(self.dtype(index))];
     }
@@ -576,7 +761,7 @@ pub const DenseGraphInferred = struct {
 
     pub fn dtype(self: @This(), index: usize) DenseDType {
         std.debug.assert(index < self.dtypes.len);
-        return @enumFromInt(self.dtypes[index]);
+        return @fromBackingInt(@intCast(self.dtypes[index]));
     }
 
     pub fn shape(self: @This(), index: usize) []const usize {
@@ -850,6 +1035,24 @@ pub const DenseOperation = enum(c_int) {
     quantized_matmul = 67,
     dot = 68,
 };
+
+// Codes exported by Compute Core's OpTag, in its declared order. Keep this
+// table in sync with compute-core/src/program/types.cy when the C ABI changes.
+const cyna_operation_names = [_][]const u8{
+    "",              "add",           "sub",                   "mul",        "div",           "matmul",           "abs",             "neg",        "sign",            "relu",
+    "sum_all",       "mean_all",      "sum_axis",              "mean_axis",  "min_all",       "max_all",          "argmin_all",      "argmax_all", "min_axis",        "max_axis",
+    "argmin_axis",   "argmax_axis",   "variance_all",          "std_all",    "variance_axis", "std_axis",         "reshape",         "permute",    "transpose",       "squeeze",
+    "unsqueeze",     "contiguous",    "slice",                 "cast",       "scatter_add",   "gather",           "index_select",    "embedding",  "one_hot",         "top_k_values",
+    "top_k_indices", "eq",            "lt",                    "gt",         "where",         "masked_fill",      "cat",             "stack",      "clamp",           "exp",
+    "log",           "sqrt",          "sigmoid",               "silu",       "tanh",          "erf",              "gelu",            "sin",        "cos",             "softmax",
+    "log_softmax",   "cross_entropy", "cross_entropy_indexed", "layer_norm", "rms_norm",      "quantized_matmul", "log_softmax_nll", "dot",        "reduce_to_shape",
+};
+
+pub fn operationName(code: ?usize) ?[]const u8 {
+    const value = code orelse return null;
+    if (value == 0 or value >= cyna_operation_names.len) return null;
+    return cyna_operation_names[value];
+}
 // rhs is a value ID for binary steps, an axis for reductions and softmax,
 // an index ID for indexed steps, a class count for one_hot, a DenseDType code
 // for cast, or an axis for squeeze, unsqueeze, and swap_axes.
@@ -865,6 +1068,14 @@ pub const DenseOperation = enum(c_int) {
 // uses lhs for activation, rhs for packed weights, third for scales, and
 // metadata for bias value ID, bit width, and group size.
 pub const DenseStep = struct { operation: DenseOperation, lhs: usize, rhs: usize = 0, third: usize = 0, metadata: []const usize = &.{} };
+pub const DenseResidualRequirement = struct {
+    value: usize,
+    recomputable_view: bool,
+    release_after: ?usize = null,
+    recompute_before: ?usize = null,
+};
+pub const DenseResidualUse = struct { value: usize, instruction: usize, input_index: u32 };
+pub const DenseResidualPolicy = enum(c_int) { retain = 0, automatic = 1, recompute = 2 };
 
 pub fn scalarMetadata(value: f64) [2]usize {
     const bits: u64 = @bitCast(value);
@@ -874,29 +1085,43 @@ pub fn scalarMetadata(value: f64) [2]usize {
 // Returns the number of flattened output dimensions written. Each selected
 // output has one rank and element count; a scalar has rank zero and one element.
 pub fn inferDenseGraph(
-    allocator: std.mem.Allocator, dtype: DenseDType, inputs: []const DenseInputShape,
-    steps: []const DenseStep, selected: []const usize, output_ranks: []usize,
-    output_elements: []usize, output_dimensions: []usize,
+    allocator: std.mem.Allocator,
+    dtype: DenseDType,
+    inputs: []const DenseInputShape,
+    steps: []const DenseStep,
+    selected: []const usize,
+    output_ranks: []usize,
+    output_elements: []usize,
+    output_dimensions: []usize,
 ) (Error || std.mem.Allocator.Error)!usize {
-    return inferDenseGraphImpl(allocator, dtype, inputs, steps, selected,
-        output_ranks, output_elements, output_dimensions, null);
+    return inferDenseGraphImpl(allocator, dtype, inputs, steps, selected, output_ranks, output_elements, output_dimensions, null);
 }
 
 pub fn inferDenseGraphTyped(
-    allocator: std.mem.Allocator, dtype: DenseDType, inputs: []const DenseInputShape,
-    steps: []const DenseStep, selected: []const usize, output_ranks: []usize,
-    output_elements: []usize, output_dimensions: []usize, output_dtypes: []c_int,
+    allocator: std.mem.Allocator,
+    dtype: DenseDType,
+    inputs: []const DenseInputShape,
+    steps: []const DenseStep,
+    selected: []const usize,
+    output_ranks: []usize,
+    output_elements: []usize,
+    output_dimensions: []usize,
+    output_dtypes: []c_int,
 ) (Error || std.mem.Allocator.Error)!usize {
-    return inferDenseGraphImpl(allocator, dtype, inputs, steps, selected,
-        output_ranks, output_elements, output_dimensions, output_dtypes);
+    return inferDenseGraphImpl(allocator, dtype, inputs, steps, selected, output_ranks, output_elements, output_dimensions, output_dtypes);
 }
 
 // Input and selected output buffers use little-endian dtype-width bytes.
 // Use inferDenseGraphTyped to size and interpret each selected output.
 pub fn runDenseGraphBytes(
-    allocator: std.mem.Allocator, dtype: DenseDType, inputs: []const DenseInputShape,
-    input_bytes: []const u8, steps: []const DenseStep, selected: []const usize,
-    output_bytes: []u8, goal: DenseGoal,
+    allocator: std.mem.Allocator,
+    dtype: DenseDType,
+    inputs: []const DenseInputShape,
+    input_bytes: []const u8,
+    steps: []const DenseStep,
+    selected: []const usize,
+    output_bytes: []u8,
+    goal: DenseGoal,
 ) (Error || std.mem.Allocator.Error)!void {
     if (inputs.len == 0 or selected.len == 0 or
         steps.len > std.math.maxInt(usize) - inputs.len) return error.InvalidShape;
@@ -936,10 +1161,7 @@ pub fn runDenseGraphBytes(
         lhs_ids[index] = step.lhs;
         rhs_ids[index] = step.rhs;
     }
-    switch (compute_core_run_dense_graph_bytes(@backingInt(goal), @backingInt(dtype),
-        input_bytes.ptr, input_bytes.len, ranks.ptr, ranks.len, dimensions.ptr,
-        dimensions.len, operations.ptr, lhs_ids.ptr, rhs_ids.ptr, steps.len,
-        selected.ptr, selected.len, output_bytes.ptr, output_bytes.len)) {
+    switch (compute_core_run_dense_graph_bytes(@backingInt(goal), @backingInt(dtype), input_bytes.ptr, input_bytes.len, ranks.ptr, ranks.len, dimensions.ptr, dimensions.len, operations.ptr, lhs_ids.ptr, rhs_ids.ptr, steps.len, selected.ptr, selected.len, output_bytes.ptr, output_bytes.len)) {
         0 => {},
         1 => return error.InvalidShape,
         else => return error.CoreFailure,
@@ -947,8 +1169,12 @@ pub fn runDenseGraphBytes(
 }
 
 pub fn allocDenseGraphBytes(
-    allocator: std.mem.Allocator, dtype: DenseDType, inputs: []const DenseInputShape,
-    input_bytes: []const u8, steps: []const DenseStep, selected: []const usize,
+    allocator: std.mem.Allocator,
+    dtype: DenseDType,
+    inputs: []const DenseInputShape,
+    input_bytes: []const u8,
+    steps: []const DenseStep,
+    selected: []const usize,
     goal: DenseGoal,
 ) (Error || std.mem.Allocator.Error)!DenseGraphBytesResult {
     const max_dimensions = std.math.mul(usize, selected.len, 8) catch return error.InvalidShape;
@@ -960,14 +1186,17 @@ pub fn allocDenseGraphBytes(
     errdefer allocator.free(dtypes);
     const dimension_buffer = try allocator.alloc(usize, max_dimensions);
     defer allocator.free(dimension_buffer);
-    const written = try inferDenseGraphTyped(allocator, dtype, inputs, steps, selected,
-        ranks, elements, dimension_buffer, dtypes);
+    const written = try inferDenseGraphTyped(allocator, dtype, inputs, steps, selected, ranks, elements, dimension_buffer, dtypes);
     const dimensions = try allocator.dupe(usize, dimension_buffer[0..written]);
     errdefer allocator.free(dimensions);
     var total_bytes: usize = 0;
     for (elements, dtypes) |count, code| {
         const output_dtype: DenseDType = switch (code) {
-            1 => .f32, 2 => .f64, 3 => .i64, 4 => .u32, 5 => .bf16,
+            1 => .f32,
+            2 => .f64,
+            3 => .i64,
+            4 => .u32,
+            5 => .bf16,
             else => return error.CoreFailure,
         };
         const size = std.math.mul(usize, count, denseDTypeWidth(output_dtype)) catch return error.InvalidShape;
@@ -976,8 +1205,7 @@ pub fn allocDenseGraphBytes(
     const bytes = try allocator.alloc(u8, total_bytes);
     errdefer allocator.free(bytes);
     try runDenseGraphBytes(allocator, dtype, inputs, input_bytes, steps, selected, bytes, goal);
-    return .{ .bytes = bytes, .ranks = ranks, .elements = elements,
-        .dimensions = dimensions, .dtypes = dtypes };
+    return .{ .bytes = bytes, .ranks = ranks, .elements = elements, .dimensions = dimensions, .dtypes = dtypes };
 }
 
 // The graph owns its compiled Cyna runtime. Call deinit once after all runs.
@@ -986,6 +1214,262 @@ pub const DenseGraphHandle = struct {
     input_byte_count: usize,
     input_count: usize,
     output_count: usize,
+
+    pub const NodeObservation = struct {
+        run_id: u64,
+        node_id: usize,
+        schedule_position: usize,
+        elapsed_ns: u64,
+        timing_available: bool,
+        succeeded: bool,
+        materialized_view: bool,
+        kernel_count: usize,
+        path: ExecutionPath,
+    };
+
+    pub const ExecutionPath = enum(usize) { unknown = 0, prepared = 1, resident_view = 2, semantic = 3 };
+    pub const FallbackReason = enum(usize) { no_fallback = 0, prepared_unsupported = 1, prepared_invalid_graph = 2, no_physical_selection = 3, view_path_selected = 4 };
+    pub const RunState = struct { run_id: u64, succeeded: bool, path: ExecutionPath, fallback_reason: FallbackReason };
+    pub const PhysicalNodeDescription = struct {
+        node_id: usize,
+        step_index: ?usize,
+        source_operation_code: ?usize,
+        action: enum { instruction, conversion },
+        source_instruction_count: usize,
+        is_view: bool,
+        output_bytes: usize,
+        implementation: []const u8,
+    };
+    pub const PhysicalValueDescription = struct {
+        origin: enum(usize) { input = 1, constant = 2, node_output = 3 },
+        semantic_origin: usize,
+        alias_of: ?usize,
+        logical_bytes: usize,
+        producer_node: ?usize,
+    };
+    pub const SemanticStepDescription = struct {
+        step_index: usize,
+        source_operation_code: ?usize,
+        source_instruction_index: usize,
+        value_id: usize,
+        implementation_code: usize,
+    };
+
+    pub const ResidualDecision = struct {
+        value: usize,
+        choice: enum(usize) { retain = 0, recompute = 1 },
+        reason: enum(usize) { policy_retain = 0, latency_priority = 1, throughput_priority = 2, recomputable_view = 3, retain_only = 4, required_program_output = 5 },
+        release_after: ?usize,
+        recompute_before: ?usize,
+    };
+
+    pub const SelectionComparison = struct {
+        evaluated_states: usize,
+        baseline_peak_bytes: usize,
+        candidate_peak_bytes: usize,
+        candidate_published: bool,
+        budget: usize,
+        exclusion_search_truncated: bool,
+    };
+
+    pub const SearchEvidence = struct {
+        limits: SearchLimits,
+        evaluated_states: usize,
+        structural_expansions: usize,
+        complete_evaluations: usize,
+        truncated: bool,
+        ready_truncated: bool,
+    };
+
+    pub fn searchEvidence(self: *const DenseGraphHandle) Error!SearchEvidence {
+        if (self.raw == null) return error.InvalidShape;
+        var words: [10]usize = undefined;
+        if (compute_core_read_dense_graph_search(self.raw, &words, words.len) != 0)
+            return error.CoreFailure;
+        if (words[8] > 1 or words[9] > 1) return error.CoreFailure;
+        return .{
+            .limits = .{
+                .structural_states = words[0],
+                .structural_expansions = words[1],
+                .complete_evaluations = words[2],
+                .physical_work = words[3],
+                .ready_work = words[4],
+            },
+            .evaluated_states = words[5],
+            .structural_expansions = words[6],
+            .complete_evaluations = words[7],
+            .truncated = words[8] == 1,
+            .ready_truncated = words[9] == 1,
+        };
+    }
+
+    pub fn selectionComparison(self: *const DenseGraphHandle) Error!?SelectionComparison {
+        if (self.raw == null) return error.InvalidShape;
+        var words: [6]usize = undefined;
+        const status = compute_core_read_dense_graph_selection(self.raw, &words, words.len);
+        if (status == 1) return null;
+        if (status != 0 or words[3] > 1 or words[5] > 1) return error.CoreFailure;
+        return .{
+            .evaluated_states = words[0],
+            .baseline_peak_bytes = words[1],
+            .candidate_peak_bytes = words[2],
+            .candidate_published = words[3] == 1,
+            .budget = words[4],
+            .exclusion_search_truncated = words[5] == 1,
+        };
+    }
+
+    pub fn residualDecisionCount(self: *const DenseGraphHandle) usize {
+        return compute_core_dense_graph_residual_decision_count(self.raw);
+    }
+
+    pub fn describeResidualDecision(self: *const DenseGraphHandle, index: usize) Error!ResidualDecision {
+        if (self.raw == null) return error.InvalidShape;
+        var words: [5]usize = undefined;
+        if (compute_core_describe_dense_graph_residual_decision(self.raw, index, &words, words.len) != 0)
+            return error.CoreFailure;
+        return .{
+            .value = words[0],
+            .choice = switch (words[1]) {
+                0 => .retain,
+                1 => .recompute,
+                else => return error.CoreFailure,
+            },
+            .reason = switch (words[2]) {
+                0 => .policy_retain,
+                1 => .latency_priority,
+                2 => .throughput_priority,
+                3 => .recomputable_view,
+                4 => .retain_only,
+                5 => .required_program_output,
+                else => return error.CoreFailure,
+            },
+            .release_after = if (words[3] == std.math.maxInt(usize)) null else words[3],
+            .recompute_before = if (words[4] == std.math.maxInt(usize)) null else words[4],
+        };
+    }
+
+    pub fn semanticStepCount(self: *const DenseGraphHandle) usize {
+        return compute_core_dense_graph_semantic_step_count(self.raw);
+    }
+
+    pub fn describeSemanticStep(self: *const DenseGraphHandle, index: usize) Error!SemanticStepDescription {
+        if (self.raw == null) return error.InvalidShape;
+        var words: [5]usize = undefined;
+        if (compute_core_describe_dense_graph_semantic_step(self.raw, index, &words, words.len) != 0)
+            return error.CoreFailure;
+        return .{
+            .step_index = words[0],
+            .source_operation_code = if (words[1] == 0) null else words[1],
+            .source_instruction_index = words[2],
+            .value_id = words[3],
+            .implementation_code = words[4],
+        };
+    }
+
+    pub fn physicalNodeCount(self: *const DenseGraphHandle) usize {
+        return compute_core_dense_graph_physical_node_count(self.raw);
+    }
+
+    pub fn physicalValueCount(self: *const DenseGraphHandle) usize {
+        return compute_core_dense_graph_physical_value_count(self.raw);
+    }
+
+    pub fn readPhysicalValues(self: *const DenseGraphHandle, output: []PhysicalValueDescription, words: []usize) Error!void {
+        if (self.raw == null or output.len != self.physicalValueCount() or
+            words.len != std.math.mul(usize, output.len, 5) catch return error.InvalidShape)
+            return error.InvalidShape;
+        if (compute_core_read_dense_graph_physical_values(self.raw, words.ptr, words.len) != 0) return error.CoreFailure;
+        for (output, 0..) |*value, index| {
+            const row = words[index * 5 ..][0..5];
+            if (row[0] < 1 or row[0] > 3) return error.CoreFailure;
+            value.* = .{
+                .origin = @fromBackingInt(@intCast(row[0])),
+                .semantic_origin = row[1],
+                .alias_of = if (row[2] == 0) null else row[2] - 1,
+                .logical_bytes = row[3],
+                .producer_node = if (row[4] == 0) null else row[4] - 1,
+            };
+        }
+    }
+
+    pub fn readPhysicalLiveness(self: *const DenseGraphHandle, words: []usize) Error!void {
+        const count = self.physicalNodeCount();
+        const row_words = std.math.mul(usize, count, 4) catch return error.InvalidShape;
+        const word_count = std.math.add(usize, 3, row_words) catch return error.InvalidShape;
+        if (self.raw == null or words.len != word_count)
+            return error.InvalidShape;
+        if (compute_core_read_dense_graph_physical_liveness(self.raw, words.ptr, words.len) != 0) return error.CoreFailure;
+    }
+
+    pub fn describePhysicalNode(self: *const DenseGraphHandle, index: usize, implementation_buffer: []u8) Error!PhysicalNodeDescription {
+        if (self.raw == null or implementation_buffer.len == 0) return error.InvalidShape;
+        var words: [7]usize = undefined;
+        var implementation_length: usize = 0;
+        if (compute_core_describe_dense_graph_physical_node(self.raw, index, &words, words.len, implementation_buffer.ptr, implementation_buffer.len, &implementation_length) != 0) return error.CoreFailure;
+        if (implementation_length > implementation_buffer.len) return error.CoreFailure;
+        return .{
+            .node_id = words[0],
+            .step_index = if (words[1] == std.math.maxInt(usize)) null else words[1],
+            .source_operation_code = if (words[2] == 0) null else words[2],
+            .action = if (words[3] == 1) .instruction else .conversion,
+            .source_instruction_count = words[4],
+            .is_view = words[5] != 0,
+            .output_bytes = words[6],
+            .implementation = implementation_buffer[0..implementation_length],
+        };
+    }
+
+    pub fn physicalNodeOrigins(self: *const DenseGraphHandle, allocator: std.mem.Allocator, index: usize, source_instruction_count: usize) ![]usize {
+        if (self.raw == null) return error.InvalidShape;
+        if (source_instruction_count == 0) return try allocator.alloc(usize, 0);
+        const word_count = std.math.add(usize, 7, source_instruction_count) catch return error.InvalidShape;
+        const words = try allocator.alloc(usize, word_count);
+        defer allocator.free(words);
+        var implementation_buffer: [256]u8 = undefined;
+        var implementation_length: usize = 0;
+        if (compute_core_describe_dense_graph_physical_node(self.raw, index, words.ptr, words.len, &implementation_buffer, implementation_buffer.len, &implementation_length) != 0 or words[0] != index or
+            words[4] != source_instruction_count) return error.CoreFailure;
+        return try allocator.dupe(usize, words[7..]);
+    }
+
+    pub fn runState(self: *const DenseGraphHandle) Error!RunState {
+        if (self.raw == null) return error.InvalidShape;
+        var words: [4]usize = undefined;
+        if (compute_core_read_dense_graph_run_state(self.raw, &words, words.len) != 0)
+            return error.CoreFailure;
+        if (words[1] == 2) return error.InvalidCommand;
+        if (words[2] > 3) return error.CoreFailure;
+        if (words[3] > 4) return error.CoreFailure;
+        return .{ .run_id = @intCast(words[0]), .succeeded = words[1] == 0, .path = @fromBackingInt(@intCast(words[2])), .fallback_reason = @fromBackingInt(@intCast(words[3])) };
+    }
+
+    pub fn configureObservation(self: *const DenseGraphHandle, limit: usize) Error!void {
+        if (self.raw == null) return error.InvalidShape;
+        if (compute_core_configure_dense_graph_observation(self.raw, limit) != 0) return error.CoreFailure;
+    }
+
+    pub fn observationCount(self: *const DenseGraphHandle, dropped: *usize) usize {
+        return compute_core_dense_graph_observation_count(self.raw, dropped);
+    }
+
+    pub fn readObservation(self: *const DenseGraphHandle, index: usize) Error!NodeObservation {
+        if (self.raw == null) return error.InvalidShape;
+        var words: [9]usize = undefined;
+        if (compute_core_read_dense_graph_observation(self.raw, index, &words, words.len) != 0)
+            return error.CoreFailure;
+        return .{
+            .run_id = @intCast(words[0]),
+            .node_id = words[1],
+            .schedule_position = words[2],
+            .elapsed_ns = @intCast(words[3]),
+            .timing_available = words[4] != 0,
+            .succeeded = words[5] != 0,
+            .materialized_view = words[6] != 0,
+            .kernel_count = words[8],
+            .path = if (words[7] <= 3) @fromBackingInt(@intCast(words[7])) else .unknown,
+        };
+    }
 
     pub fn deinit(self: *DenseGraphHandle) void {
         if (self.raw) |raw| {
@@ -997,8 +1481,7 @@ pub const DenseGraphHandle = struct {
 
     pub fn run(self: *const DenseGraphHandle, input_bytes: []const u8, output_bytes: []u8) Error!void {
         if (self.raw == null or input_bytes.len != self.input_byte_count) return error.InvalidShape;
-        switch (compute_core_run_dense_graph_handle(self.raw, input_bytes.ptr, input_bytes.len,
-            output_bytes.ptr, output_bytes.len)) {
+        switch (compute_core_run_dense_graph_handle(self.raw, input_bytes.ptr, input_bytes.len, output_bytes.ptr, output_bytes.len)) {
             0 => {},
             1 => return error.InvalidShape,
             3 => return error.InvalidCommand,
@@ -1012,37 +1495,33 @@ pub const DenseGraphHandle = struct {
         backing_bytes: usize,
         offset_bytes: usize,
     };
+    pub const tensor_layout_words_per_output = 11;
 
-    pub fn createInputTensor(self: *const DenseGraphHandle, input_index: usize,
-        bytes: []const u8) Error!TensorToken {
+    pub fn createInputTensor(self: *const DenseGraphHandle, input_index: usize, bytes: []const u8) Error!TensorToken {
         if (self.raw == null) return error.InvalidShape;
         var parts: [3]usize = undefined;
-        switch (compute_core_create_dense_graph_tensor(self.raw, input_index,
-            bytes.ptr, bytes.len, &parts)) {
+        switch (compute_core_create_dense_graph_tensor(self.raw, input_index, bytes.ptr, bytes.len, &parts)) {
             0 => return .{ .owner = parts[0], .slot = parts[1], .generation = parts[2] },
             1 => return error.InvalidShape,
             else => return error.CoreFailure,
         }
     }
 
-    pub fn readTensor(self: *const DenseGraphHandle, token: TensorToken,
-        output: []u8) Error!void {
+    pub fn readTensor(self: *const DenseGraphHandle, token: TensorToken, output: []u8) Error!void {
         if (self.raw == null) return error.InvalidShape;
-        switch (compute_core_read_dense_graph_tensor(self.raw, token.owner, token.slot,
-            token.generation, output.ptr, output.len)) {
-            0 => {}, 1 => return error.InvalidShape, else => return error.CoreFailure,
+        switch (compute_core_read_dense_graph_tensor(self.raw, token.owner, token.slot, token.generation, output.ptr, output.len)) {
+            0 => {},
+            1 => return error.InvalidShape,
+            else => return error.CoreFailure,
         }
     }
 
-    pub fn tensorLayout(self: *const DenseGraphHandle, token: TensorToken,
-        strides: []usize) Error!TensorLayout {
+    pub fn tensorLayout(self: *const DenseGraphHandle, token: TensorToken, strides: []usize) Error!TensorLayout {
         if (self.raw == null) return error.InvalidShape;
         var rank: usize = 0;
         var backing_bytes: usize = 0;
         var offset_bytes: usize = 0;
-        switch (compute_core_describe_dense_graph_tensor(self.raw, token.owner,
-            token.slot, token.generation, &rank, &backing_bytes, &offset_bytes,
-            strides.ptr, strides.len)) {
+        switch (compute_core_describe_dense_graph_tensor(self.raw, token.owner, token.slot, token.generation, &rank, &backing_bytes, &offset_bytes, strides.ptr, strides.len)) {
             0 => {},
             1 => return error.InvalidShape,
             else => return error.CoreFailure,
@@ -1055,11 +1534,9 @@ pub const DenseGraphHandle = struct {
         };
     }
 
-    pub fn readTensorBacking(self: *const DenseGraphHandle, token: TensorToken,
-        output: []u8) Error!void {
+    pub fn readTensorBacking(self: *const DenseGraphHandle, token: TensorToken, output: []u8) Error!void {
         if (self.raw == null) return error.InvalidShape;
-        switch (compute_core_read_dense_graph_tensor_backing(self.raw, token.owner,
-            token.slot, token.generation, output.ptr, output.len)) {
+        switch (compute_core_read_dense_graph_tensor_backing(self.raw, token.owner, token.slot, token.generation, output.ptr, output.len)) {
             0 => {},
             1 => return error.InvalidShape,
             else => return error.CoreFailure,
@@ -1068,39 +1545,110 @@ pub const DenseGraphHandle = struct {
 
     pub fn releaseTensor(self: *const DenseGraphHandle, token: TensorToken) Error!void {
         if (self.raw == null) return error.InvalidShape;
-        switch (compute_core_release_dense_graph_tensor(self.raw, token.owner,
-            token.slot, token.generation)) {
-            0 => {}, 1 => return error.InvalidShape, else => return error.CoreFailure,
+        switch (compute_core_release_dense_graph_tensor(self.raw, token.owner, token.slot, token.generation)) {
+            0 => {},
+            1 => return error.InvalidShape,
+            else => return error.CoreFailure,
         }
     }
 
-    pub fn runTensors(self: *const DenseGraphHandle, allocator: std.mem.Allocator,
-        inputs: []const TensorToken, outputs: []TensorToken,
+    pub fn runTensors(
+        self: *const DenseGraphHandle,
+        allocator: std.mem.Allocator,
+        inputs: []const TensorToken,
+        outputs: []TensorToken,
     ) (Error || std.mem.Allocator.Error)!void {
         if (self.raw == null or inputs.len != self.input_count or
             outputs.len != self.output_count) return error.InvalidShape;
         const input_words = std.math.mul(usize, inputs.len, 3) catch return error.InvalidShape;
         const output_words = std.math.mul(usize, outputs.len, 3) catch return error.InvalidShape;
-        const packed_inputs = try allocator.alloc(usize, input_words);
-        defer allocator.free(packed_inputs);
-        const packed_outputs = try allocator.alloc(usize, output_words);
-        defer allocator.free(packed_outputs);
+        var input_words_buffer: [24]usize = undefined;
+        var output_words_buffer: [24]usize = undefined;
+        const packed_inputs = if (input_words <= input_words_buffer.len)
+            input_words_buffer[0..input_words]
+        else
+            try allocator.alloc(usize, input_words);
+        defer if (input_words > input_words_buffer.len) allocator.free(packed_inputs);
+        const packed_outputs = if (output_words <= output_words_buffer.len)
+            output_words_buffer[0..output_words]
+        else
+            try allocator.alloc(usize, output_words);
+        defer if (output_words > output_words_buffer.len) allocator.free(packed_outputs);
         for (inputs, 0..) |token, index| {
             packed_inputs[index * 3] = token.owner;
             packed_inputs[index * 3 + 1] = token.slot;
             packed_inputs[index * 3 + 2] = token.generation;
         }
-        switch (compute_core_run_dense_graph_tensors(self.raw, packed_inputs.ptr,
-            inputs.len, packed_outputs.ptr, outputs.len)) {
+        switch (compute_core_run_dense_graph_tensors(self.raw, packed_inputs.ptr, inputs.len, packed_outputs.ptr, outputs.len)) {
             0 => {},
             1 => return error.InvalidShape,
             3 => return error.InvalidCommand,
             else => return error.CoreFailure,
         }
         for (outputs, 0..) |*token, index| {
-            token.* = .{ .owner = packed_outputs[index * 3],
-                .slot = packed_outputs[index * 3 + 1],
-                .generation = packed_outputs[index * 3 + 2] };
+            token.* = .{ .owner = packed_outputs[index * 3], .slot = packed_outputs[index * 3 + 1], .generation = packed_outputs[index * 3 + 2] };
+        }
+    }
+
+    pub fn describeTensors(
+        self: *const DenseGraphHandle,
+        tokens: []const TensorToken,
+        words: []usize,
+    ) Error!void {
+        if (self.raw == null or words.len != std.math.mul(usize, tokens.len, tensor_layout_words_per_output) catch return error.InvalidShape)
+            return error.InvalidShape;
+        var packed_tokens: [24]usize = undefined;
+        const packed_tokens_slice = if (tokens.len * 3 <= packed_tokens.len)
+            packed_tokens[0 .. tokens.len * 3]
+        else
+            return error.InvalidShape;
+        for (tokens, 0..) |token, index| {
+            packed_tokens_slice[index * 3] = token.owner;
+            packed_tokens_slice[index * 3 + 1] = token.slot;
+            packed_tokens_slice[index * 3 + 2] = token.generation;
+        }
+        switch (compute_core_describe_dense_graph_tensors(
+            self.raw,
+            packed_tokens_slice.ptr,
+            tokens.len,
+            words.ptr,
+            words.len,
+        )) {
+            0 => {},
+            1 => return error.InvalidShape,
+            else => return error.CoreFailure,
+        }
+    }
+
+    pub fn readTensorsAndRelease(
+        self: *const DenseGraphHandle,
+        tokens: []const TensorToken,
+        destinations: []const usize,
+        byte_counts: []const usize,
+    ) Error!void {
+        if (self.raw == null or destinations.len != tokens.len or
+            byte_counts.len != tokens.len)
+            return error.InvalidShape;
+        var packed_tokens: [24]usize = undefined;
+        const packed_tokens_slice = if (tokens.len * 3 <= packed_tokens.len)
+            packed_tokens[0 .. tokens.len * 3]
+        else
+            return error.InvalidShape;
+        for (tokens, 0..) |token, index| {
+            packed_tokens_slice[index * 3] = token.owner;
+            packed_tokens_slice[index * 3 + 1] = token.slot;
+            packed_tokens_slice[index * 3 + 2] = token.generation;
+        }
+        switch (compute_core_read_dense_graph_tensors_and_release(
+            self.raw,
+            packed_tokens_slice.ptr,
+            tokens.len,
+            destinations.ptr,
+            byte_counts.ptr,
+        )) {
+            0 => {},
+            1 => return error.InvalidShape,
+            else => return error.CoreFailure,
         }
     }
 
@@ -1111,17 +1659,68 @@ pub const DenseGraphHandle = struct {
     pub fn cacheMisses(self: *const DenseGraphHandle) usize {
         return compute_core_dense_graph_handle_cache_misses(self.raw);
     }
+
+    pub fn cacheBytes(self: *const DenseGraphHandle) usize {
+        return compute_core_dense_graph_handle_cache_bytes(self.raw);
+    }
 };
 
 pub fn createDenseGraphHandle(
-    allocator: std.mem.Allocator, inputs: []const DenseByteInput,
-    steps: []const DenseStep, selected: []const usize, goal: DenseGoal,
+    allocator: std.mem.Allocator,
+    inputs: []const DenseByteInput,
+    steps: []const DenseStep,
+    selected: []const usize,
+    goal: DenseGoal,
+) (Error || std.mem.Allocator.Error)!DenseGraphHandle {
+    return createDenseGraphHandleWithLayouts(allocator, inputs, steps, selected, goal, false);
+}
+
+pub fn createDenseGraphHandleWithLayouts(
+    allocator: std.mem.Allocator,
+    inputs: []const DenseByteInput,
+    steps: []const DenseStep,
+    selected: []const usize,
+    goal: DenseGoal,
+    dense_inputs: bool,
+) (Error || std.mem.Allocator.Error)!DenseGraphHandle {
+    return createDenseGraphHandleWithResiduals(allocator, inputs, steps, selected, goal, dense_inputs, &.{}, &.{}, .retain);
+}
+
+pub fn createDenseGraphHandleWithResiduals(
+    allocator: std.mem.Allocator,
+    inputs: []const DenseByteInput,
+    steps: []const DenseStep,
+    selected: []const usize,
+    goal: DenseGoal,
+    dense_inputs: bool,
+    requirements: []const DenseResidualRequirement,
+    uses: []const DenseResidualUse,
+    residual_policy: DenseResidualPolicy,
+) (Error || std.mem.Allocator.Error)!DenseGraphHandle {
+    return createDenseGraphHandleWithConstants(allocator, inputs, inputs.len, &.{}, steps, selected, goal, dense_inputs, requirements, uses, residual_policy);
+}
+
+pub fn createDenseGraphHandleWithConstantsAndSearch(
+    allocator: std.mem.Allocator,
+    inputs: []const DenseByteInput,
+    dynamic_count: usize,
+    constant_bytes: []const u8,
+    steps: []const DenseStep,
+    selected: []const usize,
+    goal: DenseGoal,
+    dense_inputs: bool,
+    requirements: []const DenseResidualRequirement,
+    uses: []const DenseResidualUse,
+    residual_policy: DenseResidualPolicy,
+    search_limits: SearchLimits,
 ) (Error || std.mem.Allocator.Error)!DenseGraphHandle {
     if (inputs.len == 0 or selected.len == 0 or
+        dynamic_count > inputs.len or
         steps.len > std.math.maxInt(usize) - inputs.len) return error.InvalidShape;
     var dimension_count: usize = 0;
     var byte_count: usize = 0;
-    for (inputs) |input| {
+    var constant_byte_count: usize = 0;
+    for (inputs, 0..) |input, index| {
         if (input.shape.len > 8) return error.InvalidShape;
         dimension_count = std.math.add(usize, dimension_count, input.shape.len) catch return error.InvalidShape;
         var elements: usize = 1;
@@ -1131,8 +1730,12 @@ pub fn createDenseGraphHandle(
         }
         const size = std.math.mul(usize, elements, denseDTypeWidth(input.dtype)) catch return error.InvalidShape;
         if (size != input.bytes.len) return error.InvalidShape;
-        byte_count = std.math.add(usize, byte_count, size) catch return error.InvalidShape;
+        if (index < dynamic_count)
+            byte_count = std.math.add(usize, byte_count, size) catch return error.InvalidShape
+        else
+            constant_byte_count = std.math.add(usize, constant_byte_count, size) catch return error.InvalidShape;
     }
+    if (constant_byte_count != constant_bytes.len) return error.InvalidShape;
     const ranks = try allocator.alloc(usize, inputs.len);
     defer allocator.free(ranks);
     const dimensions = try allocator.alloc(usize, dimension_count);
@@ -1171,18 +1774,87 @@ pub fn createDenseGraphHandle(
         metadata_cursor += step.metadata.len;
         offsets[index + 1] = metadata_cursor;
     }
-    const raw = compute_core_create_dense_graph_handle(@backingInt(goal), dtypes.ptr,
-        byte_count, ranks.ptr, inputs.len, dimensions.ptr, dimensions.len,
-        operations.ptr, lhs_ids.ptr, rhs_ids.ptr, third_ids.ptr, offsets.ptr,
-        metadata.ptr, metadata.len, steps.len, selected.ptr, selected.len) orelse return error.InvalidShape;
-    return .{ .raw = raw, .input_byte_count = byte_count,
-        .input_count = inputs.len, .output_count = selected.len };
+    const requirement_word_count = std.math.mul(usize, requirements.len, 4) catch return error.InvalidShape;
+    const requirement_words = try allocator.alloc(usize, requirement_word_count);
+    defer allocator.free(requirement_words);
+    for (requirements, 0..) |requirement, index| {
+        requirement_words[index * 4] = requirement.value;
+        requirement_words[index * 4 + 1] = @intFromBool(requirement.recomputable_view);
+        requirement_words[index * 4 + 2] = requirement.release_after orelse std.math.maxInt(usize);
+        requirement_words[index * 4 + 3] = requirement.recompute_before orelse std.math.maxInt(usize);
+    }
+    const use_word_count = std.math.mul(usize, uses.len, 3) catch return error.InvalidShape;
+    const use_words = try allocator.alloc(usize, use_word_count);
+    defer allocator.free(use_words);
+    for (uses, 0..) |use, index| {
+        use_words[index * 3] = use.value;
+        use_words[index * 3 + 1] = use.instruction;
+        use_words[index * 3 + 2] = use.input_index;
+    }
+    const search_limit_words = [_]usize{
+        search_limits.structural_states,
+        search_limits.structural_expansions,
+        search_limits.complete_evaluations,
+        search_limits.physical_work,
+        search_limits.ready_work,
+    };
+    const raw = compute_core_create_dense_graph_handle_configured(
+        @backingInt(goal),
+        dtypes.ptr,
+        byte_count,
+        ranks.ptr,
+        inputs.len,
+        dynamic_count,
+        constant_bytes.ptr,
+        constant_bytes.len,
+        dimensions.ptr,
+        dimensions.len,
+        operations.ptr,
+        lhs_ids.ptr,
+        rhs_ids.ptr,
+        third_ids.ptr,
+        offsets.ptr,
+        metadata.ptr,
+        metadata.len,
+        steps.len,
+        selected.ptr,
+        selected.len,
+        @intFromBool(dense_inputs),
+        requirement_words.ptr,
+        requirements.len,
+        use_words.ptr,
+        uses.len,
+        @backingInt(residual_policy),
+        &search_limit_words,
+        search_limit_words.len,
+    );
+    const handle = raw orelse return error.InvalidShape;
+    return .{ .raw = handle, .input_byte_count = byte_count, .input_count = dynamic_count, .output_count = selected.len };
+}
+
+pub fn createDenseGraphHandleWithConstants(
+    allocator: std.mem.Allocator,
+    inputs: []const DenseByteInput,
+    dynamic_count: usize,
+    constant_bytes: []const u8,
+    steps: []const DenseStep,
+    selected: []const usize,
+    goal: DenseGoal,
+    dense_inputs: bool,
+    requirements: []const DenseResidualRequirement,
+    uses: []const DenseResidualUse,
+    residual_policy: DenseResidualPolicy,
+) (Error || std.mem.Allocator.Error)!DenseGraphHandle {
+    return createDenseGraphHandleWithConstantsAndSearch(allocator, inputs, dynamic_count, constant_bytes, steps, selected, goal, dense_inputs, requirements, uses, residual_policy, .{});
 }
 
 fn allocDenseGraphMultiBytesMode(
     resident: bool,
-    allocator: std.mem.Allocator, inputs: []const DenseByteInput,
-    steps: []const DenseStep, selected: []const usize, goal: DenseGoal,
+    allocator: std.mem.Allocator,
+    inputs: []const DenseByteInput,
+    steps: []const DenseStep,
+    selected: []const usize,
+    goal: DenseGoal,
 ) (Error || std.mem.Allocator.Error)!DenseGraphBytesResult {
     if (inputs.len == 0 or selected.len == 0 or
         steps.len > std.math.maxInt(usize) - inputs.len) return error.InvalidShape;
@@ -1252,13 +1924,10 @@ fn allocDenseGraphMultiBytesMode(
     errdefer allocator.free(dtypes);
     const dimension_buffer = try allocator.alloc(usize, max_output_dimensions);
     defer allocator.free(dimension_buffer);
-    switch (compute_core_infer_dense_graph_multi_layout_typed(input_dtypes.ptr,
-        input_ranks.ptr, inputs.len, input_dimensions.ptr, input_dimensions.len,
-        operations.ptr, lhs_ids.ptr, rhs_ids.ptr, third_ids.ptr, metadata_offsets.ptr, metadata_values.ptr,
-        metadata_values.len, steps.len, selected.ptr,
-        selected.len, ranks.ptr, elements.ptr, dimension_buffer.ptr,
-        dimension_buffer.len, dtypes.ptr)) {
-        0 => {}, 1 => return error.InvalidShape, else => return error.CoreFailure,
+    switch (compute_core_infer_dense_graph_multi_layout_typed(input_dtypes.ptr, input_ranks.ptr, inputs.len, input_dimensions.ptr, input_dimensions.len, operations.ptr, lhs_ids.ptr, rhs_ids.ptr, third_ids.ptr, metadata_offsets.ptr, metadata_values.ptr, metadata_values.len, steps.len, selected.ptr, selected.len, ranks.ptr, elements.ptr, dimension_buffer.ptr, dimension_buffer.len, dtypes.ptr)) {
+        0 => {},
+        1 => return error.InvalidShape,
+        else => return error.CoreFailure,
     }
     var written: usize = 0;
     for (ranks) |rank| written = std.math.add(usize, written, rank) catch return error.CoreFailure;
@@ -1267,7 +1936,11 @@ fn allocDenseGraphMultiBytesMode(
     var total_bytes: usize = 0;
     for (elements, dtypes) |count, code| {
         const output_dtype: DenseDType = switch (code) {
-            1 => .f32, 2 => .f64, 3 => .i64, 4 => .u32, 5 => .bf16,
+            1 => .f32,
+            2 => .f64,
+            3 => .i64,
+            4 => .u32,
+            5 => .bf16,
             else => return error.CoreFailure,
         };
         const size = std.math.mul(usize, count, denseDTypeWidth(output_dtype)) catch return error.InvalidShape;
@@ -1275,34 +1948,30 @@ fn allocDenseGraphMultiBytesMode(
     }
     const bytes = try allocator.alloc(u8, total_bytes);
     errdefer allocator.free(bytes);
-    const status = if (resident) compute_core_run_dense_graph_resident_multi_layout_bytes(@backingInt(goal),
-        input_dtypes.ptr, input_bytes.ptr, input_bytes.len, input_ranks.ptr,
-        inputs.len, input_dimensions.ptr, input_dimensions.len, operations.ptr,
-        lhs_ids.ptr, rhs_ids.ptr, third_ids.ptr, metadata_offsets.ptr, metadata_values.ptr,
-        metadata_values.len, steps.len, selected.ptr, selected.len,
-        bytes.ptr, bytes.len) else compute_core_run_dense_graph_multi_layout_bytes(@backingInt(goal),
-        input_dtypes.ptr, input_bytes.ptr, input_bytes.len, input_ranks.ptr,
-        inputs.len, input_dimensions.ptr, input_dimensions.len, operations.ptr,
-        lhs_ids.ptr, rhs_ids.ptr, third_ids.ptr, metadata_offsets.ptr, metadata_values.ptr,
-        metadata_values.len, steps.len, selected.ptr, selected.len,
-        bytes.ptr, bytes.len);
+    const status = if (resident) compute_core_run_dense_graph_resident_multi_layout_bytes(@backingInt(goal), input_dtypes.ptr, input_bytes.ptr, input_bytes.len, input_ranks.ptr, inputs.len, input_dimensions.ptr, input_dimensions.len, operations.ptr, lhs_ids.ptr, rhs_ids.ptr, third_ids.ptr, metadata_offsets.ptr, metadata_values.ptr, metadata_values.len, steps.len, selected.ptr, selected.len, bytes.ptr, bytes.len) else compute_core_run_dense_graph_multi_layout_bytes(@backingInt(goal), input_dtypes.ptr, input_bytes.ptr, input_bytes.len, input_ranks.ptr, inputs.len, input_dimensions.ptr, input_dimensions.len, operations.ptr, lhs_ids.ptr, rhs_ids.ptr, third_ids.ptr, metadata_offsets.ptr, metadata_values.ptr, metadata_values.len, steps.len, selected.ptr, selected.len, bytes.ptr, bytes.len);
     switch (status) {
-        0 => {}, 1 => return error.InvalidShape, else => return error.CoreFailure,
+        0 => {},
+        1 => return error.InvalidShape,
+        else => return error.CoreFailure,
     }
-    return .{ .bytes = bytes, .ranks = ranks, .elements = elements,
-        .dimensions = dimensions, .dtypes = dtypes };
+    return .{ .bytes = bytes, .ranks = ranks, .elements = elements, .dimensions = dimensions, .dtypes = dtypes };
 }
 
 pub fn allocDenseGraphMultiBytes(
-    allocator: std.mem.Allocator, inputs: []const DenseByteInput,
-    steps: []const DenseStep, selected: []const usize, goal: DenseGoal,
+    allocator: std.mem.Allocator,
+    inputs: []const DenseByteInput,
+    steps: []const DenseStep,
+    selected: []const usize,
+    goal: DenseGoal,
 ) (Error || std.mem.Allocator.Error)!DenseGraphBytesResult {
     return allocDenseGraphMultiBytesMode(false, allocator, inputs, steps, selected, goal);
 }
 
 pub fn inferDenseGraphMulti(
-    allocator: std.mem.Allocator, inputs: []const DenseByteInput,
-    steps: []const DenseStep, selected: []const usize,
+    allocator: std.mem.Allocator,
+    inputs: []const DenseByteInput,
+    steps: []const DenseStep,
+    selected: []const usize,
 ) (Error || std.mem.Allocator.Error)!DenseGraphInferred {
     if (inputs.len == 0 or selected.len == 0) return error.InvalidShape;
     var dimension_count: usize = 0;
@@ -1361,11 +2030,26 @@ pub fn inferDenseGraphMulti(
     const dimension_buffer = try allocator.alloc(usize, max_dimensions);
     defer allocator.free(dimension_buffer);
     switch (compute_core_infer_dense_graph_multi_layout_typed(
-        input_dtypes.ptr, input_ranks.ptr, inputs.len,
-        input_dimensions.ptr, input_dimensions.len, operations.ptr, lhs_ids.ptr,
-        rhs_ids.ptr, third_ids.ptr, metadata_offsets.ptr, metadata_values.ptr,
-        metadata_values.len, steps.len, selected.ptr, selected.len, ranks.ptr,
-        elements.ptr, dimension_buffer.ptr, dimension_buffer.len, dtypes.ptr,
+        input_dtypes.ptr,
+        input_ranks.ptr,
+        inputs.len,
+        input_dimensions.ptr,
+        input_dimensions.len,
+        operations.ptr,
+        lhs_ids.ptr,
+        rhs_ids.ptr,
+        third_ids.ptr,
+        metadata_offsets.ptr,
+        metadata_values.ptr,
+        metadata_values.len,
+        steps.len,
+        selected.ptr,
+        selected.len,
+        ranks.ptr,
+        elements.ptr,
+        dimension_buffer.ptr,
+        dimension_buffer.len,
+        dtypes.ptr,
     )) {
         0 => {},
         1 => return error.InvalidShape,
@@ -1376,13 +2060,15 @@ pub fn inferDenseGraphMulti(
         return error.CoreFailure;
     const dimensions = try allocator.dupe(usize, dimension_buffer[0..written]);
     errdefer allocator.free(dimensions);
-    return .{ .ranks = ranks, .elements = elements, .dimensions = dimensions,
-        .dtypes = dtypes };
+    return .{ .ranks = ranks, .elements = elements, .dimensions = dimensions, .dtypes = dtypes };
 }
 
 pub fn allocDenseGraphResidentMultiBytes(
-    allocator: std.mem.Allocator, inputs: []const DenseByteInput,
-    steps: []const DenseStep, selected: []const usize, goal: DenseGoal,
+    allocator: std.mem.Allocator,
+    inputs: []const DenseByteInput,
+    steps: []const DenseStep,
+    selected: []const usize,
+    goal: DenseGoal,
 ) (Error || std.mem.Allocator.Error)!DenseGraphBytesResult {
     return allocDenseGraphMultiBytesMode(true, allocator, inputs, steps, selected, goal);
 }
@@ -1416,19 +2102,14 @@ fn inferDenseGraphImpl(
         const available = inputs.len + index;
         if (dtype != .i64 and output_dtypes == null and
             ((@backingInt(step.operation) >= 29 and @backingInt(step.operation) <= 32) or
-            (@backingInt(step.operation) >= 37 and step.operation != .dot))) return error.InvalidShape;
+                (@backingInt(step.operation) >= 37 and step.operation != .dot))) return error.InvalidShape;
         if (step.lhs >= available or
             (switch (step.operation) {
                 .add, .sub, .mul, .div, .matmul, .dot, .eq, .lt, .gt => step.rhs >= available,
                 else => false,
             })) return error.InvalidShape;
         if (dtype == .i64 and switch (step.operation) {
-            .add, .sub, .mul, .div, .abs, .neg, .relu, .matmul, .dot,
-            .sum_all, .mean_all, .sum_axis, .mean_axis, .sign,
-            .min_all, .max_all, .min_axis, .max_axis,
-            .argmin_all, .argmax_all, .argmin_axis, .argmax_axis,
-            .variance_all, .std_all, .variance_axis, .std_axis,
-            .eq, .lt, .gt => false,
+            .add, .sub, .mul, .div, .abs, .neg, .relu, .matmul, .dot, .sum_all, .mean_all, .sum_axis, .mean_axis, .sign, .min_all, .max_all, .min_axis, .max_axis, .argmin_all, .argmax_all, .argmin_axis, .argmax_axis, .variance_all, .std_all, .variance_axis, .std_axis, .eq, .lt, .gt => false,
             else => true,
         }) return error.InvalidShape;
         if (dtype == .u32 and @backingInt(step.operation) > 12 and @backingInt(step.operation) < 25) return error.InvalidShape;
@@ -1456,15 +2137,9 @@ fn inferDenseGraphImpl(
         rhs_ids[index] = step.rhs;
     }
     const status = if (output_dtypes) |dtypes|
-        compute_core_infer_dense_graph_typed(@backingInt(dtype), ranks.ptr, ranks.len,
-            dimensions.ptr, dimensions.len, operations.ptr, lhs_ids.ptr, rhs_ids.ptr,
-            steps.len, selected.ptr, selected.len, output_ranks.ptr, output_elements.ptr,
-            output_dimensions.ptr, output_dimensions.len, dtypes.ptr)
+        compute_core_infer_dense_graph_typed(@backingInt(dtype), ranks.ptr, ranks.len, dimensions.ptr, dimensions.len, operations.ptr, lhs_ids.ptr, rhs_ids.ptr, steps.len, selected.ptr, selected.len, output_ranks.ptr, output_elements.ptr, output_dimensions.ptr, output_dimensions.len, dtypes.ptr)
     else
-        compute_core_infer_dense_graph(@backingInt(dtype), ranks.ptr, ranks.len,
-            dimensions.ptr, dimensions.len, operations.ptr, lhs_ids.ptr, rhs_ids.ptr,
-            steps.len, selected.ptr, selected.len, output_ranks.ptr, output_elements.ptr,
-            output_dimensions.ptr, output_dimensions.len);
+        compute_core_infer_dense_graph(@backingInt(dtype), ranks.ptr, ranks.len, dimensions.ptr, dimensions.len, operations.ptr, lhs_ids.ptr, rhs_ids.ptr, steps.len, selected.ptr, selected.len, output_ranks.ptr, output_elements.ptr, output_dimensions.ptr, output_dimensions.len);
     switch (status) {
         0 => {},
         1 => return error.InvalidShape,
@@ -1858,12 +2533,7 @@ fn runDenseGraphWithGoalMode(
         if (T != i64 and ((@backingInt(step.operation) >= 29 and @backingInt(step.operation) <= 32) or
             (@backingInt(step.operation) >= 37 and step.operation != .dot))) return error.InvalidShape;
         if (T == i64 and switch (step.operation) {
-            .add, .sub, .mul, .div, .abs, .neg, .relu, .matmul, .dot,
-            .sum_all, .mean_all, .sum_axis, .mean_axis, .sign,
-            .min_all, .max_all, .min_axis, .max_axis,
-            .argmin_all, .argmax_all, .argmin_axis, .argmax_axis,
-            .variance_all, .std_all, .variance_axis, .std_axis,
-            .eq, .lt, .gt => false,
+            .add, .sub, .mul, .div, .abs, .neg, .relu, .matmul, .dot, .sum_all, .mean_all, .sum_axis, .mean_axis, .sign, .min_all, .max_all, .min_axis, .max_axis, .argmin_all, .argmax_all, .argmin_axis, .argmax_axis, .variance_all, .std_all, .variance_axis, .std_axis, .eq, .lt, .gt => false,
             else => true,
         }) return error.InvalidShape;
         if (T == u32 and @backingInt(step.operation) > 12 and @backingInt(step.operation) < 25) return error.InvalidShape;

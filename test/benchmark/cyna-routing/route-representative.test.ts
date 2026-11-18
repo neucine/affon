@@ -25,7 +25,7 @@ function entry(name: string, routing: Routing, corpus: RoutingCorpus = 'authored
 
 const cyna = route('cyna', 'success', 'lowered')
 const operation = route('zig', 'operation', 'unsupported', 'unsupported_op', 'shape')
-const observability = route('zig', 'observability', 'evidence_capture')
+const observability = route('zig', 'observability', 'compute_evidence')
 
 describe('Cyna routing report', () => {
   test('groups identical fallback routes and counts the suite', () => {
@@ -66,7 +66,7 @@ describe('Cyna routing report', () => {
     expect(forward.fallback_groups.map(group => group.reason)).toEqual([
       'non_cpu_backend',
       'cyna_disabled',
-      'evidence_capture',
+      'compute_evidence',
     ])
   })
 
@@ -98,10 +98,12 @@ describe('Cyna routing report', () => {
       entry('generic_lowering', route('zig', 'lowering', 'allocation_failed')),
       entry('metal', route('zig', 'backend', 'non_cpu_backend')),
       entry('disabled', route('zig', 'configuration', 'cyna_disabled')),
+      entry('bounded', route('zig', 'compiler', 'search_limits')),
     ])
 
     expect(report.fallback_groups.every(group => group.classification !== 'portable_lowering')).toBe(true)
     expect(report.fallback_groups.find(group => group.category === 'lowering')?.classification).toBe('unclassified')
+    expect(report.fallback_groups.find(group => group.category === 'compiler')?.classification).toBe('execution_limit')
     expect(report.highest_impact_portable_lowering).toEqual(null)
   })
 

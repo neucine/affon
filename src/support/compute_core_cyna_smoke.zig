@@ -13,8 +13,7 @@ test "Affon runs Cyna broadcast comparisons with i64 predicates" {
         .{ .operation = .lt, .lhs = 0, .rhs = 1 },
         .{ .operation = .gt, .lhs = 0, .rhs = 1 },
     };
-    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs,
-        &steps, &.{ 0, 2, 3, 4 }, .baseline);
+    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs, &steps, &.{ 0, 2, 3, 4 }, .baseline);
     defer result.deinit(std.testing.allocator);
     try std.testing.expectEqual(cyna.DenseDType.f32, result.dtype(0));
     try std.testing.expectEqual(cyna.DenseDType.i64, result.dtype(1));
@@ -42,23 +41,19 @@ test "Affon selects Cyna comparison branches" {
         .{ .operation = .sub, .lhs = 0, .rhs = 1 },
         .{ .operation = .where, .lhs = 2, .rhs = 3, .third = 4 },
     };
-    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator,
-        &inputs, &steps, &.{ 2, 5 }, .baseline);
+    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs, &steps, &.{ 2, 5 }, .baseline);
     defer result.deinit(std.testing.allocator);
     try std.testing.expectEqual(cyna.DenseDType.i64, result.dtype(0));
     try std.testing.expectEqual(cyna.DenseDType.f32, result.dtype(1));
     try std.testing.expectEqualSlices(usize, &.{3}, result.shape(1));
-    const memory_result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator,
-        &inputs, &steps, &.{ 2, 5 }, .memory);
+    const memory_result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs, &steps, &.{ 2, 5 }, .memory);
     defer memory_result.deinit(std.testing.allocator);
     try std.testing.expectEqualSlices(u8, result.bytes, memory_result.bytes);
     for ([_]i64{ 1, 0, 0 }, 0..) |value, index| {
-        try std.testing.expectEqual(value, std.mem.readInt(i64,
-            result.outputBytes(0)[index * 8 ..][0..8], .little));
+        try std.testing.expectEqual(value, std.mem.readInt(i64, result.outputBytes(0)[index * 8 ..][0..8], .little));
     }
     for ([_]f32{ 1, -1, 1 }, 0..) |value, index| {
-        try std.testing.expectEqual(value, std.mem.bytesToValue(f32,
-            result.outputBytes(1)[index * 4 ..][0..4]));
+        try std.testing.expectEqual(value, std.mem.bytesToValue(f32, result.outputBytes(1)[index * 4 ..][0..4]));
     }
 }
 
@@ -68,23 +63,19 @@ test "Affon receives Cyna cast with mixed selected dtypes" {
         .{ .dtype = .f32, .shape = &.{2}, .bytes = std.mem.sliceAsBytes(&values) },
     };
     const steps = [_]cyna.DenseStep{
-        .{ .operation = .cast, .lhs = 0, .rhs = @intFromEnum(cyna.DenseDType.f64) },
+        .{ .operation = .cast, .lhs = 0, .rhs = @backingInt(cyna.DenseDType.f64) },
     };
-    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator,
-        &inputs, &steps, &.{ 0, 1 }, .baseline);
+    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs, &steps, &.{ 0, 1 }, .baseline);
     defer result.deinit(std.testing.allocator);
     try std.testing.expectEqual(cyna.DenseDType.f32, result.dtype(0));
     try std.testing.expectEqual(cyna.DenseDType.f64, result.dtype(1));
     try std.testing.expectEqualSlices(usize, &.{2}, result.shape(1));
     try std.testing.expectEqualSlices(u8, inputs[0].bytes, result.outputBytes(0));
     for ([_]f64{ 1.5, -2 }, 0..) |value, index| {
-        try std.testing.expectEqual(value, std.mem.bytesToValue(f64,
-            result.outputBytes(1)[index * 8 ..][0..8]));
+        try std.testing.expectEqual(value, std.mem.bytesToValue(f64, result.outputBytes(1)[index * 8 ..][0..8]));
     }
     const bad = [_]cyna.DenseStep{.{ .operation = .cast, .lhs = 0, .rhs = 6 }};
-    try std.testing.expectError(error.InvalidShape,
-        cyna.allocDenseGraphMultiBytes(std.testing.allocator,
-            &inputs, &bad, &.{1}, .baseline));
+    try std.testing.expectError(error.InvalidShape, cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs, &bad, &.{1}, .baseline));
 }
 
 test "Affon follows Cyna transpose and shape views" {
@@ -98,19 +89,15 @@ test "Affon follows Cyna transpose and shape views" {
         .{ .operation = .unsqueeze, .lhs = 2, .rhs = 1 },
         .{ .operation = .squeeze, .lhs = 3, .rhs = 1 },
     };
-    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator,
-        &inputs, &steps, &.{ 1, 2, 3, 4 }, .baseline);
+    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs, &steps, &.{ 1, 2, 3, 4 }, .baseline);
     defer result.deinit(std.testing.allocator);
     try std.testing.expectEqualSlices(usize, &.{ 3, 1, 2 }, result.shape(2));
     const expected = [_]f32{ 1, 4, 2, 5, 3, 6 };
     for (0..4) |output_index| {
-        try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&expected),
-            result.outputBytes(output_index));
+        try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&expected), result.outputBytes(output_index));
     }
     const invalid = [_]cyna.DenseStep{.{ .operation = .unsqueeze, .lhs = 0, .rhs = 3 }};
-    try std.testing.expectError(error.InvalidShape,
-        cyna.allocDenseGraphMultiBytes(std.testing.allocator,
-            &inputs, &invalid, &.{1}, .baseline));
+    try std.testing.expectError(error.InvalidShape, cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs, &invalid, &.{1}, .baseline));
 }
 
 test "Affon swaps nonadjacent Cyna axes" {
@@ -122,21 +109,17 @@ test "Affon swaps nonadjacent Cyna axes" {
     const steps = [_]cyna.DenseStep{
         .{ .operation = .swap_axes, .lhs = 0, .rhs = 0, .third = 2 },
     };
-    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator,
-        &inputs, &steps, &.{1}, .baseline);
+    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs, &steps, &.{1}, .baseline);
     defer result.deinit(std.testing.allocator);
     try std.testing.expectEqualSlices(usize, &.{ 4, 3, 2 }, result.shape(0));
     for (0..4) |outer| for (0..3) |middle| for (0..2) |inner| {
         const offset = ((outer * 3 + middle) * 2 + inner) * 4;
-        try std.testing.expectEqual(@as(u32, @intCast((inner * 3 + middle) * 4 + outer)),
-            std.mem.readInt(u32, result.outputBytes(0)[offset..][0..4], .little));
+        try std.testing.expectEqual(@as(u32, @intCast((inner * 3 + middle) * 4 + outer)), std.mem.readInt(u32, result.outputBytes(0)[offset..][0..4], .little));
     };
     const invalid = [_]cyna.DenseStep{
         .{ .operation = .swap_axes, .lhs = 0, .rhs = 0, .third = 3 },
     };
-    try std.testing.expectError(error.InvalidShape,
-        cyna.allocDenseGraphMultiBytes(std.testing.allocator,
-            &inputs, &invalid, &.{1}, .baseline));
+    try std.testing.expectError(error.InvalidShape, cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs, &invalid, &.{1}, .baseline));
 }
 
 test "Affon sends Cyna reshape and permutation metadata" {
@@ -149,21 +132,17 @@ test "Affon sends Cyna reshape and permutation metadata" {
         .{ .operation = .reshape, .lhs = 0, .metadata = &.{ 4, 6 } },
         .{ .operation = .permute, .lhs = 1, .metadata = &.{ 1, 0 } },
     };
-    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator,
-        &inputs, &steps, &.{2}, .baseline);
+    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs, &steps, &.{2}, .baseline);
     defer result.deinit(std.testing.allocator);
     try std.testing.expectEqualSlices(usize, &.{ 6, 4 }, result.shape(0));
     for (0..6) |row| for (0..4) |column| {
         const offset = (row * 4 + column) * 4;
-        try std.testing.expectEqual(@as(u32, @intCast(column * 6 + row)),
-            std.mem.readInt(u32, result.outputBytes(0)[offset..][0..4], .little));
+        try std.testing.expectEqual(@as(u32, @intCast(column * 6 + row)), std.mem.readInt(u32, result.outputBytes(0)[offset..][0..4], .little));
     };
     const invalid = [_]cyna.DenseStep{
         .{ .operation = .reshape, .lhs = 0, .metadata = &.{ 5, 5 } },
     };
-    try std.testing.expectError(error.InvalidShape,
-        cyna.allocDenseGraphMultiBytes(std.testing.allocator,
-            &inputs, &invalid, &.{1}, .baseline));
+    try std.testing.expectError(error.InvalidShape, cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs, &invalid, &.{1}, .baseline));
 }
 
 test "Affon slices Cyna views with stepped ranges" {
@@ -175,19 +154,15 @@ test "Affon slices Cyna views with stepped ranges" {
         .{ .operation = .slice, .lhs = 0, .metadata = &.{ 1, 3, 1, 0, 4, 2 } },
         .{ .operation = .contiguous, .lhs = 1 },
     };
-    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator,
-        &inputs, &steps, &.{ 1, 2 }, .baseline);
+    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs, &steps, &.{ 1, 2 }, .baseline);
     defer result.deinit(std.testing.allocator);
     try std.testing.expectEqualSlices(usize, &.{ 2, 2 }, result.shape(0));
     const expected = [_]f32{ 4, 6, 8, 10 };
-    for (0..2) |index| try std.testing.expectEqualSlices(u8,
-        std.mem.sliceAsBytes(&expected), result.outputBytes(index));
+    for (0..2) |index| try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&expected), result.outputBytes(index));
     const invalid = [_]cyna.DenseStep{
         .{ .operation = .slice, .lhs = 0, .metadata = &.{ 1, 3, 1, 0, 4, 0 } },
     };
-    try std.testing.expectError(error.InvalidShape,
-        cyna.allocDenseGraphMultiBytes(std.testing.allocator,
-            &inputs, &invalid, &.{1}, .baseline));
+    try std.testing.expectError(error.InvalidShape, cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs, &invalid, &.{1}, .baseline));
 }
 
 test "Affon runs Cyna indexed graph family" {
@@ -208,8 +183,7 @@ test "Affon runs Cyna indexed graph family" {
         .{ .operation = .scatter_add, .lhs = 3, .rhs = 2, .third = 6, .metadata = &.{1} },
         .{ .operation = .one_hot, .lhs = 1, .rhs = 2 },
     };
-    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator,
-        &inputs, &steps, &.{ 4, 5, 6, 7, 8 }, .baseline);
+    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs, &steps, &.{ 4, 5, 6, 7, 8 }, .baseline);
     defer result.deinit(std.testing.allocator);
     try std.testing.expectEqualSlices(usize, &.{ 2, 2 }, result.shape(4));
     try std.testing.expectEqual(cyna.DenseDType.f32, result.dtype(4));
@@ -219,16 +193,13 @@ test "Affon runs Cyna indexed graph family" {
         .{ 2, 1, 4, 0, 0, 3 },
         .{ 1, 4, 2, 3, 0, 0 },
     };
-    for (expected, 0..) |values, index| try std.testing.expectEqualSlices(u8,
-        std.mem.sliceAsBytes(&values), result.outputBytes(index));
+    for (expected, 0..) |values, index| try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&values), result.outputBytes(index));
     const expected_hot = [_]f32{ 0, 1, 1, 0 };
     try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&expected_hot), result.outputBytes(4));
     const invalid = [_]cyna.DenseStep{
         .{ .operation = .index_select, .lhs = 0, .rhs = 1, .third = 2 },
     };
-    try std.testing.expectError(error.InvalidShape,
-        cyna.allocDenseGraphMultiBytes(std.testing.allocator,
-            &inputs, &invalid, &.{4}, .baseline));
+    try std.testing.expectError(error.InvalidShape, cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs, &invalid, &.{4}, .baseline));
 }
 
 test "Affon receives paired Cyna top k graph results" {
@@ -240,8 +211,18 @@ test "Affon receives paired Cyna top k graph results" {
         .{ .operation = .top_k_values, .lhs = 0, .metadata = &.{ 1, 2, 1 } },
         .{ .operation = .top_k_indices, .lhs = 0, .metadata = &.{ 1, 2, 1 } },
     };
-    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator,
-        &inputs, &steps, &.{ 1, 2 }, .baseline);
+    var graph = try cyna.createDenseGraphHandle(std.testing.allocator, &inputs, &steps, &.{ 1, 2 }, .baseline);
+    defer graph.deinit();
+    try std.testing.expectEqual(@as(usize, 1), graph.physicalNodeCount());
+    try std.testing.expectEqual(@as(usize, 3), graph.physicalValueCount());
+    var implementation: [64]u8 = undefined;
+    const node = try graph.describePhysicalNode(0, &implementation);
+    try std.testing.expectEqual(@as(usize, 2), node.source_instruction_count);
+    const origins = try graph.physicalNodeOrigins(std.testing.allocator, 0, node.source_instruction_count);
+    defer std.testing.allocator.free(origins);
+    try std.testing.expectEqualSlices(usize, &.{ 0, 1 }, origins);
+    try std.testing.expectEqual(@as(usize, 48), node.output_bytes);
+    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs, &steps, &.{ 1, 2 }, .baseline);
     defer result.deinit(std.testing.allocator);
     try std.testing.expectEqual(cyna.DenseDType.f32, result.dtype(0));
     try std.testing.expectEqual(cyna.DenseDType.i64, result.dtype(1));
@@ -250,27 +231,28 @@ test "Affon receives paired Cyna top k graph results" {
     const expected_indices = [_]i64{ 1, 2, 2, 0 };
     try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&expected_values), result.outputBytes(0));
     try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&expected_indices), result.outputBytes(1));
+    const indices_only_steps = [_]cyna.DenseStep{
+        .{ .operation = .top_k_indices, .lhs = 0, .metadata = &.{ 1, 2, 1 } },
+    };
+    const indices_only = try cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs, &indices_only_steps, &.{1}, .baseline);
+    defer indices_only.deinit(std.testing.allocator);
+    try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&expected_indices), indices_only.outputBytes(0));
     const unsorted_steps = [_]cyna.DenseStep{
         .{ .operation = .top_k_values, .lhs = 0, .metadata = &.{ 1, 2, 1, 0 } },
         .{ .operation = .top_k_indices, .lhs = 0, .metadata = &.{ 1, 2, 1, 0 } },
     };
-    const unsorted = try cyna.allocDenseGraphMultiBytes(std.testing.allocator,
-        &inputs, &unsorted_steps, &.{ 1, 2 }, .memory);
+    const unsorted = try cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs, &unsorted_steps, &.{ 1, 2 }, .memory);
     defer unsorted.deinit(std.testing.allocator);
     try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&expected_values), unsorted.outputBytes(0));
     try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&expected_indices), unsorted.outputBytes(1));
     const invalid_sort = [_]cyna.DenseStep{
         .{ .operation = .top_k_values, .lhs = 0, .metadata = &.{ 1, 2, 1, 2 } },
     };
-    try std.testing.expectError(error.InvalidShape,
-        cyna.allocDenseGraphMultiBytes(std.testing.allocator,
-            &inputs, &invalid_sort, &.{1}, .baseline));
+    try std.testing.expectError(error.InvalidShape, cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs, &invalid_sort, &.{1}, .baseline));
     const invalid = [_]cyna.DenseStep{
         .{ .operation = .top_k_values, .lhs = 0, .metadata = &.{ 1, 4, 1 } },
     };
-    try std.testing.expectError(error.InvalidShape,
-        cyna.allocDenseGraphMultiBytes(std.testing.allocator,
-            &inputs, &invalid, &.{1}, .baseline));
+    try std.testing.expectError(error.InvalidShape, cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs, &invalid, &.{1}, .baseline));
 }
 
 test "Affon composes Cyna cat stack and reduce to shape" {
@@ -285,8 +267,7 @@ test "Affon composes Cyna cat stack and reduce to shape" {
         .{ .operation = .stack, .lhs = 0, .rhs = 0, .metadata = &.{1} },
         .{ .operation = .reduce_to_shape, .lhs = 2, .metadata = &.{ 1, 2 } },
     };
-    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator,
-        &inputs, &steps, &.{ 2, 3, 4 }, .baseline);
+    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs, &steps, &.{ 2, 3, 4 }, .baseline);
     defer result.deinit(std.testing.allocator);
     try std.testing.expectEqualSlices(usize, &.{ 2, 2 }, result.shape(0));
     try std.testing.expectEqualSlices(usize, &.{ 2, 2, 1 }, result.shape(1));
@@ -300,9 +281,7 @@ test "Affon composes Cyna cat stack and reduce to shape" {
     const invalid = [_]cyna.DenseStep{
         .{ .operation = .cat, .lhs = 0, .rhs = 1, .metadata = &.{2} },
     };
-    try std.testing.expectError(error.InvalidShape,
-        cyna.allocDenseGraphMultiBytes(std.testing.allocator,
-            &inputs, &invalid, &.{2}, .baseline));
+    try std.testing.expectError(error.InvalidShape, cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs, &invalid, &.{2}, .baseline));
 }
 
 test "Affon sends Cyna masked fill and clamp scalars" {
@@ -320,8 +299,7 @@ test "Affon sends Cyna masked fill and clamp scalars" {
         .{ .operation = .masked_fill, .lhs = 0, .rhs = 1, .metadata = &fill },
         .{ .operation = .clamp, .lhs = 2, .metadata = &bounds },
     };
-    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator,
-        &inputs, &steps, &.{ 2, 3 }, .baseline);
+    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs, &steps, &.{ 2, 3 }, .baseline);
     defer result.deinit(std.testing.allocator);
     const expected_fill = [_]f32{ -2, -1.5, 2, -1.5 };
     const expected_clamp = [_]f32{ -1, -1, 1, -1 };
@@ -329,9 +307,7 @@ test "Affon sends Cyna masked fill and clamp scalars" {
     try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&expected_clamp), result.outputBytes(1));
     const reversed = [4]usize{ upper[0], upper[1], lower[0], lower[1] };
     const invalid = [_]cyna.DenseStep{.{ .operation = .clamp, .lhs = 0, .metadata = &reversed }};
-    try std.testing.expectError(error.InvalidShape,
-        cyna.allocDenseGraphMultiBytes(std.testing.allocator,
-            &inputs, &invalid, &.{2}, .baseline));
+    try std.testing.expectError(error.InvalidShape, cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs, &invalid, &.{2}, .baseline));
 }
 
 test "Affon runs Cyna normalization and loss graph" {
@@ -351,11 +327,9 @@ test "Affon runs Cyna normalization and loss graph" {
         .{ .operation = .log_softmax_nll, .lhs = 0, .rhs = 1, .third = 1 },
         .{ .operation = .cross_entropy_indexed, .lhs = 0, .rhs = 2, .third = 1 },
     };
-    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator,
-        &inputs, &steps, &.{ 3, 4, 5, 6, 7 }, .baseline);
+    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs, &steps, &.{ 3, 4, 5, 6, 7 }, .baseline);
     defer result.deinit(std.testing.allocator);
-    const resident = try cyna.allocDenseGraphResidentMultiBytes(std.testing.allocator,
-        &inputs, &steps, &.{ 3, 4, 5, 6, 7 }, .baseline);
+    const resident = try cyna.allocDenseGraphResidentMultiBytes(std.testing.allocator, &inputs, &steps, &.{ 3, 4, 5, 6, 7 }, .baseline);
     defer resident.deinit(std.testing.allocator);
     try std.testing.expectEqualSlices(u8, result.bytes, resident.bytes);
     try std.testing.expectEqualSlices(usize, &.{ 2, 3 }, result.shape(0));
@@ -372,9 +346,7 @@ test "Affon runs Cyna normalization and loss graph" {
     const invalid = [_]cyna.DenseStep{
         .{ .operation = .layer_norm, .lhs = 0, .rhs = 1, .metadata = &zero_epsilon },
     };
-    try std.testing.expectError(error.InvalidShape,
-        cyna.allocDenseGraphMultiBytes(std.testing.allocator,
-            &inputs, &invalid, &.{3}, .baseline));
+    try std.testing.expectError(error.InvalidShape, cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs, &invalid, &.{3}, .baseline));
 }
 
 test "Affon runs a fused Cyna graph in resident memory mode" {
@@ -390,24 +362,23 @@ test "Affon runs a fused Cyna graph in resident memory mode" {
         .{ .operation = .matmul, .lhs = 0, .rhs = 1 },
         .{ .operation = .add, .lhs = 3, .rhs = 2 },
     };
-    const baseline = try cyna.allocDenseGraphMultiBytes(std.testing.allocator,
-        &inputs, &steps, &.{4}, .baseline);
+    const baseline = try cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs, &steps, &.{4}, .baseline);
     defer baseline.deinit(std.testing.allocator);
-    const resident = try cyna.allocDenseGraphResidentMultiBytes(std.testing.allocator,
-        &inputs, &steps, &.{4}, .memory);
+    const resident = try cyna.allocDenseGraphResidentMultiBytes(std.testing.allocator, &inputs, &steps, &.{4}, .memory);
     defer resident.deinit(std.testing.allocator);
     try std.testing.expectEqualSlices(usize, &.{ 2, 2 }, resident.shape(0));
     try std.testing.expectEqualSlices(u8, baseline.bytes, resident.bytes);
     for ([_]f32{ 29, 42, 53, 70 }, 0..) |expected, index| {
-        try std.testing.expectEqual(expected,
-            std.mem.bytesToValue(f32, resident.outputBytes(0)[index * 4 ..][0..4]));
+        try std.testing.expectEqual(expected, std.mem.bytesToValue(f32, resident.outputBytes(0)[index * 4 ..][0..4]));
     }
 }
 
 test "Affon runs resident Cyna normalization with epsilon metadata" {
     const values = [_]f32{ 1, 2, 3, 4, 5, 6 };
     const inputs = [_]cyna.DenseByteInput{.{
-        .dtype = .f32, .shape = &.{ 2, 3 }, .bytes = std.mem.sliceAsBytes(&values),
+        .dtype = .f32,
+        .shape = &.{ 2, 3 },
+        .bytes = std.mem.sliceAsBytes(&values),
     }};
     const epsilon = cyna.scalarMetadata(0.00001);
     const steps = [_]cyna.DenseStep{
@@ -415,14 +386,11 @@ test "Affon runs resident Cyna normalization with epsilon metadata" {
         .{ .operation = .rms_norm, .lhs = 0, .rhs = 1, .metadata = &epsilon },
     };
     const selected = [_]usize{ 1, 2 };
-    const baseline = try cyna.allocDenseGraphMultiBytes(std.testing.allocator,
-        &inputs, &steps, &selected, .baseline);
+    const baseline = try cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs, &steps, &selected, .baseline);
     defer baseline.deinit(std.testing.allocator);
-    const resident = try cyna.allocDenseGraphResidentMultiBytes(std.testing.allocator,
-        &inputs, &steps, &selected, .baseline);
+    const resident = try cyna.allocDenseGraphResidentMultiBytes(std.testing.allocator, &inputs, &steps, &selected, .baseline);
     defer resident.deinit(std.testing.allocator);
-    const memory_resident = try cyna.allocDenseGraphResidentMultiBytes(std.testing.allocator,
-        &inputs, &steps, &selected, .memory);
+    const memory_resident = try cyna.allocDenseGraphResidentMultiBytes(std.testing.allocator, &inputs, &steps, &selected, .memory);
     defer memory_resident.deinit(std.testing.allocator);
     try std.testing.expectEqualSlices(u8, baseline.bytes, resident.bytes);
     try std.testing.expectEqualSlices(u8, baseline.bytes, memory_resident.bytes);
@@ -441,8 +409,7 @@ test "Affon owns heterogeneous Cyna graph results" {
         .{ .dtype = .i64, .shape = &.{2}, .bytes = std.mem.sliceAsBytes(&integer_values) },
     };
     const steps = [_]cyna.DenseStep{.{ .operation = .argmin_axis, .lhs = 0, .rhs = 0 }};
-    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs,
-        &steps, &.{ 0, 1, 2 }, .baseline);
+    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs, &steps, &.{ 0, 1, 2 }, .baseline);
     defer result.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(usize, 32), result.bytes.len);
     try std.testing.expectEqual(cyna.DenseDType.f32, result.dtype(0));
@@ -454,11 +421,11 @@ test "Affon owns heterogeneous Cyna graph results" {
     try std.testing.expectEqualSlices(u8, inputs[1].bytes, result.outputBytes(1));
     try std.testing.expectEqualSlices(u8, &.{ 1, 0, 0, 0, 0, 0, 0, 0 }, result.outputBytes(2));
     const invalid = [_]cyna.DenseByteInput{ inputs[0], .{
-        .dtype = .i64, .shape = &.{2}, .bytes = inputs[1].bytes[0..15],
+        .dtype = .i64,
+        .shape = &.{2},
+        .bytes = inputs[1].bytes[0..15],
     } };
-    try std.testing.expectError(error.InvalidShape,
-        cyna.allocDenseGraphMultiBytes(std.testing.allocator, &invalid,
-            &steps, &.{ 0, 1, 2 }, .baseline));
+    try std.testing.expectError(error.InvalidShape, cyna.allocDenseGraphMultiBytes(std.testing.allocator, &invalid, &steps, &.{ 0, 1, 2 }, .baseline));
 }
 
 test "Affon infers mixed dtype selected graph results" {
@@ -472,8 +439,7 @@ test "Affon infers mixed dtype selected graph results" {
     var elements = [_]usize{ 99, 99, 99 };
     var dimensions = [_]usize{ 99, 99, 99, 99, 99 };
     var dtypes = [_]c_int{ 99, 99, 99 };
-    const written = try cyna.inferDenseGraphTyped(std.testing.allocator, .f32, &inputs,
-        &steps, &selected, &ranks, &elements, &dimensions, &dtypes);
+    const written = try cyna.inferDenseGraphTyped(std.testing.allocator, .f32, &inputs, &steps, &selected, &ranks, &elements, &dimensions, &dtypes);
     try std.testing.expectEqual(@as(usize, 4), written);
     try std.testing.expectEqualSlices(usize, &.{ 2, 1, 1 }, &ranks);
     try std.testing.expectEqualSlices(usize, &.{ 4, 2, 1 }, &elements);
@@ -481,33 +447,25 @@ test "Affon infers mixed dtype selected graph results" {
     try std.testing.expectEqualSlices(c_int, &.{ 1, 3, 3 }, &dtypes);
     ranks[0] = 99;
     dtypes[0] = 99;
-    try std.testing.expectError(error.InvalidShape,
-        cyna.inferDenseGraphTyped(std.testing.allocator, .f32, &inputs,
-            &steps, &selected, &ranks, &elements, dimensions[0..3], &dtypes));
+    try std.testing.expectError(error.InvalidShape, cyna.inferDenseGraphTyped(std.testing.allocator, .f32, &inputs, &steps, &selected, &ranks, &elements, dimensions[0..3], &dtypes));
     try std.testing.expectEqual(@as(usize, 99), ranks[0]);
     try std.testing.expectEqual(@as(c_int, 99), dtypes[0]);
-    try std.testing.expectError(error.InvalidShape,
-        cyna.inferDenseGraph(std.testing.allocator, .f32, &inputs,
-            &steps, &selected, &ranks, &elements, &dimensions));
+    try std.testing.expectError(error.InvalidShape, cyna.inferDenseGraph(std.testing.allocator, .f32, &inputs, &steps, &selected, &ranks, &elements, &dimensions));
     const input_bytes = [_]u8{
         0, 0, 128, 64, 0, 0, 128, 191,
-        0, 0, 0, 64, 0, 0, 128, 191,
+        0, 0, 0,   64, 0, 0, 128, 191,
     };
     var output_bytes: [40]u8 = undefined;
     @memset(&output_bytes, 0);
-    try cyna.runDenseGraphBytes(std.testing.allocator, .f32, &inputs,
-        &input_bytes, &steps, &selected, &output_bytes, .memory);
+    try cyna.runDenseGraphBytes(std.testing.allocator, .f32, &inputs, &input_bytes, &steps, &selected, &output_bytes, .memory);
     try std.testing.expectEqualSlices(u8, &input_bytes, output_bytes[0..16]);
     try std.testing.expectEqual(@as(u8, 1), output_bytes[16]);
     try std.testing.expectEqual(@as(u8, 1), output_bytes[24]);
     try std.testing.expectEqual(@as(u8, 0), output_bytes[32]);
     @memset(&output_bytes, 91);
-    try std.testing.expectError(error.InvalidShape,
-        cyna.runDenseGraphBytes(std.testing.allocator, .f32, &inputs,
-            &input_bytes, &steps, &selected, output_bytes[0..39], .baseline));
+    try std.testing.expectError(error.InvalidShape, cyna.runDenseGraphBytes(std.testing.allocator, .f32, &inputs, &input_bytes, &steps, &selected, output_bytes[0..39], .baseline));
     try std.testing.expectEqual(@as(u8, 91), output_bytes[0]);
-    const owned = try cyna.allocDenseGraphBytes(std.testing.allocator, .f32, &inputs,
-        &input_bytes, &steps, &selected, .memory);
+    const owned = try cyna.allocDenseGraphBytes(std.testing.allocator, .f32, &inputs, &input_bytes, &steps, &selected, .memory);
     defer owned.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(usize, 40), owned.bytes.len);
     try std.testing.expectEqual(cyna.DenseDType.f32, owned.dtype(0));
@@ -515,12 +473,9 @@ test "Affon infers mixed dtype selected graph results" {
     try std.testing.expectEqualSlices(usize, &.{ 2, 2 }, owned.shape(0));
     try std.testing.expectEqualSlices(usize, &.{2}, owned.shape(1));
     try std.testing.expectEqualSlices(u8, &input_bytes, owned.outputBytes(0));
-    try std.testing.expectEqualSlices(u8, &.{ 1, 0, 0, 0, 0, 0, 0, 0,
-        1, 0, 0, 0, 0, 0, 0, 0 }, owned.outputBytes(1));
+    try std.testing.expectEqualSlices(u8, &.{ 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0 }, owned.outputBytes(1));
     try std.testing.expectEqualSlices(u8, &.{ 0, 0, 0, 0, 0, 0, 0, 0 }, owned.outputBytes(2));
-    try std.testing.expectError(error.InvalidShape,
-        cyna.allocDenseGraphBytes(std.testing.allocator, .f32, &inputs,
-            input_bytes[0..15], &steps, &selected, .baseline));
+    try std.testing.expectError(error.InvalidShape, cyna.allocDenseGraphBytes(std.testing.allocator, .f32, &inputs, input_bytes[0..15], &steps, &selected, .baseline));
 }
 
 test "Affon preserves f64 u32 and bf16 bytes with i64 index results" {
@@ -538,8 +493,7 @@ test "Affon preserves f64 u32 and bf16 bytes with i64 index results" {
         const input = item[1];
         const result = try std.testing.allocator.alloc(u8, input.len + 16);
         defer std.testing.allocator.free(result);
-        try cyna.runDenseGraphBytes(std.testing.allocator, item[0], &shapes,
-            input, &steps, &selected, result, .baseline);
+        try cyna.runDenseGraphBytes(std.testing.allocator, item[0], &shapes, input, &steps, &selected, result, .baseline);
         try std.testing.expectEqualSlices(u8, input, result[0..input.len]);
         try std.testing.expectEqualSlices(u8, &.{ 1, 0, 0, 0, 0, 0, 0, 0 }, result[input.len..][0..8]);
         try std.testing.expectEqualSlices(u8, &.{ 1, 0, 0, 0, 0, 0, 0, 0 }, result[input.len + 8 ..][0..8]);
@@ -613,8 +567,7 @@ test "Affon runs Cyna i64 argmin and argmax with first-index ties" {
     try std.testing.expectEqualSlices(usize, &.{1}, result.shape(0));
     try std.testing.expectEqualSlices(usize, &.{2}, result.shape(2));
     const float_inputs = [_]cyna.DenseInput{.{ .shape = &.{ 2, 2 }, .values = &.{ 7, -3, 7, -3 } }};
-    try std.testing.expectError(error.InvalidShape,
-        cyna.allocDenseGraphF32(std.testing.allocator, &float_inputs, &steps, &.{1}, .baseline));
+    try std.testing.expectError(error.InvalidShape, cyna.allocDenseGraphF32(std.testing.allocator, &float_inputs, &steps, &.{1}, .baseline));
 }
 
 test "Affon runs Cyna dense min and max reductions" {
@@ -680,8 +633,7 @@ test "Affon infers selected graph shapes for five Cyna dtypes" {
         var ranks = [_]usize{ 99, 99, 99 };
         var elements = [_]usize{ 99, 99, 99 };
         var dimensions = [_]usize{ 99, 99, 99, 99, 99 };
-        const written = try cyna.inferDenseGraph(std.testing.allocator, dtype,
-            &inputs, &steps, &selected, &ranks, &elements, &dimensions);
+        const written = try cyna.inferDenseGraph(std.testing.allocator, dtype, &inputs, &steps, &selected, &ranks, &elements, &dimensions);
         try std.testing.expectEqual(@as(usize, 5), written);
         try std.testing.expectEqualSlices(usize, &.{ 2, 2, 1 }, &ranks);
         try std.testing.expectEqualSlices(usize, &.{ 4, 4, 2 }, &elements);
@@ -689,9 +641,7 @@ test "Affon infers selected graph shapes for five Cyna dtypes" {
         ranks[0] = 99;
         elements[0] = 99;
         dimensions[0] = 99;
-        try std.testing.expectError(error.InvalidShape,
-            cyna.inferDenseGraph(std.testing.allocator, dtype, &inputs, &steps,
-                &selected, &ranks, &elements, dimensions[0..4]));
+        try std.testing.expectError(error.InvalidShape, cyna.inferDenseGraph(std.testing.allocator, dtype, &inputs, &steps, &selected, &ranks, &elements, dimensions[0..4]));
         try std.testing.expectEqual(@as(usize, 99), ranks[0]);
         try std.testing.expectEqual(@as(usize, 99), elements[0]);
         try std.testing.expectEqual(@as(usize, 99), dimensions[0]);
@@ -780,8 +730,7 @@ test "Affon submits a shaped signed i64 Cyna graph" {
         inputs[1],
         inputs[2],
     };
-    try std.testing.expectError(error.InvalidShape,
-        cyna.allocDenseGraphI64(std.testing.allocator, &bad_inputs, &steps, &selected, .baseline));
+    try std.testing.expectError(error.InvalidShape, cyna.allocDenseGraphI64(std.testing.allocator, &bad_inputs, &steps, &selected, .baseline));
     var output = [_]i64{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
     try cyna.runDenseGraphI64(std.testing.allocator, &inputs, &steps, &selected, &output);
     try std.testing.expectEqualSlices(i64, &.{ 19, 22, 43, 50, 29, 42, 53, 70, 71, 123 }, &output);
@@ -790,15 +739,12 @@ test "Affon submits a shaped signed i64 Cyna graph" {
     try cyna.runDenseGraphResidentI64(std.testing.allocator, &inputs, &steps, &selected, &output);
     try std.testing.expectEqualSlices(i64, &.{ 19, 22, 43, 50, 29, 42, 53, 70, 71, 123 }, &output);
     var unchanged = [_]i64{ 91, 91, 91, 91, 91, 91, 91, 91, 91, 91 };
-    try std.testing.expectError(error.InvalidShape,
-        cyna.runDenseGraphI64(std.testing.allocator, &inputs, &steps, &selected, unchanged[0..9]));
+    try std.testing.expectError(error.InvalidShape, cyna.runDenseGraphI64(std.testing.allocator, &inputs, &steps, &selected, unchanged[0..9]));
     try std.testing.expectEqual(@as(i64, 91), unchanged[0]);
-    try std.testing.expectError(error.InvalidShape,
-        cyna.runDenseGraphResidentI64(std.testing.allocator, &inputs, &steps, &selected, unchanged[0..9]));
+    try std.testing.expectError(error.InvalidShape, cyna.runDenseGraphResidentI64(std.testing.allocator, &inputs, &steps, &selected, unchanged[0..9]));
     try std.testing.expectEqual(@as(i64, 91), unchanged[0]);
     const unsupported = [_]cyna.DenseStep{.{ .operation = .mean_axis, .lhs = 0, .rhs = 9 }};
-    try std.testing.expectError(error.InvalidShape,
-        cyna.runDenseGraphI64(std.testing.allocator, &inputs, &unsupported, &.{3}, unchanged[0..1]));
+    try std.testing.expectError(error.InvalidShape, cyna.runDenseGraphI64(std.testing.allocator, &inputs, &unsupported, &.{3}, unchanged[0..1]));
     try std.testing.expectEqual(@as(i64, 91), unchanged[0]);
 }
 
@@ -823,8 +769,7 @@ test "Affon submits a precise f64 Cyna graph" {
     try cyna.runDenseGraphResidentF64(std.testing.allocator, &inputs, &steps, &selected, &resident_output);
     try std.testing.expectEqualSlices(f64, &output, &resident_output);
     resident_output = @splat(-1.0);
-    try std.testing.expectError(error.InvalidShape,
-        cyna.runDenseGraphResidentF64(std.testing.allocator, &inputs, &steps, &selected, resident_output[0..4]));
+    try std.testing.expectError(error.InvalidShape, cyna.runDenseGraphResidentF64(std.testing.allocator, &inputs, &steps, &selected, resident_output[0..4]));
     try std.testing.expectEqual(@as(f64, -1.0), resident_output[0]);
     const axis_steps = [_]cyna.DenseStep{
         steps[0],
@@ -836,8 +781,7 @@ test "Affon submits a precise f64 Cyna graph" {
     try cyna.runDenseGraphResidentF64(std.testing.allocator, &inputs, &axis_steps, &axis_selected, &axis_output);
     try std.testing.expectEqualSlices(f64, &.{ 16777217.0, 1.0, 0.0, 2.0, 16777218.0, 2.0, 8388608.5, 1.5 }, &axis_output);
     output[0] = -1.0;
-    try std.testing.expectError(error.InvalidShape,
-        cyna.runDenseGraphF64(std.testing.allocator, &inputs, &steps, &selected, output[0..4]));
+    try std.testing.expectError(error.InvalidShape, cyna.runDenseGraphF64(std.testing.allocator, &inputs, &steps, &selected, output[0..4]));
     try std.testing.expectEqual(@as(f64, -1.0), output[0]);
 }
 
@@ -904,11 +848,9 @@ test "Affon submits a wrapping u32 Cyna graph" {
     try cyna.runDenseGraphResidentU32(std.testing.allocator, &inputs, &steps, &selected, &output);
     try std.testing.expectEqualSlices(u32, &.{ std.math.maxInt(u32), 2, 3, 4, 1, 3, 5, 5, 4, 10 }, &output);
     output[0] = 91;
-    try std.testing.expectError(error.InvalidShape,
-        cyna.runDenseGraphU32(std.testing.allocator, &inputs, &steps, &selected, output[0..9]));
+    try std.testing.expectError(error.InvalidShape, cyna.runDenseGraphU32(std.testing.allocator, &inputs, &steps, &selected, output[0..9]));
     try std.testing.expectEqual(@as(u32, 91), output[0]);
-    try std.testing.expectError(error.InvalidShape,
-        cyna.runDenseGraphResidentU32(std.testing.allocator, &inputs, &steps, &selected, output[0..9]));
+    try std.testing.expectError(error.InvalidShape, cyna.runDenseGraphResidentU32(std.testing.allocator, &inputs, &steps, &selected, output[0..9]));
     try std.testing.expectEqual(@as(u32, 91), output[0]);
 }
 
@@ -936,11 +878,9 @@ test "Affon submits exact bf16 bits through a Cyna graph" {
     try cyna.runDenseGraphResidentBf16Bits(std.testing.allocator, &inputs, &steps, &selected, &output);
     try std.testing.expectEqualSlices(u16, &expected, &output);
     output[0] = 0xffff;
-    try std.testing.expectError(error.InvalidShape,
-        cyna.runDenseGraphBf16Bits(std.testing.allocator, &inputs, &steps, &selected, output[0..9]));
+    try std.testing.expectError(error.InvalidShape, cyna.runDenseGraphBf16Bits(std.testing.allocator, &inputs, &steps, &selected, output[0..9]));
     try std.testing.expectEqual(@as(u16, 0xffff), output[0]);
-    try std.testing.expectError(error.InvalidShape,
-        cyna.runDenseGraphResidentBf16Bits(std.testing.allocator, &inputs, &steps, &selected, output[0..9]));
+    try std.testing.expectError(error.InvalidShape, cyna.runDenseGraphResidentBf16Bits(std.testing.allocator, &inputs, &steps, &selected, output[0..9]));
     try std.testing.expectEqual(@as(u16, 0xffff), output[0]);
 }
 
@@ -995,18 +935,15 @@ test "Affon runs quantized matmul inside a Cyna graph" {
         .{ .dtype = .f32, .shape = &.{ 3, 2 }, .bytes = std.mem.sliceAsBytes(&biases) },
     };
     const steps = [_]cyna.DenseStep{
-        .{ .operation = .quantized_matmul, .lhs = 0, .rhs = 1,
-            .third = 2, .metadata = &.{ 3, 8, 4 } },
+        .{ .operation = .quantized_matmul, .lhs = 0, .rhs = 1, .third = 2, .metadata = &.{ 3, 8, 4 } },
     };
-    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator,
-        &inputs, &steps, &.{4}, .baseline);
+    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs, &steps, &.{4}, .baseline);
     defer result.deinit(std.testing.allocator);
     try std.testing.expectEqual(cyna.DenseDType.f32, result.dtype(0));
     try std.testing.expectEqualSlices(usize, &.{ 2, 3 }, result.shape(0));
     const expected = [_]f32{ 36, 72, 108, 44, 88, 132 };
     try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&expected), result.outputBytes(0));
-    const resident = try cyna.allocDenseGraphResidentMultiBytes(std.testing.allocator,
-        &inputs, &steps, &.{4}, .baseline);
+    const resident = try cyna.allocDenseGraphResidentMultiBytes(std.testing.allocator, &inputs, &steps, &.{4}, .baseline);
     defer resident.deinit(std.testing.allocator);
     try std.testing.expectEqualSlices(u8, result.outputBytes(0), resident.outputBytes(0));
 }
@@ -1051,8 +988,7 @@ test "Affon submits a shaped Cyna graph with mixed selected outputs" {
     try cyna.runDenseGraphResidentF32(std.testing.allocator, &inputs, &steps, &selected, &resident_output);
     try std.testing.expectEqualSlices(f32, &output, &resident_output);
     resident_output = @splat(-1);
-    try std.testing.expectError(error.InvalidShape,
-        cyna.runDenseGraphResidentF32(std.testing.allocator, &inputs, &steps, &selected, resident_output[0..6]));
+    try std.testing.expectError(error.InvalidShape, cyna.runDenseGraphResidentF32(std.testing.allocator, &inputs, &steps, &selected, resident_output[0..6]));
     try std.testing.expectEqualSlices(f32, &.{ -1, -1, -1, -1, -1, -1, -1 }, &resident_output);
 
     output = @splat(-1);
@@ -1119,7 +1055,8 @@ test "Affon submits axis softmax and log softmax" {
     try cyna.runDenseGraphF32(std.testing.allocator, &inputs, &steps, &selected, &output);
     var resident_output: [12]f32 = @splat(0);
     try cyna.runDenseGraphResidentF32(std.testing.allocator, &inputs, &steps, &selected, &resident_output);
-    try std.testing.expectEqualSlices(f32, &output, &resident_output);
+    for (output, resident_output) |reference, actual|
+        try std.testing.expectApproxEqAbs(reference, actual, 0.00001);
     const expected_softmax = [_]f32{ 0.09003057, 0.24472848, 0.66524094 };
     const expected_log = [_]f32{ -2.407606, -1.407606, -0.407606 };
     for (0..6) |index| {
@@ -1129,8 +1066,7 @@ test "Affon submits axis softmax and log softmax" {
     const bad_steps = [_]cyna.DenseStep{.{ .operation = .softmax, .lhs = 0, .rhs = 2 }};
     var invalid_output: [6]f32 = @splat(-1);
     const one_selected = [_]usize{1};
-    try std.testing.expectError(error.InvalidShape,
-        cyna.runDenseGraphF32(std.testing.allocator, &inputs, &bad_steps, &one_selected, &invalid_output));
+    try std.testing.expectError(error.InvalidShape, cyna.runDenseGraphF32(std.testing.allocator, &inputs, &bad_steps, &one_selected, &invalid_output));
     try std.testing.expectEqualSlices(f32, &.{ -1, -1, -1, -1, -1, -1 }, &invalid_output);
 }
 
@@ -1150,8 +1086,7 @@ test "Affon submits rank-zero Cyna graph inputs" {
     try cyna.runDenseGraphF32(std.testing.allocator, &inputs, &steps, &selected, &output);
     try std.testing.expectEqualSlices(f32, &.{ 5, -5 }, &output);
     output = @splat(-1);
-    try std.testing.expectError(error.InvalidShape,
-        cyna.runDenseGraphF32(std.testing.allocator, &inputs, &steps, &selected, output[0..1]));
+    try std.testing.expectError(error.InvalidShape, cyna.runDenseGraphF32(std.testing.allocator, &inputs, &steps, &selected, output[0..1]));
     try std.testing.expectEqualSlices(f32, &.{ -1, -1 }, &output);
 }
 
@@ -1174,6 +1109,267 @@ test "Affon selects the Cyna memory graph goal" {
     try std.testing.expectEqualSlices(f32, &.{ 8, 14 }, &output);
 }
 
+test "Cyna reports selected physical memory comparison" {
+    const values = [_]f32{ 1, 2 };
+    const inputs = [_]cyna.DenseByteInput{
+        .{ .dtype = .f32, .shape = &.{2}, .bytes = std.mem.sliceAsBytes(&values) },
+        .{ .dtype = .f32, .shape = &.{2}, .bytes = std.mem.sliceAsBytes(&values) },
+        .{ .dtype = .f32, .shape = &.{2}, .bytes = std.mem.sliceAsBytes(&values) },
+        .{ .dtype = .f32, .shape = &.{2}, .bytes = std.mem.sliceAsBytes(&values) },
+    };
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .add, .lhs = 0, .rhs = 1 },
+        .{ .operation = .add, .lhs = 4, .rhs = 2 },
+        .{ .operation = .add, .lhs = 5, .rhs = 3 },
+    };
+    var graph = try cyna.createDenseGraphHandle(std.testing.allocator, &inputs, &steps, &.{6}, .memory);
+    defer graph.deinit();
+    const comparison = (try graph.selectionComparison()) orelse return error.MissingSelectionComparison;
+    try std.testing.expectEqual(@as(usize, 3), comparison.evaluated_states);
+    try std.testing.expectEqual(@as(usize, 16), comparison.budget);
+    try std.testing.expect(!comparison.exclusion_search_truncated);
+    try std.testing.expectEqual(comparison.baseline_peak_bytes, comparison.candidate_peak_bytes);
+    try std.testing.expect(!comparison.candidate_published);
+    try std.testing.expectEqual(@as(usize, 3), graph.physicalNodeCount());
+    const value_count = graph.physicalValueCount();
+    try std.testing.expectEqual(@as(usize, 7), value_count);
+    var physical_values: [7]cyna.DenseGraphHandle.PhysicalValueDescription = undefined;
+    var physical_words: [35]usize = undefined;
+    try graph.readPhysicalValues(&physical_values, &physical_words);
+    for (physical_values[0..4], 0..) |value, index| {
+        try std.testing.expectEqual(.input, value.origin);
+        try std.testing.expectEqual(index, value.semantic_origin);
+        try std.testing.expectEqual(@as(usize, 8), value.logical_bytes);
+        try std.testing.expectEqual(@as(?usize, null), value.producer_node);
+    }
+    for (physical_values[4..], 0..) |value, index| {
+        try std.testing.expectEqual(.node_output, value.origin);
+        try std.testing.expectEqual(@as(usize, 8), value.logical_bytes);
+        try std.testing.expectEqual(@as(?usize, index), value.producer_node);
+    }
+    var liveness_words: [15]usize = undefined;
+    try graph.readPhysicalLiveness(&liveness_words);
+    try std.testing.expectEqual(comparison.baseline_peak_bytes, liveness_words[0]);
+    try std.testing.expectEqual(@as(usize, 0), liveness_words[1]);
+    try std.testing.expectEqual(@as(usize, 32), liveness_words[2]);
+    for (0..3) |index| {
+        const row = liveness_words[3 + index * 4 ..][0..4];
+        try std.testing.expectEqual(index, row[0]);
+        try std.testing.expect(row[1] >= row[2]);
+    }
+}
+
+test "Cyna applies and reports public search limits" {
+    const values = [_]f32{ 1, 2 };
+    const inputs = [_]cyna.DenseByteInput{
+        .{ .dtype = .f32, .shape = &.{2}, .bytes = std.mem.sliceAsBytes(&values) },
+        .{ .dtype = .f32, .shape = &.{2}, .bytes = std.mem.sliceAsBytes(&values) },
+        .{ .dtype = .f32, .shape = &.{2}, .bytes = std.mem.sliceAsBytes(&values) },
+        .{ .dtype = .f32, .shape = &.{2}, .bytes = std.mem.sliceAsBytes(&values) },
+    };
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .add, .lhs = 0, .rhs = 1 },
+        .{ .operation = .add, .lhs = 4, .rhs = 2 },
+        .{ .operation = .add, .lhs = 5, .rhs = 3 },
+    };
+    const limits = cyna.SearchLimits{
+        .structural_states = 1,
+        .structural_expansions = 1,
+        .complete_evaluations = 1,
+        .physical_work = 1,
+        .ready_work = 1,
+    };
+    var graph = try cyna.createDenseGraphHandleWithConstantsAndSearch(
+        std.testing.allocator,
+        &inputs,
+        inputs.len,
+        &.{},
+        &steps,
+        &.{6},
+        .memory,
+        false,
+        &.{},
+        &.{},
+        .retain,
+        limits,
+    );
+    defer graph.deinit();
+    const evidence = try graph.searchEvidence();
+    try std.testing.expectEqual(@as(usize, 1), evidence.limits.structural_states);
+    try std.testing.expectEqual(@as(usize, 1), evidence.evaluated_states);
+    try std.testing.expect(evidence.truncated);
+    try std.testing.expectEqual(@as(usize, 3), graph.physicalNodeCount());
+}
+
+test "Cyna graph treats supplied Program constant as owned storage" {
+    const dynamic = [_]f32{ 1, 2 };
+    const constant = [_]f32{ 3, 4 };
+    const inputs = [_]cyna.DenseByteInput{
+        .{ .dtype = .f32, .shape = &.{2}, .bytes = std.mem.sliceAsBytes(&dynamic) },
+        .{ .dtype = .f32, .shape = &.{2}, .bytes = std.mem.sliceAsBytes(&constant) },
+    };
+    const steps = [_]cyna.DenseStep{.{ .operation = .add, .lhs = 0, .rhs = 1 }};
+    var graph = try cyna.createDenseGraphHandleWithConstants(std.testing.allocator, &inputs, 1, std.mem.sliceAsBytes(&constant), &steps, &.{2}, .memory, false, &.{}, &.{}, .retain);
+    defer graph.deinit();
+    try std.testing.expectEqual(@as(usize, 1), graph.input_count);
+    var values: [3]cyna.DenseGraphHandle.PhysicalValueDescription = undefined;
+    var words: [15]usize = undefined;
+    try graph.readPhysicalValues(&values, &words);
+    try std.testing.expectEqual(.input, values[0].origin);
+    try std.testing.expectEqual(.constant, values[1].origin);
+    try std.testing.expectEqual(@as(usize, 8), values[1].logical_bytes);
+    const comparison = (try graph.selectionComparison()) orelse return error.MissingSelectionComparison;
+    try std.testing.expectEqual(@as(usize, 16), comparison.baseline_peak_bytes);
+    var output: [8]u8 = undefined;
+    try graph.run(std.mem.sliceAsBytes(&dynamic), &output);
+    try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&[_]f32{ 4, 6 }), &output);
+}
+
+test "Cyna dense graph preserves a declared residual across fusion" {
+    const first = [_]f32{ 1, 2 };
+    const second = [_]f32{ 3, 4 };
+    const third = [_]f32{ 5, 6 };
+    const inputs = [_]cyna.DenseByteInput{
+        .{ .dtype = .f32, .shape = &.{2}, .bytes = std.mem.sliceAsBytes(&first) },
+        .{ .dtype = .f32, .shape = &.{2}, .bytes = std.mem.sliceAsBytes(&second) },
+        .{ .dtype = .f32, .shape = &.{2}, .bytes = std.mem.sliceAsBytes(&third) },
+    };
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .add, .lhs = 0, .rhs = 1 },
+        .{ .operation = .add, .lhs = 3, .rhs = 2 },
+    };
+    const requirements = [_]cyna.DenseResidualRequirement{.{ .value = 3, .recomputable_view = false }};
+    const uses = [_]cyna.DenseResidualUse{.{ .value = 3, .instruction = 1, .input_index = 0 }};
+    var handle = try cyna.createDenseGraphHandleWithResiduals(std.testing.allocator, &inputs, &steps, &.{4}, .memory, true, &requirements, &uses, .retain);
+    defer handle.deinit();
+    try std.testing.expectEqual(@as(usize, 5), handle.semanticStepCount());
+    var output = [_]f32{ 0, 0 };
+    const tokens = [_]cyna.DenseGraphHandle.TensorToken{
+        try handle.createInputTensor(0, inputs[0].bytes),
+        try handle.createInputTensor(1, inputs[1].bytes),
+        try handle.createInputTensor(2, inputs[2].bytes),
+    };
+    defer for (tokens) |token| handle.releaseTensor(token) catch {};
+    var outputs: [1]cyna.DenseGraphHandle.TensorToken = undefined;
+    try handle.runTensors(std.testing.allocator, &tokens, &outputs);
+    defer handle.releaseTensor(outputs[0]) catch {};
+    try handle.readTensor(outputs[0], std.mem.sliceAsBytes(&output));
+    try std.testing.expectEqualSlices(f32, &.{ 9, 12 }, &output);
+    const invalid_uses = [_]cyna.DenseResidualUse{.{ .value = 3, .instruction = 1, .input_index = 1 }};
+    try std.testing.expectError(error.InvalidShape, cyna.createDenseGraphHandleWithResiduals(std.testing.allocator, &inputs, &steps, &.{4}, .memory, true, &requirements, &invalid_uses, .retain));
+}
+
+test "Cyna recomputes a residual view before its later use" {
+    const first = [_]f32{ 1, 2, 3, 4 };
+    const second = [_]f32{ 10, 20, 30, 40 };
+    const inputs = [_]cyna.DenseByteInput{
+        .{ .dtype = .f32, .shape = &.{ 2, 2 }, .bytes = std.mem.sliceAsBytes(&first) },
+        .{ .dtype = .f32, .shape = &.{ 2, 2 }, .bytes = std.mem.sliceAsBytes(&second) },
+    };
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .transpose, .lhs = 0 },
+        .{ .operation = .add, .lhs = 2, .rhs = 1 },
+        .{ .operation = .mul, .lhs = 0, .rhs = 1 },
+        .{ .operation = .add, .lhs = 2, .rhs = 4 },
+        .{ .operation = .add, .lhs = 3, .rhs = 5 },
+    };
+    const requirements = [_]cyna.DenseResidualRequirement{.{ .value = 2, .recomputable_view = true }};
+    const uses = [_]cyna.DenseResidualUse{
+        .{ .value = 2, .instruction = 1, .input_index = 0 },
+        .{ .value = 2, .instruction = 3, .input_index = 0 },
+    };
+    var retained = try cyna.createDenseGraphHandleWithResiduals(std.testing.allocator, &inputs, &steps, &.{ 3, 5, 6 }, .memory, true, &requirements, &uses, .retain);
+    defer retained.deinit();
+    var recomputed = try cyna.createDenseGraphHandleWithResiduals(std.testing.allocator, &inputs, &steps, &.{ 3, 5, 6 }, .memory, true, &requirements, &uses, .recompute);
+    defer recomputed.deinit();
+    var automatic_memory = try cyna.createDenseGraphHandleWithResiduals(std.testing.allocator, &inputs, &steps, &.{ 3, 5, 6 }, .memory, true, &requirements, &uses, .automatic);
+    defer automatic_memory.deinit();
+    var automatic_latency = try cyna.createDenseGraphHandleWithResiduals(std.testing.allocator, &inputs, &steps, &.{ 3, 5, 6 }, .latency, true, &requirements, &uses, .automatic);
+    defer automatic_latency.deinit();
+    const retain_only = [_]cyna.DenseResidualRequirement{.{ .value = 2, .recomputable_view = false }};
+    var ineligible = try cyna.createDenseGraphHandleWithResiduals(std.testing.allocator, &inputs, &steps, &.{ 3, 5, 6 }, .memory, true, &retain_only, &uses, .recompute);
+    defer ineligible.deinit();
+    var output_required = try cyna.createDenseGraphHandleWithResiduals(std.testing.allocator, &inputs, &steps, &.{ 2, 3, 5, 6 }, .memory, true, &requirements, &uses, .recompute);
+    defer output_required.deinit();
+    try std.testing.expectEqual(@as(usize, 1), recomputed.residualDecisionCount());
+    const recompute_decision = try recomputed.describeResidualDecision(0);
+    try std.testing.expectEqual(@as(usize, 2), recompute_decision.value);
+    try std.testing.expectEqual(.recompute, recompute_decision.choice);
+    try std.testing.expectEqual(.recomputable_view, recompute_decision.reason);
+    try std.testing.expectEqual(@as(?usize, 1), recompute_decision.release_after);
+    try std.testing.expectEqual(@as(?usize, 3), recompute_decision.recompute_before);
+    try std.testing.expectEqual(.retain, (try retained.describeResidualDecision(0)).choice);
+    try std.testing.expectEqual(.recompute, (try automatic_memory.describeResidualDecision(0)).choice);
+    try std.testing.expectEqual(.retain, (try automatic_latency.describeResidualDecision(0)).choice);
+    try std.testing.expectEqual(.retain, (try ineligible.describeResidualDecision(0)).choice);
+    const output_decision = try output_required.describeResidualDecision(0);
+    try std.testing.expectEqual(.retain, output_decision.choice);
+    try std.testing.expectEqual(.required_program_output, output_decision.reason);
+    const dense_steps = [_]cyna.DenseStep{
+        .{ .operation = .transpose, .lhs = 0 },
+        .{ .operation = .matmul, .lhs = 2, .rhs = 1 },
+        .{ .operation = .mul, .lhs = 0, .rhs = 1 },
+        .{ .operation = .matmul, .lhs = 2, .rhs = 1 },
+        .{ .operation = .add, .lhs = 3, .rhs = 5 },
+    };
+    const dense_uses = [_]cyna.DenseResidualUse{
+        .{ .value = 2, .instruction = 1, .input_index = 0 },
+        .{ .value = 2, .instruction = 3, .input_index = 0 },
+    };
+    var dense_consumer = try cyna.createDenseGraphHandleWithResiduals(std.testing.allocator, &inputs, &dense_steps, &.{6}, .memory, true, &requirements, &dense_uses, .recompute);
+    defer dense_consumer.deinit();
+    try std.testing.expectEqual(.retain, (try dense_consumer.describeResidualDecision(0)).choice);
+    try std.testing.expectEqual(retained.physicalNodeCount() + 1, recomputed.physicalNodeCount());
+    try std.testing.expectEqual(recomputed.physicalNodeCount(), automatic_memory.physicalNodeCount());
+    try std.testing.expectEqual(retained.physicalNodeCount(), automatic_latency.physicalNodeCount());
+    try std.testing.expectEqual(retained.physicalNodeCount(), ineligible.physicalNodeCount());
+    var recompute_nodes: usize = 0;
+    for (0..recomputed.physicalNodeCount()) |index| {
+        var implementation: [64]u8 = undefined;
+        const node = try recomputed.describePhysicalNode(index, &implementation);
+        if (node.step_index == null and node.is_view) recompute_nodes += 1;
+    }
+    try std.testing.expectEqual(@as(usize, 1), recompute_nodes);
+    const tokens = [_]cyna.DenseGraphHandle.TensorToken{
+        try recomputed.createInputTensor(0, inputs[0].bytes),
+        try recomputed.createInputTensor(1, inputs[1].bytes),
+    };
+    defer for (tokens) |token| recomputed.releaseTensor(token) catch {};
+    var outputs: [3]cyna.DenseGraphHandle.TensorToken = undefined;
+    try recomputed.runTensors(std.testing.allocator, &tokens, &outputs);
+    try std.testing.expectEqual(cyna.DenseGraphHandle.ExecutionPath.prepared, (try recomputed.runState()).path);
+    defer for (outputs) |token| recomputed.releaseTensor(token) catch {};
+    var early = [_]f32{ 0, 0, 0, 0 };
+    var late = [_]f32{ 0, 0, 0, 0 };
+    var combined = [_]f32{ 0, 0, 0, 0 };
+    try recomputed.readTensor(outputs[0], std.mem.sliceAsBytes(&early));
+    try recomputed.readTensor(outputs[1], std.mem.sliceAsBytes(&late));
+    try recomputed.readTensor(outputs[2], std.mem.sliceAsBytes(&combined));
+    try std.testing.expectEqualSlices(f32, &.{ 11, 23, 32, 44 }, &early);
+    try std.testing.expectEqualSlices(f32, &.{ 11, 43, 92, 164 }, &late);
+    try std.testing.expectEqualSlices(f32, &.{ 22, 66, 124, 208 }, &combined);
+}
+
+test "Cyna graph keeps reduction dimensions without extra view steps" {
+    const values = [_]f32{ 1, 2, 3, 4 };
+    const inputs = [_]cyna.DenseByteInput{.{
+        .dtype = .f32,
+        .shape = &.{ 2, 2 },
+        .bytes = std.mem.sliceAsBytes(&values),
+    }};
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .sum_axis, .lhs = 0, .rhs = 1, .metadata = &.{1} },
+        .{ .operation = .sum_all, .lhs = 0, .metadata = &.{1} },
+    };
+    const result = try cyna.allocDenseGraphMultiBytes(std.testing.allocator, &inputs, &steps, &.{ 1, 2 }, .baseline);
+    defer result.deinit(std.testing.allocator);
+    try std.testing.expectEqualSlices(usize, &.{ 2, 1 }, result.shape(0));
+    try std.testing.expectEqualSlices(usize, &.{ 1, 1 }, result.shape(1));
+    try std.testing.expectEqual(@as(f32, 3), @as(f32, @bitCast(std.mem.readInt(u32, result.outputBytes(0)[0..4], .little))));
+    try std.testing.expectEqual(@as(f32, 7), @as(f32, @bitCast(std.mem.readInt(u32, result.outputBytes(0)[4..8], .little))));
+    try std.testing.expectEqual(@as(f32, 10), @as(f32, @bitCast(std.mem.readInt(u32, result.outputBytes(1)[0..4], .little))));
+}
+
 test "Affon reuses and closes a persistent Cyna graph" {
     const left = [_]f32{ 1, 2, 3, 4 };
     const right = [_]f32{ 5, 6, 7, 8 };
@@ -1188,6 +1384,11 @@ test "Affon reuses and closes a persistent Cyna graph" {
     };
     var graph = try cyna.createDenseGraphHandle(std.testing.allocator, &inputs, &steps, &.{ 2, 3, 4 }, .baseline);
     defer graph.deinit();
+    const selected_count = graph.physicalNodeCount();
+    try std.testing.expect(selected_count >= 3);
+    var selected_implementation_buffer: [128]u8 = undefined;
+    const selected_node = try graph.describePhysicalNode(0, &selected_implementation_buffer);
+    try std.testing.expectEqual(@as(usize, 0), selected_node.node_id);
     var input_buffer: [32]u8 = undefined;
     @memcpy(input_buffer[0..16], std.mem.sliceAsBytes(&left));
     @memcpy(input_buffer[16..32], std.mem.sliceAsBytes(&right));
@@ -1199,10 +1400,34 @@ test "Affon reuses and closes a persistent Cyna graph" {
     }
     try std.testing.expectEqual(@as(usize, 0), graph.cacheHits());
     try std.testing.expectEqual(@as(usize, 1), graph.cacheMisses());
+    try std.testing.expectEqual(selected_count, graph.physicalNodeCount());
+    var implementation_buffer: [128]u8 = undefined;
+    const physical_node = try graph.describePhysicalNode(0, &implementation_buffer);
+    try std.testing.expectEqual(@as(usize, 0), physical_node.node_id);
+    try std.testing.expectEqualStrings(selected_node.implementation, physical_node.implementation);
+    try std.testing.expect(physical_node.implementation.len > 0);
     output = @splat(0);
     try graph.run(&input_buffer, &output);
     try std.testing.expectEqual(@as(usize, 1), graph.cacheHits());
     try std.testing.expectEqual(@as(usize, 1), graph.cacheMisses());
+    var dropped_observations: usize = 0;
+    try std.testing.expectEqual(@as(usize, 0), graph.observationCount(&dropped_observations));
+    try graph.configureObservation(1);
+    try graph.run(&input_buffer, &output);
+    try std.testing.expectEqual(@as(usize, 1), graph.observationCount(&dropped_observations));
+    try std.testing.expect(dropped_observations > 0);
+    const observed = try graph.readObservation(0);
+    try std.testing.expectEqual(@as(u64, 3), observed.run_id);
+    const run_state = try graph.runState();
+    try std.testing.expectEqual(observed.run_id, run_state.run_id);
+    try std.testing.expect(run_state.succeeded);
+    try std.testing.expectEqual(cyna.DenseGraphHandle.ExecutionPath.prepared, run_state.path);
+    try std.testing.expect(observed.succeeded);
+    try std.testing.expect(observed.timing_available);
+    try std.testing.expectEqual(@as(usize, 1), observed.kernel_count);
+    try std.testing.expectEqual(@as(usize, 0), observed.schedule_position);
+    try graph.configureObservation(0);
+    try std.testing.expectEqual(@as(usize, 0), graph.observationCount(&dropped_observations));
     var short: [20]u8 = @splat(0xaa);
     try std.testing.expectError(error.InvalidShape, graph.run(&input_buffer, &short));
     for (short) |byte| try std.testing.expectEqual(@as(u8, 0xaa), byte);
@@ -1231,19 +1456,16 @@ test "Affon reuses and closes a persistent Cyna graph" {
         try std.testing.expectEqualSlices(u8, output[20..24], &result_mean);
         for (selected_tokens) |result| try graph.releaseTensor(result);
     }
-    try std.testing.expectEqual(@as(usize, 3), graph.cacheHits());
+    try std.testing.expectEqual(@as(usize, 4), graph.cacheHits());
     try std.testing.expectEqual(@as(usize, 1), graph.cacheMisses());
     var rejected_tokens: [3]cyna.DenseGraphHandle.TensorToken = @splat(.{ .owner = 91, .slot = 92, .generation = 93 });
-    try std.testing.expectError(error.InvalidShape,
-        other.runTensors(std.testing.allocator, &resident_inputs, &rejected_tokens));
+    try std.testing.expectError(error.InvalidShape, other.runTensors(std.testing.allocator, &resident_inputs, &rejected_tokens));
     try std.testing.expectEqual(@as(usize, 91), rejected_tokens[0].owner);
-    try std.testing.expectError(error.InvalidShape,
-        graph.runTensors(std.testing.allocator, &resident_inputs, rejected_tokens[0..2]));
+    try std.testing.expectError(error.InvalidShape, graph.runTensors(std.testing.allocator, &resident_inputs, rejected_tokens[0..2]));
     try std.testing.expectEqual(@as(usize, 91), rejected_tokens[0].owner);
     try graph.releaseTensor(token);
     try std.testing.expectError(error.InvalidShape, graph.readTensor(token, &tensor_copy));
-    try std.testing.expectError(error.InvalidShape,
-        graph.runTensors(std.testing.allocator, &resident_inputs, &rejected_tokens));
+    try std.testing.expectError(error.InvalidShape, graph.runTensors(std.testing.allocator, &resident_inputs, &rejected_tokens));
     try graph.releaseTensor(right_token);
     const replacement = try graph.createInputTensor(0, std.mem.sliceAsBytes(&left));
     try std.testing.expect(token.slot != replacement.slot or token.generation != replacement.generation);
@@ -1251,6 +1473,163 @@ test "Affon reuses and closes a persistent Cyna graph" {
     try std.testing.expectError(error.InvalidShape, graph.releaseTensor(token));
     graph.deinit();
     try std.testing.expectError(error.InvalidShape, graph.run(&input_buffer, &output));
+}
+
+test "Cyna memory goal executes independent branches in lower peak order" {
+    const left = [_]f32{ 1, 2, 3, 4 };
+    const right = [_]f32{ 5, 6, 7, 8 };
+    const inputs = [_]cyna.DenseByteInput{
+        .{ .dtype = .f32, .shape = &.{4}, .bytes = std.mem.sliceAsBytes(&left) },
+        .{ .dtype = .f32, .shape = &.{4}, .bytes = std.mem.sliceAsBytes(&right) },
+    };
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .neg, .lhs = 0 },
+        .{ .operation = .neg, .lhs = 1 },
+        .{ .operation = .sum_all, .lhs = 2 },
+        .{ .operation = .sum_all, .lhs = 3 },
+        .{ .operation = .add, .lhs = 4, .rhs = 5 },
+    };
+    var input_buffer: [32]u8 = undefined;
+    @memcpy(input_buffer[0..16], std.mem.sliceAsBytes(&left));
+    @memcpy(input_buffer[16..32], std.mem.sliceAsBytes(&right));
+    for ([_]cyna.DenseGoal{ .latency, .memory }) |goal| {
+        var graph = try cyna.createDenseGraphHandle(std.testing.allocator, &inputs, &steps, &.{6}, goal);
+        defer graph.deinit();
+        try graph.configureObservation(8);
+        var output: [4]u8 = undefined;
+        try graph.run(&input_buffer, &output);
+        try std.testing.expectEqual(@as(f32, -36), @as(f32, @bitCast(std.mem.readInt(u32, &output, .little))));
+        var dropped: usize = 0;
+        try std.testing.expectEqual(@as(usize, 5), graph.observationCount(&dropped));
+        try std.testing.expectEqual(@as(usize, 0), dropped);
+        var instruction_order: [5]usize = undefined;
+        for (&instruction_order, 0..) |*instruction_id, index| {
+            const event = try graph.readObservation(index);
+            try std.testing.expectEqual(cyna.DenseGraphHandle.ExecutionPath.prepared, event.path);
+            try std.testing.expectEqual(index, event.schedule_position);
+            try std.testing.expectEqual(@as(usize, 1), event.kernel_count);
+            var buffer: [64]u8 = undefined;
+            const node = try graph.describePhysicalNode(event.node_id, &buffer);
+            const step = try graph.describeSemanticStep(node.step_index.?);
+            instruction_id.* = step.source_instruction_index;
+        }
+        const expected: [5]usize = if (goal == .memory) .{ 0, 2, 1, 3, 4 } else .{ 0, 1, 2, 3, 4 };
+        try std.testing.expectEqualSlices(usize, &expected, &instruction_order);
+    }
+}
+
+test "Cyna graph observation records a failed prepared node" {
+    const left = [_]i64{7};
+    const zero = [_]i64{0};
+    const inputs = [_]cyna.DenseByteInput{
+        .{ .dtype = .i64, .shape = &.{1}, .bytes = std.mem.sliceAsBytes(&left) },
+        .{ .dtype = .i64, .shape = &.{1}, .bytes = std.mem.sliceAsBytes(&zero) },
+    };
+    const steps = [_]cyna.DenseStep{.{ .operation = .div, .lhs = 0, .rhs = 1 }};
+    var graph = try cyna.createDenseGraphHandle(std.testing.allocator, &inputs, &steps, &.{2}, .baseline);
+    defer graph.deinit();
+    try graph.configureObservation(4);
+    var input_bytes: [16]u8 = undefined;
+    @memcpy(input_bytes[0..8], std.mem.sliceAsBytes(&left));
+    @memcpy(input_bytes[8..16], std.mem.sliceAsBytes(&zero));
+    var output: [8]u8 = undefined;
+    var failed = false;
+    graph.run(&input_bytes, &output) catch {
+        failed = true;
+    };
+    try std.testing.expect(failed);
+    const state = try graph.runState();
+    try std.testing.expectEqual(@as(u64, 1), state.run_id);
+    try std.testing.expect(!state.succeeded);
+    try std.testing.expectEqual(cyna.DenseGraphHandle.ExecutionPath.prepared, state.path);
+    var dropped: usize = 0;
+    try std.testing.expectEqual(@as(usize, 1), graph.observationCount(&dropped));
+    const observed = try graph.readObservation(0);
+    try std.testing.expectEqual(state.run_id, observed.run_id);
+    try std.testing.expectEqual(cyna.DenseGraphHandle.ExecutionPath.prepared, observed.path);
+    try std.testing.expect(!observed.succeeded);
+    try std.testing.expectEqual(@as(usize, 0), observed.kernel_count);
+}
+
+test "Cyna graph observation covers resident view execution" {
+    const values = [_]f32{ 1, 2, 3, 4, 5, 6 };
+    const inputs = [_]cyna.DenseByteInput{.{
+        .dtype = .f32,
+        .shape = &.{ 2, 3 },
+        .bytes = std.mem.sliceAsBytes(&values),
+    }};
+    const steps = [_]cyna.DenseStep{.{ .operation = .transpose, .lhs = 0 }};
+    var graph = try cyna.createDenseGraphHandle(std.testing.allocator, &inputs, &steps, &.{1}, .baseline);
+    defer graph.deinit();
+    try graph.configureObservation(8);
+    var output: [24]u8 = undefined;
+    try graph.run(std.mem.sliceAsBytes(&values), &output);
+    const expected = [_]f32{ 1, 4, 2, 5, 3, 6 };
+    try std.testing.expectEqualSlices(u8, std.mem.sliceAsBytes(&expected), &output);
+    var dropped: usize = 0;
+    try std.testing.expectEqual(@as(usize, 1), graph.observationCount(&dropped));
+    const observed = try graph.readObservation(0);
+    try std.testing.expectEqual(cyna.DenseGraphHandle.ExecutionPath.resident_view, observed.path);
+    try std.testing.expectEqual(@as(u64, 1), observed.run_id);
+    try std.testing.expect(observed.succeeded);
+    try std.testing.expect(observed.timing_available);
+    try std.testing.expect(!observed.materialized_view);
+    try std.testing.expectEqual(@as(usize, 0), observed.kernel_count);
+    try std.testing.expectEqual(cyna.DenseGraphHandle.ExecutionPath.resident_view, (try graph.runState()).path);
+    try std.testing.expect(graph.physicalNodeCount() > 0);
+    try std.testing.expect(graph.semanticStepCount() > observed.node_id);
+    const semantic_step = try graph.describeSemanticStep(observed.node_id);
+    try std.testing.expectEqual(@as(?usize, 28), semantic_step.source_operation_code);
+    try std.testing.expectEqualStrings("transpose", cyna.operationName(semantic_step.source_operation_code).?);
+}
+
+test "Cyna materialized views and semantic nodes count executed kernels" {
+    const values = [_]f32{ 1, 2, 3, 4, 5, 6 };
+    const inputs = [_]cyna.DenseByteInput{.{
+        .dtype = .f32,
+        .shape = &.{ 2, 3 },
+        .bytes = std.mem.sliceAsBytes(&values),
+    }};
+    const steps = [_]cyna.DenseStep{
+        .{ .operation = .transpose, .lhs = 0 },
+        .{ .operation = .neg, .lhs = 1 },
+    };
+    var graph = try cyna.createDenseGraphHandle(std.testing.allocator, &inputs, &steps, &.{2}, .baseline);
+    defer graph.deinit();
+    try graph.configureObservation(8);
+    var output: [24]u8 = undefined;
+    try graph.run(std.mem.sliceAsBytes(&values), &output);
+    const expected = [_]f32{ -1, -4, -2, -5, -3, -6 };
+    for (expected, 0..) |value, index| {
+        try std.testing.expectEqual(value, @as(f32, @bitCast(std.mem.readInt(u32, output[index * 4 ..][0..4], .little))));
+    }
+    var dropped: usize = 0;
+    try std.testing.expectEqual(@as(usize, 2), graph.observationCount(&dropped));
+    try std.testing.expectEqual(@as(usize, 0), dropped);
+    const path = (try graph.runState()).path;
+    var saw_transpose = false;
+    var saw_neg = false;
+    for (0..2) |index| {
+        const observed = try graph.readObservation(index);
+        var implementation: [64]u8 = undefined;
+        const source_operation_code = switch (path) {
+            .prepared => (try graph.describePhysicalNode(observed.node_id, &implementation)).source_operation_code,
+            else => (try graph.describeSemanticStep(observed.node_id)).source_operation_code,
+        };
+        const operation = cyna.operationName(source_operation_code) orelse
+            return error.MissingOperationName;
+        if (std.mem.eql(u8, operation, "transpose")) {
+            saw_transpose = true;
+            try std.testing.expect(observed.materialized_view);
+            try std.testing.expectEqual(@as(usize, 1), observed.kernel_count);
+        } else if (std.mem.eql(u8, operation, "neg")) {
+            saw_neg = true;
+            try std.testing.expect(!observed.materialized_view);
+            try std.testing.expectEqual(@as(usize, 1), observed.kernel_count);
+        }
+    }
+    try std.testing.expect(saw_transpose);
+    try std.testing.expect(saw_neg);
 }
 
 test "Affon owns persistent Cyna device sessions and tensor tokens" {

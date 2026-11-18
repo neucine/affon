@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import hashlib
 import json
 import math
@@ -89,6 +90,72 @@ def compare_values(left: list[float], right: list[float]) -> dict:
         "maximum_absolute_difference": maximum_difference,
         "maximum_relative_difference": maximum_relative,
         "tolerance": TOLERANCE,
+    }
+
+
+def compare_selected_plans(cyna: list[dict], zig: list[dict]) -> dict:
+    for node in cyna:
+        if len(node["source_instructions"]) != node["source_instruction_count"]:
+            raise RuntimeError("Cyna selected node has incomplete source origins")
+    cyna_groups = {tuple(node["source_instructions"]): node for node in cyna
+                   if node["source_instructions"]}
+    zig_groups = {tuple(node["source_instructions"]): node for node in zig
+                  if node["source_instructions"]}
+    if len(cyna_groups) != sum(bool(node["source_instructions"]) for node in cyna):
+        raise RuntimeError("Cyna selected plan repeats a source group")
+    if len(zig_groups) != sum(bool(node["source_instructions"]) for node in zig):
+        raise RuntimeError("Zig selected plan repeats a source group")
+    cyna_origins = [source for group in cyna_groups for source in group]
+    zig_origins = [source for group in zig_groups for source in group]
+    if len(set(cyna_origins)) != len(cyna_origins) or len(set(zig_origins)) != len(zig_origins):
+        raise RuntimeError("selected plan repeats a source instruction")
+    if set(cyna_origins) != set(zig_origins):
+        raise RuntimeError("selected plans cover different source instructions")
+    positions = [node["schedule_position"] for node in cyna]
+    if sorted(positions) != list(range(len(cyna))):
+        raise RuntimeError("Cyna selected plan lacks a complete observed execution order")
+
+    elementwise_ids = {"cpu_mul", "cpu_div", "cpu_sqrt", "cpu_rsqrt", "cpu_gelu",
+                       "cpu_silu", "cpu_exp", "cpu_neg", "cpu_sub"}
+    mismatches = []
+    if cyna_groups.keys() != zig_groups.keys():
+        mismatches.append({"kind": "fusion_groups", "cyna": list(cyna_groups), "zig": list(zig_groups)})
+    for group in cyna_groups.keys() & zig_groups.keys():
+        actual = cyna_groups[group]
+        expected = zig_groups[group]
+        zig_is_view = expected["action"] == "view"
+        if actual["is_view"] != zig_is_view:
+            mismatches.append({"sources": group, "kind": "view", "cyna": actual, "zig": expected})
+        elif not zig_is_view and actual["implementation"] != expected["implementation"] and not (
+            actual["implementation"] in elementwise_ids and expected["implementation"] == "cpu_elementwise"
+        ):
+            mismatches.append({"sources": group, "kind": "implementation", "cyna": actual, "zig": expected})
+
+    cyna_conversions = Counter(node["implementation"] for node in cyna
+                               if not node["source_instructions"])
+    zig_conversions = Counter(node["implementation"] for node in zig
+                              if not node["source_instructions"])
+    if cyna_conversions != zig_conversions:
+        mismatches.append({"kind": "conversions", "cyna": dict(cyna_conversions), "zig": dict(zig_conversions)})
+    cyna_order = [tuple(node["source_instructions"]) for node in sorted(cyna, key=lambda node: node["schedule_position"])
+                  if node["source_instructions"]]
+    zig_order = [tuple(node["source_instructions"]) for node in zig
+                 if node["source_instructions"]]
+    order_differences = [
+        {"position": index,
+         "cyna": cyna_order[index] if index < len(cyna_order) else None,
+         "zig": zig_order[index] if index < len(zig_order) else None}
+        for index in range(max(len(cyna_order), len(zig_order)))
+        if (cyna_order[index] if index < len(cyna_order) else None)
+        != (zig_order[index] if index < len(zig_order) else None)
+    ]
+    return {
+        "source_nodes": len(cyna_origins),
+        "fused_nodes": sum(len(group) > 1 for group in cyna_groups),
+        "conversion_nodes": dict(cyna_conversions),
+        "semantic_mismatches": mismatches,
+        "source_order_positions_differ": len(order_differences),
+        "first_source_order_difference": order_differences[0] if order_differences else None,
     }
 
 
@@ -208,6 +275,8 @@ def main() -> int:
                 raise RuntimeError(f"{backend} {workload} backend route mismatch")
             if route["reason"] != expectations[backend]["reason"]:
                 raise RuntimeError(f"{backend} {workload} routing reason mismatch")
+    if reports["cyna"]["workload"]["optimization_goal"] != reports["zig"]["workload"]["optimization_goal"]:
+        raise RuntimeError("Cyna and Zig used different optimization goals")
 
     parity = {
         "prefill_logits": compare_values(
@@ -221,6 +290,25 @@ def main() -> int:
     }
     if any(result["failures"] for result in parity.values()):
         raise RuntimeError("Cyna and Zig outputs exceeded the f32 tolerance")
+
+    selected_plan_comparison = None
+    if "selected_physical_plans" in reports["cyna"] and "selected_physical_plans" in reports["zig"]:
+        selected_plan_comparison = {
+            workload: compare_selected_plans(
+                reports["cyna"]["selected_physical_plans"][workload],
+                reports["zig"]["selected_physical_plans"][workload],
+            ) for workload in ("prefill", "decode")
+        }
+        for workload, result in selected_plan_comparison.items():
+            cyna_peak = reports["cyna"]["selected_physical_liveness"][workload]["peak_active_bytes"]
+            zig_peak = reports["zig"]["selected_physical_liveness"][workload]["peak_active_bytes"]
+            result["selected_peak_active_bytes"] = {"cyna": cyna_peak, "zig": zig_peak}
+            if cyna_peak != zig_peak:
+                result["semantic_mismatches"].append({
+                    "kind": "peak_active_bytes", "cyna": cyna_peak, "zig": zig_peak,
+                })
+        if any(result["semantic_mismatches"] for result in selected_plan_comparison.values()):
+            raise RuntimeError("Cyna and Zig selected plans differ; inspect the runtime plan reports")
 
     ratios = {}
     for workload in ("prefill", "decode"):
@@ -263,7 +351,12 @@ def main() -> int:
             for backend in ("cyna", "zig")
         },
         "ratios": ratios,
+        "optimization_goal": reports["cyna"]["workload"]["optimization_goal"],
         "parity": parity,
+        **({"selected_plan_comparison": selected_plan_comparison} if selected_plan_comparison else {}),
+        **({"selected_plan_metrics": {
+            backend: reports[backend]["selected_plan_metrics"] for backend in ("cyna", "zig")
+        }} if selected_plan_comparison else {}),
         "limitations": [
             "The synthetic weights measure runtime speed and numerical agreement, not trained-model quality.",
             "This one CPU workload does not establish broad model, shape, dtype, or backend coverage.",

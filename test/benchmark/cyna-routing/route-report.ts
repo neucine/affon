@@ -2,7 +2,7 @@ export type Routing = Readonly<{
   schema_version: 1
   backend: "zig" | "cyna"
   configured_backend: "cpu" | "metal" | "cuda"
-  category: "success" | "configuration" | "backend" | "observability" | "lowering" | "operation" | "dense_graph"
+  category: "success" | "configuration" | "backend" | "compiler" | "observability" | "lowering" | "operation" | "dense_graph"
   reason: string
   operation: string | null
   option: string | null
@@ -62,6 +62,7 @@ function classification(category: Routing["category"]): FallbackClassification {
       return "observability"
     case "backend":
     case "configuration":
+    case "compiler":
       return "execution_limit"
     default:
       throw new TypeError(`unexpected Zig fallback category: ${category}`)

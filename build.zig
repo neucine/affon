@@ -153,4 +153,20 @@ pub fn build(b: *std.Build) void {
     const run_tests = b.addRunArtifact(tests);
     const test_step = b.step("test", "Run Affon tests");
     test_step.dependOn(&run_tests.step);
+
+    if (compute_cyna) {
+        const parity_tests = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/support/cyna_residual_parity.zig"),
+                .target = target,
+                .optimize = optimize,
+                .imports = &.{.{ .name = "compute", .module = compute }},
+            }),
+        });
+        addComputeBackends(compute_dep, parity_tests.root_module, target);
+        addComputeCynaLibraries(parity_tests.root_module, compute_core_lib_dir, cyna_lib_dir.?);
+        const run_parity_tests = b.addRunArtifact(parity_tests);
+        const parity_step = b.step("test-cpu-residual-parity", "Compare Zig and Cyna selected residual plans");
+        parity_step.dependOn(&run_parity_tests.step);
+    }
 }

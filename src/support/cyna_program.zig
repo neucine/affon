@@ -16,18 +16,15 @@ const DynamicInput = struct {
     dimensions: []const usize,
 };
 
-const ConstantInput = struct {
-    bytes: []u8,
-};
-
 const Input = union(enum) {
     dynamic: DynamicInput,
-    constant: ConstantInput,
+    constant: void,
 };
 
 const CachedInput = struct {
     bytes: []u8,
     token: core.DenseGraphHandle.TensorToken,
+    tensor_id: u64,
 };
 
 const Output = struct {
@@ -50,7 +47,7 @@ const Output = struct {
     }
 };
 
-fn profileNow() u64 {
+pub fn profileNow() u64 {
     var timestamp: std.c.timespec = undefined;
     if (std.c.clock_gettime(.MONOTONIC, &timestamp) != 0) return 0;
     return @as(u64, @intCast(timestamp.sec)) * std.time.ns_per_s +
@@ -63,8 +60,8 @@ fn profileNow() u64 {
 pub const Executable = struct {
     allocator: std.mem.Allocator,
     handle: core.DenseGraphHandle,
+    source_instruction_by_step: []usize,
     inputs: []Input,
-    constant_tokens: []?core.DenseGraphHandle.TensorToken,
     cached_dynamic: []?CachedInput,
     outputs: []Output,
     dense_inputs: bool,
@@ -73,10 +70,6 @@ pub const Executable = struct {
     output_byte_count: usize,
 
     pub fn deinit(self: *Executable) void {
-        for (self.constant_tokens) |token| {
-            if (token) |value| self.handle.releaseTensor(value) catch {};
-        }
-        self.allocator.free(self.constant_tokens);
         for (self.cached_dynamic) |cached| {
             if (cached) |entry| {
                 self.handle.releaseTensor(entry.token) catch {};
@@ -85,9 +78,10 @@ pub const Executable = struct {
         }
         self.allocator.free(self.cached_dynamic);
         self.handle.deinit();
+        self.allocator.free(self.source_instruction_by_step);
         for (self.inputs) |*input| switch (input.*) {
             .dynamic => |*dynamic| self.allocator.free(dynamic.dimensions),
-            .constant => |*constant| self.allocator.free(constant.bytes),
+            .constant => {},
         };
         self.allocator.free(self.inputs);
         for (self.outputs) |*output| output.deinit(self.allocator);
@@ -136,8 +130,13 @@ pub const Executable = struct {
 
         if (profiling) pack_ns = profileNow() - pack_start;
         const create_start = if (profiling) profileNow() else 0;
-        const input_tokens = try self.allocator.alloc(core.DenseGraphHandle.TensorToken, self.inputs.len);
-        defer self.allocator.free(input_tokens);
+        var input_tokens_buffer: [8]core.DenseGraphHandle.TensorToken = undefined;
+        const input_tokens = if (dynamic_inputs.len <= input_tokens_buffer.len)
+            input_tokens_buffer[0..dynamic_inputs.len]
+        else
+            try self.allocator.alloc(core.DenseGraphHandle.TensorToken, dynamic_inputs.len);
+        defer if (dynamic_inputs.len > input_tokens_buffer.len)
+            self.allocator.free(input_tokens);
         cursor = 0;
         dynamic_index = 0;
         for (self.inputs, 0..) |input, index| switch (input) {
@@ -148,9 +147,12 @@ pub const Executable = struct {
                     buffer[cursor..][0..byte_count]
                 else
                     dynamic_inputs[dynamic_index].bytes()[0..byte_count];
+                const tensor_id = dynamic_inputs[dynamic_index].id().local;
                 dynamic_index += 1;
                 if (self.cached_dynamic[index]) |cached| {
-                    if (std.mem.eql(u8, cached.bytes, bytes)) {
+                    if (cached.tensor_id == tensor_id or
+                        std.mem.eql(u8, cached.bytes, bytes))
+                    {
                         input_tokens[index] = cached.token;
                         cursor += byte_count;
                         continue;
@@ -165,24 +167,33 @@ pub const Executable = struct {
                     self.handle.releaseTensor(cached.token) catch {};
                     self.allocator.free(cached.bytes);
                 }
-                self.cached_dynamic[index] = .{ .bytes = owned_bytes, .token = token };
+                self.cached_dynamic[index] = .{
+                    .bytes = owned_bytes,
+                    .token = token,
+                    .tensor_id = tensor_id,
+                };
                 input_tokens[index] = token;
                 cursor += byte_count;
             },
-            .constant => {
-                input_tokens[index] = self.constant_tokens[index] orelse return error.InvalidShape;
-            },
+            .constant => {},
         };
 
         if (profiling) create_ns = profileNow() - create_start;
         const graph_start = if (profiling) profileNow() else 0;
-        const output_tokens = try self.allocator.alloc(core.DenseGraphHandle.TensorToken, self.outputs.len);
-        defer self.allocator.free(output_tokens);
+        var output_tokens_buffer: [8]core.DenseGraphHandle.TensorToken = undefined;
+        const output_tokens = if (self.outputs.len <= output_tokens_buffer.len)
+            output_tokens_buffer[0..self.outputs.len]
+        else
+            try self.allocator.alloc(core.DenseGraphHandle.TensorToken, self.outputs.len);
+        defer if (self.outputs.len > output_tokens_buffer.len)
+            self.allocator.free(output_tokens);
         try self.handle.runTensors(self.allocator, input_tokens, output_tokens);
         if (profiling) graph_ns = profileNow() - graph_start;
         const output_start = if (profiling) profileNow() else 0;
-        var created_outputs: usize = 0;
-        defer for (output_tokens[0..created_outputs]) |token| {
+        // A successful graph call publishes every output token. Release them
+        // all even when converting an earlier output to an Affon Tensor fails.
+        var output_tokens_released = false;
+        defer if (!output_tokens_released) for (output_tokens) |token| {
             self.handle.releaseTensor(token) catch {};
         };
 
@@ -192,11 +203,75 @@ pub const Executable = struct {
             for (results[0..created]) |value| value.deinit();
             self.allocator.free(results);
         }
+        if (self.outputs.len <= 8) {
+            var layout_words_buffer: [8 * core.DenseGraphHandle.tensor_layout_words_per_output]usize = undefined;
+            const layout_words = layout_words_buffer[0 .. self.outputs.len * core.DenseGraphHandle.tensor_layout_words_per_output];
+            try self.handle.describeTensors(output_tokens, layout_words);
+
+            var all_dense = true;
+            for (self.outputs, 0..) |output, index| {
+                const words = layout_words[index * core.DenseGraphHandle.tensor_layout_words_per_output ..][0..core.DenseGraphHandle.tensor_layout_words_per_output];
+                const rank = words[0];
+                const backing_bytes = words[1];
+                const offset_bytes = words[2];
+                const width = output.spec(self.allocator).dtype().size();
+                if (rank != output.dimensions.len or backing_bytes == 0 or
+                    backing_bytes % width != 0 or offset_bytes % width != 0 or
+                    offset_bytes != 0 or backing_bytes != output.byte_count)
+                {
+                    all_dense = false;
+                    break;
+                }
+                var expected_stride: usize = 1;
+                var axis = output.dimensions.len;
+                while (axis > 0) {
+                    axis -= 1;
+                    if (words[3 + axis] != expected_stride) {
+                        all_dense = false;
+                        break;
+                    }
+                    expected_stride = std.math.mul(usize, expected_stride, output.dimensions[axis]) catch {
+                        all_dense = false;
+                        break;
+                    };
+                }
+                if (!all_dense) break;
+            }
+            if (all_dense) {
+                var destinations_buffer: [8]usize = undefined;
+                var byte_counts_buffer: [8]usize = undefined;
+                const destinations = destinations_buffer[0..self.outputs.len];
+                const byte_counts = byte_counts_buffer[0..self.outputs.len];
+                for (self.outputs, 0..) |output, index| {
+                    const tensor = try zig_session.createUninitializedOutput(output.spec(self.allocator));
+                    results[index] = tensor;
+                    created += 1;
+                    destinations[index] = @intFromPtr(tensor.writableBytes().ptr);
+                    byte_counts[index] = output.byte_count;
+                }
+                output_tokens_released = true;
+                try self.handle.readTensorsAndRelease(output_tokens, destinations, byte_counts);
+                if (profiling) {
+                    output_ns = profileNow() - output_start;
+                    std.debug.print("AFFON_CYNA_PROFILE pack_us={d} create_us={d} graph_us={d} output_us={d} total_us={d} hits={d} misses={d}\n", .{
+                        pack_ns / std.time.ns_per_us,                   create_ns / std.time.ns_per_us,
+                        graph_ns / std.time.ns_per_us,                  output_ns / std.time.ns_per_us,
+                        (profileNow() - start_ns) / std.time.ns_per_us, self.handle.cacheHits(),
+                        self.handle.cacheMisses(),
+                    });
+                }
+                return results;
+            }
+        }
         for (self.outputs, 0..) |output, index| {
-            const stride_words = try self.allocator.alloc(usize, output.dimensions.len);
-            defer self.allocator.free(stride_words);
+            var stride_words_buffer: [8]usize = undefined;
+            const stride_words = if (output.dimensions.len <= stride_words_buffer.len)
+                stride_words_buffer[0..output.dimensions.len]
+            else
+                try self.allocator.alloc(usize, output.dimensions.len);
+            defer if (output.dimensions.len > stride_words_buffer.len)
+                self.allocator.free(stride_words);
             const layout = try self.handle.tensorLayout(output_tokens[index], stride_words);
-            created_outputs += 1;
             if (layout.rank != output.dimensions.len) return error.InvalidShape;
 
             const width = output.spec(self.allocator).dtype().size();
@@ -204,16 +279,6 @@ pub const Executable = struct {
                 layout.offset_bytes % width != 0)
                 return error.InvalidShape;
             const backing_dimensions = [_]usize{layout.backing_bytes / width};
-            var backing_spec = try compute.TensorSpec.init(
-                self.allocator,
-                output.spec(self.allocator).dtype(),
-                &backing_dimensions,
-                null,
-            );
-            defer backing_spec.deinit();
-            const backing_bytes = try self.allocator.alloc(u8, layout.backing_bytes);
-            defer self.allocator.free(backing_bytes);
-            try self.handle.readTensorBacking(output_tokens[index], backing_bytes);
             var dense_output = layout.offset_bytes == 0 and layout.backing_bytes == output.byte_count;
             var expected_stride: usize = 1;
             var axis = output.dimensions.len;
@@ -224,12 +289,25 @@ pub const Executable = struct {
                     return error.InvalidShape;
             }
             if (dense_output) {
-                results[index] = try zig_session.createTensor(output.spec(self.allocator), backing_bytes);
+                const tensor = try zig_session.createUninitializedOutput(output.spec(self.allocator));
+                self.handle.readTensorBacking(output_tokens[index], tensor.writableBytes()) catch |err| {
+                    tensor.deinit();
+                    return err;
+                };
+                results[index] = tensor;
                 created += 1;
                 continue;
             }
-            const backing = try zig_session.createTensor(backing_spec, backing_bytes);
+            var backing_spec = try compute.TensorSpec.init(
+                self.allocator,
+                output.spec(self.allocator).dtype(),
+                &backing_dimensions,
+                null,
+            );
+            defer backing_spec.deinit();
+            const backing = try zig_session.createUninitializedOutput(backing_spec);
             defer backing.deinit();
+            try self.handle.readTensorBacking(output_tokens[index], backing.writableBytes());
 
             const layout_strides = try self.allocator.alloc(isize, output.dimensions.len);
             defer self.allocator.free(layout_strides);
@@ -245,10 +323,10 @@ pub const Executable = struct {
         if (profiling) {
             output_ns = profileNow() - output_start;
             std.debug.print("AFFON_CYNA_PROFILE pack_us={d} create_us={d} graph_us={d} output_us={d} total_us={d} hits={d} misses={d}\n", .{
-                pack_ns / std.time.ns_per_us, create_ns / std.time.ns_per_us,
-                graph_ns / std.time.ns_per_us, output_ns / std.time.ns_per_us,
-                (profileNow() - start_ns) / std.time.ns_per_us,
-                self.handle.cacheHits(), self.handle.cacheMisses(),
+                pack_ns / std.time.ns_per_us,                   create_ns / std.time.ns_per_us,
+                graph_ns / std.time.ns_per_us,                  output_ns / std.time.ns_per_us,
+                (profileNow() - start_ns) / std.time.ns_per_us, self.handle.cacheHits(),
+                self.handle.cacheMisses(),
             });
         }
         return results;
@@ -260,6 +338,8 @@ pub fn lower(
     program: *const compute.Program,
     goal: core.DenseGoal,
     dense_inputs: bool,
+    residual_policy: compute.ResidualPolicy,
+    search_limits: compute.SearchLimits,
     diagnostic: *LoweringDiagnostic,
 ) !?Executable {
     var arena = std.heap.ArenaAllocator.init(allocator);
@@ -272,7 +352,7 @@ pub fn lower(
     errdefer {
         for (inputs.items) |input| switch (input) {
             .dynamic => |dynamic| allocator.free(dynamic.dimensions),
-            .constant => |constant| allocator.free(constant.bytes),
+            .constant => {},
         };
         inputs.deinit(allocator);
     }
@@ -280,6 +360,8 @@ pub fn lower(
     defer input_descriptors.deinit(temporary);
     var dynamic_byte_count: usize = 0;
     var constant_byte_count: usize = 0;
+    var constant_data: std.ArrayList(u8) = .empty;
+    defer constant_data.deinit(temporary);
 
     for (program.inputs()) |input_id| {
         const index = input_id.int();
@@ -323,12 +405,9 @@ pub fn lower(
             else => continue,
         };
         const bytes = try constantBytes(temporary, value.spec(), constant);
+        try constant_data.appendSlice(temporary, bytes);
         mapping[index] = input_descriptors.items.len;
-        const owned_bytes = try allocator.dupe(u8, bytes);
-        inputs.append(allocator, .{ .constant = .{ .bytes = owned_bytes } }) catch |err| {
-            allocator.free(owned_bytes);
-            return err;
-        };
+        try inputs.append(allocator, .{ .constant = {} });
         try input_descriptors.append(temporary, .{
             .dtype = computeToDenseDType(value.spec().dtype()),
             .shape = value.spec().dimensions(),
@@ -340,24 +419,73 @@ pub fn lower(
 
     var steps: std.ArrayList(core.DenseStep) = .empty;
     defer steps.deinit(temporary);
+    var source_instruction_by_step: std.ArrayList(usize) = .empty;
+    defer source_instruction_by_step.deinit(temporary);
     var produced: usize = input_descriptors.items.len;
-    for (program.instructions()) |*instruction| {
+    const instruction_mapping = try temporary.alloc(usize, program.instructions().len);
+    @memset(instruction_mapping, no_value);
+    for (program.instructions(), 0..) |*instruction, instruction_index| {
+        const first_step = steps.items.len;
         const mapped = try mapInstruction(
             temporary,
-            program,
             instruction,
             mapping,
             produced,
             &steps,
             diagnostic,
         );
+        for (first_step..steps.items.len) |_| try source_instruction_by_step.append(temporary, instruction_index);
         for (instruction.outputs(), mapped) |output_id, output_graph_id| {
             const index = output_id.int();
             if (index >= mapping.len or mapping[index] != no_value) return error.InvalidProgram;
             mapping[index] = output_graph_id;
         }
+        if (steps.items.len == first_step + 1)
+            instruction_mapping[instruction_index] = first_step;
         produced = std.math.add(usize, input_descriptors.items.len, steps.items.len) catch
             return error.InvalidProgram;
+    }
+
+    const requirements = try temporary.alloc(core.DenseResidualRequirement, program.residualRequirements().len);
+    for (program.residualRequirements(), requirements) |requirement, *mapped| {
+        const value = requirement.value().int();
+        if (value >= mapping.len or mapping[value] == no_value) return error.InvalidProgram;
+        var release_after: ?usize = null;
+        var recompute_before: ?usize = null;
+        if (requirement.releaseAfter()) |anchor| {
+            const index = anchor.int();
+            if (index >= instruction_mapping.len or instruction_mapping[index] == no_value) return error.InvalidProgram;
+            release_after = instruction_mapping[index];
+        }
+        if (requirement.recomputeBefore()) |anchor| {
+            const index = anchor.int();
+            if (index >= instruction_mapping.len or instruction_mapping[index] == no_value) return error.InvalidProgram;
+            recompute_before = instruction_mapping[index];
+        }
+        mapped.* = .{
+            .value = mapping[value],
+            .recomputable_view = requirement.eligibility() == .recomputable_view,
+            .release_after = release_after,
+            .recompute_before = recompute_before,
+        };
+    }
+    var residual_use_count: usize = 0;
+    for (program.residualNeeds()) |need| residual_use_count += need.uses.len;
+    const residual_uses = try temporary.alloc(core.DenseResidualUse, residual_use_count);
+    var residual_use_index: usize = 0;
+    for (program.residualNeeds()) |need| {
+        const value = need.value.int();
+        if (value >= mapping.len or mapping[value] == no_value) return error.InvalidProgram;
+        for (need.uses) |use| {
+            const index = use.instruction.int();
+            if (index >= instruction_mapping.len or instruction_mapping[index] == no_value) return error.InvalidProgram;
+            residual_uses[residual_use_index] = .{
+                .value = mapping[value],
+                .instruction = instruction_mapping[index],
+                .input_index = use.input_index,
+            };
+            residual_use_index += 1;
+        }
     }
 
     const selected = try temporary.alloc(usize, program.outputs().len);
@@ -408,12 +536,29 @@ pub fn lower(
             return error.InvalidProgram;
     }
 
-    var handle = core.createDenseGraphHandle(
+    var handle = core.createDenseGraphHandleWithConstantsAndSearch(
         temporary,
         input_descriptors.items,
+        program.inputs().len,
+        constant_data.items,
         steps.items,
         selected,
         goal,
+        dense_inputs,
+        requirements,
+        residual_uses,
+        switch (residual_policy) {
+            .retain => .retain,
+            .automatic => .automatic,
+            .recompute => .recompute,
+        },
+        .{
+            .structural_states = search_limits.structural_states,
+            .structural_expansions = search_limits.structural_expansions,
+            .complete_evaluations = search_limits.complete_evaluations,
+            .physical_work = search_limits.physical_work,
+            .ready_work = search_limits.ready_work,
+        },
     ) catch |err| switch (err) {
         error.OutOfMemory => return err,
         else => {
@@ -429,31 +574,19 @@ pub fn lower(
     errdefer {
         for (owned_inputs) |input| switch (input) {
             .dynamic => |dynamic| allocator.free(dynamic.dimensions),
-            .constant => |constant| allocator.free(constant.bytes),
+            .constant => {},
         };
         allocator.free(owned_inputs);
     }
-    const constant_tokens = try allocator.alloc(?core.DenseGraphHandle.TensorToken, owned_inputs.len);
-    @memset(constant_tokens, null);
-    errdefer {
-        for (constant_tokens) |token| {
-            if (token) |value| handle.releaseTensor(value) catch {};
-        }
-        allocator.free(constant_tokens);
-    }
-    for (owned_inputs, 0..) |input, index| switch (input) {
-        .dynamic => {},
-        .constant => |constant| {
-            constant_tokens[index] = try handle.createInputTensor(index, constant.bytes);
-        },
-    };
     const cached_dynamic = try allocator.alloc(?CachedInput, owned_inputs.len);
+    errdefer allocator.free(cached_dynamic);
+    const owned_step_origins = try allocator.dupe(usize, source_instruction_by_step.items);
     @memset(cached_dynamic, null);
     return .{
         .allocator = allocator,
         .handle = handle,
+        .source_instruction_by_step = owned_step_origins,
         .inputs = owned_inputs,
-        .constant_tokens = constant_tokens,
         .cached_dynamic = cached_dynamic,
         .outputs = outputs,
         .dense_inputs = dense_inputs,
@@ -465,7 +598,6 @@ pub fn lower(
 
 fn mapInstruction(
     allocator: std.mem.Allocator,
-    program: *const compute.Program,
     instruction: anytype,
     mapping: []const usize,
     produced: usize,
@@ -603,50 +735,24 @@ fn mapInstruction(
         .sum_all, .mean_all, .min_all, .max_all, .variance_all, .std_all, .argmin_all, .argmax_all => {
             if (operands.len != 1 or output_ids.len != 1 or options != .reduce_all)
                 return error.InvalidProgram;
-            const reduction_output = produced;
             try steps.append(allocator, .{
                 .operation = reductionOperation(tag),
                 .lhs = operands[0],
+                .metadata = if (options.reduce_all.keepdim) &.{1} else &.{},
             });
-            if (!options.reduce_all.keepdim) {
-                output_ids[0] = reduction_output;
-                return output_ids;
-            }
-            const source_value = program.value(instruction.inputs()[0]) orelse
-                return error.InvalidProgram;
-            const shape = try allocator.alloc(usize, source_value.spec().dimensions().len);
-            @memset(shape, 1);
-            const expanded = std.math.add(usize, reduction_output, 1) catch
-                return error.InvalidProgram;
-            try steps.append(allocator, .{
-                .operation = .reshape,
-                .lhs = reduction_output,
-                .metadata = shape,
-            });
-            output_ids[0] = expanded;
+            output_ids[0] = produced;
             return output_ids;
         },
         .sum_axis, .mean_axis, .min_axis, .max_axis, .variance_axis, .std_axis, .argmin_axis, .argmax_axis => {
             if (operands.len != 1 or output_ids.len != 1 or options != .reduce_axis)
                 return error.InvalidProgram;
-            const reduction_output = produced;
             try steps.append(allocator, .{
                 .operation = reductionOperation(tag),
                 .lhs = operands[0],
                 .rhs = options.reduce_axis.axis,
+                .metadata = if (options.reduce_axis.keepdim) &.{1} else &.{},
             });
-            if (!options.reduce_axis.keepdim) {
-                output_ids[0] = reduction_output;
-                return output_ids;
-            }
-            const expanded = std.math.add(usize, reduction_output, 1) catch
-                return error.InvalidProgram;
-            try steps.append(allocator, .{
-                .operation = .unsqueeze,
-                .lhs = reduction_output,
-                .rhs = options.reduce_axis.axis,
-            });
-            output_ids[0] = expanded;
+            output_ids[0] = produced;
             return output_ids;
         },
         .cat, .stack => {

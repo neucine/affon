@@ -79,7 +79,7 @@ const cases: Case[] = [
 
 function measure(entry: Case, forceZig: boolean) {
   const session = new Session(forceZig
-    ? { device: 'cpu', telemetry: { captureRecords: 32 } }
+    ? { device: 'cpu', cpuExecution: 'zig' }
     : { device: 'cpu' })
   const executable = session.compile(entry.source)
   const state = session.initialize(entry.source)
@@ -91,7 +91,7 @@ function measure(entry: Case, forceZig: boolean) {
   try {
     const backend = (executable as any)[backendSymbol]()
     const reason = (executable as any)[routingSymbol]().reason
-    if (backend !== (forceZig ? 'zig' : 'cyna') || reason !== (forceZig ? 'evidence_capture' : 'lowered')) {
+    if (backend !== (forceZig ? 'zig' : 'cyna') || reason !== (forceZig ? 'zig_requested' : 'lowered')) {
       throw Error(`${entry.name}: unexpected route ${backend}/${reason}`)
     }
     for (let warm = 0; warm < 3; warm++) for (const output of run()) output.dispose()

@@ -1,4 +1,4 @@
-import { Session, Tensor, program, type Program } from 'affon:core'
+import { Session, Tensor, program, type CompileOptions, type Program } from 'affon:core'
 import {
   abs, add, argmax, argmin, binary_cross_entropy,
   binary_cross_entropy_with_logits, cast, cat, clamp, contiguous, cos,
@@ -19,7 +19,12 @@ export type RegistryEntry = Readonly<{
   name: string
   corpus: RoutingCorpus
   source: Program
-  options?: Readonly<{ telemetry?: { captureRecords?: number; computeTiming?: 'none' | 'invocation' | 'kernel' } }>
+  options?: Readonly<{ telemetry?: {
+    captureRecords?: number
+    computeTiming?: 'none' | 'invocation' | 'kernel'
+    hardwareMetrics?: boolean
+    profilerMarkers?: boolean
+  }; compile?: CompileOptions }>
 }>
 
 const vector = (name: string, shape: readonly number[] = [4]) => (p: any) => p.argument(name, Tensor.f32(shape))
@@ -161,6 +166,11 @@ export const representativePrograms: readonly RegistryEntry[] = Object.freeze([
   }),
   define('observability_evidence_capture', p => add(vector('a')(p), vector('b')(p)), { telemetry: { captureRecords: 8 } }),
   define('observability_compute_timing', p => add(vector('a')(p), vector('b')(p)), { telemetry: { computeTiming: 'invocation' } }),
+  define('observability_hardware_metrics', p => sin(vector('x')(p)), { telemetry: { hardwareMetrics: true } }),
+  define('observability_profiler_markers', p => sin(vector('x')(p)), { telemetry: { profilerMarkers: true } }),
+  define('compiler_bounded_search', p => add(vector('a')(p), vector('b')(p)), {
+    compile: { searchLimits: { structuralStates: 1 } },
+  }),
 ])
 
 export const routingPrograms: readonly RegistryEntry[] = Object.freeze([
@@ -172,7 +182,7 @@ export function measureRepresentativeRouting(entries: readonly RegistryEntry[] =
   return entries.map(entry => {
     const session = new Session({ device: 'cpu', telemetry: entry.options?.telemetry })
     try {
-      const executable = session.compile(entry.source)
+      const executable = session.compile(entry.source, entry.options?.compile)
       try {
         return { name: entry.name, corpus: entry.corpus, routing: Object.freeze((executable as any)[routingSymbol]() as Routing) }
       } finally {

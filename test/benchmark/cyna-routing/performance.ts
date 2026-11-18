@@ -15,6 +15,13 @@ const buildProfile = getEnv('AFFON_CYNA_BENCH_BUILD_PROFILE') ?? 'unspecified'
 const warmupCount = integerEnv('AFFON_CYNA_BENCH_WARMUPS', 2, 0, 100)
 const sampleCount = integerEnv('AFFON_CYNA_BENCH_SAMPLES', 7, 3, 100)
 const executionsPerSample = integerEnv('AFFON_CYNA_BENCH_EXECUTIONS_PER_SAMPLE', 1, 1, 100)
+const captureSelectedPlans = getEnv('AFFON_CYNA_BENCH_SELECTED_PLANS') === '1'
+const optimizationGoal = (() => {
+  const goal = getEnv('AFFON_CYNA_BENCH_OPTIMIZATION_GOAL') ?? 'balanced'
+  if (goal !== 'balanced' && goal !== 'latency' && goal !== 'throughput' && goal !== 'memory')
+    throw Error(`Unsupported optimization goal: ${goal}`)
+  return goal
+})()
 const comparison = { absolute: 3e-4, relative: 3e-4 }
 
 const config = {
@@ -67,7 +74,7 @@ function hashName(name: string): number {
   return hash
 }
 
-const session = new Session({ device: 'cpu' })
+const session = new Session({ device: 'cpu', ...(captureSelectedPlans ? { telemetry: { captureRecords: 512 } } : {}) })
 const value = (name: string, shape: readonly number[], scale: number, center = 0): Tensor =>
   session.tensor(seededValues(shape, hashName(name), center, scale), { dtype: 'f32' })
 
@@ -92,8 +99,8 @@ const model = create_llama(config, {
 
 const prefillSource = model.prefill(prefillLength)
 const decodeSource = model.decode(decodePosition)
-const prefillExecutable = session.compile(prefillSource)
-const decodeExecutable = session.compile(decodeSource)
+const prefillExecutable = session.compile(prefillSource, { optimizationGoal })
+const decodeExecutable = session.compile(decodeSource, { optimizationGoal })
 const prefillState = session.initialize(prefillSource, { parameters: model.parameters })
 const decodeState = session.initialize(decodeSource, { parameters: model.parameters })
 
@@ -200,6 +207,93 @@ function measure(run: () => Tensor[], tokens: number) {
 
 const prefill = measure(runPrefill, prefillLength)
 const decode = measure(runDecode, 1)
+type ObservedPlan = {
+  positions: Map<number, number>
+  kernelCounts: Map<number, number>
+  kernelCountTotal: number
+}
+
+function observedPlan(executable: any, run: () => Tensor[]): ObservedPlan {
+  session.resetEvidence()
+  disposeOutputs(run())
+  const evidence = session.runtimeEvidence(executable) as any
+  if (evidence.execution_path !== 'prepared' || evidence.dropped_event_count !== 0 || evidence.observed_run_count !== 1)
+    throw Error('Selected plan needs one complete prepared execution trace')
+  if (evidence.kernel_count_evidence !== 'exact')
+    throw Error('Selected plan needs exact kernel count evidence')
+  const positions = new Map<number, number>()
+  const kernelCounts = new Map<number, number>()
+  let kernelCountTotal = 0
+  for (const entry of evidence.entries) if (entry.graph_kind === 'prepared_physical') {
+    if (entry.invocation_count !== 1 || entry.observed_schedule_position == null)
+      throw Error(`Missing schedule position for Cyna node ${entry.step_index}`)
+    if (!Number.isSafeInteger(entry.kernel_count) || entry.kernel_count < 0)
+      throw Error(`Missing exact kernel count for Cyna node ${entry.step_index}`)
+    positions.set(entry.step_index, entry.observed_schedule_position)
+    kernelCounts.set(entry.step_index, entry.kernel_count)
+    kernelCountTotal += entry.kernel_count
+  }
+  if (new Set(positions.values()).size !== positions.size)
+    throw Error('Cyna execution has repeated schedule positions')
+  return { positions, kernelCounts, kernelCountTotal }
+}
+const observedPlans = captureSelectedPlans && expectedBackend === 'cyna' ? {
+  prefill: observedPlan(prefillExecutable, runPrefill),
+  decode: observedPlan(decodeExecutable, runDecode),
+} : null
+function selectedPlan(executable: any, observed?: ObservedPlan): unknown[] {
+  const explanation = executable.explain() as any
+  if (expectedBackend === 'cyna') {
+    const plan = explanation.cyna_selected_physical_nodes.map((node: any) => {
+      if (!Array.isArray(node.origins) || node.origins.length !== node.source_instruction_count)
+        throw Error(`Missing source origins for Cyna node ${node.node_id}`)
+      if (!Array.isArray(node.program_origins))
+        throw Error(`Missing Program origins for Cyna node ${node.node_id}`)
+      const schedulePosition = observed?.positions.get(node.node_id)
+      const kernelCount = observed?.kernelCounts.get(node.node_id)
+      if (observed && schedulePosition == null) throw Error(`Missing schedule position for Cyna node ${node.node_id}`)
+      if (observed && kernelCount == null) throw Error(`Missing kernel count for Cyna node ${node.node_id}`)
+      return {
+        node: node.node_id,
+        schedule_position: schedulePosition,
+        kernel_count: kernelCount,
+        action: node.action,
+        operation: node.operation,
+        source_instructions: node.program_origins,
+        source_instruction_count: node.program_origins.length,
+        cyna_step_origins: node.origins,
+        implementation: node.implementation,
+        is_view: node.is_view,
+        output_bytes: node.output_bytes,
+      }
+    })
+    if (observed && observed.kernelCounts.size !== plan.length)
+      throw Error(`Cyna observed ${observed.kernelCounts.size} physical nodes for a ${plan.length}-node plan`)
+    return plan
+  }
+  const nodes = explanation.executable.physical_nodes
+  return explanation.executable.physical_order.map((index: number) => {
+    const node = nodes[index]
+    return {
+      node: node.id,
+      action: node.action,
+      source_instructions: node.origins,
+      implementation: node.implementation_id,
+      view_transform: node.view_transform,
+    }
+  })
+}
+function selectedPlanMetrics(executable: any, observed?: ObservedPlan): unknown {
+  const explanation = executable.explain() as any
+  return expectedBackend === 'cyna'
+    ? {
+        selected_peak_active_bytes: explanation.selected_physical_liveness.peak_active_bytes,
+        kernel_count_evidence: observed ? 'exact' : null,
+        observed_kernel_count: observed?.kernelCountTotal ?? null,
+        ...(explanation.cyna_selection_comparison ?? {}),
+      }
+    : { selected_peak_active_bytes: explanation.executable.selection?.selected_peak_active_bytes ?? null }
+}
 const report = {
   schema_version: 1,
   format: 'affon-cyna-llama-performance/v1',
@@ -208,6 +302,7 @@ const report = {
   routes,
   workload: {
     family: 'llama',
+    optimization_goal: optimizationGoal,
     variant: 'deterministic-synthetic-weights',
     dtype: 'f32',
     parameter_generator: 'LCG-seeded by parameter name',
@@ -238,6 +333,19 @@ const report = {
     completion_boundary: 'The invocation completes after every returned Tensor is disposed.',
   },
   reference,
+  ...(captureSelectedPlans ? { selected_physical_plans: {
+    prefill: selectedPlan(prefillExecutable, observedPlans?.prefill),
+    decode: selectedPlan(decodeExecutable, observedPlans?.decode),
+  }, selected_physical_values: {
+    prefill: (prefillExecutable.explain() as any).selected_physical_values,
+    decode: (decodeExecutable.explain() as any).selected_physical_values,
+  }, selected_physical_liveness: {
+    prefill: (prefillExecutable.explain() as any).selected_physical_liveness,
+    decode: (decodeExecutable.explain() as any).selected_physical_liveness,
+  }, selected_plan_metrics: {
+    prefill: selectedPlanMetrics(prefillExecutable, observedPlans?.prefill),
+    decode: selectedPlanMetrics(decodeExecutable, observedPlans?.decode),
+  } } : {}),
   limitations: [
     'Synthetic weights measure execution speed, not trained-model quality.',
     'This shape and dtype do not establish broad shape, dtype, or model coverage.',

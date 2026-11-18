@@ -47,6 +47,8 @@ export type SessionTelemetry = Readonly<{
 }>
 export type SessionOptions = Readonly<{
   device?: Device
+  /** Select the Zig CPU reference explicitly, or use the available CPU route. */
+  cpuExecution?: "auto" | "zig"
   determinism?: "strict" | "allow_nondeterministic"
   telemetry?: false | TelemetryOptions
 }>
@@ -104,7 +106,9 @@ function normalizedCompileOptions(options: CompileOptions = {}): Required<Compil
 function normalizedSessionOptions(options: SessionOptions = {}): Readonly<Record<string, unknown>> {
   const determinism = options.determinism ?? "strict"
   if (determinism !== "strict" && determinism !== "allow_nondeterministic") throw new TypeError(`unsupported determinism: ${determinism}`)
-  if (options.telemetry === false) return Object.freeze({ determinism, telemetry: null })
+  const cpuExecution = options.cpuExecution ?? "auto"
+  if (cpuExecution !== "auto" && cpuExecution !== "zig") throw new TypeError(`unsupported cpuExecution: ${cpuExecution}`)
+  if (options.telemetry === false) return Object.freeze({ determinism, cpuExecution, telemetry: null })
   const requestedTiming = options.telemetry?.computeTiming
   if (requestedTiming !== undefined && !["none", "invocation", "kernel"].includes(requestedTiming))
     throw new TypeError(`unsupported computeTiming: ${requestedTiming}`)
@@ -114,7 +118,7 @@ function normalizedSessionOptions(options: SessionOptions = {}): Readonly<Record
       requestedTiming !== (legacyTiming ? "kernel" : "none"))
     throw new TypeError("computeTiming conflicts with backendTiming")
   const computeTiming = requestedTiming ?? (legacyTiming === true ? "kernel" : "none")
-  return Object.freeze({ determinism, telemetry: Object.freeze({
+  return Object.freeze({ determinism, cpuExecution, telemetry: Object.freeze({
     computeTiming,
     backendTiming: computeTiming === "kernel",
     hardwareMetrics: options.telemetry?.hardwareMetrics ?? false,
@@ -1637,7 +1641,20 @@ export class Executable<Out extends FormalTensor | readonly FormalTensor[] = For
       optimizer: this.optimization.optimizer,
       parameters: this.optimization.parameters,
     })
-    return freezeJson(JSON.parse(native.explainExecutable(this.nativeExecutable)))
+    const explanation = JSON.parse(native.explainExecutable(this.nativeExecutable))
+    explanation.selected_physical_values = JSON.parse(native.selectedPhysicalValues(this.nativeExecutable))
+    explanation.selected_physical_liveness = JSON.parse(native.selectedPhysicalLiveness(this.nativeExecutable))
+    if (native.executableBackend(this.nativeExecutable) === "cyna") {
+      explanation.execution_backend = "cyna"
+      explanation.executable_plan_backend = "zig_reference"
+      explanation.actual_plan_report = "cyna_selected_physical_nodes before execution; Session.runtimeEvidence() after execution"
+      explanation.cyna_selected_semantic_steps = JSON.parse(native.cynaSelectedSteps(this.nativeExecutable))
+      explanation.cyna_selected_physical_nodes = JSON.parse(native.cynaSelectedPhysicalNodes(this.nativeExecutable))
+      explanation.cyna_residual_decisions = JSON.parse(native.cynaResidualDecisions(this.nativeExecutable))
+      explanation.cyna_selection_comparison = JSON.parse(native.cynaSelectionComparison(this.nativeExecutable))
+      explanation.cyna_search = JSON.parse(native.cynaSearchEvidence(this.nativeExecutable))
+    }
+    return freezeJson(explanation)
   }
   [EXECUTABLE_EVIDENCE](): Readonly<Record<string, unknown>> | null {
     if (!this.optimization) return null

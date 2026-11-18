@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'std:test'
 import fs from 'std:fs'
 import { Session, Tensor, program } from 'affon:core'
-import { add, embedding, eq, exp, gather, index_select, layer_norm, masked_fill, matmul, one_hot, rms_norm, scatter_add, softmax, sum, topk, transpose, where } from 'affon:ops'
+import { abs, add, argmax, cast, cat, clamp, contiguous, cross_entropy, dense_cross_entropy, embedding, eq, exp, gather, gelu, gt, index_select, layer_norm, log_softmax, lt, masked_fill, matmul, max, mean, min, mul, one_hot, permute, reshape, rms_norm, scatter_add, slice, softmax, sqrt, stack, std, sum, topk, transpose, variance, where } from 'affon:ops'
 import { load_graph } from '../../../packages/@affon/onnx/src/runtime.ts'
 import { create_bert } from '../../../packages/@affon/models/src/bert/model.ts'
 import { create_gpt2 } from '../../../packages/@affon/models/src/gpt2/model.ts'
@@ -42,11 +42,12 @@ function runPaired(
   parameters: Record<string, Tensor> | undefined,
   inputs: InputFactory,
   comparisonTolerance: NumericTolerance = f32Tolerance,
+  compileOptions: any = {},
 ): void {
   const cyna = new Session({ device: 'cpu' })
-  const zig = new Session({ device: 'cpu', telemetry: { captureRecords: 32 } })
-  const cynaExecutable = cyna.compile(source)
-  const zigExecutable = zig.compile(source)
+  const zig = new Session({ device: 'cpu', cpuExecution: 'zig', telemetry: { captureRecords: 32 } })
+  const cynaExecutable = cyna.compile(source, compileOptions)
+  const zigExecutable = zig.compile(source, compileOptions)
   const cynaState = cyna.initialize(source, { parameters })
   const zigState = zig.initialize(source, { parameters })
   const cynaInputs = inputs(cyna)
@@ -58,7 +59,7 @@ function runPaired(
     expect((cynaExecutable as any)[routingSymbol]().reason).toBe('lowered')
     expect((zigExecutable as any)[backendSymbol]()).toBe('zig')
     const zigRouting = (zigExecutable as any)[routingSymbol]()
-    expect(zigRouting.reason).toBe('evidence_capture')
+    expect(zigRouting.reason).toBe('zig_requested')
 
     cynaOutputs = outputs(cynaExecutable.run(cynaInputs, cynaState))
     zigOutputs = outputs(zigExecutable.run(zigInputs, zigState))
@@ -98,6 +99,342 @@ function runPaired(
 }
 
 describe('Cyna runtime numerical parity', () => {
+  test('all public search limits match Zig', () => {
+    const source = program('cyna_parity_search_limits', p => add(
+      add(p.argument('a', Tensor.f32([2])), p.argument('b', Tensor.f32([2]))),
+      p.argument('c', Tensor.f32([2])),
+    ))
+    for (const [name, value] of [
+      ['structuralStates', 1],
+      ['structuralExpansions', 1],
+      ['completeEvaluations', 1],
+      ['physicalWork', 1],
+      ['readyWork', 1],
+    ] as const) {
+      runPaired(`search limit ${name}`, source, undefined, session => ({
+        a: session.tensor([1, 2]),
+        b: session.tensor([3, 4]),
+        c: session.tensor([5, 6]),
+      }), f32Tolerance, { searchLimits: { [name]: value } })
+    }
+  })
+
+  test('reduction axes, extrema, and variance match Zig', () => {
+    const operations = [
+      ['sum', (x: any) => sum(x, -1, true)],
+      ['mean', (x: any) => mean(x, 0)],
+      ['min', (x: any) => min(x, -1)],
+      ['max', (x: any) => max(x, 0, true)],
+      ['argmax', (x: any) => argmax(x, -1)],
+      ['variance', (x: any) => variance(x, -1)],
+      ['std', (x: any) => std(x, 0)],
+    ] as const
+    for (const [name, operation] of operations) {
+      const source = program(`cyna_parity_reduction_${name}`, p => operation(p.argument('x', Tensor.f32([2, 3]))))
+      runPaired(`reduction ${name}`, source, undefined, session => ({
+        x: session.tensor([[1, -2, 3], [4, 0, -5]], { dtype: 'f32' }),
+      }))
+    }
+  })
+
+  test('unary, cast, and normalization values match Zig', () => {
+    const operations = [
+      ['abs', (x: any) => abs(x)],
+      ['clamp', (x: any) => clamp(x, -1, 2)],
+      ['sqrt', (x: any) => sqrt(abs(x))],
+      ['softmax', (x: any) => softmax(x, -1)],
+      ['log_softmax', (x: any) => log_softmax(x, 0)],
+      ['layer_norm', (x: any) => layer_norm(x, -1)],
+      ['rms_norm', (x: any) => rms_norm(x, -1)],
+      ['cast_f64', (x: any) => cast(x, 'f64')],
+      ['cast_bf16', (x: any) => cast(x, 'bf16')],
+    ] as const
+    for (const [name, operation] of operations) {
+      const source = program(`cyna_parity_unary_${name}`, p => operation(p.argument('x', Tensor.f32([2, 3]))))
+      runPaired(`unary ${name}`, source, undefined, session => ({
+        x: session.tensor([[1, -2, 3], [4, 0, -5]], { dtype: 'f32' }),
+      }), name === 'cast_bf16' ? bf16Tolerance : f32Tolerance)
+    }
+  })
+
+  test('arithmetic chains match Zig across storage dtypes', () => {
+    for (const dtype of ['f64', 'bf16', 'i64', 'u32'] as const) {
+      const spec = (Tensor as any)[dtype]([2, 3])
+      const source = program(`cyna_parity_arithmetic_${dtype}`, p => add(
+        p.argument('a', spec),
+        mul(p.argument('b', spec), p.argument('c', spec)),
+      ))
+      const tolerance = dtype === 'f64' ? f64Tolerance : dtype === 'bf16' ? bf16Tolerance : f32Tolerance
+      runPaired(`arithmetic ${dtype}`, source, undefined, session => ({
+        a: session.tensor([[1, 2, 3], [4, 5, 6]], { dtype }),
+        b: session.tensor([[2, 3, 4], [1, 2, 3]], { dtype }),
+        c: session.tensor([[5, 6, 7], [8, 9, 10]], { dtype }),
+      }), tolerance)
+    }
+  })
+
+  test('structural copies and views match Zig', () => {
+    const source = program('cyna_parity_structural', p => {
+      const x = p.argument('x', Tensor.f32([2, 3]))
+      const view = transpose(x, [1, 0])
+      const section = slice(view, [{ start: 1, stop: 3 }, { start: 0, stop: 2 }])
+      return [view, contiguous(view), reshape(contiguous(view), [2, 3]), section,
+        cat([section, section], 1), stack([section, section], 0), permute(x, [1, 0])]
+    })
+    runPaired('structural copies and views', source, undefined, session => ({
+      x: session.tensor([[1, 2, 3], [4, 5, 6]], { dtype: 'f32' }),
+    }))
+  })
+
+  test('nonzero-offset slices match Zig when consumed by CPU operations', () => {
+    const source = program('cyna_parity_offset_view_consumers', p => {
+      const left = p.argument('left', Tensor.f32([3, 5]))
+      const matrix = p.argument('matrix', Tensor.f32([3, 4]))
+      const stridedMatrix = p.argument('stridedMatrix', Tensor.f32([3, 5]))
+      return [
+        add(
+          matmul(
+            contiguous(slice(left, [{ start: 1, stop: 3 }, { start: 1, stop: 5 }])),
+            p.argument('right', Tensor.f32([4, 2])),
+          ),
+          p.argument('bias', Tensor.f32([2])),
+        ),
+        add(
+          slice(transpose(matrix, [1, 0]), [
+            { start: 0, stop: 3 },
+            { start: 1, stop: 3 },
+          ]),
+          p.argument('transposeBias', Tensor.f32([2])),
+        ),
+        add(
+          gelu(slice(stridedMatrix, [
+            { start: 0, stop: 3 },
+            { start: 1, stop: 5, step: 2 },
+          ])),
+          p.argument('stridedBias', Tensor.f32([2])),
+        ),
+        add(
+          p.argument('singletonLeft', Tensor.f32([2, 1])),
+          p.argument('singletonRight', Tensor.f32([1, 4])),
+        ),
+      ]
+    })
+    runPaired('nonzero-offset view consumers', source, undefined, session => ({
+      left: session.tensor([
+        [99, 99, 99, 99, 99],
+        [99, 1, 2, 3, 4],
+        [99, 5, 6, 7, 8],
+      ], { dtype: 'f32' }),
+      matrix: session.tensor([
+        [1, 2, 3, 4],
+        [5, 6, 7, 8],
+        [9, 10, 11, 12],
+      ], { dtype: 'f32' }),
+      stridedMatrix: session.tensor([
+        [1, 2, 3, 4, 5],
+        [6, 7, 8, 9, 10],
+        [11, 12, 13, 14, 15],
+      ], { dtype: 'f32' }),
+      right: session.tensor([
+        [1, 0],
+        [0, 1],
+        [1, 1],
+        [2, -1],
+      ], { dtype: 'f32' }),
+      bias: session.tensor([0.5, -0.5], { dtype: 'f32' }),
+      transposeBias: session.tensor([0, 1], { dtype: 'f32' }),
+      stridedBias: session.tensor([1, -1], { dtype: 'f32' }),
+      singletonLeft: session.tensor([[1], [2]], { dtype: 'f32' }),
+      singletonRight: session.tensor([[3, 4, 5, 6]], { dtype: 'f32' }),
+    }))
+  })
+
+  test('indexed and dense cross entropy match Zig', () => {
+    const indexed = program('cyna_parity_indexed_loss', p => cross_entropy(
+      p.argument('logits', Tensor.f32([2, 3])), p.argument('labels', Tensor.i64([2])),
+    ))
+    runPaired('indexed cross entropy', indexed, undefined, session => ({
+      logits: session.tensor([[2, 0, -1], [-2, 1, 3]], { dtype: 'f32' }),
+      labels: session.tensor([0, 2], { dtype: 'i64' }),
+    }))
+    const dense = program('cyna_parity_dense_loss', p => dense_cross_entropy(
+      p.argument('logits', Tensor.f32([2, 3])), p.argument('targets', Tensor.f32([2, 3])),
+    ))
+    runPaired('dense cross entropy', dense, undefined, session => ({
+      logits: session.tensor([[2, 0, -1], [-2, 1, 3]], { dtype: 'f32' }),
+      targets: session.tensor([[1, 0, 0], [0, 0.25, 0.75]], { dtype: 'f32' }),
+    }))
+  })
+
+  test('extreme softmax values and view normalization match Zig', () => {
+    for (const [name, operation] of [
+      ['softmax', (x: any) => softmax(x, -1)],
+      ['log_softmax', (x: any) => log_softmax(x, -1)],
+      ['layer_norm', (x: any) => layer_norm(x, -1)],
+    ] as const) {
+      const source = program(`cyna_parity_extreme_${name}`, p => operation(
+        transpose(p.argument('x', Tensor.f32([3, 2])), [1, 0]),
+      ))
+      runPaired(`extreme ${name}`, source, undefined, session => ({
+        x: session.tensor([[1000, -1000], [999, -999], [998, -998]], { dtype: 'f32' }),
+      }))
+    }
+  })
+
+  for (const dtype of ['f32', 'f64', 'bf16', 'i64', 'u32'] as const) {
+    const spec = (shape: number[]) => (Tensor as any)[dtype](shape)
+    const tolerance = dtype === 'f64' ? f64Tolerance : dtype === 'bf16' ? bf16Tolerance : f32Tolerance
+    test(`${dtype} selection and indexing match Zig`, () => {
+      const select = program(`cyna_parity_${dtype}_where`, p => where(
+        p.argument('mask', Tensor.i64([2, 1])),
+        p.argument('a', spec([2, 3])), p.argument('b', spec([1, 3])),
+      ))
+      runPaired(`${dtype} where`, select, undefined, session => ({
+        mask: session.tensor([[1], [0]], { dtype: 'i64' }),
+        a: session.tensor([[1, 2, 3], [4, 5, 6]], { dtype }),
+        b: session.tensor([[7, 8, 9]], { dtype }),
+      }), tolerance)
+
+      const selectIndex = program(`cyna_parity_${dtype}_index_select`, p => index_select(
+        p.argument('x', spec([3, 2])), 0, p.argument('indices', Tensor.i64([3])),
+      ))
+      runPaired(`${dtype} index select`, selectIndex, undefined, session => ({
+        x: session.tensor([[1, 2], [3, 4], [5, 6]], { dtype }),
+        indices: session.tensor([2, 0, 2], { dtype: 'i64' }),
+      }), tolerance)
+
+      const scatter = program(`cyna_parity_${dtype}_scatter`, p => scatter_add(
+        p.argument('base', spec([3, 2])),
+        p.argument('indices', Tensor.i64([2, 2])),
+        p.argument('updates', spec([2, 2])), 0,
+      ))
+      runPaired(`${dtype} scatter-add`, scatter, undefined, session => ({
+        base: session.tensor([[1, 2], [3, 4], [5, 6]], { dtype }),
+        indices: session.tensor([[1, 1], [1, 2]], { dtype: 'i64' }),
+        updates: session.tensor([[2, 3], [4, 5]], { dtype }),
+      }), tolerance)
+
+      if (dtype === 'f32' || dtype === 'bf16') {
+        const rank = program(`cyna_parity_${dtype}_topk`, p => topk(
+          p.argument('x', spec([2, 4])), 2, 1,
+        ))
+        runPaired(`${dtype} top-k`, rank, undefined, session => ({
+          x: session.tensor([[3, 5, 5, 1], [2, 2, 4, 3]], { dtype }),
+        }), tolerance)
+      }
+    })
+  }
+
+  test('selection and indexing preserve transposed input values', () => {
+    const select = program('cyna_parity_view_where', p => where(
+      p.argument('mask', Tensor.i64([2, 1])),
+      transpose(p.argument('a', Tensor.f32([3, 2])), [1, 0]),
+      p.argument('b', Tensor.f32([1, 3])),
+    ))
+    runPaired('view where', select, undefined, session => ({
+      mask: session.tensor([[1], [0]], { dtype: 'i64' }),
+      a: session.tensor([[1, 4], [2, 5], [3, 6]], { dtype: 'f32' }),
+      b: session.tensor([[7, 8, 9]], { dtype: 'f32' }),
+    }))
+
+    const rank = program('cyna_parity_view_topk', p => topk(
+      transpose(p.argument('x', Tensor.f32([4, 2])), [1, 0]), 2, 1,
+    ))
+    runPaired('view top-k', rank, undefined, session => ({
+      x: session.tensor([[3, 2], [5, 2], [5, 4], [1, 3]], { dtype: 'f32' }),
+    }))
+  })
+
+  test('out-of-range indices fail on both routes and leave executables reusable', () => {
+    const source = program('cyna_parity_invalid_index', p => index_select(
+      p.argument('x', Tensor.f32([3, 2])), 0,
+      p.argument('indices', Tensor.i64([2])),
+    ))
+    for (const cpuExecution of ['auto', 'zig'] as const) {
+      const session = new Session({ device: 'cpu', cpuExecution })
+      const executable = session.compile(source)
+      const x = session.tensor([[1, 2], [3, 4], [5, 6]], { dtype: 'f32' })
+      const bad = session.tensor([0, 3], { dtype: 'i64' })
+      const negative = session.tensor([-1, 0], { dtype: 'i64' })
+      const good = session.tensor([2, 0], { dtype: 'i64' })
+      try {
+        expect(() => executable.run({ x, indices: bad })).toThrow()
+        expect(() => executable.run({ x, indices: negative })).toThrow()
+        const result = executable.run({ x, indices: good }) as Tensor
+        expect(result.to_array()).toEqual([[5, 6], [1, 2]])
+        result.dispose()
+      } finally {
+        good.dispose(); negative.dispose(); bad.dispose(); x.dispose(); executable.dispose(); session.dispose()
+      }
+    }
+  })
+
+  test('indexing failures agree across gather, embedding, scatter, and one-hot', () => {
+    const cases = [
+      {
+        name: 'gather',
+        source: program('cyna_invalid_gather', p => gather(p.argument('x', Tensor.f32([3, 2])), 0, p.argument('indices', Tensor.i64([2, 2])))),
+        inputs: (session: Session, invalid: boolean) => ({
+          x: session.tensor([[1, 2], [3, 4], [5, 6]], { dtype: 'f32' }),
+          indices: session.tensor(invalid ? [[0, 3], [1, 2]] : [[0, 2], [1, 2]], { dtype: 'i64' }),
+        }),
+      },
+      {
+        name: 'embedding',
+        source: program('cyna_invalid_embedding', p => embedding(p.argument('x', Tensor.f32([3, 2])), p.argument('indices', Tensor.i64([2])))),
+        inputs: (session: Session, invalid: boolean) => ({
+          x: session.tensor([[1, 2], [3, 4], [5, 6]], { dtype: 'f32' }),
+          indices: session.tensor(invalid ? [-1, 2] : [0, 2], { dtype: 'i64' }),
+        }),
+      },
+      {
+        name: 'one-hot',
+        source: program('cyna_invalid_one_hot', p => one_hot(p.argument('indices', Tensor.i64([2])), 3)),
+        inputs: (session: Session, invalid: boolean) => ({
+          indices: session.tensor(invalid ? [0, 3] : [0, 2], { dtype: 'i64' }),
+        }),
+      },
+      {
+        name: 'scatter-add',
+        source: program('cyna_invalid_scatter', p => scatter_add(
+          p.argument('x', Tensor.f32([3, 2])), p.argument('indices', Tensor.i64([2, 2])),
+          p.argument('updates', Tensor.f32([2, 2])), 0,
+        )),
+        inputs: (session: Session, invalid: boolean) => ({
+          x: session.tensor([[1, 2], [3, 4], [5, 6]], { dtype: 'f32' }),
+          indices: session.tensor(invalid ? [[0, 3], [1, 2]] : [[0, 2], [1, 2]], { dtype: 'i64' }),
+          updates: session.tensor([[1, 1], [1, 1]], { dtype: 'f32' }),
+        }),
+      },
+      {
+        name: 'scatter-add-columns',
+        source: program('cyna_invalid_scatter_columns', p => scatter_add(
+          p.argument('x', Tensor.f32([2, 3])), p.argument('indices', Tensor.i64([2, 2])),
+          p.argument('updates', Tensor.f32([2, 2])), 1,
+        )),
+        inputs: (session: Session, invalid: boolean) => ({
+          x: session.tensor([[1, 2, 3], [4, 5, 6]], { dtype: 'f32' }),
+          indices: session.tensor(invalid ? [[0, 3], [1, 2]] : [[0, 2], [1, 2]], { dtype: 'i64' }),
+          updates: session.tensor([[1, 1], [1, 1]], { dtype: 'f32' }),
+        }),
+      },
+    ]
+    for (const item of cases) for (const cpuExecution of ['auto', 'zig'] as const) {
+      const session = new Session({ device: 'cpu', cpuExecution })
+      const executable = session.compile(item.source)
+      const bad = item.inputs(session, true)
+      const good = item.inputs(session, false)
+      try {
+        expect(() => executable.run(bad)).toThrow()
+        for (const result of outputs(executable.run(good) as Tensor | Tensor[])) result.dispose()
+      } finally {
+        for (const tensor of Object.values(bad)) tensor.dispose()
+        for (const tensor of Object.values(good)) tensor.dispose()
+        executable.dispose(); session.dispose()
+      }
+    }
+  })
+
   test('broadcast comparison matches Zig Session', () => {
     const source = program('cyna_parity_broadcast_comparison', p => eq(
       p.argument('left', Tensor.f32([2, 3])),
@@ -107,6 +444,35 @@ describe('Cyna runtime numerical parity', () => {
       left: session.tensor([[1, 2, 3], [3, 2, 1]], { dtype: 'f32' }),
       right: session.tensor([[1, 4, 3]], { dtype: 'f32' }),
     }))
+    for (const [name, operation] of [['eq', eq], ['lt', lt], ['gt', gt]] as const) {
+      const columns = program(`cyna_parity_broadcast_comparison_columns_${name}`, p => operation(
+        p.argument('left', Tensor.f32([1, 3])),
+        p.argument('right', Tensor.f32([2, 1])),
+      ))
+      runPaired(`broadcast ${name} columns`, columns, undefined, session => ({
+        left: session.tensor([[1, 2, 3]], { dtype: 'f32' }),
+        right: session.tensor([[1], [2]], { dtype: 'f32' }),
+      }))
+    }
+  })
+
+  test('f32 comparison matches Zig for NaN and signed zero', () => {
+    const leftBytes = new Uint32Array([
+      0x7fc00000, 0x80000000, 0, 0x3f800000,
+    ]).buffer
+    const rightBytes = new Uint32Array([
+      0x3f800000, 0, 0x80000000, 0x7fc00000,
+    ]).buffer
+    for (const [name, operation] of [['eq', eq], ['lt', lt], ['gt', gt]] as const) {
+      const source = program(`cyna_parity_f32_${name}_special_values`, p => operation(
+        p.argument('left', Tensor.f32([2, 2])),
+        p.argument('right', Tensor.f32([2, 2])),
+      ))
+      runPaired(`f32 ${name} special values`, source, undefined, session => ({
+        left: session.fromBytes(leftBytes, Tensor.f32([2, 2])),
+        right: session.fromBytes(rightBytes, Tensor.f32([2, 2])),
+      }))
+    }
   })
 
   test('broadcast where matches Zig Session', () => {
@@ -119,6 +485,16 @@ describe('Cyna runtime numerical parity', () => {
       mask: session.tensor([[1], [0]], { dtype: 'i64' }),
       when_true: session.tensor([[1, 2, 3], [4, 5, 6]], { dtype: 'f32' }),
       when_false: session.tensor([[7, 8, 9]], { dtype: 'f32' }),
+    }))
+    const columns = program('cyna_parity_broadcast_where_columns', p => where(
+      p.argument('mask', Tensor.i64([1, 3])),
+      p.argument('when_true', Tensor.f32([1, 3])),
+      p.argument('when_false', Tensor.f32([2, 1])),
+    ))
+    runPaired('broadcast where columns', columns, undefined, session => ({
+      mask: session.tensor([[1, 0, 1]], { dtype: 'i64' }),
+      when_true: session.tensor([[10, 20, 30]], { dtype: 'f32' }),
+      when_false: session.tensor([[1], [2]], { dtype: 'f32' }),
     }))
   })
 
@@ -178,6 +554,16 @@ describe('Cyna runtime numerical parity', () => {
       indices: session.tensor([[1, 1], [1, 2]], { dtype: 'i64' }),
       updates: session.tensor([[2, 3], [4, 5]], { dtype: 'f32' }),
     }))
+    const columns = program('cyna_parity_scatter_add_columns', p => scatter_add(
+      p.argument('base', Tensor.f32([2, 3])),
+      p.argument('indices', Tensor.i64([2, 2])),
+      p.argument('updates', Tensor.f32([2, 2])), 1,
+    ))
+    runPaired('scatter add columns', columns, undefined, session => ({
+      base: session.tensor([[1, 2, 3], [4, 5, 6]], { dtype: 'f32' }),
+      indices: session.tensor([[2, 2], [0, 1]], { dtype: 'i64' }),
+      updates: session.tensor([[7, 8], [9, 10]], { dtype: 'f32' }),
+    }))
   })
 
   test('top-k ties and both outputs match Zig Session', () => {
@@ -208,6 +594,32 @@ describe('Cyna runtime numerical parity', () => {
       weight: session.tensor([
         [1, 2, 3], [-4, 5, 6], [7, -8, 9], [10, 11, -12],
       ], { dtype: 'f32' }),
+    }))
+  })
+
+  test('transposed f64 matrix multiplication matches Zig Session', () => {
+    const source = program('cyna_parity_transposed_f64_matmul', p => matmul(
+      p.argument('x', Tensor.f64([2, 3])),
+      transpose(p.argument('weight', Tensor.f64([4, 3])), [1, 0]),
+    ))
+    runPaired('transposed f64 matrix multiplication', source, undefined, session => ({
+      x: session.tensor([[1, -2, 3], [4, 5, -6]], { dtype: 'f64' }),
+      weight: session.tensor([[1, 2, 3], [-4, 5, 6], [7, -8, 9], [10, 11, -12]], { dtype: 'f64' }),
+    }), f64Tolerance)
+  })
+
+  test('shared transposed right operand survives two matmul consumers', () => {
+    const source = program('cyna_parity_shared_transposed_matmul', p => {
+      const right = transpose(p.argument('weight', Tensor.f32([4, 3])), [1, 0])
+      return [
+        matmul(p.argument('first', Tensor.f32([2, 3])), right),
+        matmul(p.argument('second', Tensor.f32([2, 3])), right),
+      ]
+    })
+    runPaired('shared transposed right operand', source, undefined, session => ({
+      first: session.tensor([[1, 2, 3], [4, 5, 6]], { dtype: 'f32' }),
+      second: session.tensor([[6, 5, 4], [3, 2, 1]], { dtype: 'f32' }),
+      weight: session.tensor([[1, 2, 3], [-4, 5, 6], [7, -8, 9], [10, 11, -12]], { dtype: 'f32' }),
     }))
   })
 

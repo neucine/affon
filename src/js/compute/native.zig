@@ -3,6 +3,7 @@ const hao = @import("hao");
 const compute = @import("compute");
 const build_options = @import("build_options");
 const cyna_program = @import("../../support/cyna_program.zig");
+const cyna_evidence = @import("../../support/cyna_evidence.zig");
 const telemetry = @import("zig_libs").telemetry;
 const config = @import("../../config.zig");
 const compat = @import("../../support/compat.zig");
@@ -20,6 +21,7 @@ const ComputeTelemetrySink = struct {
     active_run_id: ?u64 = null,
     active_scope: ?telemetry.Scope = null,
     capture_collector: ?*compute.TraceCollector = null,
+    timing_scope: []const u8 = "invocation",
 
     fn sink(self: *ComputeTelemetrySink) compute.EvidenceSink {
         return .{ .context = self, .emitFn = emit };
@@ -84,6 +86,30 @@ const ComputeTelemetrySink = struct {
                     .{ .key = "compute.executable_id_text", .value = .{ .string = idText(&executable_id_text, value.executable_id) } },
                 });
                 telemetry.add(metric("compute.execution", "runs_total", .counter, .count), 1);
+            },
+            .external_node_observed => |value| {
+                if (value.elapsed_ns) |elapsed| telemetry.add(
+                    metric("compute.backend", "elapsed_nanoseconds_total", .counter, .nanoseconds),
+                    u64Value(elapsed),
+                );
+                self.event("compute.external_node", &.{
+                    .{ .key = "compute.node_id", .value = .{ .integer = usizeValue(value.node_id) } },
+                    .{ .key = "compute.schedule_position", .value = .{ .integer = usizeValue(value.schedule_position) } },
+                    .{ .key = "compute.graph_kind", .value = .{ .string = @tagName(value.graph_kind) } },
+                    .{ .key = "compute.observation_emission", .value = .{ .string = "post_run" } },
+                    .{ .key = "compute.timing_scope", .value = .{ .string = self.timing_scope } },
+                    .{ .key = "compute.timing_source", .value = .{ .string = "host_synchronous" } },
+                    .{ .key = "compute.succeeded", .value = .{ .boolean = value.succeeded } },
+                    .{ .key = "compute.materialized_view", .value = .{ .boolean = value.materialized_view } },
+                    .{ .key = "compute.elapsed_ns", .value = .{ .integer = if (value.elapsed_ns) |elapsed| u64Value(elapsed) else -1 } },
+                });
+            },
+            .execution_failed => |value| {
+                if (self.active_run_id == value.run_id.int()) {
+                    if (self.active_scope) |scope| scope.endError();
+                    self.active_scope = null;
+                    self.active_run_id = null;
+                }
             },
             .execution_phase_timing => |value| {
                 var run_id_text: [32]u8 = undefined;
@@ -216,11 +242,16 @@ const ComputeTelemetrySink = struct {
 const SessionObject = struct {
     value: ?*compute.Session,
     backend: compute.Backend,
+    cpu_execution: enum { auto, zig } = .auto,
     telemetry_sink: ComputeTelemetrySink = .{},
     capture_records: ?[]compute.EvidenceRecord = null,
     capture_collector: ?compute.TraceCollector = null,
     bridge_timing: bool = false,
-    requires_compute_evidence: bool = false,
+    cyna_observation_limit: usize = 0,
+    cyna_dropped_observations: usize = 0,
+    cyna_profiler_markers: bool = false,
+    cyna_timing_scope: []const u8 = "capture",
+    telemetry_enabled: bool = false,
     children: usize = 0,
     disposed: bool = false,
     host_alive: bool = true,
@@ -1036,6 +1067,7 @@ const JsonSessionTelemetry = struct {
 };
 const JsonSessionOptions = struct {
     determinism: []const u8 = "strict",
+    cpuExecution: []const u8 = "auto",
     telemetry: ?JsonSessionTelemetry = JsonSessionTelemetry{},
 };
 const JsonCompileOptions = struct {
@@ -1098,6 +1130,11 @@ fn jsCreateSession(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [
     };
     const object = allocator.create(SessionObject) catch return errorValue(ctx, "out of memory");
     object.* = .{ .value = null, .backend = backend };
+    object.telemetry_enabled = options.telemetry != null;
+    object.cpu_execution = if (std.mem.eql(u8, options.cpuExecution, "auto")) .auto else if (std.mem.eql(u8, options.cpuExecution, "zig")) .zig else {
+        allocator.destroy(object);
+        return typeError(ctx, "unsupported cpuExecution");
+    };
     const telemetry_options = options.telemetry orelse JsonSessionTelemetry{};
     object.bridge_timing = options.telemetry != null and telemetry_options.bridgeTiming;
     const observation: compute.ObservationPolicy = .{
@@ -1119,10 +1156,8 @@ fn jsCreateSession(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [
         .hardware_metrics = telemetry_options.hardwareMetrics,
         .profiler_markers = telemetry_options.profilerMarkers,
     };
-    object.requires_compute_evidence =
-        observation.timing != .none or
-        observation.hardware_metrics or
-        observation.profiler_markers;
+    object.cyna_profiler_markers = observation.profiler_markers;
+    if (observation.timing != .none) object.cyna_observation_limit = 65_536;
     if (telemetry_options.captureRecords) |count| {
         if (count == 0 or count > 4_194_304) {
             allocator.destroy(object);
@@ -1134,8 +1169,13 @@ fn jsCreateSession(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [
         };
         object.capture_collector = compute.TraceCollector.init(object.capture_records.?);
         object.telemetry_sink.capture_collector = &object.capture_collector.?;
-        object.requires_compute_evidence = true;
+        object.cyna_observation_limit = count;
     }
+    object.cyna_timing_scope = if (observation.timing == .none)
+        (if (telemetry_options.captureRecords != null) "capture" else "none")
+    else
+        @tagName(observation.timing);
+    object.telemetry_sink.timing_scope = object.cyna_timing_scope;
     const value = compute.createConfiguredSession(allocator, backend, .{
         .determinism = determinism,
         .evidence_sink = if (options.telemetry == null) null else object.telemetry_sink.sink(),
@@ -1338,9 +1378,8 @@ fn compileNativeProgram(ctx: abi.JSContext, owner: *SessionObject, program_value
     @memset(layouts, .dense);
     var guarded_options = options;
     if (dense_inputs) guarded_options.input_layouts = layouts;
-    // Fusion can remove instruction boundaries referenced by automatic residual
-    // recomputation. Retaining residuals keeps the public Program path valid
-    // while preserving the rest of the safe optimization profile.
+    // The Zig executable supplies the explanation and remains available when
+    // Cyna lowering or preparation cannot represent this Program.
     var compilation = owner.value.?.compile(program_value, guarded_options) catch return errorValue(ctx, "Program compilation failed");
     if (compilation == .diagnostics) {
         const entries = compilation.diagnostics.entries();
@@ -1370,36 +1409,36 @@ fn compileNativeProgram(ctx: abi.JSContext, owner: *SessionObject, program_value
         .reason = "cyna_disabled",
     };
     if (comptime build_options.compute_cyna) {
-        if (owner.backend != .cpu) {
+        if (owner.cpu_execution == .zig) {
+            routing = .{
+                .execution_backend = "zig",
+                .configured_backend = @tagName(owner.backend),
+                .category = "configuration",
+                .reason = "zig_requested",
+            };
+        } else if (owner.backend != .cpu) {
             routing = .{
                 .execution_backend = "zig",
                 .configured_backend = @tagName(owner.backend),
                 .category = "backend",
                 .reason = "non_cpu_backend",
             };
-        } else if (owner.capture_collector != null) {
-            routing = .{
-                .execution_backend = "zig",
-                .configured_backend = "cpu",
-                .category = "observability",
-                .reason = "evidence_capture",
-            };
-        } else if (owner.requires_compute_evidence) {
-            routing = .{
-                .execution_backend = "zig",
-                .configured_backend = "cpu",
-                .category = "observability",
-                .reason = "compute_evidence",
-            };
         } else {
             const goal: @import("../../support/compute_core_cyna.zig").DenseGoal =
-                if (options.optimization_goal == .memory) .memory else .baseline;
+                if (options.optimization_level == .none) .baseline else switch (options.optimization_goal) {
+                    .balanced => .balanced,
+                    .latency => .latency,
+                    .throughput => .throughput,
+                    .memory => .memory,
+                };
             var diagnostic = cyna_program.LoweringDiagnostic{};
             const lowered = cyna_program.lower(
                 allocator,
                 program_value,
                 goal,
                 dense_inputs,
+                options.residual_policy,
+                options.search_limits,
                 &diagnostic,
             ) catch |err| blk: {
                 diagnostic.reason = @errorName(err);
@@ -1500,6 +1539,287 @@ fn jsExplainExecutable(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, arg
     return abi.jsString(ctx, object.explanation_json);
 }
 
+fn jsCynaSelectedSteps(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    if (argc < 1) return typeError(ctx, "cynaSelectedSteps expects Executable");
+    const object = executableObject(ctx, argv[0]) orelse return typeError(ctx, "invalid Executable");
+    if (object.value == null) return typeError(ctx, "Executable has been disposed");
+    if (comptime build_options.compute_cyna) if (object.cyna) |raw| {
+        const cyna_executable: *cyna_program.Executable = @ptrCast(@alignCast(raw));
+        const handle = &cyna_executable.handle;
+        const Step = struct {
+            step_index: usize,
+            operation: ?[]const u8,
+            source_instruction_index: usize,
+            value_id: usize,
+            implementation_code: usize,
+        };
+        var steps: std.ArrayList(Step) = .empty;
+        defer steps.deinit(allocator);
+        for (0..handle.semanticStepCount()) |index| {
+            const step = handle.describeSemanticStep(index) catch return errorValue(ctx, "failed to read Cyna selected step");
+            steps.append(allocator, .{
+                .step_index = step.step_index,
+                .operation = @import("../../support/compute_core_cyna.zig").operationName(step.source_operation_code),
+                .source_instruction_index = step.source_instruction_index,
+                .value_id = step.value_id,
+                .implementation_code = step.implementation_code,
+            }) catch return errorValue(ctx, "failed to allocate Cyna selected steps");
+        }
+        const json = std.json.Stringify.valueAlloc(allocator, steps.items, .{}) catch return errorValue(ctx, "failed to serialize Cyna selected steps");
+        defer allocator.free(json);
+        return abi.jsString(ctx, json);
+    };
+    return abi.jsString(ctx, "null");
+}
+
+fn jsCynaSelectedPhysicalNodes(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    if (argc < 1) return typeError(ctx, "cynaSelectedPhysicalNodes expects Executable");
+    const object = executableObject(ctx, argv[0]) orelse return typeError(ctx, "invalid Executable");
+    if (object.value == null) return typeError(ctx, "Executable has been disposed");
+    if (comptime build_options.compute_cyna) if (object.cyna) |raw| {
+        const cyna_executable: *cyna_program.Executable = @ptrCast(@alignCast(raw));
+        const handle = &cyna_executable.handle;
+        const Node = struct {
+            node_id: usize,
+            step_index: ?usize,
+            operation: ?[]const u8,
+            action: []const u8,
+            implementation: []const u8,
+            source_instruction_count: usize,
+            origins: []const usize,
+            program_origins: []const usize,
+            is_view: bool,
+            output_bytes: usize,
+        };
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+        const temporary = arena.allocator();
+        var nodes: std.ArrayList(Node) = .empty;
+        for (0..handle.physicalNodeCount()) |index| {
+            var implementation_buffer: [256]u8 = undefined;
+            const node = handle.describePhysicalNode(index, &implementation_buffer) catch return errorValue(ctx, "failed to read Cyna selected physical node");
+            const origins = handle.physicalNodeOrigins(temporary, index, node.source_instruction_count) catch return errorValue(ctx, "failed to read Cyna physical origins");
+            var program_origins: std.ArrayList(usize) = .empty;
+            for (origins) |step_index| {
+                if (step_index >= cyna_executable.source_instruction_by_step.len)
+                    return errorValue(ctx, "invalid Cyna physical origin");
+                const source_index = cyna_executable.source_instruction_by_step[step_index];
+                if (std.mem.indexOfScalar(usize, program_origins.items, source_index) == null)
+                    program_origins.append(temporary, source_index) catch return errorValue(ctx, "failed to allocate Cyna Program origins");
+            }
+            nodes.append(temporary, .{
+                .node_id = node.node_id,
+                .step_index = node.step_index,
+                .operation = @import("../../support/compute_core_cyna.zig").operationName(node.source_operation_code),
+                .action = @tagName(node.action),
+                .implementation = temporary.dupe(u8, node.implementation) catch return errorValue(ctx, "failed to allocate Cyna selected physical node"),
+                .source_instruction_count = node.source_instruction_count,
+                .origins = origins,
+                .program_origins = program_origins.items,
+                .is_view = node.is_view,
+                .output_bytes = node.output_bytes,
+            }) catch return errorValue(ctx, "failed to allocate Cyna selected physical nodes");
+        }
+        const json = std.json.Stringify.valueAlloc(allocator, nodes.items, .{}) catch return errorValue(ctx, "failed to serialize Cyna selected physical nodes");
+        defer allocator.free(json);
+        return abi.jsString(ctx, json);
+    };
+    return abi.jsString(ctx, "null");
+}
+
+fn jsSelectedPhysicalValues(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    if (argc < 1) return typeError(ctx, "selectedPhysicalValues expects Executable");
+    const object = executableObject(ctx, argv[0]) orelse return typeError(ctx, "invalid Executable");
+    const executable = object.value orelse return typeError(ctx, "Executable has been disposed");
+    const Value = struct {
+        id: usize,
+        origin: []const u8,
+        semantic_origin: ?usize,
+        alias_of: ?usize,
+        logical_bytes: usize,
+        producer_node: ?usize,
+    };
+    var values: std.ArrayList(Value) = .empty;
+    defer values.deinit(allocator);
+    const cyna_raw = if (comptime build_options.compute_cyna) object.cyna else null;
+    if (cyna_raw) |raw| {
+        const handle = &(@as(*cyna_program.Executable, @ptrCast(@alignCast(raw)))).handle;
+        const count = handle.physicalValueCount();
+        const descriptions = allocator.alloc(@import("../../support/compute_core_cyna.zig").DenseGraphHandle.PhysicalValueDescription, count) catch return errorValue(ctx, "failed to allocate Cyna physical values");
+        defer allocator.free(descriptions);
+        const words = allocator.alloc(usize, std.math.mul(usize, count, 5) catch return errorValue(ctx, "physical value count overflow")) catch return errorValue(ctx, "failed to allocate Cyna physical value words");
+        defer allocator.free(words);
+        handle.readPhysicalValues(descriptions, words) catch return errorValue(ctx, "failed to read Cyna physical values");
+        for (descriptions, 0..) |value, index| values.append(allocator, .{
+            .id = index,
+            .origin = @tagName(value.origin),
+            .semantic_origin = value.semantic_origin,
+            .alias_of = value.alias_of,
+            .logical_bytes = value.logical_bytes,
+            .producer_node = value.producer_node,
+        }) catch return errorValue(ctx, "failed to allocate Cyna physical values");
+    } else {
+        const graph = executable.physicalGraph() orelse return abi.jsString(ctx, "null");
+        for (graph.values.items, 0..) |value, index| {
+            var elements: usize = 1;
+            for (value.spec.dimensions()) |dimension|
+                elements = std.math.mul(usize, elements, dimension) catch return errorValue(ctx, "physical value size overflow");
+            const bytes = std.math.mul(usize, elements, value.spec.dtype().size()) catch return errorValue(ctx, "physical value size overflow");
+            values.append(allocator, .{
+                .id = index,
+                .origin = @tagName(value.origin),
+                .semantic_origin = if (value.semantic_origin) |source| source.int() else null,
+                .alias_of = if (value.alias_of) |parent| parent.int() else null,
+                .logical_bytes = bytes,
+                .producer_node = if (value.origin == .node_output) value.origin.node_output.node.int() else null,
+            }) catch return errorValue(ctx, "failed to allocate Zig physical values");
+        }
+    }
+    const json = std.json.Stringify.valueAlloc(allocator, values.items, .{}) catch return errorValue(ctx, "failed to serialize physical values");
+    defer allocator.free(json);
+    return abi.jsString(ctx, json);
+}
+
+fn jsSelectedPhysicalLiveness(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    if (argc < 1) return typeError(ctx, "selectedPhysicalLiveness expects Executable");
+    const object = executableObject(ctx, argv[0]) orelse return typeError(ctx, "invalid Executable");
+    const executable = object.value orelse return typeError(ctx, "Executable has been disposed");
+    const Row = struct { node: usize, peak_during_bytes: usize, active_after_bytes: usize, release_count: usize };
+    const Trace = struct {
+        peak_active_bytes: usize,
+        persistent_bytes: usize,
+        external_input_bytes: usize,
+        steps: []const Row,
+    };
+    var rows: std.ArrayList(Row) = .empty;
+    defer rows.deinit(allocator);
+    var peak: usize = 0;
+    var persistent: usize = 0;
+    var external: usize = 0;
+    const cyna_raw = if (comptime build_options.compute_cyna) object.cyna else null;
+    if (cyna_raw) |raw| {
+        const handle = &(@as(*cyna_program.Executable, @ptrCast(@alignCast(raw)))).handle;
+        const count = handle.physicalNodeCount();
+        const row_words = std.math.mul(usize, count, 4) catch return errorValue(ctx, "physical node count overflow");
+        const word_count = std.math.add(usize, 3, row_words) catch return errorValue(ctx, "physical node count overflow");
+        const words = allocator.alloc(usize, word_count) catch return errorValue(ctx, "failed to allocate physical liveness words");
+        defer allocator.free(words);
+        handle.readPhysicalLiveness(words) catch return errorValue(ctx, "failed to read Cyna physical liveness");
+        peak = words[0];
+        persistent = words[1];
+        external = words[2];
+        for (0..count) |index| rows.append(allocator, .{
+            .node = words[3 + index * 4],
+            .peak_during_bytes = words[4 + index * 4],
+            .active_after_bytes = words[5 + index * 4],
+            .release_count = words[6 + index * 4],
+        }) catch return errorValue(ctx, "failed to allocate physical liveness rows");
+    } else {
+        const schedule = executable.physicalSchedule() orelse return abi.jsString(ctx, "null");
+        peak = schedule.peak_active_bytes;
+        persistent = schedule.persistent_bytes;
+        external = schedule.external_input_bytes;
+        for (schedule.order, 0..) |node, index| rows.append(allocator, .{
+            .node = node.int(),
+            .peak_during_bytes = schedule.peak_during[index],
+            .active_after_bytes = schedule.active_after[index],
+            .release_count = schedule.release_after[node.int()].len,
+        }) catch return errorValue(ctx, "failed to allocate physical liveness rows");
+    }
+    const json = std.json.Stringify.valueAlloc(allocator, Trace{
+        .peak_active_bytes = peak,
+        .persistent_bytes = persistent,
+        .external_input_bytes = external,
+        .steps = rows.items,
+    }, .{}) catch return errorValue(ctx, "failed to serialize physical liveness");
+    defer allocator.free(json);
+    return abi.jsString(ctx, json);
+}
+
+fn jsCynaResidualDecisions(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    if (argc < 1) return typeError(ctx, "cynaResidualDecisions expects Executable");
+    const object = executableObject(ctx, argv[0]) orelse return typeError(ctx, "invalid Executable");
+    if (object.value == null) return typeError(ctx, "Executable has been disposed");
+    if (comptime build_options.compute_cyna) if (object.cyna) |raw| {
+        const handle = &(@as(*cyna_program.Executable, @ptrCast(@alignCast(raw)))).handle;
+        const Decision = struct {
+            value: usize,
+            choice: []const u8,
+            reason: []const u8,
+            release_after: ?usize,
+            recompute_before: ?usize,
+        };
+        var decisions: std.ArrayList(Decision) = .empty;
+        defer decisions.deinit(allocator);
+        for (0..handle.residualDecisionCount()) |index| {
+            const decision = handle.describeResidualDecision(index) catch return errorValue(ctx, "failed to read Cyna residual decision");
+            decisions.append(allocator, .{
+                .value = decision.value,
+                .choice = @tagName(decision.choice),
+                .reason = @tagName(decision.reason),
+                .release_after = decision.release_after,
+                .recompute_before = decision.recompute_before,
+            }) catch return errorValue(ctx, "failed to allocate Cyna residual decisions");
+        }
+        const json = std.json.Stringify.valueAlloc(allocator, decisions.items, .{}) catch return errorValue(ctx, "failed to serialize Cyna residual decisions");
+        defer allocator.free(json);
+        return abi.jsString(ctx, json);
+    };
+    return abi.jsString(ctx, "null");
+}
+
+fn jsCynaSelectionComparison(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    if (argc < 1) return typeError(ctx, "cynaSelectionComparison expects Executable");
+    const object = executableObject(ctx, argv[0]) orelse return typeError(ctx, "invalid Executable");
+    if (object.value == null) return typeError(ctx, "Executable has been disposed");
+    if (comptime build_options.compute_cyna) if (object.cyna) |raw| {
+        const cyna_executable: *cyna_program.Executable = @ptrCast(@alignCast(raw));
+        const handle = &cyna_executable.handle;
+        const comparison = handle.selectionComparison() catch return errorValue(ctx, "failed to read Cyna selection comparison");
+        const report = if (comparison) |selected| .{
+            .evaluated_states = selected.evaluated_states,
+            .baseline_peak_bytes = selected.baseline_peak_bytes,
+            .candidate_peak_bytes = selected.candidate_peak_bytes,
+            .candidate_published = selected.candidate_published,
+            .budget = selected.budget,
+            .exclusion_search_truncated = selected.exclusion_search_truncated,
+            .constant_input_bytes = cyna_executable.constant_byte_count,
+        } else return abi.jsString(ctx, "null");
+        const json = std.json.Stringify.valueAlloc(allocator, report, .{}) catch return errorValue(ctx, "failed to serialize Cyna selection comparison");
+        defer allocator.free(json);
+        return abi.jsString(ctx, json);
+    };
+    return abi.jsString(ctx, "null");
+}
+
+fn jsCynaSearchEvidence(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    if (argc < 1) return typeError(ctx, "cynaSearchEvidence expects Executable");
+    const object = executableObject(ctx, argv[0]) orelse return typeError(ctx, "invalid Executable");
+    if (object.value == null) return typeError(ctx, "Executable has been disposed");
+    if (comptime build_options.compute_cyna) if (object.cyna) |raw| {
+        const cyna_executable: *cyna_program.Executable = @ptrCast(@alignCast(raw));
+        const evidence = cyna_executable.handle.searchEvidence() catch return errorValue(ctx, "failed to read Cyna search evidence");
+        const report = .{
+            .limits = .{
+                .structural_states = evidence.limits.structural_states,
+                .structural_expansions = evidence.limits.structural_expansions,
+                .complete_evaluations = evidence.limits.complete_evaluations,
+                .physical_work = evidence.limits.physical_work,
+                .ready_work = evidence.limits.ready_work,
+            },
+            .evaluated_states = evidence.evaluated_states,
+            .structural_expansions = evidence.structural_expansions,
+            .complete_evaluations = evidence.complete_evaluations,
+            .truncated = evidence.truncated,
+            .ready_truncated = evidence.ready_truncated,
+        };
+        const json = std.json.Stringify.valueAlloc(allocator, report, .{}) catch return errorValue(ctx, "failed to serialize Cyna search evidence");
+        defer allocator.free(json);
+        return abi.jsString(ctx, json);
+    };
+    return abi.jsString(ctx, "null");
+}
+
 fn jsDisposeExecutable(ctx: abi.JSContext, this_value: abi.JSValueConst, _: c_int, _: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
     const object = executableObject(ctx, this_value) orelse return typeError(ctx, "invalid Executable");
     if (object.value) |value| {
@@ -1531,7 +1851,60 @@ fn runComputeWithSpan(owner: *SessionObject, executable: *compute.Executable, in
     return outputs;
 }
 
-fn runCynaWithSpan(owner: *SessionObject, executable: *cyna_program.Executable, inputs: []const *compute.Tensor, parent: ?telemetry.Scope) ![]*compute.Tensor {
+fn collectCynaObservations(
+    owner: *SessionObject,
+    executable: *cyna_program.Executable,
+    run_id: u64,
+    executable_id: u64,
+) void {
+    if (owner.cyna_observation_limit == 0) return;
+    var dropped: usize = 0;
+    const count = executable.handle.observationCount(&dropped);
+    owner.cyna_dropped_observations +|= dropped;
+    const state = executable.handle.runState() catch {
+        owner.cyna_dropped_observations +|= count;
+        return;
+    };
+    for (0..count) |index| {
+        const observed = executable.handle.readObservation(index) catch {
+            owner.cyna_dropped_observations +|= 1;
+            continue;
+        };
+        if (observed.run_id != state.run_id) {
+            owner.cyna_dropped_observations +|= 1;
+            continue;
+        }
+        const graph_kind: compute.ExternalGraphKind = switch (observed.path) {
+            .prepared => .prepared_physical,
+            .resident_view => .resident_view,
+            .semantic, .unknown => .resident_semantic,
+        };
+        owner.value.?.recordExternalNode(run_id, executable_id, graph_kind, observed.node_id, observed.schedule_position, if (observed.timing_available) observed.elapsed_ns else null, observed.succeeded, observed.materialized_view, @intCast(observed.kernel_count));
+    }
+}
+
+fn runCynaWithSpan(
+    owner: *SessionObject,
+    executable: *cyna_program.Executable,
+    zig_executable: *compute.Executable,
+    inputs: []const *compute.Tensor,
+    parent: ?telemetry.Scope,
+) ![]*compute.Tensor {
+    const profiling = std.c.getenv("AFFON_CYNA_RUN_PROFILE") != null;
+    if (!profiling and !owner.telemetry_enabled)
+        return executable.run(owner.value.?, inputs);
+    const start_ns = if (profiling) cyna_program.profileNow() else 0;
+    var run_start_ns: u64 = 0;
+    var run_end_ns: u64 = 0;
+    defer if (profiling and run_end_ns != 0) {
+        const finish_ns = cyna_program.profileNow();
+        std.debug.print("AFFON_CYNA_RUN_PROFILE setup_us={d} execute_us={d} finish_us={d} total_us={d}\n", .{
+            (run_start_ns - start_ns) / std.time.ns_per_us,
+            (run_end_ns - run_start_ns) / std.time.ns_per_us,
+            (finish_ns - run_end_ns) / std.time.ns_per_us,
+            (finish_ns - start_ns) / std.time.ns_per_us,
+        });
+    };
     const scope = if (parent) |outer| outer.child("affon.bridge.compute_call", .internal, &.{}) else null;
     const context_guard = if (scope) |active| telemetry.trace.ContextScope.enter(active.context) else null;
     defer if (context_guard) |guard| guard.exit();
@@ -1539,18 +1912,25 @@ fn runCynaWithSpan(owner: *SessionObject, executable: *cyna_program.Executable, 
     defer if (scope) |active| {
         if (succeeded) active.end() else active.endError();
     };
-    const outputs = try executable.run(owner.value.?, inputs);
-    telemetry.add(ComputeTelemetrySink.metric(
-        "compute.execution",
-        "runs_total",
-        .counter,
-        .count,
-    ), 1);
+    if (owner.cyna_observation_limit != 0)
+        try executable.handle.configureObservation(owner.cyna_observation_limit);
+    const session = owner.value.?;
+    const executable_id = zig_executable.id().int();
+    const run_id = session.beginExternalExecution(executable_id);
+    defer session.finishExternalExecution(run_id, executable_id, succeeded);
+    defer collectCynaObservations(owner, executable, run_id, executable_id);
+    if (owner.cyna_profiler_markers)
+        session.recordExternalProfilerMarkerAvailability("nvtx", false);
+    if (profiling) run_start_ns = cyna_program.profileNow();
+    const outputs = try executable.run(session, inputs);
+    if (profiling) run_end_ns = cyna_program.profileNow();
     succeeded = true;
     return outputs;
 }
 
 fn jsRunExecutable(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
+    const profiling = std.c.getenv("AFFON_CYNA_NATIVE_PROFILE") != null;
+    const native_start_ns = if (profiling) cyna_program.profileNow() else 0;
     if (argc < 2 or !abi.jsIsArray(ctx, argv[1])) return typeError(ctx, "runExecutable expects Executable and Tensor array");
     const object = executableObject(ctx, argv[0]) orelse return typeError(ctx, "invalid Executable");
     const executable = object.value orelse return typeError(ctx, "Executable has been disposed");
@@ -1604,10 +1984,11 @@ fn jsRunExecutable(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [
     }
     if (input_scope) |scope| scope.end();
     input_bound = true;
+    const run_start_ns = if (profiling) cyna_program.profileNow() else 0;
     const outputs = blk: {
         if (comptime build_options.compute_cyna) if (object.cyna) |raw| {
             const cyna_executable: *cyna_program.Executable = @ptrCast(@alignCast(raw));
-            break :blk runCynaWithSpan(object.owner, cyna_executable, inputs, bridge_scope);
+            break :blk runCynaWithSpan(object.owner, cyna_executable, executable, inputs, bridge_scope);
         };
         break :blk runComputeWithSpan(object.owner, executable, inputs, bridge_scope);
     } catch |err| {
@@ -1615,6 +1996,7 @@ fn jsRunExecutable(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [
         const rendered = std.mem.printSentinel(&message, "Program execution failed: {s}", .{@errorName(err)}, 0) catch return errorValue(ctx, "Program execution failed");
         return errorValue(ctx, rendered.ptr);
     };
+    const wrap_start_ns = if (profiling) cyna_program.profileNow() else 0;
     defer allocator.free(outputs);
     const output_scope = if (bridge_scope) |scope| scope.child("affon.bridge.output_wrapping", .internal, &.{}) else null;
     var output_wrapped = false;
@@ -1624,6 +2006,15 @@ fn jsRunExecutable(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [
     if (output_scope) |scope| scope.end();
     output_wrapped = true;
     bridge_succeeded = true;
+    if (profiling and object.cyna != null) {
+        const finish_ns = cyna_program.profileNow();
+        std.debug.print("AFFON_CYNA_NATIVE_PROFILE bind_us={d} run_us={d} wrap_us={d} total_us={d}\n", .{
+            (run_start_ns - native_start_ns) / std.time.ns_per_us,
+            (wrap_start_ns - run_start_ns) / std.time.ns_per_us,
+            (finish_ns - wrap_start_ns) / std.time.ns_per_us,
+            (finish_ns - native_start_ns) / std.time.ns_per_us,
+        });
+    }
     return result;
 }
 
@@ -1676,6 +2067,7 @@ fn jsResetEvidenceCapture(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, 
     if (object.disposed) return typeError(ctx, "Session has been disposed");
     const collector = if (object.capture_collector) |*value| value else return errorValue(ctx, "runtime evidence capture is not enabled");
     collector.reset();
+    object.cyna_dropped_observations = 0;
     return abi.jsUndefined(ctx);
 }
 
@@ -1687,6 +2079,13 @@ fn jsExportEvidenceCapture(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int,
     if (executable_object.owner != object) return typeError(ctx, "Executable belongs to a different Session");
     const executable = executable_object.value orelse return typeError(ctx, "Executable has been disposed");
     const collector = if (object.capture_collector) |*value| value else return errorValue(ctx, "runtime evidence capture is not enabled");
+    if (comptime build_options.compute_cyna) if (executable_object.cyna) |raw| {
+        const cyna_executable: *cyna_program.Executable = @ptrCast(@alignCast(raw));
+        const json = cyna_evidence.serialize(allocator, executable, &cyna_executable.handle, collector.records(), collector.dropped_count, object.cyna_dropped_observations, object.cyna_timing_scope) catch
+            return errorValue(ctx, "failed to aggregate Cyna evidence");
+        defer allocator.free(json);
+        return abi.jsString(ctx, json);
+    };
     var aggregation = compute.observe.aggregate(allocator, executable, collector.records(), collector.dropped_count) catch {
         return errorValue(ctx, "failed to aggregate Compute evidence");
     };
@@ -2084,6 +2483,13 @@ const functions = [_]abi.JSFunction{
     .{ .name = "sessionFull", .callback = jsSessionFull, .length = 4 },
     .{ .name = "compileProgram", .callback = jsCompileProgram, .length = 3 },
     .{ .name = "explainExecutable", .callback = jsExplainExecutable, .length = 1 },
+    .{ .name = "cynaSelectedSteps", .callback = jsCynaSelectedSteps, .length = 1 },
+    .{ .name = "cynaSelectedPhysicalNodes", .callback = jsCynaSelectedPhysicalNodes, .length = 1 },
+    .{ .name = "selectedPhysicalValues", .callback = jsSelectedPhysicalValues, .length = 1 },
+    .{ .name = "selectedPhysicalLiveness", .callback = jsSelectedPhysicalLiveness, .length = 1 },
+    .{ .name = "cynaResidualDecisions", .callback = jsCynaResidualDecisions, .length = 1 },
+    .{ .name = "cynaSelectionComparison", .callback = jsCynaSelectionComparison, .length = 1 },
+    .{ .name = "cynaSearchEvidence", .callback = jsCynaSearchEvidence, .length = 1 },
     .{ .name = "executableRouting", .callback = jsExecutableRouting, .length = 1 },
     .{ .name = "executableBackend", .callback = jsExecutableBackend, .length = 1 },
     .{ .name = "runExecutable", .callback = jsRunExecutable, .length = 2 },

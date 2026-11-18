@@ -22,23 +22,26 @@ or complete model coverage.
 
 | Programs | Cyna | Zig | Cyna routing |
 | ---: | ---: | ---: | ---: |
-| 117 | 115 | 2 | 98.29% |
+| 120 | 120 | 0 | 100% |
 
 | Corpus | Programs | Cyna | Zig |
 | --- | ---: | ---: | ---: |
-| Authored operation and model-like Programs | 104 | 102 | 2 |
+| Authored operation and model-like Programs | 107 | 107 | 0 |
 | Imported ONNX fixture Programs | 3 | 3 | 0 |
 | Native model-family Programs | 10 | 10 | 0 |
 
-The two Zig fallbacks are:
+The capture, invocation-timing, and kernel-timing Programs now route to Cyna.
+Cyna emits bounded node observations and reports the requested synchronous
+host timing scope. On CPU hardware metrics and NVTX profiler markers are
+unavailable; Cyna reports that availability in its runtime evidence while
+keeping execution on its own route.
 
-| Program | Category | Reason |
-| --- | --- | --- |
-| `observability_evidence_capture` | observability | `evidence_capture` |
-| `observability_compute_timing` | observability | `compute_evidence` |
-
-Both Programs request telemetry behavior that still requires the Zig path.
-`highest_impact_portable_lowering` is `null`.
+The nondefault `searchLimits` Program also routes to Cyna. Affon passes all five
+public limits through the configured graph ABI. Cyna applies the structural
+state, expansion, complete-evaluation, and ready-work budgets, records the
+applied values and truncation, and includes them in `explain()` and runtime
+evidence schema 9. `highest_impact_portable_lowering` is `null` because this
+corpus has no Zig fallback.
 
 ## Corpus
 
@@ -67,11 +70,10 @@ Program and does not count an unsupported Program as a Cyna success.
 
 ## Runtime parity
 
-The bounded runtime check has 21 test cases. Each case runs the same Program
-in two public CPU Sessions: one lowers to Cyna, while the other
-requests evidence capture and therefore executes on Zig. The check requires the
-Cyna route to report `lowered`, the comparison route to report
-`evidence_capture`, and every output to have the same shape, dtype, and finite
+The bounded runtime check has 40 test cases. Each case runs the same Program
+in two public CPU Sessions: one lowers to Cyna, while the other requests
+`cpuExecution: "zig"`. The check requires the Cyna route to report `lowered`,
+the comparison route to report `zig_requested`, and every output to have the same shape, dtype, and finite
 values.
 
 | Dtype path | Absolute tolerance | Relative tolerance |
@@ -92,7 +94,7 @@ AFFON_TEST_CYNA_SESSION=1 ./zig-out/bin/affon \
   test test/benchmark/cyna-routing/runtime-parity.test.ts
 ```
 
-The passing Programs are:
+Representative passing Programs are:
 
 | Corpus | Program | Shapes | Output dtype |
 | --- | --- | --- | --- |
@@ -151,6 +153,28 @@ Run the benchmark with:
 python3 test/benchmark/cyna-routing/run.py
 ```
 
+Set `AFFON_CYNA_BENCH_SELECTED_PLANS=1` to include each route's selected
+physical node order in its runtime report. This adds Cyna source instruction
+indices, implementation names, view flags, output byte counts, and exact kernel
+counts alongside Zig's selected node origins and implementation names. Plan
+capture happens after timing. `summary.json` compares source groups, selected
+implementations, conversion counts, selected peak bytes, and observed execution
+order, including fused source groups. It also checks that every selected Cyna
+physical node has count evidence and publishes the exact aggregate under
+`selected_plan_metrics`. Dropped observations stop the capture instead of
+reporting a partial count as exact. The Cyna report includes selected peak bytes
+under every optimization goal and memory selection search fields under the
+memory goal.
+Affon's lowerer maps Cyna step origins to Zig Program instruction IDs, including
+multi-step operations such as paired top-k. The report retains the Cyna step IDs
+as `cyna_step_origins`. Repeated execution of one Program instruction, such as
+residual recomputation, still needs a separate comparison rule. Capturing execution order
+enables runtime evidence throughout the run, including timed samples, so compare
+timings only with runs using the same
+capture setting.
+Set `AFFON_CYNA_BENCH_OPTIMIZATION_GOAL=memory` to compare memory-goal plans;
+the default is `balanced`.
+
 The script prints the output directory and writes `summary.json`, the separate
 runtime reports, and build/run logs. It requires local Cyna and compute-core
 libraries; pass `--cyna-lib-dir` and `--compute-core-lib-dir` when they are not
@@ -162,7 +186,8 @@ product with a transposed right operand. Set `AFFON_PROBE_TRANSPOSE=0` for the
 dense control. Each route warms up, then runs seven samples of 20 invocations;
 the script compares every output value and prints JSON timing samples. Set
 `AFFON_PROBE_SAMPLES` to a larger count when collecting a CPU stack sample, or
-`AFFON_PROBE_SIZE` to compare square matrix sizes.
+`AFFON_PROBE_SIZE` to compare square matrix sizes. Set `AFFON_PROBE_BATCH` above
+one to use a rank-three left input with the same right matrix in each batch.
 
 On 2026-11-17 in New Zealand, an Apple M4 with 16 GB memory running macOS
 26.6.2 produced these ReleaseFast results after two warmups and seven timed
@@ -180,6 +205,10 @@ copies, plus an accelerated f32 dot product.
 Cyna took 0.31 times as long as Zig for prefill and 0.73 times as long for
 cached decode. Set `AFFON_CYNA_PROFILE=1` to print per invocation pack, input
 creation, graph, and output times plus prepared cache hit and miss counts.
+Set `AFFON_CYNA_RUN_PROFILE=1` to time the Cyna execution wrapper, or
+`AFFON_CYNA_NATIVE_PROFILE=1` to time native input binding, execution, and
+output wrapping. Run each profile switch separately: printing a profile line
+inside another measured boundary adds time to that boundary.
 
 The dense output path now creates the Zig tensor directly from Cyna's copied
 backing bytes. In the 128×128 dense matrix probe, the warm output stage fell
@@ -205,8 +234,7 @@ dtypes, batch sizes, or CPU hardware.
 ## Decision
 
 No portable Cyna lowering target appears in the authored, imported, or model
-sample. Every added Program routes through Cyna. The remaining fallbacks request
-observability behavior outside this lowering question. Adding another lowering
+sample. Every added Program routes through Cyna. Adding another lowering
 rule now would be driven by vocabulary shape rather than a measured fallback.
 
 The bounded execution milestone is now met for the Programs above. A first
@@ -220,8 +248,9 @@ Keep the following limits explicit when comparing later runs:
 
 - coverage means this registry, not every valid `affon:core` Program
 - these are tiny constructor and importer fixtures, not complete trained models
-- runtime parity covers 16 representative Programs and does not imply complete model support
+- runtime parity covers a bounded operation matrix and does not imply complete model support
 - one Llama measurement does not establish performance for other shapes, dtypes, or models
-- the centralized observability fallbacks are expected until their evidence
-  semantics exist on the Cyna path
+- CPU hardware metrics and profiler markers are unavailable rather than
+  measured; Cyna kernel timing and kernel counts report per-node synchronous
+  host execution
 - non-CPU backends and disabled-Cyna configurations are outside this survey
