@@ -1,4 +1,4 @@
-import compute_core.affon as compute;
+import compute_core.lib as compute;
 import hao.native_api as hao;
 
 fn main(): i32 {

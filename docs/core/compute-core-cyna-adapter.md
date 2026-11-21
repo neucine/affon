@@ -13,8 +13,14 @@ This is the migration boundary for Affon. The host can launch the Cyna
 executable during the staged migration while the existing TypeScript API stays
 in place. The first protocol is deliberately small and proves package loading,
 one Cyna runtime, Compute Program execution, and the Hao dependency together.
-`compute-core` exposes the package-owned high-level entry in `src/affon.cy`,
-and Hao exposes `src/native_api.cy`.
+`compute-core` exposes the generic native entry through `src/lib.cy`, and Hao
+exposes `src/native_api.cy`. Affon's bridge combines those package APIs and is
+the place where the TypeScript-facing runtime is wired.
+
+The migration target is for the public TypeScript execution path to cross this
+Cyna-native bridge. Zig remains temporary host and parity infrastructure while
+the persistent process protocol is implemented; it is not the intended normal
+compute backend.
 
 The remaining sections describe the earlier isolated Zig adapter and its C ABI
 gate. They remain available while the public CPU Session is moved from the
