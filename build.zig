@@ -68,6 +68,11 @@ pub fn build(b: *std.Build) void {
         "windows-gnu-libunwind",
         "Path to libunwind.a for x86_64-w64-mingw32",
     ) orelse b.graph.environ_map.get("AFFON_WINDOWS_GNU_LIBUNWIND");
+    const cyna_command = b.option(
+        []const u8,
+        "cyna-executable",
+        "Cyna executable used for the native Affon bridge",
+    ) orelse "cyna";
     const transpiler_archive = if (target.result.os.tag == .windows)
         "libs/transpiler/target/x86_64-pc-windows-gnullvm/release/libhao_transpiler.a"
     else
@@ -169,4 +174,22 @@ pub fn build(b: *std.Build) void {
         const parity_step = b.step("test-cpu-residual-parity", "Compare Zig and Cyna selected residual plans");
         parity_step.dependOn(&run_parity_tests.step);
     }
+
+    const cyna_install = b.addSystemCommand(&.{cyna_command});
+    cyna_install.addArg("install");
+    cyna_install.addDirectoryArg(b.path("cyna/affon-native"));
+
+    const cyna_build = b.addSystemCommand(&.{cyna_command});
+    cyna_build.addArg("build");
+    cyna_build.addDirectoryArg(b.path("cyna/affon-native"));
+    cyna_build.step.dependOn(&cyna_install.step);
+    const cyna_build_step = b.step("build-cyna-native", "Build Affon's native Cyna bridge");
+    cyna_build_step.dependOn(&cyna_build.step);
+
+    const cyna_native_test = b.addSystemCommand(&.{cyna_command});
+    cyna_native_test.addArg("run");
+    cyna_native_test.addDirectoryArg(b.path("cyna/affon-native"));
+    cyna_native_test.step.dependOn(&cyna_install.step);
+    const cyna_native_test_step = b.step("test-cyna-native", "Run Affon's native Cyna integration smoke test");
+    cyna_native_test_step.dependOn(&cyna_native_test.step);
 }

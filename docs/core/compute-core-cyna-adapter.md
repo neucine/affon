@@ -1,5 +1,25 @@
 # Cyna compute core integration probe
 
+Affon has a Cyna-native integration gate at `cyna/affon-native`. Its manifest
+imports sibling `compute-core` and Hao packages directly. The bridge builds a
+real Compute Program, executes it on the Cyna CPU backend, and calls Hao's
+native package surface without linking either project's C ABI. Run it with:
+
+```sh
+zig build test-cyna-native
+```
+
+This is the migration boundary for Affon. The host can launch the Cyna
+executable during the staged migration while the existing TypeScript API stays
+in place. The first protocol is deliberately small and proves package loading,
+one Cyna runtime, Compute Program execution, and the Hao dependency together.
+`compute-core` exposes the package-owned high-level entry in `src/affon.cy`,
+and Hao exposes `src/native_api.cy`.
+
+The remaining sections describe the earlier isolated Zig adapter and its C ABI
+gate. They remain available while the public CPU Session is moved from the
+in-process adapter to the native process boundary.
+
 Affon has an isolated Zig adapter for the Cyna `compute-core` matmul, bias,
 and GELU C ABI, the f32 quantized matmul C ABI, rank-two f32 reductions, and
 a synchronous shaped f32 graph ABI. The graph adapter accepts typed input
@@ -45,5 +65,7 @@ Programs. If Cyna cannot preserve the requested behavior, the routing record
 names the category, reason, operation, and option, and the Session keeps Zig as
 the explicit fallback. Evidence capture and compute timing still select Zig.
 Non-CPU backends and configurations that disable Cyna also remain outside the
-Cyna CPU route. The adapter described above remains the isolated integration
-gate for the underlying Cyna ABI.
+Cyna CPU route. The adapter described above remains the compatibility gate for
+the underlying Cyna ABI while the native package bridge gains the full Program
+protocol. New integration work belongs in `cyna/affon-native`; the C ABI
+adapter must not become the long-term Affon-to-compute-core boundary.
