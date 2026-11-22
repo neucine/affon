@@ -555,7 +555,7 @@ fn create_session(ctx: *c_void, _: qjs.JSValue, argument_count: c_int,
     var uses_cuda = false;
     var device_ordinal: u32 = 0;
     if requested_device is text {
-        selected_device = text.clone();
+        selected_device = text;
         if text == "cuda" {
             uses_cuda = true;
         } else if text.starts_with("cuda:") {
@@ -2248,7 +2248,7 @@ fn checkpoint_entries(header: &const json.Value,
                                         return none;
                                     }
                                     result.push(CheckpointTensor {
-                                        name: member.key.clone(),
+                                        name: member.key,
                                         dtype: dtype,
                                         dimensions: dimensions,
                                         start: start,
