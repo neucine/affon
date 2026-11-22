@@ -21,7 +21,7 @@ Build Affon with the Cyna compiler on a machine with the selected device and
 install PyTorch for that device. Use a fresh output directory for every run:
 
 ```sh
-cyna build cyna/affon-native
+cyna build .
 python3 test/parity/run.py \
   --catalog test/parity/catalogs/cuda-first-256.json \
   --output-dir test/benchmark/results/cuda-parity-run-YYYYMMDD \
@@ -167,7 +167,7 @@ passes:
 
 ```sh
 python3 test/parity/reference/check-cuda-general.py \
-  --binary cyna/affon-native/build/affon-cyna-native --seed 314159 \
+  --binary build/affon --seed 314159 \
   --output-dir test/benchmark/results/parity-cuda-general-FRESH-NAME
 ```
 
@@ -242,12 +242,12 @@ numerical target, then resume for operator and Program evidence:
 ```sh
 python3 test/parity/sweep.py \
   --catalog test/parity/catalogs/cuda-metal-parity.json \
-  --binary cyna/affon-native/build/affon-cyna-native \
+  --binary build/affon \
   --output-dir test/benchmark/results/parity-cuda-metal-full-FRESH-NAME \
   --phase probe
 python3 test/parity/sweep.py \
   --catalog test/parity/catalogs/cuda-metal-parity.json \
-  --binary cyna/affon-native/build/affon-cyna-native \
+  --binary build/affon \
   --output-dir test/benchmark/results/parity-cuda-metal-full-FRESH-NAME \
   --phase peers --resume
 ```

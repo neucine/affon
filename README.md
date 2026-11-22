@@ -61,8 +61,8 @@ cd affon
 Build the development runtime from source with a Cyna toolchain:
 
 ```bash
-cyna build cyna/affon-native
-AFFON_ROOT="$PWD" cyna/affon-native/build/affon-cyna-native examples/first-program.ts
+cyna build .
+AFFON_ROOT="$PWD" build/affon examples/first-program.ts
 ```
 
 The hosted `affon` command runs the same example:

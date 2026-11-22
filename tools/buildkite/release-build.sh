@@ -31,8 +31,8 @@ if [ "$platform" = fast ]; then
   for config in src test/types test/e2e/program/operations packages/@affon/models packages/@affon/tokenizers apps/decoder-lm; do
     bun x tsc -p "$config/tsconfig.json" --noEmit
   done
-  cyna build cyna/affon-native
-  "$root/cyna/affon-native/build/affon-cyna-native" examples/first-program.ts
+  cyna build .
+  "$root/build/affon" examples/first-program.ts
   exit 0
 fi
 tag="$(buildkite-agent meta-data get release_tag)"

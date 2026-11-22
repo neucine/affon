@@ -476,7 +476,7 @@ def run_one(binary, case):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--binary", type=Path, default=ROOT / "cyna/affon-native/build/affon-cyna-native")
+    parser.add_argument("--binary", type=Path, default=ROOT / "build/affon")
     parser.add_argument("--catalog", type=Path, default=ROOT / "test/benchmark/capability-probes.json")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--backend", choices=["cpu", "metal", "cuda"])

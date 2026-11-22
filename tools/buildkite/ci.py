@@ -22,7 +22,7 @@ def run(*args: str) -> str:
 
 
 def version() -> str:
-    source = (ROOT / "cyna/affon-native/src/main.cy").read_text()
+    source = (ROOT / "src/main.cy").read_text()
     match = re.search(r'^const version = "([^"]+)";$', source, re.MULTILINE)
     if not match:
         raise SystemExit("Cyna host has no version")

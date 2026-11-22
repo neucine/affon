@@ -1,12 +1,12 @@
 # Cyna compute core integration
 
-Affon has a Cyna-native integration gate at `cyna/affon-native`. Its manifest
+Affon has a Cyna-native integration gate at the repository root. Its manifest
 imports sibling `compute-core` and Hao packages directly. The executable builds
 Compute Programs, executes them on the Cyna CPU backend, and calls Hao's native
 package surface without linking either project through a C ABI. Build it with:
 
 ```sh
-cyna build cyna/affon-native
+cyna build .
 ```
 
 This executable is Affon's normal entry path. `compute-core` exposes the
@@ -27,4 +27,4 @@ operation, and option. Programs outside the Cyna lowering surface report why
 the CPU route cannot accept them instead of silently changing backends.
 Evidence capture and compute timing use the same selected Cyna execution.
 Non-CPU backends remain outside this CPU host. New integration work belongs in
-`cyna/affon-native`.
+the repository root.

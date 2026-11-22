@@ -22,7 +22,7 @@ def main():
     parser.add_argument('--catalog', type=Path, required=True)
     parser.add_argument('--cell', required=True)
     parser.add_argument('--kind', choices=('operator_peer', 'program_peer'), default='operator_peer')
-    parser.add_argument('--binary', type=Path, default=ROOT / 'cyna/affon-native/build/affon-cyna-native')
+    parser.add_argument('--binary', type=Path, default=ROOT / 'build/affon')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--warmup', type=int, default=20)
     parser.add_argument('--capture-records', type=int, default=65536)

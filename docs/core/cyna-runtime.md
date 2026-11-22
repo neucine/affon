@@ -8,8 +8,8 @@ runtime.
 Build and run it from the Affon repository root:
 
 ```sh
-cyna build cyna/affon-native
-AFFON_ROOT="$PWD" cyna/affon-native/build/affon-cyna-native examples/first-program.ts
+cyna build .
+AFFON_ROOT="$PWD" build/affon examples/first-program.ts
 ```
 
 The executable installs Affon's TypeScript modules in Hao's embedded QuickJS
@@ -20,6 +20,6 @@ no subprocess protocol or Zig execution path.
 Run focused tests with:
 
 ```sh
-AFFON_ROOT="$PWD" cyna/affon-native/build/affon-cyna-native \
+AFFON_ROOT="$PWD" build/affon \
   test test/e2e/program/execution test/e2e/dataset test/e2e/checkpoint
 ```

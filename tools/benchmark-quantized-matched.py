@@ -14,7 +14,7 @@ def main():
     root = Path(__file__).resolve().parents[1]
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--before', type=Path, required=True)
-    p.add_argument('--after', type=Path, default=root/'cyna/affon-native/build/affon-cyna-native')
+    p.add_argument('--after', type=Path, default=root/'build/affon')
     p.add_argument('--mlx-python', type=Path, default=Path('/tmp/affon-mlx-bench/bin/python'))
     p.add_argument('--rounds', type=int, default=5)
     p.add_argument('--warmup-ms', type=int, default=2000)

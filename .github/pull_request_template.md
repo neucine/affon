@@ -5,7 +5,7 @@
 
 ## Verification
 
-- [ ] `cyna build cyna/affon-native`
+- [ ] `cyna build .`
 - [ ] Focused Cyna-host tests pass
 - [ ] `./tools/test-runtime.sh`
 - [ ] `bun x tsc -p src/tsconfig.json --noEmit`

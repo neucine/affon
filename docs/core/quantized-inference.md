@@ -199,8 +199,8 @@ independently of the JavaScript checks. Type tests lock the public options and
 formal/evaluated result types. No Qwen-specific data is required for these tests.
 
 ```sh
-cyna build cyna/affon-native
-AFFON_ROOT="$PWD" cyna/affon-native/build/affon-cyna-native \
+cyna build .
+AFFON_ROOT="$PWD" build/affon \
   test test/e2e/program/operations/quantized-matmul.test.ts
 bun x tsc -p test/types/tsconfig.json --noEmit
 # In ../compute-core:
@@ -238,8 +238,8 @@ with samples and theoretical storage counts. Use ReleaseFast for meaningful CPU
 measurements.
 
 ```sh
-cyna build cyna/affon-native
-AFFON_ROOT="$PWD" cyna/affon-native/build/affon-cyna-native \
+cyna build .
+AFFON_ROOT="$PWD" build/affon \
   test/benchmark/quantized/quantized-matmul.ts
 ```
 
@@ -331,7 +331,7 @@ saved in `test/benchmark/results/quantized-metal-vs-mlx-m4.json`.
 ```sh
 python3 -m venv /tmp/affon-mlx-bench
 /tmp/affon-mlx-bench/bin/pip install mlx==0.32.4 numpy==2.5.4
-cyna build cyna/affon-native
+cyna build .
 /tmp/affon-mlx-bench/bin/python tools/benchmark-quantized-mlx.py
 ```
 

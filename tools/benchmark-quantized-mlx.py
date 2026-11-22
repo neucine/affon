@@ -15,7 +15,7 @@ import time
 def main():
     root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--affon', type=Path, default=root / 'cyna/affon-native/build/affon-cyna-native')
+    parser.add_argument('--affon', type=Path, default=root / 'build/affon')
     parser.add_argument('--affon-telemetry',choices=['on','off'],default='off')
     parser.add_argument('--output', type=Path, default=root / 'test/benchmark/results/quantized-metal-profiled-vs-mlx-m4.json')
     args = parser.parse_args()

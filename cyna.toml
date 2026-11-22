@@ -1,0 +1,20 @@
+name = "affon"
+version = "0.4.2"
+src = "src"
+type = "exe"
+entry = "src/main.cy"
+
+[build]
+opt = "release"
+
+[dependencies]
+compute_core = { path = "../compute-core", version = "0.1.0" }
+hao = { path = "../hao", version = "0.1.2" }
+
+[c]
+sources = ["src/quickjs_bridge.c", "../compute-core/src/backend/cpu/accelerated_matmul.c", "../compute-core/src/backend/cpu/top_k_fast.c", "../hao/src/bridge/qjs.c", "../hao/src/bridge/allocator.c", "../hao/src/bridge/host.c", "../hao/src/bridge/bounded_read.c", "../hao/src/bridge/jupyter.c", "../hao/src/bridge/telemetry.c"]
+include_paths = ["../hao/.deps/install/include", "/opt/homebrew/include"]
+
+[link]
+libs = ["quickjs", "uv", "hao_transpiler", "curl", "ffi", "zmq", "crypto"]
+search_paths = ["../hao/.deps/install/lib", "../hao/libs/transpiler/target/release", "/opt/homebrew/lib"]

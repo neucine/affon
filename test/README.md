@@ -36,10 +36,10 @@ inventory is in [e2e/COVERAGE.md](e2e/COVERAGE.md).
 ## Run tests
 
 ```sh
-cyna build cyna/affon-native
-AFFON_ROOT="$PWD" cyna/affon-native/build/affon-cyna-native test test/e2e/program
-AFFON_ROOT="$PWD" cyna/affon-native/build/affon-cyna-native test test/e2e/dataset
-AFFON_ROOT="$PWD" cyna/affon-native/build/affon-cyna-native test test/e2e/checkpoint
+cyna build .
+AFFON_ROOT="$PWD" build/affon test test/e2e/program
+AFFON_ROOT="$PWD" build/affon test test/e2e/dataset
+AFFON_ROOT="$PWD" build/affon test test/e2e/checkpoint
 bun x tsc -p test/types/tsconfig.json --noEmit
 bun x tsc -p test/e2e/program/operations/tsconfig.json --noEmit
 ```

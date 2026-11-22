@@ -96,7 +96,7 @@ def profile(binary, case, runs, samples, iterations, warmup_calls):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--binary", type=Path, default=ROOT / "cyna/affon-native/build/affon-cyna-native")
+    parser.add_argument("--binary", type=Path, default=ROOT / "build/affon")
     parser.add_argument("--catalog", type=Path, default=ROOT / "test/benchmark/capability-probes.json")
     parser.add_argument("--cell", required=True)
     parser.add_argument("--runs", type=int, default=5)

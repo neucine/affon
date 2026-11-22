@@ -81,7 +81,7 @@ run() {
 }
 
 version_string() {
-  python3 - <<'PY' "$ROOT/cyna/affon-native/src/main.cy"
+  python3 - <<'PY' "$ROOT/src/main.cy"
 import pathlib
 import re
 import sys
@@ -145,9 +145,9 @@ binary_basename() {
 
 checkout_binary() {
   if is_windows_release; then
-    printf '%s/cyna/affon-native/build/affon-cyna-native.exe\n' "$ROOT"
+    printf '%s/build/affon.exe\n' "$ROOT"
   else
-    printf '%s/cyna/affon-native/build/affon-cyna-native\n' "$ROOT"
+    printf '%s/build/affon\n' "$ROOT"
   fi
 }
 
@@ -209,7 +209,7 @@ run_checks() {
   [ "$(release_tag)" = "v$(version_string)" ] || fail "release tag must match the Cyna host version"
   require_install_script
 
-  run "$CYNA_BIN" build "$ROOT/cyna/affon-native"
+  run "$CYNA_BIN" build "$ROOT"
   assert_checkout_binary
 
   if [ "$SKIP_TESTS" != "1" ]; then
@@ -235,7 +235,7 @@ build_artifacts() {
   binary_source="$(checkout_binary)"
   binary_asset="$DIST_DIR/$(binary_asset_name)"
 
-  run "$CYNA_BIN" build "$ROOT/cyna/affon-native"
+  run "$CYNA_BIN" build "$ROOT"
   assert_checkout_binary
 
   rm -rf "$DIST_DIR"

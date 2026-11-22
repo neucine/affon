@@ -140,7 +140,7 @@ records the compiler selected physical path. Use a ReleaseFast binary for
 evidence intended for performance work:
 
 ```sh
-python3 tools/probe-capabilities.py --binary cyna/affon-native/build/affon-cyna-native \
+python3 tools/probe-capabilities.py --binary build/affon \
   --output /tmp/affon-probes.json
 python3 tools/import-coverage-evidence.py --probe /tmp/affon-probes.json \
   --output /tmp/affon-outcomes.json
@@ -740,7 +740,7 @@ Cyna, the release-mode Affon binary, and a Python environment with PyTorch
 CUDA, rerun it into a fresh directory:
 
 ```sh
-cyna build cyna/affon-native
+cyna build .
 python3 test/parity/run.py \
   --catalog test/parity/catalogs/cuda-first-256.json \
   --output-dir test/benchmark/results/cuda-rerun-YYYYMMDD \
@@ -783,7 +783,7 @@ The remaining Metal gaps include operations the probe worker cannot express yet:
 reference formula in the Python probe and a matching operation in the
 `test/parity/workers/affon-probe.ts` program switch, the
 `test/parity/workers/affon-benchmark.ts` worker and the Cyna JSON operation map
-in `cyna/affon-native/src/api.cy`. CUDA coverage now continues in larger
+in `src/api.cy`. CUDA coverage now continues in larger
 batches on the RTX 3090; remaining CUDA candidate cells stay unknown until
 checked.
 
@@ -939,7 +939,7 @@ and expanded shapes; only each case's own matched peer is compared.
 
 ### Dispatch boundary audit
 
-Run `python3 tools/audit-dispatch-boundaries.py --binary cyna/affon-native/build/affon-cyna-native`
+Run `python3 tools/audit-dispatch-boundaries.py --binary build/affon`
 to check the declared transitions in [`dispatch-boundaries.json`](dispatch-boundaries.json).
 The audit checks output correctness and the compiler selected physical path
 on each side. It also verifies that the source predicate named by the policy
