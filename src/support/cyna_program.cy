@@ -9,7 +9,6 @@ import {
 } from compute_core.compiler.executable;
 import { SliceRange } from compute_core.program.operation;
 import { AbstractLayout } from compute_core.backend.layout;
-import { CpuContext } from compute_core.backend.cpu.storage;
 import {
     ComputeError,
     DType,
@@ -17,6 +16,7 @@ import {
     InputRole,
     OpTag,
     OptimizationGoal,
+    PreparedBackend,
     Program,
     ProgramBuilder,
     SessionConfig,
@@ -25,9 +25,6 @@ import {
     TensorSpec,
     bf16_spec,
     builder,
-    close_cpu_context,
-    cpu_backend,
-    cpu_context,
     differentiate,
     f32_spec,
     f64_spec,
@@ -1160,7 +1157,7 @@ fn compile_settings(options_json: ?string): CompileSettings {
 }
 
 pub fn compile_program(document: &const json.Value,
-    options_json: ?string
+    options_json: ?string, backend: &const PreparedBackend
 ): CompiledGraph ! ComputeError {
     var source_instruction_by_step: List<usize> = list<usize>();
     var mapped: List<usize> = list<usize>();
@@ -1233,13 +1230,10 @@ pub fn compile_program(document: &const json.Value,
     if settings.optimization_level == "none" {
         selected_goal = OptimizationGoal.baseline;
     }
-    var contexts: [1]CpuContext = [cpu_context()];
-    defer close_cpu_context(contexts[..].ptr);
-    const backend = cpu_backend(contexts[..].ptr);
     const executable = try compile_for_resident_with_search_limits(
         program,
         selected_goal,
-        &backend,
+        backend,
         selected_layouts,
         settings.residual_policy,
         settings.search_limits

@@ -77,20 +77,20 @@ pool budget.
 
 When `AFFON_DEVICE` is unset, Affon detects a usable accelerator on startup:
 
-- macOS selects Metal when the system Metal device is available.
-- Other platforms select CUDA when the CUDA runtime and a device are available.
-- CPU is the fallback when no supported accelerator is available.
+- CUDA is selected when the dynamically loaded CUDA runtime reports a usable
+  device.
+- CPU is the fallback when CUDA is unavailable.
 
-Set `AFFON_DEVICE=cpu` to force CPU, or explicitly select `metal` or `cuda`.
+Set `AFFON_DEVICE=cpu` to force CPU, or explicitly select `cuda` or `cuda:N`.
 
 For normal CLI commands, Affon prints the selected device, selection source, and
 platform once to stderr at startup. `affon --version` remains machine-friendly
 and prints only the version.
 
-Run on Metal explicitly and keep tensor displays compact:
+Run on CUDA explicitly and keep tensor displays compact:
 
 ```sh
-AFFON_DEVICE=metal AFFON_REPR_MAX_ITEMS=4 affon script.ts
+AFFON_DEVICE=cuda:0 AFFON_REPR_MAX_ITEMS=4 affon script.ts
 ```
 
 Use the runtime telemetry console and `std:telemetry` for diagnostics, metrics,
@@ -98,10 +98,10 @@ and traces.
 
 ## CUDA selection
 
-Use `AFFON_DEVICE=cuda` to place default-Session tensors on CUDA. Select a GPU
-with `AFFON_CUDA_DEVICE=N` before startup. The canonical Program API has no
-mutable global device setter; use an explicit `new Session({ device })` for an
-isolated device choice. The selected CUDA ordinal is fixed for the process.
+Use `AFFON_DEVICE=cuda` or `AFFON_DEVICE=cuda:N` to place default-Session
+tensors on CUDA. The canonical Program API has no mutable global device setter;
+use an explicit `new Session({ device })` for an isolated device choice. The
+native CUDA shim keeps the selected ordinal fixed for its process.
 
 Linux CUDA execution needs a working NVIDIA driver (`nvidia-smi`), plus
 `libnvrtc.so.12` and `libcublas.so.12` on the dynamic loader path. CUDA is loaded

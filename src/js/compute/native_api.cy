@@ -7,6 +7,7 @@ import compute_core.backend.cpu.math_unary as cpu_math;
 import compute_core.backend.cpu.numeric;
 import std.fs;
 import std.json;
+import { env_get } from std.process;
 import { Metric, MetricKind, MetricUnit } from std.telemetry;
 import { monotonic_ns } from std.time;
 import { Runtime } from hao.runtime;
@@ -18,6 +19,9 @@ import .js.compute.quickjs as qjs;
 struct SessionSlot {
     generation: u32;
     alive: bool;
+    context_address: usize;
+    cuda: bool;
+    device: string;
     capture_enabled: bool;
     capture_capacity: usize;
     timing_scope: string;
@@ -74,6 +78,9 @@ const maximum_executables: usize = 4096;
 var sessions: [64]SessionSlot = [SessionSlot {
     generation: 0,
     alive: false,
+    context_address: 0,
+    cuda: false,
+    device: "cpu",
     capture_enabled: false,
     capture_capacity: 0,
     timing_scope: "none",
@@ -90,9 +97,6 @@ var next_session: usize = 0;
 var next_tensor: usize = 0;
 var next_executable: usize = 0;
 var telemetry_host_handle: usize = 0;
-
-const routing_json =
-    "{\"schema_version\":1,\"backend\":\"cyna\",\"configured_backend\":\"cpu\",\"transport\":\"in_process\",\"category\":\"success\",\"reason\":\"lowered\",\"operation\":null,\"option\":null}";
 
 pub fn configure(runtime: &const Runtime): void {
     telemetry_host_handle = runtime.handle as usize;
@@ -124,6 +128,39 @@ fn session_generation(handle: usize): u32 {
         return sessions[handle].generation;
     }
     return 0;
+}
+
+fn session_device(handle: usize): string {
+    if handle < maximum_sessions and sessions[handle].alive {
+        return sessions[handle].device;
+    }
+    return "cpu";
+}
+
+fn context_pointer(address: usize): *c_void {
+    unchecked {
+        return address as! *c_void;
+    }
+}
+
+fn session_backend(handle: usize): compute.PreparedBackend {
+    const session = sessions[handle];
+    const context = context_pointer(session.context_address);
+    if session.cuda {
+        return compute.cuda_backend(context as! *compute.CudaContext);
+    }
+    return compute.cpu_backend(context as! *compute.CpuContext);
+}
+
+fn session_evidence_backend(handle: usize): string {
+    if handle < maximum_sessions and sessions[handle].cuda {
+        return "cyna_cuda";
+    }
+    return "cyna_cpu";
+}
+
+fn routing_json(device: string): string {
+    return $"\{\"schema_version\":1,\"backend\":\"cyna\",\"configured_backend\":\"{device}\",\"transport\":\"in_process\",\"category\":\"success\",\"reason\":\"lowered\",\"operation\":null,\"option\":null\}";
 }
 
 fn tensor_slot(handle: usize): *TensorSlot {
@@ -346,7 +383,7 @@ fn create_tensor_object(ctx: *c_void, value: compute.Tensor,
         ctx, object, "shape", shape_value
     );
     const ignored = ignored_shape_field;
-    qjs.set_string(ctx, object, "device", "cpu");
+    qjs.set_string(ctx, object, "device", session_device(session));
     qjs.set_number(ctx, object, "__affon_handle", handle as f64);
     qjs.set_number(ctx, object, "__affon_generation",
         tensor_generation as f64
@@ -513,10 +550,33 @@ fn create_session(ctx: *c_void, _: qjs.JSValue, argument_count: c_int,
     if argument_count < 1 {
         return qjs.type_error(ctx, "createSession expects a device");
     }
-    const device = qjs.read_string(ctx, argument(arguments_pointer, 0));
-    if device is text {
-        if text != "cpu" {
-            return qjs.type_error(ctx, "the Cyna host currently supports the CPU backend");
+    const requested_device = qjs.read_string(ctx, argument(arguments_pointer, 0));
+    var selected_device = "";
+    var uses_cuda = false;
+    var device_ordinal: u32 = 0;
+    if requested_device is text {
+        selected_device = text.clone();
+        if text == "cuda" {
+            uses_cuda = true;
+        } else if text.starts_with("cuda:") {
+            const bytes = text.bytes();
+            const suffix = string.from(bytes[5..]);
+            const parsed = fields.parse_usize(suffix);
+            if parsed is ordinal {
+                if ordinal <= 4_294_967_295 {
+                    uses_cuda = true;
+                    device_ordinal = ordinal as u32;
+                } else {
+                    return qjs.type_error(ctx, "unsupported device");
+                }
+            } else {
+                return qjs.type_error(ctx, "unsupported device");
+            }
+        } else if text != "cpu" {
+            return qjs.type_error_string(
+                ctx,
+                $"backend unavailable: {text}"
+            );
         }
     } else {
         return qjs.type_error(ctx, "device must be a string");
@@ -590,9 +650,38 @@ fn create_session(ctx: *c_void, _: qjs.JSValue, argument_count: c_int,
         }
     }
     const handle = selected_session;
+    var context_address: usize = 0;
+    if uses_cuda {
+        const context = compute.allocate_cuda_context(device_ordinal)
+        catch (error_code) {
+            const ignored = error_code;
+            compute.report_cuda_error();
+            return qjs.type_error_string(
+                ctx,
+                $"backend unavailable: {selected_device}"
+            );
+        };
+        unchecked {
+            context_address = context as! usize;
+        }
+    } else {
+        const context = compute.allocate_cpu_context() catch (error_code) {
+            const ignored = error_code;
+            return qjs.type_error_string(
+                ctx,
+                $"backend unavailable: {selected_device}"
+            );
+        };
+        unchecked {
+            context_address = context as! usize;
+        }
+    }
     sessions[handle] = SessionSlot {
         generation: generation(),
         alive: true,
+        context_address: context_address,
+        cuda: uses_cuda,
+        device: selected_device,
         capture_enabled: capture_enabled,
         capture_capacity: capture_capacity,
         timing_scope: timing_scope,
@@ -601,7 +690,7 @@ fn create_session(ctx: *c_void, _: qjs.JSValue, argument_count: c_int,
     };
     const object = qjs.new_object(ctx);
     qjs.set_number(ctx, object, "__affon_handle", handle as f64);
-    qjs.set_string(ctx, object, "device", "cpu");
+    qjs.set_string(ctx, object, "device", sessions[handle].device);
     qjs.set_function(ctx, object, "dispose", session_dispose, 0);
     return object;
 }
@@ -628,6 +717,9 @@ fn session_dispose(ctx: *c_void, this_value: qjs.JSValue,
             sessions[handle] = SessionSlot {
                 generation: current.generation,
                 alive: false,
+                context_address: 0,
+                cuda: false,
+                device: "cpu",
                 capture_enabled: false,
                 capture_capacity: 0,
                 timing_scope: "none",
@@ -662,6 +754,18 @@ fn session_dispose(ctx: *c_void, this_value: qjs.JSValue,
                 }
                 index = index + 1;
             }
+            if current.context_address != 0 {
+                const context = context_pointer(current.context_address);
+                if current.cuda {
+                    compute.release_cuda_context(
+                        context as! *compute.CudaContext
+                    );
+                } else {
+                    compute.release_cpu_context(
+                        context as! *compute.CpuContext
+                    );
+                }
+            }
         }
     }
     return qjs.undefined();
@@ -678,9 +782,6 @@ fn session_tensor(ctx: *c_void, _: qjs.JSValue, argument_count: c_int,
         return qjs.type_error(ctx, "invalid Session");
     }
     const values = argument(arguments_pointer, 1);
-    if qjs.is_array(values) == 0 {
-        return qjs.type_error(ctx, "tensor values must be an array");
-    }
     const dtype_text = qjs.read_string(ctx, argument(arguments_pointer, 2));
     if dtype_text is none {
         return qjs.type_error(ctx, "dtype must be a string");
@@ -927,7 +1028,7 @@ fn tensor_from_numbers(ctx: *c_void, values: []const f64,
     }
     var data: List<u16> = list<u16>();
     for value in values {
-        data.push(bfloat.from_f32(value as f32));
+        data.push(bfloat.from_f32(numeric.round_f32(value)));
     }
     return try compute.tensor_bf16(tensor_spec, data[..]);
 }
@@ -954,12 +1055,16 @@ fn compile_program(ctx: *c_void, _: qjs.JSValue, argument_count: c_int,
         const ignored = error_code;
         return qjs.type_error(ctx, "Program must be valid JSON");
     };
-    const compiled = graph.compile_program(&document, options_json)
+    const backend = session_backend(session);
+    const compiled = graph.compile_program(&document, options_json, &backend)
     catch (error_code) {
         const failure = error_name(error_code);
+        if sessions[session].cuda {
+            compute.report_cuda_error();
+        }
         return qjs.type_error_string(
             ctx,
-            $"Cyna CPU lowering failed: {failure}"
+            $"Cyna lowering failed: {failure}"
         );
     };
     if next_executable >= maximum_executables {
@@ -980,7 +1085,7 @@ fn compile_program(ctx: *c_void, _: qjs.JSValue, argument_count: c_int,
         generation: executable_generation,
         alive: true,
         explanation: explanation,
-        routing: routing_json,
+        routing: routing_json(sessions[session].device),
         run_count: 0,
         failed_run_count: 0,
         cache_hits: 0,
@@ -1330,10 +1435,17 @@ fn run_executable(ctx: *c_void, _: qjs.JSValue, argument_count: c_int,
     if empty_outputs(ctx, &compiled.executable) is empty {
         outputs = empty;
     } else {
-        outputs = compute.run(
+        const backend = session_backend(executable_sessions[executable_handle]);
+        outputs = compute.run_with_backend(
+            &backend,
             &compiled.executable,
             owned[..]
         ) catch (error_code) {
+        if executable_sessions[executable_handle] < maximum_sessions and
+            sessions[executable_sessions[executable_handle]].cuda {
+            compute.report_cuda_error();
+        }
+        const failure = error_name(error_code);
         const elapsed = now_ns() - started;
         unchecked {
             (*executable).run_count = (*executable).run_count + 1;
@@ -1354,12 +1466,11 @@ fn run_executable(ctx: *c_void, _: qjs.JSValue, argument_count: c_int,
             kind: MetricKind.counter,
             unit: MetricUnit.nanoseconds
         }, elapsed as i64);
-        const ignored = error_code;
         // The public run contract reports a stable command failure while the
         // project diagnostics retain the precise Compute Core error name.
         return qjs.type_error_string(
             ctx,
-            "Program execution failed: InvalidCommand"
+            $"Program execution failed: InvalidCommand ({failure})"
         );
         };
     }
@@ -1419,6 +1530,12 @@ fn default_device(ctx: *c_void, _: qjs.JSValue, argument_count: c_int,
 ): qjs.JSValue {
     const ignored_count = argument_count;
     const ignored_arguments = arguments_pointer;
+    if env_get("AFFON_DEVICE") is device {
+        return qjs.string(ctx, device);
+    }
+    if compute.cuda_available() {
+        return qjs.string(ctx, "cuda");
+    }
     return qjs.string(ctx, "cpu");
 }
 
@@ -1496,7 +1613,8 @@ fn export_evidence(ctx: *c_void, _: qjs.JSValue, argument_count: c_int,
     const serialized = plan.evidence(
         &compiled.executable,
         &compiled.source_instruction_by_step,
-        evidence
+        evidence,
+        session_evidence_backend(session_handle)
     );
     return qjs.string(ctx, serialized);
 }

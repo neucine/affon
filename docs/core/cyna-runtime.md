@@ -14,8 +14,11 @@ AFFON_ROOT="$PWD" build/affon examples/first-program.ts
 
 The executable installs Affon's TypeScript modules in Hao's embedded QuickJS
 runtime and registers `affon:core/native` directly from Cyna. Programs are
-compiled and run through Compute Core's Cyna API in the same process. There is
-no subprocess protocol or Zig execution path.
+compiled and run through Compute Core's Cyna API in the same process. CPU
+Sessions use a CPU backend context; `cuda` and `cuda:N` Sessions use the CUDA
+PreparedBackend and keep one CUDA context for the Session lifetime. There is no
+subprocess protocol, exported C ABI between these projects, or Zig execution
+path.
 
 Run focused tests with:
 

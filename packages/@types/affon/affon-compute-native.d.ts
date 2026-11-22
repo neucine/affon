@@ -3,7 +3,7 @@ declare module "affon:core/native" {
     readonly shape: readonly number[];
     readonly ndim: number;
     readonly dtype: "bf16" | "f32" | "f64" | "u32" | "i64";
-    readonly device: "cpu" | "metal" | "cuda";
+    readonly device: "cpu" | "metal" | "cuda" | `cuda:${number}`;
     item(): number;
     to_array(): unknown;
     to_bytes(): ArrayBuffer;

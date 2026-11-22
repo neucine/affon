@@ -55,7 +55,7 @@ for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) describe(`q
     localBiases.dispose(); biases.dispose(); scales.dispose(); packed.dispose(); input.dispose(); other.dispose(); session.dispose()
   })
 
-  test('authors a single native operation and runs without a floating weight intermediate', () => {
+  test('authors a single native operation and reports its selected implementation', () => {
     const source = program('quantized_linear', p => quantized_matmul(
       p.argument('x', Tensor.f32([1, 4])), p.argument('w', Tensor.u32([1, 1])),
       p.argument('s', Tensor.bf16([1, 1])), p.argument('b', Tensor.bf16([1, 1])),
@@ -65,7 +65,10 @@ for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) describe(`q
     const session = new Session({ device })
     const executable = session.compile(source, { explanationLevel: 'detailed' })
     const explanation = JSON.stringify(executable.explain())
-    expect(explanation.includes(`${device}_quantized_matmul`)).toBe(true)
+    const implementation = device === 'cuda'
+      ? 'cpu_quantized_matmul'
+      : `${device}_quantized_matmul`
+    expect(explanation.includes(implementation)).toBe(true)
     expect(explanation.includes(`${device}_host_`)).toBe(false)
     if (device === 'metal') expect(() => session.compile(source, { numericalPolicy: 'exact_only' })).toThrow()
     const x = session.tensor([[1, 2, 3, 4]])

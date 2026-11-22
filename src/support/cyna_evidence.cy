@@ -395,7 +395,8 @@ fn physical_implementation_for(node: &const Task): string {
 }
 
 pub fn evidence(executable: &const compute.Executable,
-    source_instruction_by_step: &const List<usize>, stats: RuntimeEvidence
+    source_instruction_by_step: &const List<usize>, stats: RuntimeEvidence,
+    backend_name: string
 ): string {
     var entries: List<json.Value> = list<json.Value>();
     var cache_bytes: usize = 0;
@@ -534,7 +535,7 @@ pub fn evidence(executable: &const compute.Executable,
     fields.push(member("program_id_text", string_value("0")));
     fields.push(member("executable_id", number(0)));
     fields.push(member("executable_id_text", string_value("0")));
-    fields.push(member("backend", string_value("cyna_cpu")));
+    fields.push(member("backend", string_value(backend_name)));
     fields.push(member("timing_scope", string_value(stats.timing_scope)));
     var views_only = executable.graph.nodes.len() != 0;
     for node in executable.graph.nodes[..] {
