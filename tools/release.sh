@@ -81,13 +81,13 @@ run() {
 }
 
 version_string() {
-  python3 - <<'PY' "$ROOT/src/main.cy"
+  python3 - <<'PY' "$ROOT/src/affon.cy"
 import pathlib
 import re
 import sys
 
 text = pathlib.Path(sys.argv[1]).read_text()
-match = re.search(r'^const version = "([^"]+)";$', text, re.MULTILINE)
+match = re.search(r'^pub const version = "([^"]+)";$', text, re.MULTILINE)
 if not match:
     raise SystemExit("failed to find the Affon version in the Cyna host")
 print(match.group(1))

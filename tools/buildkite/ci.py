@@ -22,8 +22,8 @@ def run(*args: str) -> str:
 
 
 def version() -> str:
-    source = (ROOT / "src/main.cy").read_text()
-    match = re.search(r'^const version = "([^"]+)";$', source, re.MULTILINE)
+    source = (ROOT / "src/affon.cy").read_text()
+    match = re.search(r'^pub const version = "([^"]+)";$', source, re.MULTILINE)
     if not match:
         raise SystemExit("Cyna host has no version")
     return match.group(1)

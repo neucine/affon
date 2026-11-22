@@ -1,7 +1,7 @@
 import hao.native_api as hao;
 import { Runtime } from hao.runtime;
-import .api;
-import .quickjs as qjs;
+import .js.compute.native_api as api;
+import .js.compute.quickjs as qjs;
 
 fn load_module(context: *c_void, name: *const c_char): *c_void {
     const initializer = c fn(context_ptr: *c_void, module_ptr: *c_void): c_int {

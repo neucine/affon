@@ -34,7 +34,7 @@ import {
     i64_spec,
     u32_spec
 } from compute_core.lib;
-import .json_value as json;
+import .support.json_value as json;
 
 pub struct OutputSpec {
     pub dtype: DType;

@@ -783,7 +783,7 @@ The remaining Metal gaps include operations the probe worker cannot express yet:
 reference formula in the Python probe and a matching operation in the
 `test/parity/workers/affon-probe.ts` program switch, the
 `test/parity/workers/affon-benchmark.ts` worker and the Cyna JSON operation map
-in `src/api.cy`. CUDA coverage now continues in larger
+in `src/js/compute/native_api.cy`. CUDA coverage now continues in larger
 batches on the RTX 3090; remaining CUDA candidate cells stay unknown until
 checked.
 

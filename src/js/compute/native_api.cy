@@ -10,10 +10,10 @@ import std.json;
 import { Metric, MetricKind, MetricUnit } from std.telemetry;
 import { monotonic_ns } from std.time;
 import { Runtime } from hao.runtime;
-import .graph;
-import .json_value as fields;
-import .plan;
-import .quickjs as qjs;
+import .support.cyna_program as graph;
+import .support.cyna_evidence as plan;
+import .support.json_value as fields;
+import .js.compute.quickjs as qjs;
 
 struct SessionSlot {
     generation: u32;

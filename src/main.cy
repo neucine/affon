@@ -1,155 +1,14 @@
-import compute_core.lib as compute;
-import hao.native_api as hao;
 import { Runtime } from hao.runtime;
 import { read_file_limited, script_read_error } from hao.fs;
-import { exists } from std.fs;
 import { write_stderr } from hao.stderr;
 import { install_from as install_std } from hao.std;
 import { collect, sort } from hao.std.test_files;
-import { args, env_get } from std.process;
-import { join } from std.path;
-import .native_module;
-
-const version = "0.4.2";
+import { args } from std.process;
+import .affon;
 
 fn usage(): void {
     write_stderr(
         "Usage:\n  affon <file.ts|file.js>\n  affon run <file.ts|file.js>\n  affon test [--grep pattern] <file.ts|directory>...\n  affon --version\n"
-    );
-}
-
-fn join2(root: string, child: string): string {
-    const parts: [2]string = [root.clone(), child];
-    return join(parts[..]);
-}
-
-fn source_root_at(candidate: string): ?string {
-    const probe = join2(candidate.clone(), "src/js/compute/public.ts");
-    if exists(probe) catch (code) => false {
-        return candidate;
-    }
-    return none;
-}
-
-fn source_root(): ?string {
-    if env_get("AFFON_ROOT") is configured {
-        if source_root_at(configured.clone()) is root {
-            return root;
-        }
-    }
-    if env_get("PWD") is current {
-        if source_root_at(current.clone()) is root {
-            return root;
-        }
-        var cursor = current.clone();
-        var depth: usize = 0;
-        while depth < 8 {
-            cursor = join2(cursor, "..");
-            if source_root_at(cursor.clone()) is root {
-                return root;
-            }
-            depth = depth + 1;
-        }
-    }
-    return none;
-}
-
-fn hao_modules_root(root: string): ?string {
-    var candidate = join2(root.clone(), "../hao/build/modules");
-    if exists(candidate.clone()) catch (code) => false {
-        return candidate;
-    }
-    candidate = join2(root.clone(), "../hao/src/.cyna-cache/modules");
-    if exists(candidate.clone()) catch (code) => false {
-        return candidate;
-    }
-    return none;
-}
-
-fn register_file(runtime: &const Runtime, root: string, specifier: string,
-    relative_path: string
-): i32 {
-    const path = join2(root.clone(), relative_path);
-    const source = read_file_limited(path.clone(), 32 * 1024 * 1024);
-    if source is content {
-        return runtime.register_source_module(specifier, content);
-    }
-    const reason = script_read_error(path, 32 * 1024 * 1024);
-    if reason == 2 {
-        write_stderr("error: source path is too long\n");
-    } else if reason == 1 {
-        write_stderr("error: source file is too large\n");
-    } else if reason == 0 {
-        write_stderr("error: source file is missing\n");
-    } else {
-        write_stderr("error: source file could not be read\n");
-    }
-    return 1;
-}
-
-fn register_affon(runtime: &const Runtime, root: string): i32 {
-    const errors_path = join2(root.clone(), "src/js/errors-global.js");
-    const errors_source = read_file_limited(errors_path, 32 * 1024 * 1024);
-    if errors_source is source {
-        if runtime.register_source_module(
-            "affon:errors",
-            $"{source}\nexport const AffonError = globalThis.AffonError;\nexport default AffonError;\n"
-        ) != 0 {
-            return 1;
-        }
-    } else {
-        return 1;
-    }
-    if runtime.register_source_module(
-        "affon:runtime",
-        $"import 'affon:errors';\nexport const name = \"affon\";\nexport const version = \"{version}\";\n"
-    ) != 0 {
-        return 1;
-    }
-    if register_file(runtime, root.clone(), "affon:core",
-        "src/js/compute/public.ts"
-    ) != 0 { return 1; }
-    if register_file(runtime, root.clone(), "affon:_internal/compute/program",
-        "src/js/compute/program.ts"
-    ) != 0 { return 1; }
-    if register_file(runtime, root.clone(), "affon:ops", "src/js/ops.ts") != 0 {
-        return 1;
-    }
-    if register_file(runtime, root.clone(), "affon:nn", "src/js/nn.ts") != 0 {
-        return 1;
-    }
-    if register_file(runtime, root.clone(), "affon:optim", "src/js/optim.ts") != 0 {
-        return 1;
-    }
-    if register_file(runtime, root.clone(), "affon:core/persistence.ts",
-        "src/js/compute/persistence.ts"
-    ) != 0 { return 1; }
-    if register_file(runtime, root.clone(), "affon:checkpoint",
-        "src/js/checkpoint/index.ts"
-    ) != 0 { return 1; }
-    if register_file(runtime, root.clone(), "affon:dataset",
-        "src/js/dataset/index.ts"
-    ) != 0 { return 1; }
-    if register_file(runtime, root.clone(), "affon:dataset/tabular.ts",
-        "src/js/dataset/tabular.ts"
-    ) != 0 { return 1; }
-    if register_file(runtime, root.clone(), "affon:dataset/text.ts",
-        "src/js/dataset/text.ts"
-    ) != 0 { return 1; }
-    if register_file(runtime, root.clone(), "affon:dataset/text_io.ts",
-        "src/js/dataset/text_io.ts"
-    ) != 0 { return 1; }
-    if register_file(runtime, root.clone(), "affon:dataset/text_loader.ts",
-        "src/js/dataset/text_loader.ts"
-    ) != 0 { return 1; }
-    if register_file(runtime, root.clone(), "affon:dataset/text_utils.ts",
-        "src/js/dataset/text_utils.ts"
-    ) != 0 { return 1; }
-    if register_file(runtime, root.clone(), "affon:dataset/token_windows.ts",
-        "src/js/dataset/token_windows.ts"
-    ) != 0 { return 1; }
-    return register_file(runtime, root, "affon:dataset/tokenizer.ts",
-        "src/js/dataset/tokenizer.ts"
     );
 }
 
@@ -226,7 +85,7 @@ fn run_tests(runtime: &const Runtime, arguments: List<string>): i32 {
 }
 
 fn main(): i32 {
-    if compute.api_version() != 1 or hao.api_version() != 1 {
+    if affon.compatible() == false {
         return 2;
     }
     const arguments = args();
@@ -236,25 +95,21 @@ fn main(): i32 {
     }
     if arguments.len() == 2 and
         (arguments[1] == "--version" or arguments[1] == "version") {
-        print($"affon {version}\n");
+        print($"affon {affon.version}\n");
         return 0;
     }
-    const root = source_root();
+    const root = affon.source_root();
     if root is root_path {
         const runtime = Runtime.init();
         if runtime is host {
             defer host.deinit();
-            const modules_root = hao_modules_root(root_path);
+            const modules_root = affon.hao_modules_root(root_path);
             if modules_root is modules_path {
                 if install_std(&host, modules_path) != 0 {
                     write_stderr("Unable to install Hao standard modules\n");
                     return 1;
                 }
-                if native_module.register(&host) != 0 {
-                    write_stderr("Unable to register the Affon Cyna native module\n");
-                    return 1;
-                }
-                if register_affon(&host, root_path) != 0 {
+                if affon.register(&host, root_path) != 0 {
                     return 1;
                 }
                 if arguments[1] == "test" {
