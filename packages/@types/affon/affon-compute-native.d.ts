@@ -24,8 +24,15 @@ declare module "affon:core/native" {
     sessionFull(session: NativeSession, shape: readonly number[], value: number, dtype: "bf16" | "f32" | "f64" | "u32" | "i64"): NativeTensor;
     compileProgram(session: NativeSession, program_json: string, options_json?: string): NativeExecutable;
     explainExecutable(executable: NativeExecutable): string;
+    cynaSelectedSteps(executable: NativeExecutable): string;
+    cynaSelectedPhysicalNodes(executable: NativeExecutable): string;
+    selectedPhysicalValues(executable: NativeExecutable): string;
+    selectedPhysicalLiveness(executable: NativeExecutable): string;
+    cynaResidualDecisions(executable: NativeExecutable): string;
+    cynaSelectionComparison(executable: NativeExecutable): string;
+    cynaSearchEvidence(executable: NativeExecutable): string;
     executableRouting(executable: NativeExecutable): string;
-    executableBackend(executable: NativeExecutable): "zig" | "cyna";
+    executableBackend(executable: NativeExecutable): "cyna";
     runExecutable(executable: NativeExecutable, inputs: readonly NativeTensor[]): NativeTensor[];
     resetEvidenceCapture(session: NativeSession): void;
     exportEvidenceCapture(session: NativeSession, executable: NativeExecutable): string;

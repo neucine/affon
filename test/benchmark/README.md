@@ -13,11 +13,10 @@ the [parity facility](../parity/README.md); retained evidence is indexed in
 [`results/`](results/README.md). The joined training-step observation runner is
 documented in [`training/`](training/README.md).
 
-The compile-only [Cyna routing survey](cyna-routing/README.md) records which
-representative public CPU Programs select Cyna or fall back to Zig. Its current
-117-Program sample includes authored, imported ONNX, and native model-family
-Programs. All 13 imported and model additions route through Cyna, so the sample
-still has no measured portable lowering target.
+The former Cyna routing survey covered 117 representative public CPU Programs,
+including authored, imported ONNX, and native model-family Programs. The
+in-process Compute Core Cyna path now replaces both that survey and its old
+fallback route.
 
 The [workload coverage facility](WORKLOAD-COVERAGE.md) generates a matrix from
 the canonical operation and dtype vocabulary, then maps existing diagnostics

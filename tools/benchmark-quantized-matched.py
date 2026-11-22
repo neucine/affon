@@ -14,7 +14,7 @@ def main():
     root = Path(__file__).resolve().parents[1]
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--before', type=Path, required=True)
-    p.add_argument('--after', type=Path, default=root/'zig-out/bin/affon')
+    p.add_argument('--after', type=Path, default=root/'cyna/affon-native/build/affon-cyna-native')
     p.add_argument('--mlx-python', type=Path, default=Path('/tmp/affon-mlx-bench/bin/python'))
     p.add_argument('--rounds', type=int, default=5)
     p.add_argument('--warmup-ms', type=int, default=2000)
@@ -25,9 +25,9 @@ def main():
         p.error('Use at least 3 rounds, 100 samples and 300 ms warmup')
     environment = json.loads(subprocess.check_output([str(args.mlx_python.absolute()), '-c',
         'import json,mlx.core as mx,numpy as np; print(json.dumps(dict(mlx_version=mx.__version__,numpy_version=np.__version__,device=mx.device_info())))'], text=True))
-    native = root.parent/'compute/src/backend/metal'
+    native = root.parent/'compute-core/src/backend/cpu'
     environment['source_sha256'] = {str(path): hashlib.sha256(path.read_bytes()).hexdigest()
-        for path in [native/'quantized_source.h', native/'device.zig', native/'ffi.m']}
+        for path in [native/'quantized.cy', native/'storage.cy']}
     runs = []
     engines = dict(before=('affon', args.before), after=('affon', args.after), mlx=('mlx', args.mlx_python))
     with tempfile.TemporaryDirectory(prefix='qmm-matched-') as folder:

@@ -5,7 +5,7 @@ root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
 export PATH="$HOME/.cargo/bin:$PATH"
 if [ "$(uname -s)" = Linux ]; then
-  export PATH="/opt/neucine-release-tools/zig-0.17.0:/opt/neucine-release-tools/bun/bin:/usr/lib/llvm-22/bin:$PATH"
+  export PATH="/opt/neucine-release-tools/cyna/bin:/opt/neucine-release-tools/bun/bin:/usr/lib/llvm-22/bin:$PATH"
 elif [ "$(uname -s)" = Darwin ]; then
   export PATH="$HOME/.bun/bin:/opt/homebrew/bin:$PATH"
 else
@@ -18,10 +18,9 @@ case "$platform:$(uname -s):$(uname -m)" in
 esac
 test "$(git rev-parse HEAD)" = "${BUILDKITE_COMMIT:?Buildkite commit required}"
 
-for tool in zig bun cargo python3 tar; do
+for tool in cyna bun cargo python3 tar cc cmake; do
   command -v "$tool" >/dev/null || { echo "Missing release tool: $tool" >&2; exit 1; }
 done
-test "$(zig version)" = 0.17.0 || { echo "Zig 0.17.0 required" >&2; exit 1; }
 test "$(bun --version)" = 1.2.16 || { echo "Bun 1.2.16 required" >&2; exit 1; }
 
 source "$root/tools/buildkite/release-deps.sh"
@@ -32,9 +31,8 @@ if [ "$platform" = fast ]; then
   for config in src test/types test/e2e/program/operations packages/@affon/models packages/@affon/tokenizers apps/decoder-lm; do
     bun x tsc -p "$config/tsconfig.json" --noEmit
   done
-  zig build test -Doptimize=ReleaseSafe
-  zig build -Doptimize=ReleaseSafe
-  "$root/zig-out/bin/affon" examples/first-program.ts
+  cyna build cyna/affon-native
+  "$root/cyna/affon-native/build/affon-cyna-native" examples/first-program.ts
   exit 0
 fi
 tag="$(buildkite-agent meta-data get release_tag)"

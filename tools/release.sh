@@ -15,10 +15,10 @@
 #   ./tools/release.sh all
 #
 # Environment:
-#   AFFON_RELEASE_TAG          Release tag to publish (default: v<build.zig.zon version>)
+#   AFFON_RELEASE_TAG          Release tag to publish (default: v<Cyna host version>)
+#   CYNA_BIN                   Cyna compiler (default: cyna)
 #   AFFON_RELEASE_SKIP_TESTS   1 to skip release tests during check/all
 #   AFFON_RELEASE_PLATFORM     Override detected asset platform
-#   AFFON_WINDOWS_GNU_LIBUNWIND Path to llvm-mingw x86_64 libunwind.a
 #   AFFON_DOWNLOAD_BASE_URL    Download origin (default: https://downloads.affon.ai)
 #   AFFON_R2_ACCOUNT_ID        Cloudflare account id for aws S3-compatible uploads
 #   AFFON_R2_BUCKET            R2 bucket name (default: R2_BUCKET or affon-downloads)
@@ -27,7 +27,7 @@
 #   AFFON_R2_UPLOAD_TOOL       aws or wrangler (default: aws)
 #   AFFON_GITHUB_REPO          GitHub repo slug for gh release (default: neucine/affon)
 #   AFFON_SITES_REPO           Sites checkout (default: sibling sites directory)
-#   AFFON_SITE_HAO_REPO        Pinned Hao checkout (default: sibling hao-legacy directory)
+#   AFFON_SITE_HAO_REPO        Pinned Hao checkout (default: sibling hao directory)
 #   AWS_ACCESS_KEY_ID          R2 access key for aws uploads
 #   AWS_SECRET_ACCESS_KEY      R2 secret key for aws uploads
 #   AWS_PROFILE                Optional aws profile
@@ -38,6 +38,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIST_DIR="$ROOT/dist/release"
+CYNA_BIN="${CYNA_BIN:-cyna}"
 SKIP_TESTS="${AFFON_RELEASE_SKIP_TESTS:-0}"
 DOWNLOAD_BASE_URL="${AFFON_DOWNLOAD_BASE_URL:-https://downloads.affon.ai}"
 R2_ACCOUNT_ID="${AFFON_R2_ACCOUNT_ID:-${CLOUDFLARE_ACCOUNT_ID:-}}"
@@ -47,7 +48,7 @@ R2_DRY_RUN="${AFFON_R2_DRY_RUN:-0}"
 R2_UPLOAD_TOOL="${AFFON_R2_UPLOAD_TOOL:-aws}"
 GITHUB_REPO="${AFFON_GITHUB_REPO:-neucine/affon}"
 SITES_REPO="${AFFON_SITES_REPO:-$(dirname "$ROOT")/sites}"
-SITE_HAO_REPO="${AFFON_SITE_HAO_REPO:-$(dirname "$ROOT")/hao-legacy}"
+SITE_HAO_REPO="${AFFON_SITE_HAO_REPO:-$(dirname "$ROOT")/hao}"
 MODE="${1:-check}"
 RELEASE_PLATFORM="${AFFON_RELEASE_PLATFORM:-}"
 
@@ -80,15 +81,15 @@ run() {
 }
 
 version_string() {
-  python3 - <<'PY' "$ROOT/build.zig.zon"
+  python3 - <<'PY' "$ROOT/cyna/affon-native/src/main.cy"
 import pathlib
 import re
 import sys
 
 text = pathlib.Path(sys.argv[1]).read_text()
-match = re.search(r'\.version\s*=\s*"([^"]+)"', text)
+match = re.search(r'^const version = "([^"]+)";$', text, re.MULTILINE)
 if not match:
-    raise SystemExit("failed to find .version in build.zig.zon")
+    raise SystemExit("failed to find the Affon version in the Cyna host")
 print(match.group(1))
 PY
 }
@@ -143,7 +144,11 @@ binary_basename() {
 }
 
 checkout_binary() {
-  printf '%s/zig-out/bin/%s\n' "$ROOT" "$(binary_basename)"
+  if is_windows_release; then
+    printf '%s/cyna/affon-native/build/affon-cyna-native.exe\n' "$ROOT"
+  else
+    printf '%s/cyna/affon-native/build/affon-cyna-native\n' "$ROOT"
+  fi
 }
 
 binary_asset_name() {
@@ -186,26 +191,25 @@ assert_checkout_binary() {
 
 run_release_tests() {
   export RUNTIME_PACKAGE_PATH="${RUNTIME_PACKAGE_PATH:-$ROOT/packages}"
-  run zig build test -Doptimize=ReleaseSafe
   run bun x tsc -p src/tsconfig.json --noEmit
   run bun x tsc -p test/types/tsconfig.json --noEmit
   run bun x tsc -p packages/@affon/models/tsconfig.json --noEmit
   run bun x tsc -p packages/@affon/tokenizers/tsconfig.json --noEmit
   run bun x tsc -p apps/decoder-lm/tsconfig.json --noEmit
-  run "$ROOT/tools/test-runtime.sh" "$ROOT/zig-out/bin/affon"
+  run "$ROOT/tools/test-runtime.sh" "$(checkout_binary)"
 }
 
 run_checks() {
   need_cmd bun
   need_cmd python3
-  need_cmd zig
+  need_cmd "$CYNA_BIN"
 
   info "version: $(version_string)"
   info "tag: $(release_tag)"
-  [ "$(release_tag)" = "v$(version_string)" ] || fail "release tag must match build.zig.zon"
+  [ "$(release_tag)" = "v$(version_string)" ] || fail "release tag must match the Cyna host version"
   require_install_script
 
-  run zig build -Doptimize=ReleaseSafe
+  run "$CYNA_BIN" build "$ROOT/cyna/affon-native"
   assert_checkout_binary
 
   if [ "$SKIP_TESTS" != "1" ]; then
@@ -217,11 +221,10 @@ run_checks() {
 
 build_artifacts() {
   local stem package_root stage_dir tarball binary_asset binary_name binary_source
-  local -a build_args
   need_cmd python3
   need_cmd tar
-  need_cmd zig
-  [ "$(release_tag)" = "v$(version_string)" ] || fail "release tag must match build.zig.zon"
+  need_cmd "$CYNA_BIN"
+  [ "$(release_tag)" = "v$(version_string)" ] || fail "release tag must match the Cyna host version"
   require_install_script
 
   stem="$(asset_stem)"
@@ -232,14 +235,7 @@ build_artifacts() {
   binary_source="$(checkout_binary)"
   binary_asset="$DIST_DIR/$(binary_asset_name)"
 
-  build_args=(-Doptimize=ReleaseFast)
-  if is_windows_release; then
-    build_args+=(-Dtarget=x86_64-windows-gnu)
-    if [ -n "${AFFON_WINDOWS_GNU_LIBUNWIND:-}" ]; then
-      build_args+=("-Dwindows-gnu-libunwind=$AFFON_WINDOWS_GNU_LIBUNWIND")
-    fi
-  fi
-  run zig build "${build_args[@]}"
+  run "$CYNA_BIN" build "$ROOT/cyna/affon-native"
   assert_checkout_binary
 
   rm -rf "$DIST_DIR"
@@ -280,7 +276,7 @@ require_install_script() {
   [ -x "$ROOT/install.sh" ] || fail "install.sh must be executable"
   [ -f "$ROOT/install.ps1" ] || fail "missing PowerShell installer at install.ps1"
   grep -q "AFFON_RELEASE_VERSION=\"\${AFFON_RELEASE_VERSION:-$version}\"" "$ROOT/install.sh" || \
-    fail "install.sh release version must match build.zig.zon version $version"
+    fail "install.sh release version must match Cyna host version $version"
   # The Windows installer stays pinned to its last published Windows release.
   grep -q 'downloads\.affon\.ai/releases/v${AFFON_RELEASE_VERSION}\.json' "$ROOT/install.sh" || \
     fail "install.sh must default to the AFFON downloads endpoint"
@@ -526,7 +522,7 @@ sync_site() {
   [ -d "$SITES_REPO/sites/affon-ai" ] || fail "missing sites checkout at $SITES_REPO"
   [ -d "$SITE_HAO_REPO" ] || fail "missing Hao checkout at $SITE_HAO_REPO"
   version="$(version_string)"
-  [ "$(release_tag)" = "v$version" ] || fail "release tag must match build.zig.zon"
+  [ "$(release_tag)" = "v$version" ] || fail "release tag must match the Cyna host version"
   gh release view "$(release_tag)" --repo "$GITHUB_REPO" >/dev/null || fail "publish the GitHub release before syncing the site"
 
   pinned_hao="${AFFON_SITE_HAO_REF:?set AFFON_SITE_HAO_REF to the pinned Hao commit}"

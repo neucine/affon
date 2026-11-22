@@ -1,17 +1,25 @@
-# Affon native Cyna bridge
+# Affon Cyna runtime
 
 This executable imports `compute-core` and Hao as Cyna path dependencies. It
 does not link either project through its C ABI. Cyna compiles the bridge,
 compute core, and the native Hao surface into one program with one Cyna
 runtime.
 
-Run the smoke gate from the Affon repository root:
+Build and run it from the Affon repository root:
 
 ```sh
-zig build test-cyna-native
+cyna build cyna/affon-native
+AFFON_ROOT="$PWD" cyna/affon-native/build/affon-cyna-native examples/first-program.ts
 ```
 
-The first slice builds a real `compute-core` add Program, executes it on the
-Cyna CPU backend, and verifies that both native package APIs are loaded. The
-same package is the boundary for replacing Affon's existing in-process C ABI
-adapter with process-level native calls.
+The executable installs Affon's TypeScript modules in Hao's embedded QuickJS
+runtime and registers `affon:core/native` directly from Cyna. Programs are
+compiled and run through Compute Core's Cyna API in the same process. There is
+no subprocess protocol or Zig execution path.
+
+Run focused tests with:
+
+```sh
+AFFON_ROOT="$PWD" cyna/affon-native/build/affon-cyna-native \
+  test test/e2e/program/execution test/e2e/dataset test/e2e/checkpoint
+```

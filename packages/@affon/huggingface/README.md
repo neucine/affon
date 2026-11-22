@@ -139,8 +139,8 @@ Acquisition and processor selection are shared across supported tasks.
 From the repository root:
 
 ```sh
-./zig-out/bin/affon test packages/@affon/huggingface/test
-./zig-out/bin/affon test apps/hf-inference
+./cyna/affon-native/build/affon-cyna-native test packages/@affon/huggingface/test
+./cyna/affon-native/build/affon-cyna-native test apps/hf-inference
 ```
 
 The audit app runs the shared `load_model` API against prepared real-model

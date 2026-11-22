@@ -43,7 +43,7 @@ reference tests always run as baselines.
 Run the operation suite and its TypeScript contracts with:
 
 ```sh
-./zig-out/bin/affon test test/e2e/program/operations
+./cyna/affon-native/build/affon-cyna-native test test/e2e/program/operations
 bun x tsc -p test/e2e/program/operations/tsconfig.json --noEmit
 ```
 

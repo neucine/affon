@@ -150,7 +150,7 @@ def main():
     parser.add_argument("--catalog", type=Path, required=True)
     parser.add_argument("--cell", action="append", default=[],
                         help="run only this exact catalog cell; repeat for a small selection")
-    parser.add_argument("--binary", type=Path, default=ROOT / "zig-out/bin/affon")
+    parser.add_argument("--binary", type=Path, default=ROOT / "cyna/affon-native/build/affon-cyna-native")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--iterations", type=int, default=10)
     parser.add_argument("--samples", type=int, default=5)

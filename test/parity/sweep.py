@@ -169,7 +169,7 @@ def run(args):
                 print(json.dumps(state), flush=True)
         probes = probe_cases(cases, binary, output, probes_module.run_one, progress)
         capability = {'schema_version': 1, 'suite': 'affon_capability_probe_run',
-                      'platform': sys.platform, 'zig_version': subprocess.check_output(['zig', 'version'], text=True).strip(),
+                      'platform': sys.platform, 'cyna_version': subprocess.check_output(['cyna', 'version'], text=True).strip(),
                       'affon_git_head': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
                       'affon_dirty': bool(subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT, text=True).strip()),
                       **{k: identity[k] for k in ('binary_sha256', 'catalog_sha256')}, 'cases': list(probes.values())}

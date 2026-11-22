@@ -113,7 +113,7 @@ apply this operation to every U32 checkpoint tensor.
 
 ## CPU behavior and numerical contract
 
-`compute/src/backend/cpu/quantized_matmul.zig` maps input buffers without copies,
+`compute-core/src/backend/cpu/quantized.cy` maps input buffers without copies,
 validates buffer bounds/offsets, dispatches specialized 2/4/8-bit loops and dtype
 pairs, loads group parameters, and decodes a scalar weight inside the dot
 product. BF16 values are widened to F32 before arithmetic. The result uses
@@ -194,20 +194,20 @@ wall latency with output conversion must not be presented as kernel time.
 bits, low-bit-first packing, multiple groups and output rows, affine offsets,
 mixed F32/BF16 operands, 2/4/8-bit decoding, malformed shapes/options, Session
 ownership, Program inspection/native selection, and transposed/sliced views.
-`compute/src/compute_test.zig` Q01 checks native validation independently of the
-JavaScript checks. Type tests lock the public options and formal/evaluated result
-types. No Qwen-specific data is required for these tests.
+`compute-core/src/backend/cpu/quantized.test.cy` checks native validation
+independently of the JavaScript checks. Type tests lock the public options and
+formal/evaluated result types. No Qwen-specific data is required for these tests.
 
 ```sh
-zig build install
-./zig-out/bin/affon test test/e2e/program/operations/quantized-matmul.test.ts
+cyna build cyna/affon-native
+AFFON_ROOT="$PWD" cyna/affon-native/build/affon-cyna-native \
+  test test/e2e/program/operations/quantized-matmul.test.ts
 bun x tsc -p test/types/tsconfig.json --noEmit
-# In ../compute:
-zig build test-compute -Dcompute-filter=Q01
+# In ../compute-core:
+cyna test src/backend/cpu/quantized.test.cy
 ```
 
-Use Zig 0.16.0, as declared by the repository. The system Zig 0.17 build fails
-in existing dependency build scripts because `std.Build.args` was removed.
+Use the Cyna compiler version pinned by the workspace.
 
 Optional checkpoint parity reads three complete weight rows (0, 1, and 2047),
 all 1024 input features, and their BF16 group parameters from the local file.
@@ -238,12 +238,13 @@ with samples and theoretical storage counts. Use ReleaseFast for meaningful CPU
 measurements.
 
 ```sh
-zig build install -Doptimize=ReleaseFast
-./zig-out/bin/affon test/benchmark/quantized/quantized-matmul.ts
+cyna build cyna/affon-native
+AFFON_ROOT="$PWD" cyna/affon-native/build/affon-cyna-native \
+  test/benchmark/quantized/quantized-matmul.ts
 ```
 
 Initial measurements on Apple M4 (10 CPU cores, 16 GB), macOS 26.6.2,
-Zig 0.16.0 ReleaseFast, with synchronization/readback included:
+Cyna release mode, with synchronization/readback included:
 
 | M | CPU median | Metal median |
 | --- | --- | --- |
@@ -288,7 +289,7 @@ is available for readers who want to repeat the comparison.
 The repeatable harness is `tools/benchmark-quantized-mlx.py`, using
 `test/benchmark/quantized/quantized-metal.ts`. It compares resident synthetic weights with
 identical packing and values, N=2048, K=1024, group_size=64, 4/8 bits,
-F32 inputs, BF16 parameters, and F32 outputs. Affon uses Zig 0.16.0 ReleaseFast;
+F32 inputs, BF16 parameters, and F32 outputs. Affon uses Cyna release mode;
 MLX is 0.32.4 on Python 3.13. Affon and MLX run sequentially. Input generation,
 compilation, and ten warmup calls are excluded. Both eager and `mx.compile`
 MLX results are saved. The table uses compiled MLX.
@@ -330,7 +331,7 @@ saved in `test/benchmark/results/quantized-metal-vs-mlx-m4.json`.
 ```sh
 python3 -m venv /tmp/affon-mlx-bench
 /tmp/affon-mlx-bench/bin/pip install mlx==0.32.4 numpy==2.5.4
-zig build install -Doptimize=ReleaseFast
+cyna build cyna/affon-native
 /tmp/affon-mlx-bench/bin/python tools/benchmark-quantized-mlx.py
 ```
 

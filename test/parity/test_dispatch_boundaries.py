@@ -16,7 +16,7 @@ class DispatchBoundaryTest(unittest.TestCase):
         manifest = json.loads((ROOT / "test/benchmark/dispatch-boundaries.json").read_text())
         manifest["boundaries"][0]["source_assertion"] = "condition that is absent"
         with self.assertRaisesRegex(ValueError, "dispatch source changed"):
-            audit.audit(manifest, ROOT / "zig-out/bin/affon", lambda binary, case: {})
+            audit.audit(manifest, ROOT / "cyna/affon-native/build/affon-cyna-native", lambda binary, case: {})
 
     def test_expected_path_transition(self):
         manifest = json.loads((ROOT / "test/benchmark/dispatch-boundaries.json").read_text())

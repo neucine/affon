@@ -1,13 +1,38 @@
-import std.json as std_json;
-import compute_core.lib as compute;
+import { parse } from std.json;
+import {
+    compile_for_resident_with_search_limits
+} from compute_core.compiler.resident;
+import {
+    ResidualPolicy,
+    SearchLimits,
+    default_search_limits
+} from compute_core.compiler.executable;
+import { SliceRange } from compute_core.program.operation;
+import { AbstractLayout } from compute_core.backend.layout;
+import { CpuContext } from compute_core.backend.cpu.storage;
 import {
     ComputeError,
     DType,
+    Executable,
     InputRole,
     OpTag,
     OptimizationGoal,
+    Program,
+    ProgramBuilder,
     SessionConfig,
-    StateId
+    StateId,
+    Tensor,
+    TensorSpec,
+    bf16_spec,
+    builder,
+    close_cpu_context,
+    cpu_backend,
+    cpu_context,
+    differentiate,
+    f32_spec,
+    f64_spec,
+    i64_spec,
+    u32_spec
 } from compute_core.lib;
 import .json_value as json;
 
@@ -18,11 +43,24 @@ pub struct OutputSpec {
 }
 
 pub struct CompiledGraph {
-    pub executable: compute.Executable;
+    pub executable: Executable;
     pub outputs: List<OutputSpec>;
     pub source_instruction_by_step: List<usize>;
+    pub needs_seed: bool;
+    pub dense_inputs: bool;
+    pub optimization_goal: string;
+    pub optimization_level: string;
+    pub residual_policy: ResidualPolicy;
     pub observed_run_count: usize;
     pub failed_run_count: usize;
+}
+
+pub struct CompileSettings {
+    pub optimization_level: string;
+    pub optimization_goal: string;
+    pub dense_inputs: bool;
+    pub residual_policy: ResidualPolicy;
+    pub search_limits: SearchLimits;
 }
 
 fn invalid(): ComputeError {
@@ -79,7 +117,7 @@ pub fn dtype_width(value: DType): usize {
     };
 }
 
-pub fn tensor_bytes(value: &const compute.Tensor): List<u8> {
+pub fn tensor_bytes(value: &const Tensor): List<u8> {
     var result: List<u8> = list<u8>();
     switch value.data {
         .f32(values) => {
@@ -127,25 +165,25 @@ fn dimensions(value: &const json.Value): List<usize> !ComputeError {
     throw invalid();
 }
 
-fn tensor_spec(value: &const json.Value): compute.TensorSpec ! ComputeError {
+fn tensor_spec(value: &const json.Value): TensorSpec ! ComputeError {
     if value is .object(object) {
         const dtype_text = try require_string(json.string_field(&object, "dtype"));
         if dtype(dtype_text) is selected_dtype {
             const shape_index = try require_usize(json.field_index(&object, "shape"));
             const shape = try dimensions(&object.members[shape_index].value);
             if selected_dtype == DType.f32 {
-                return try compute.f32_spec(shape[..]);
+                return try f32_spec(shape[..]);
             }
             if selected_dtype == DType.f64 {
-                return try compute.f64_spec(shape[..]);
+                return try f64_spec(shape[..]);
             }
             if selected_dtype == DType.i64 {
-                return try compute.i64_spec(shape[..]);
+                return try i64_spec(shape[..]);
             }
             if selected_dtype == DType.u32 {
-                return try compute.u32_spec(shape[..]);
+                return try u32_spec(shape[..]);
             }
-            return try compute.bf16_spec(shape[..]);
+            return try bf16_spec(shape[..]);
         }
         throw invalid();
     }
@@ -173,13 +211,72 @@ fn append_u64(output: &List<u8>, value: u64): void {
     }
 }
 
+fn round_shift(value: u64, shift: u32): u64 {
+    if shift == 0 {
+        return value;
+    }
+    if shift >= 64 {
+        return 0;
+    }
+    var result = value >> shift;
+    const mask = ((1 as u64) << shift) - 1;
+    const remainder = value & mask;
+    const halfway = (1 as u64) << (shift - 1);
+    if remainder > halfway or
+        (remainder == halfway and (result & 1) != 0) {
+        result = result + 1;
+    }
+    return result;
+}
+
+fn f32_bits(value: f64): u32 {
+    const bits = value as! u64;
+    const sign = ((bits >> 32) & 0x80000000) as u32;
+    const exponent = ((bits >> 52) & 0x7ff) as i64;
+    const fraction = bits & 0x000fffffffffffff;
+    if exponent == 0x7ff {
+        if fraction == 0 {
+            return sign | 0x7f800000;
+        }
+        return sign | 0x7fc00000;
+    }
+    if exponent == 0 {
+        return sign;
+    }
+    const significand = fraction | 0x0010000000000000;
+    var unbiased = exponent - 1023;
+    if unbiased > 127 {
+        return sign | 0x7f800000;
+    }
+    if unbiased >= -126 {
+        var rounded = round_shift(significand, 29);
+        if rounded == 0x01000000 {
+            rounded = 0x00800000;
+            unbiased = unbiased + 1;
+            if unbiased > 127 {
+                return sign | 0x7f800000;
+            }
+        }
+        const selected_exponent = ((unbiased + 127) as u32) << 23;
+        return sign | selected_exponent |
+            (rounded as u32 & 0x007fffff);
+    }
+    const subnormal_shift = 0 - (unbiased + 97);
+    if subnormal_shift < 0 or subnormal_shift >= 64 {
+        return sign;
+    }
+    return sign | (round_shift(
+        significand,
+        subnormal_shift as u32
+    ) as u32);
+}
+
 fn append_number(output: &List<u8>, selected_dtype: DType,
     value: f64
 ): void {
     switch selected_dtype {
         .f32 => {
-            const narrowed = value as f32;
-            append_u32(output, narrowed as! u32);
+            append_u32(output, f32_bits(value));
         }
         .f64 => append_u64(output, value as! u64);
         .i64 => {
@@ -191,9 +288,7 @@ fn append_number(output: &List<u8>, selected_dtype: DType,
             append_u32(output, narrowed);
         }
         .bf16 => {
-            const narrowed = value as f32;
-            const bits = narrowed as! u32;
-            append_u16(output, (bits >> 16) as u16);
+            append_u16(output, (f32_bits(value) >> 16) as u16);
         }
     }
 }
@@ -218,16 +313,32 @@ fn append_constant(output: &List<u8>, selected_dtype: DType,
     }
 }
 
-fn add_constant(builder: &compute.ProgramBuilder,
-    spec: compute.TensorSpec, value: &const json.Value
+fn add_constant(program_builder: &ProgramBuilder,
+    spec: TensorSpec, value: &const json.Value
 ): usize ! ComputeError {
     var bytes: List<u8> = list<u8>();
-    try append_constant(&bytes, spec.dtype, value);
     const count = try spec.element_count();
+    var repeated = false;
+    if value is .number(number) {
+        if count != 1 {
+            const selected = try require_number(
+                json.parse_number(number.spelling)
+            );
+            var index: usize = 0;
+            while index < count {
+                append_number(&bytes, spec.dtype, selected);
+                index = index + 1;
+            }
+            repeated = true;
+        }
+    }
+    if not repeated {
+        try append_constant(&bytes, spec.dtype, value);
+    }
     if bytes.len() != count * dtype_width(spec.dtype) {
         throw invalid();
     }
-    return try builder.add_bytes_constant(spec, bytes.view());
+    return try program_builder.add_bytes_constant(spec, bytes.view());
 }
 
 fn operand(node: &const json.Object, index: usize): usize ! ComputeError {
@@ -315,6 +426,57 @@ fn option_usizes(node: &const json.Object, key: string): ?List<usize> {
                             const maybe_value = json.parse_usize(number.spelling);
                             if maybe_value is value {
                                 result.push(value);
+                            } else {
+                                return none;
+                            }
+                        } else {
+                            return none;
+                        }
+                    }
+                    return result;
+                }
+            }
+        }
+    }
+    return none;
+}
+
+fn option_string(node: &const json.Object, key: string): ?string {
+    if json.field_index(node, "options") is options_index {
+        if node.members[options_index].value is .object(options) {
+            return json.string_field(&options, key);
+        }
+    }
+    return none;
+}
+
+fn option_slice_ranges(node: &const json.Object): ?List<SliceRange> {
+    if json.field_index(node, "options") is options_index {
+        if node.members[options_index].value is .object(options) {
+            if json.field_index(&options, "ranges") is ranges_index {
+                if options.members[ranges_index].value is .array(items) {
+                    var result: List<SliceRange> = list<SliceRange>();
+                    for item in items.items[..] {
+                        if item is .object(range) {
+                            const start = json.usize_field(&range, "start");
+                            const stop = json.usize_field(&range, "stop");
+                            if start is selected_start {
+                                if stop is selected_stop {
+                                    var step: isize = 1;
+                                    if json.usize_field(
+                                        &range,
+                                        "step"
+                                    ) is selected_step {
+                                        step = selected_step as isize;
+                                    }
+                                    result.push(SliceRange {
+                                        start: selected_start,
+                                        stop: selected_stop,
+                                        step: step
+                                    });
+                                } else {
+                                    return none;
+                                }
                             } else {
                                 return none;
                             }
@@ -463,7 +625,7 @@ fn axis_reduction_tag(operation: string): ?OpTag {
     return none;
 }
 
-fn add_operation(builder: &compute.ProgramBuilder, node: &const json.Object,
+fn add_operation(builder: &ProgramBuilder, node: &const json.Object,
     mapped: []const usize
 ): usize ! ComputeError {
     const operation = try require_string(json.string_field(node, "op"));
@@ -553,6 +715,15 @@ fn add_operation(builder: &compute.ProgramBuilder, node: &const json.Object,
         return try builder.add_contiguous(
             try mapped_id(mapped, try operand(node, 0))
         );
+    }
+    if operation == "slice" {
+        if option_slice_ranges(node) is ranges {
+            return try builder.add_slice(
+                try mapped_id(mapped, try operand(node, 0)),
+                ranges[..]
+            );
+        }
+        throw invalid();
     }
     if operation == "cast" {
         const spec_index = try require_usize(json.field_index(node, "spec"));
@@ -687,18 +858,16 @@ fn add_operation(builder: &compute.ProgramBuilder, node: &const json.Object,
 }
 
 fn build_program(document: &const json.Value,
-    source_instruction_by_step: &List<usize>
-): compute.Program ! ComputeError {
+    source_instruction_by_step: &List<usize>, mapped: &List<usize>,
+    selected_outputs: ?[]const usize
+): Program ! ComputeError {
     if document is .object(program) {
         const nodes_index = try require_usize(json.field_index(&program, "nodes"));
         if program.members[nodes_index].value is .array(nodes) {
-            var builder = compute.builder();
-            var mapped: List<usize> = list<usize>();
-            var node_index: usize = 0;
-            while node_index < nodes.items.len() {
-                mapped.push((0 as usize) -% 1);
-                node_index = node_index + 1;
+            if mapped.len() != nodes.items.len() {
+                throw invalid();
             }
+            var program_builder = builder();
             var state_sequence: u64 = 0;
             for node in nodes.items[..] {
                 if node is .object(value) {
@@ -714,7 +883,7 @@ fn build_program(document: &const json.Value,
                     const spec = try tensor_spec(&value.members[spec_index].value);
                     if json.string_field(&value, "role") is role {
                         if role == "argument" {
-                            mapped[id] = builder.add_input(spec);
+                            mapped[id] = program_builder.add_input(spec);
                             continue;
                         }
                         if role == "parameter" or role == "state" {
@@ -722,7 +891,7 @@ fn build_program(document: &const json.Value,
                             if role == "parameter" {
                                 selected_role = InputRole.parameter;
                             }
-                            mapped[id] = try builder.add_state_input(
+                            mapped[id] = try program_builder.add_state_input(
                                 spec, selected_role,
                                 StateId.from_int(state_sequence)
                             );
@@ -731,34 +900,155 @@ fn build_program(document: &const json.Value,
                         }
                         if role == "constant" {
                             const value_index = try require_usize(json.field_index(&value, "value"));
-                            mapped[id] = try add_constant(&builder, spec,
+                            mapped[id] = try add_constant(&program_builder, spec,
                                 &value.members[value_index].value
                             );
                             continue;
                         }
                         throw invalid();
                     }
-                    const instruction = builder.instruction_count();
-                    mapped[id] = try add_operation(&builder, &value, mapped.view());
-                    while source_instruction_by_step.len() < builder.instruction_count() {
+                    const instruction = program_builder.instruction_count();
+                    mapped[id] = try add_operation(
+                        &program_builder,
+                        &value,
+                        mapped.view()
+                    );
+                    while source_instruction_by_step.len() <
+                        program_builder.instruction_count() {
                         source_instruction_by_step.push(instruction);
                     }
                 } else {
                     throw invalid();
                 }
             }
-            const outputs_index = try require_usize(json.field_index(&program, "outputs"));
-            if program.members[outputs_index].value is .array(outputs) {
-                var selected: List<usize> = list<usize>();
-                for output in outputs.items[..] {
-                    if output is .number(number) {
-                        const source = try require_usize(json.parse_usize(number.spelling));
-                        selected.push(try mapped_id(mapped.view(), source));
-                    } else {
-                        throw invalid();
+            var selected: List<usize> = list<usize>();
+            if selected_outputs is outputs {
+                for output in outputs[..] {
+                    selected.push(try mapped_id(mapped.view(), output));
+                }
+            } else {
+                const outputs_index = try require_usize(
+                    json.field_index(&program, "outputs")
+                );
+                if program.members[outputs_index].value is .array(outputs) {
+                    for output in outputs.items[..] {
+                        if output is .number(number) {
+                            const source = try require_usize(
+                                json.parse_usize(number.spelling)
+                            );
+                            selected.push(try mapped_id(
+                                mapped.view(),
+                                source
+                            ));
+                        } else {
+                            throw invalid();
+                        }
+                    }
+                } else {
+                    throw invalid();
+                }
+            }
+            return try program_builder.finish(selected.view());
+        }
+    }
+    throw invalid();
+}
+
+fn node_count(document: &const json.Value): usize !ComputeError {
+    if document is .object(program) {
+        const nodes_index = try require_usize(
+            json.field_index(&program, "nodes")
+        );
+        if program.members[nodes_index].value is .array(nodes) {
+            return nodes.items.len();
+        }
+    }
+    throw invalid();
+}
+
+fn gradient_count(document: &const json.Value): usize !ComputeError {
+    if document is .object(program) {
+        const nodes_index = try require_usize(
+            json.field_index(&program, "nodes")
+        );
+        if program.members[nodes_index].value is .array(nodes) {
+            var count: usize = 0;
+            for node in nodes.items[..] {
+                if node is .object(value) {
+                    if json.string_field(&value, "kind") is kind {
+                        if kind == "gradient" {
+                            count = count + 1;
+                        }
                     }
                 }
-                return try builder.finish(selected.view());
+            }
+            return count;
+        }
+    }
+    throw invalid();
+}
+
+fn gradient_loss_id(document: &const json.Value): usize !ComputeError {
+    if document is .object(program) {
+        const nodes_index = try require_usize(
+            json.field_index(&program, "nodes")
+        );
+        if program.members[nodes_index].value is .array(nodes) {
+            for node in nodes.items[..] {
+                if node is .object(value) {
+                    if json.string_field(&value, "kind") is kind {
+                        if kind == "gradient" {
+                            return try operand(&value, 0);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    throw invalid();
+}
+
+fn gradient_target_id(document: &const json.Value,
+    ordinal: usize
+): usize !ComputeError {
+    if document is .object(program) {
+        const nodes_index = try require_usize(
+            json.field_index(&program, "nodes")
+        );
+        if program.members[nodes_index].value is .array(nodes) {
+            var current: usize = 0;
+            var provenance: ?string = none;
+            for node in nodes.items[..] {
+                if node is .object(value) {
+                    if json.string_field(&value, "kind") is kind {
+                        if kind == "gradient" {
+                            if current == ordinal {
+                                provenance = option_string(
+                                    &value,
+                                    "with_respect_to"
+                                );
+                                break;
+                            }
+                            current = current + 1;
+                        }
+                    }
+                }
+            }
+            if provenance is selected {
+                for node in nodes.items[..] {
+                    if node is .object(value) {
+                        if json.string_field(
+                            &value,
+                            "provenance"
+                        ) is candidate {
+                            if candidate == selected {
+                                return try require_usize(
+                                    json.usize_field(&value, "id")
+                                );
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -778,12 +1068,187 @@ fn goal(value: string): OptimizationGoal {
     return OptimizationGoal.balanced;
 }
 
+fn program_kind(document: &const json.Value): string !ComputeError {
+    if document is .object(program) {
+        return try require_string(json.string_field(&program, "kind"));
+    }
+    throw invalid();
+}
+
+fn compile_settings(options_json: ?string): CompileSettings {
+    var result = CompileSettings {
+        optimization_level: "safe",
+        optimization_goal: "balanced",
+        dense_inputs: false,
+        residual_policy: ResidualPolicy.retain,
+        search_limits: default_search_limits()
+    };
+    if options_json is text {
+        const document = parse(text) catch (error_code) {
+            const ignored = error_code;
+            return result;
+        };
+        if document is .object(options) {
+            if json.string_field(&options, "optimizationLevel") is level {
+                result.optimization_level = level;
+            }
+            if json.string_field(&options, "optimizationGoal") is selected_goal {
+                result.optimization_goal = selected_goal;
+            }
+            result.dense_inputs = json.bool_field(
+                &options,
+                "denseInputs",
+                false
+            );
+            if json.string_field(&options, "residualPolicy") is policy {
+                if policy == "automatic" {
+                    result.residual_policy = ResidualPolicy.automatic;
+                } else if policy == "recompute" {
+                    result.residual_policy = ResidualPolicy.recompute;
+                }
+            }
+            if json.field_index(&options, "searchLimits") is limits_index {
+                if options.members[limits_index].value is .object(limits) {
+                    if json.usize_field(
+                        &limits,
+                        "structuralStates"
+                    ) is value {
+                        result.search_limits.structural_states = value;
+                    }
+                    if json.usize_field(
+                        &limits,
+                        "structuralExpansions"
+                    ) is value {
+                        result.search_limits.structural_expansions = value;
+                    }
+                    if json.usize_field(
+                        &limits,
+                        "completeEvaluations"
+                    ) is value {
+                        result.search_limits.complete_evaluations = value;
+                    }
+                    if json.usize_field(
+                        &limits,
+                        "physicalWork"
+                    ) is value {
+                        result.search_limits.physical_work = value;
+                    }
+                    if json.usize_field(
+                        &limits,
+                        "readyWork"
+                    ) is value {
+                        result.search_limits.ready_work = value;
+                    }
+                    if json.usize_field(
+                        &limits,
+                        "maxPeakActiveBytes"
+                    ) is value {
+                        result.search_limits.max_peak_active_bytes = value;
+                    }
+                    if json.usize_field(
+                        &limits,
+                        "maxInvocationScratchBytes"
+                    ) is value {
+                        result.search_limits.max_invocation_scratch_bytes =
+                            value;
+                    }
+                }
+            }
+        }
+    }
+    return result;
+}
+
 pub fn compile_program(document: &const json.Value,
-    optimization_goal: string
+    options_json: ?string
 ): CompiledGraph ! ComputeError {
     var source_instruction_by_step: List<usize> = list<usize>();
-    const program = try build_program(document, &source_instruction_by_step);
-    const executable = try compute.compile_with_goal(program, goal(optimization_goal));
+    var mapped: List<usize> = list<usize>();
+    const node_total = try node_count(document);
+    var node_index: usize = 0;
+    while node_index < node_total {
+        mapped.push((0 as usize) -% 1);
+        node_index = node_index + 1;
+    }
+    var needs_seed = false;
+    var loss_id: usize = 0;
+    var loss_outputs: [1]usize = [0];
+    var selected_outputs: ?[]const usize = none;
+    const kind = try program_kind(document);
+    if kind == "gradient" {
+        loss_id = try gradient_loss_id(document);
+        loss_outputs[0] = loss_id;
+        const frozen_loss_outputs: []const usize = loss_outputs[..];
+        selected_outputs = frozen_loss_outputs;
+    }
+    var program = try build_program(
+        document,
+        &source_instruction_by_step,
+        &mapped,
+        selected_outputs
+    );
+    if kind == "gradient" {
+        const derivative_count = try gradient_count(document);
+        if derivative_count == 0 {
+            throw invalid();
+        }
+        var targets: List<usize> = list<usize>();
+        var derivative_index: usize = 0;
+        while derivative_index < derivative_count {
+            const source = try gradient_target_id(
+                document,
+                derivative_index
+            );
+            targets.push(try mapped_id(mapped.view(), source));
+            derivative_index = derivative_index + 1;
+        }
+        var derivative = try differentiate(
+            &program,
+            try mapped_id(mapped.view(), loss_id),
+            targets[..]
+        );
+        program = derivative.into_program();
+        needs_seed = true;
+    } else if kind != "authored" {
+        throw invalid();
+    }
+    while source_instruction_by_step.len() < program.instructions.len() {
+        source_instruction_by_step.push(source_instruction_by_step.len());
+    }
+    const settings = compile_settings(options_json);
+    var layouts: List<AbstractLayout> = list<AbstractLayout>();
+    if settings.dense_inputs {
+        var input_index: usize = 0;
+        while input_index < program.inputs.len() {
+            layouts.push(AbstractLayout.dense);
+            input_index = input_index + 1;
+        }
+    }
+    var selected_layouts: ?[]const AbstractLayout = none;
+    const frozen_layouts = layouts;
+    if settings.dense_inputs {
+        selected_layouts = frozen_layouts[..];
+    }
+    var selected_goal = goal(settings.optimization_goal);
+    if settings.optimization_level == "none" {
+        selected_goal = OptimizationGoal.baseline;
+    }
+    var contexts: [1]CpuContext = [cpu_context()];
+    defer close_cpu_context(contexts[..].ptr);
+    const backend = cpu_backend(contexts[..].ptr);
+    const executable = try compile_for_resident_with_search_limits(
+        program,
+        selected_goal,
+        &backend,
+        selected_layouts,
+        settings.residual_policy,
+        settings.search_limits
+    );
+    if settings.search_limits.max_peak_active_bytes is maximum {
+        if executable.schedule.peak_active_bytes > maximum {
+            throw ComputeError.unsupported_resource;
+        }
+    }
     var outputs: List<OutputSpec> = list<OutputSpec>();
     for binding in executable.graph.output_bindings[..] {
         const value = &executable.graph.values[binding];
@@ -798,6 +1263,11 @@ pub fn compile_program(document: &const json.Value,
         executable: executable,
         outputs: outputs,
         source_instruction_by_step: source_instruction_by_step,
+        needs_seed: needs_seed,
+        dense_inputs: settings.dense_inputs,
+        optimization_goal: settings.optimization_goal,
+        optimization_level: settings.optimization_level,
+        residual_policy: settings.residual_policy,
         observed_run_count: 0,
         failed_run_count: 0,
     };

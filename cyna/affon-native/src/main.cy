@@ -1,248 +1,292 @@
-import std.json;
 import compute_core.lib as compute;
 import hao.native_api as hao;
-import .graph;
-import .json_value as fields;
-import .wire;
+import { Runtime } from hao.runtime;
+import { read_file_limited, script_read_error } from hao.fs;
+import { exists } from std.fs;
+import { write_stderr } from hao.stderr;
+import { install_from as install_std } from hao.std;
+import { collect, sort } from hao.std.test_files;
+import { args, env_get } from std.process;
+import { join } from std.path;
+import .native_module;
 
-fn error_response(message: string): void ! wire.WireError {
-    const empty: [0]u8 = [];
-    var writer = wire.json_writer();
-    writer.raw("{\"ok\":false,\"error\":");
-    writer.string(message.bytes());
-    writer.raw("}");
-    try wire.write_frame(writer.finish(), empty[..]);
-}
+const version = "0.4.2";
 
-fn error_code_response(message: string, code: string): void ! wire.WireError {
-    const empty: [0]u8 = [];
-    var writer = wire.json_writer();
-    writer.raw("{\"ok\":false,\"error\":");
-    writer.string(message.bytes());
-    writer.raw(",\"code\":");
-    writer.string(code.bytes());
-    writer.raw("}");
-    try wire.write_frame(writer.finish(), empty[..]);
-}
-
-fn success_response(payload: []const u8): void ! wire.WireError {
-    try wire.write_frame("{\"ok\":true}", payload);
-}
-
-fn dtype_name(value: compute.DType): string {
-    return switch value {
-        .f32 => "f32";
-        .f64 => "f64";
-        .i64 => "i64";
-        .u32 => "u32";
-        .bf16 => "bf16";
-    };
-}
-
-fn input_bytes(compiled: &const graph.CompiledGraph,
-    payload: []const u8
-): ?List<compute.Tensor> {
-    var inputs: List<compute.Tensor> = list<compute.Tensor>();
-    var offset: usize = 0;
-    for guard in compiled.executable.input_guards[..] {
-        const spec = guard.spec;
-        const count = spec.element_count() catch (code) {
-            return none;
-        };
-        const bytes = count * graph.dtype_width(spec.dtype);
-        if bytes > payload.len() - offset {
-            return none;
-        }
-        var owned_spec = compute.f32_spec(spec.dimensions[..])
-        catch (code) {
-            return none;
-        };
-        owned_spec.dtype = spec.dtype;
-        const value = compute.tensor_bytes(owned_spec, payload[offset..offset + bytes])
-        catch (code) {
-            return none;
-        };
-        inputs.push(value);
-        offset = offset + bytes;
-    }
-    if offset != payload.len() {
-        return none;
-    }
-    return inputs;
-}
-
-fn run_graph(compiled: &const graph.CompiledGraph,
-    payload: []const u8
-): bool ! wire.WireError {
-    if input_bytes(compiled, payload) is inputs {
-        const outputs = compute.run(&compiled.executable, inputs[..])
-        catch (code) {
-            try error_code_response("compute run failed", "InvalidCommand");
-            return false;
-        };
-        var bytes: List<u8> = list<u8>();
-        for output in outputs[..] {
-            const encoded = graph.tensor_bytes(&output);
-            for byte in encoded[..] {
-                bytes.push(byte);
-            }
-        }
-        try success_response(bytes.view());
-        return true;
-    }
-    try error_code_response("input byte count or tensor spec mismatch",
-        "InvalidShape"
+fn usage(): void {
+    write_stderr(
+        "Usage:\n  affon <file.ts|file.js>\n  affon run <file.ts|file.js>\n  affon test [--grep pattern] <file.ts|directory>...\n  affon --version\n"
     );
-    return false;
 }
 
-struct Driver {
-    current: ?graph.CompiledGraph;
-    observed_run_count: usize;
-    failed_run_count: usize;
+fn join2(root: string, child: string): string {
+    const parts: [2]string = [root.clone(), child];
+    return join(parts[..]);
 }
 
-fn evidence(state: &const Driver): void ! wire.WireError {
-    const empty: [0]u8 = [];
-    var writer = wire.json_writer();
-    writer.raw("{\"ok\":true,\"backend\":\"cyna_cpu\",\"run_count\":");
-    writer.usize(state.observed_run_count);
-    writer.raw(",\"failed_run_count\":");
-    writer.usize(state.failed_run_count);
-    writer.raw(",\"output_count\":");
-    var output_count: usize = 0;
-    if state.current is compiled {
-        output_count = compiled.outputs.len();
+fn source_root_at(candidate: string): ?string {
+    const probe = join2(candidate.clone(), "src/js/compute/public.ts");
+    if exists(probe) catch (code) => false {
+        return candidate;
     }
-    writer.usize(output_count);
-    writer.raw("}");
-    try wire.write_frame(writer.finish(), empty[..]);
+    return none;
 }
 
-fn dispatch(document: &const json.Value, payload: []const u8,
-    state: &Driver
-): bool ! wire.WireError {
-    const empty: [0]u8 = [];
-    if document is .object(request) {
-        if fields.string_field(&request, "command") is command {
-            if command == "shutdown" {
-                try success_response(empty[..]);
-                return false;
-            }
-            if command == "compile" {
-                if fields.field_index(&request, "program") is index {
-                    var goal = "balanced";
-                    if fields.string_field(&request, "goal") is requested_goal {
-                        goal = requested_goal;
-                    }
-                    const next = graph.compile_program(&request.members[index].value, goal)
-                    catch (code) {
-                        try error_response("compute compilation failed");
-                        return true;
-                    };
-                    const output_count = next.outputs.len();
-                    state.current = next;
-                    var writer = wire.json_writer();
-                    writer.raw("{\"ok\":true,\"input_count\":");
-                    if state.current is compiled {
-                        writer.usize(compiled.executable.input_guards.len());
-                    } else {
-                        writer.usize(0);
-                    }
-                    writer.raw(",\"outputs\":[");
-                    var output_index: usize = 0;
-                    if state.current is compiled {
-                        while output_index < output_count {
-                            if output_index != 0 {
-                                writer.raw(",");
-                            }
-                            const output = &compiled.outputs[output_index];
-                            writer.raw("{\"dtype\":\"");
-                            writer.raw(dtype_name(output.dtype));
-                            writer.raw("\",\"shape\":[");
-                            var dimension_index: usize = 0;
-                            while dimension_index < output.dimensions.len() {
-                                if dimension_index != 0 {
-                                    writer.raw(",");
-                                }
-                                writer.usize(output.dimensions[dimension_index]);
-                                dimension_index = dimension_index + 1;
-                            }
-                            writer.raw("]}");
-                            output_index = output_index + 1;
-                        }
-                    }
-                    writer.raw("],\"output_count\":");
-                    writer.usize(output_count);
-                    writer.raw("}");
-                    try wire.write_frame(writer.finish(), empty[..]);
-                    return true;
-                }
-                try error_response("missing program");
-                return true;
-            }
-            if state.current is compiled {
-                if command == "run" {
-                    const succeeded = try run_graph(&compiled, payload);
-                    if succeeded {
-                        state.observed_run_count = state.observed_run_count + 1;
-                    } else {
-                        state.failed_run_count = state.failed_run_count + 1;
-                    }
-                    return true;
-                }
-                if command == "evidence" {
-                    try evidence(state);
-                    return true;
-                }
-            }
-            try error_response("unknown command or no compiled graph");
-            return true;
+fn source_root(): ?string {
+    if env_get("AFFON_ROOT") is configured {
+        if source_root_at(configured.clone()) is root {
+            return root;
         }
     }
-    try error_response("invalid request");
-    return true;
+    if env_get("PWD") is current {
+        if source_root_at(current.clone()) is root {
+            return root;
+        }
+        var cursor = current.clone();
+        var depth: usize = 0;
+        while depth < 8 {
+            cursor = join2(cursor, "..");
+            if source_root_at(cursor.clone()) is root {
+                return root;
+            }
+            depth = depth + 1;
+        }
+    }
+    return none;
+}
+
+fn hao_modules_root(root: string): ?string {
+    var candidate = join2(root.clone(), "../hao/build/modules");
+    if exists(candidate.clone()) catch (code) => false {
+        return candidate;
+    }
+    candidate = join2(root.clone(), "../hao/src/.cyna-cache/modules");
+    if exists(candidate.clone()) catch (code) => false {
+        return candidate;
+    }
+    return none;
+}
+
+fn register_file(runtime: &const Runtime, root: string, specifier: string,
+    relative_path: string
+): i32 {
+    const path = join2(root.clone(), relative_path);
+    const source = read_file_limited(path.clone(), 32 * 1024 * 1024);
+    if source is content {
+        return runtime.register_source_module(specifier, content);
+    }
+    const reason = script_read_error(path, 32 * 1024 * 1024);
+    if reason == 2 {
+        write_stderr("error: source path is too long\n");
+    } else if reason == 1 {
+        write_stderr("error: source file is too large\n");
+    } else if reason == 0 {
+        write_stderr("error: source file is missing\n");
+    } else {
+        write_stderr("error: source file could not be read\n");
+    }
+    return 1;
+}
+
+fn register_affon(runtime: &const Runtime, root: string): i32 {
+    const errors_path = join2(root.clone(), "src/js/errors-global.js");
+    const errors_source = read_file_limited(errors_path, 32 * 1024 * 1024);
+    if errors_source is source {
+        if runtime.register_source_module(
+            "affon:errors",
+            $"{source}\nexport const AffonError = globalThis.AffonError;\nexport default AffonError;\n"
+        ) != 0 {
+            return 1;
+        }
+    } else {
+        return 1;
+    }
+    if runtime.register_source_module(
+        "affon:runtime",
+        $"import 'affon:errors';\nexport const name = \"affon\";\nexport const version = \"{version}\";\n"
+    ) != 0 {
+        return 1;
+    }
+    if register_file(runtime, root.clone(), "affon:core",
+        "src/js/compute/public.ts"
+    ) != 0 { return 1; }
+    if register_file(runtime, root.clone(), "affon:_internal/compute/program",
+        "src/js/compute/program.ts"
+    ) != 0 { return 1; }
+    if register_file(runtime, root.clone(), "affon:ops", "src/js/ops.ts") != 0 {
+        return 1;
+    }
+    if register_file(runtime, root.clone(), "affon:nn", "src/js/nn.ts") != 0 {
+        return 1;
+    }
+    if register_file(runtime, root.clone(), "affon:optim", "src/js/optim.ts") != 0 {
+        return 1;
+    }
+    if register_file(runtime, root.clone(), "affon:core/persistence.ts",
+        "src/js/compute/persistence.ts"
+    ) != 0 { return 1; }
+    if register_file(runtime, root.clone(), "affon:checkpoint",
+        "src/js/checkpoint/index.ts"
+    ) != 0 { return 1; }
+    if register_file(runtime, root.clone(), "affon:dataset",
+        "src/js/dataset/index.ts"
+    ) != 0 { return 1; }
+    if register_file(runtime, root.clone(), "affon:dataset/tabular.ts",
+        "src/js/dataset/tabular.ts"
+    ) != 0 { return 1; }
+    if register_file(runtime, root.clone(), "affon:dataset/text.ts",
+        "src/js/dataset/text.ts"
+    ) != 0 { return 1; }
+    if register_file(runtime, root.clone(), "affon:dataset/text_io.ts",
+        "src/js/dataset/text_io.ts"
+    ) != 0 { return 1; }
+    if register_file(runtime, root.clone(), "affon:dataset/text_loader.ts",
+        "src/js/dataset/text_loader.ts"
+    ) != 0 { return 1; }
+    if register_file(runtime, root.clone(), "affon:dataset/text_utils.ts",
+        "src/js/dataset/text_utils.ts"
+    ) != 0 { return 1; }
+    if register_file(runtime, root.clone(), "affon:dataset/token_windows.ts",
+        "src/js/dataset/token_windows.ts"
+    ) != 0 { return 1; }
+    return register_file(runtime, root, "affon:dataset/tokenizer.ts",
+        "src/js/dataset/tokenizer.ts"
+    );
+}
+
+fn run_file(runtime: &const Runtime, path: string, test_file: bool): i32 {
+    const source = read_file_limited(path.clone(), 32 * 1024 * 1024);
+    if source is content {
+        if test_file {
+            return runtime.eval_test(content, path);
+        }
+        return runtime.eval(content, path);
+    }
+    return 1;
+}
+
+fn run_tests(runtime: &const Runtime, arguments: List<string>): i32 {
+    var grep = "";
+    var paths: List<string> = list<string>();
+    var index: usize = 2;
+    while index < arguments.len() {
+        if arguments[index] == "--grep" {
+            if index + 1 >= arguments.len() {
+                usage();
+                return 2;
+            }
+            grep = arguments[index + 1].clone();
+            index = index + 2;
+        } else {
+            paths.push(arguments[index].clone());
+            index = index + 1;
+        }
+    }
+    if paths.len() == 0 {
+        usage();
+        return 2;
+    }
+    var files: List<string> = list<string>();
+    for path in paths[..] {
+        if collect(path.clone(), &files) != 0 {
+            write_stderr("Unable to discover test files\n");
+            return 1;
+        }
+    }
+    sort(&files);
+    if runtime.eval(
+        "globalThis.__hao_test_started_ns = __hao_telemetry_monotonicNs();",
+        "<affon-test-timing>"
+    ) != 0 { return 1; }
+    if runtime.eval("import 'std:test';", "<affon-test-setup>") != 0 {
+        return 1;
+    }
+    var loaded: usize = 0;
+    var failures: usize = 0;
+    for path in files[..] {
+        const status = run_file(runtime, path.clone(), true);
+        if status != 0 or runtime.drain_test_jobs(path.clone()) < 0 {
+            failures = failures + 1;
+        } else {
+            loaded = loaded + 1;
+        }
+    }
+    if runtime.set_test_file_counts(loaded, failures, files.len()) != 0 {
+        return 1;
+    }
+    if runtime.start_tests(grep) != 0 {
+        return 1;
+    }
+    if runtime.run_until_idle() != 0 {
+        return 1;
+    }
+    if failures != 0 or runtime.test_failures() != 0 {
+        return 1;
+    }
+    return 0;
 }
 
 fn main(): i32 {
     if compute.api_version() != 1 or hao.api_version() != 1 {
         return 2;
     }
-    var state = Driver {
-        current: none,
-        observed_run_count: 0,
-        failed_run_count: 0
-    };
-    while true {
-        const frame = wire.read_frame() catch (code) {
-            return 3;
-        };
-        if frame is none {
-            break;
-        }
-        const bytes = frame as List<u8>;
-        if wire.metadata_length(bytes[..]) is metadata_length {
-            const metadata = json.parse_bytes(bytes[4..4 + metadata_length])
-            catch (code) {
-                error_response("invalid JSON metadata") catch (write_code) {
-                    return 4;
-                };
-                continue;
-            };
-            const keep_running = dispatch(&metadata,
-                bytes[4 + metadata_length..], &state
-            )
-            catch (code) {
-                return 5;
-            };
-            if not keep_running {
-                break;
-            }
-        } else {
-            error_response("invalid frame") catch (code) {
-                return 6;
-            };
-        }
+    const arguments = args();
+    if arguments.len() < 2 {
+        usage();
+        return 2;
     }
-    return 0;
+    if arguments.len() == 2 and
+        (arguments[1] == "--version" or arguments[1] == "version") {
+        print($"affon {version}\n");
+        return 0;
+    }
+    const root = source_root();
+    if root is root_path {
+        const runtime = Runtime.init();
+        if runtime is host {
+            defer host.deinit();
+            const modules_root = hao_modules_root(root_path);
+            if modules_root is modules_path {
+                if install_std(&host, modules_path) != 0 {
+                    write_stderr("Unable to install Hao standard modules\n");
+                    return 1;
+                }
+                if native_module.register(&host) != 0 {
+                    write_stderr("Unable to register the Affon Cyna native module\n");
+                    return 1;
+                }
+                if register_affon(&host, root_path) != 0 {
+                    return 1;
+                }
+                if arguments[1] == "test" {
+                    return run_tests(&host, arguments);
+                }
+                if arguments[1] == "run" {
+                    if arguments.len() != 3 {
+                        usage();
+                        return 2;
+                    }
+                    if run_file(&host, arguments[2].clone(), false) != 0 {
+                        return 1;
+                    }
+                } else {
+                    if arguments.len() != 2 {
+                        usage();
+                        return 2;
+                    }
+                    if run_file(&host, arguments[1].clone(), false) != 0 {
+                        return 1;
+                    }
+                }
+                return host.run_until_idle();
+            }
+            write_stderr("Unable to find Hao standard modules\n");
+            return 1;
+        }
+        write_stderr("Unable to initialize the Hao runtime\n");
+        return 1;
+    }
+    write_stderr(
+        "Unable to find Affon source modules; set AFFON_ROOT or run from the Affon checkout\n"
+    );
+    return 1;
 }

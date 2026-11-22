@@ -476,7 +476,7 @@ def run_one(binary, case):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--binary", type=Path, default=ROOT / "zig-out/bin/affon")
+    parser.add_argument("--binary", type=Path, default=ROOT / "cyna/affon-native/build/affon-cyna-native")
     parser.add_argument("--catalog", type=Path, default=ROOT / "test/benchmark/capability-probes.json")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--backend", choices=["cpu", "metal", "cuda"])
@@ -487,7 +487,7 @@ def main():
     if not args.binary.is_file():
         parser.error(f"binary missing: {args.binary}")
     report = {"schema_version": 1, "suite": "affon_capability_probe_run", "platform": platform.platform(),
-              "zig_version": subprocess.check_output(["zig", "version"], text=True).strip(),
+              "cyna_version": subprocess.check_output(["cyna", "version"], text=True).strip(),
               "affon_git_head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
               "affon_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).strip()),
               "binary_sha256": hashlib.sha256(args.binary.read_bytes()).hexdigest(),

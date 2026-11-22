@@ -9,12 +9,13 @@
 </p>
 
 <p align="center">
-  A TypeScript runtime for scientific computing and machine learning
+Cyna-hosted TypeScript runtime for scientific computing and machine learning
 </p>
 
 ---
 
-Affon is a TypeScript runtime for scientific computing and machine learning.
+Affon is a Cyna-native runtime for TypeScript scientific computing and machine
+learning.
 
 You define a computation as a **Program**: its inputs, parameters, and operations.
 You can inspect that definition, derive a training step from it, and run it in a
@@ -56,6 +57,15 @@ Get the example and run it from the repository root:
 git clone https://github.com/neucine/affon.git
 cd affon
 ```
+
+Build the development runtime from source with a Cyna toolchain:
+
+```bash
+cyna build cyna/affon-native
+AFFON_ROOT="$PWD" cyna/affon-native/build/affon-cyna-native examples/first-program.ts
+```
+
+The hosted `affon` command runs the same example:
 
 ```bash
 affon examples/first-program.ts

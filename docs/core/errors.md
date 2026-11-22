@@ -37,7 +37,7 @@ can recover meaningfully; otherwise preserve the original error and stack.
 | `message` | `string` | Human-readable context |
 | `code` | `AffonErrorCode` | Stable error category |
 | `stack` | `string` or `undefined` | JavaScript stack |
-| `nativeStack` | `string` or `undefined` | Optional Zig backtrace |
+| `nativeStack` | `string` or `undefined` | Optional native backtrace |
 
 Common codes include `invalid_arg`, `missing_arg`, `shape_mismatch`,
 `invalid_shape`, `invalid_dtype`, `device_mismatch`, `out_of_memory`, and

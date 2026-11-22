@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-AFFON_BIN="${1:-$ROOT/zig-out/bin/affon}"
+AFFON_BIN="${1:-$ROOT/cyna/affon-native/build/affon-cyna-native}"
 
 export RUNTIME_PACKAGE_PATH="${RUNTIME_PACKAGE_PATH:-$ROOT/packages}"
 

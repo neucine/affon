@@ -394,7 +394,7 @@ def one(binary, case, iterations, samples, rounds, target, kind="operator_peer")
 def main():
     import torch
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--binary", type=Path, default=ROOT / "zig-out/bin/affon")
+    parser.add_argument("--binary", type=Path, default=ROOT / "cyna/affon-native/build/affon-cyna-native")
     parser.add_argument("--catalog", type=Path, default=ROOT / "test/benchmark/capability-probes.json")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--only", help="Comma-separated case IDs")

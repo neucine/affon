@@ -1,82 +1,30 @@
-# Cyna compute core integration probe
+# Cyna compute core integration
 
 Affon has a Cyna-native integration gate at `cyna/affon-native`. Its manifest
-imports sibling `compute-core` and Hao packages directly. The bridge builds a
-real Compute Program, executes it on the Cyna CPU backend, and calls Hao's
-native package surface without linking either project's C ABI. Run it with:
+imports sibling `compute-core` and Hao packages directly. The executable builds
+Compute Programs, executes them on the Cyna CPU backend, and calls Hao's native
+package surface without linking either project through a C ABI. Build it with:
 
 ```sh
-zig build test-cyna-native
+cyna build cyna/affon-native
 ```
 
-This is the migration boundary for Affon. The host can launch the Cyna
-executable during the staged migration while the existing TypeScript API stays
-in place. The first protocol is deliberately small and proves package loading,
-one Cyna runtime, Compute Program execution, and the Hao dependency together.
-`compute-core` exposes the generic native entry through `src/lib.cy`, and Hao
-exposes `src/native_api.cy`. Affon's bridge combines those package APIs and is
-the place where the TypeScript-facing runtime is wired.
+This executable is Affon's normal entry path. `compute-core` exposes the
+generic native entry through `src/lib.cy`, and Hao exposes
+`src/native_api.cy`. Affon's Cyna host combines those package APIs with Hao's
+embedded QuickJS runtime and registers the TypeScript-facing native module
+directly.
 
-The public TypeScript execution path now crosses this Cyna-native bridge for
-CPU Programs that do not request telemetry capture. Affon keeps one child
-process and compiled graph alive per executable, sends length-delimited
-compile, run, evidence, and shutdown requests, and reconstructs output tensors
-from the returned bytes and Compute Core tensor specs. Telemetry-enabled
-executions and Programs whose public outputs must retain a structural view
-layout continue to use the in-process adapter. Zig remains the host,
-explanation, and fallback implementation; it is not the intended normal CPU
-compute backend.
-
-The remaining sections describe the earlier isolated Zig adapter and its C ABI
-gate. They remain available while the public CPU Session is moved from the
-in-process adapter to the native process boundary.
-
-Affon has an isolated Zig adapter for the Cyna `compute-core` matmul, bias,
-and GELU C ABI, the f32 quantized matmul C ABI, rank-two f32 reductions, and
-a synchronous shaped f32 graph ABI. The graph adapter accepts typed input
-shapes and steps, packs the C arrays, and supports selected outputs of
-different shapes. Its current operations are binary arithmetic, abs, neg,
-ReLU, sign, exp, log, sqrt, sigmoid, SiLU, tanh, erf, GELU, sin, cos, matmul,
-whole or axis sum and mean, and axis softmax or log softmax. The caller supplies a flat
-output buffer with the total selected element count. Rank-zero inputs have an
-empty shape and one value. Callers can choose the baseline or memory compiler
-goal; the memory goal can fuse eligible multiply plus add steps.
-The reduction adapter covers whole or axis sum, mean, min, max, population
-variance, and standard deviation. The quantized path accepts
-packed u32 weights with 2, 4, or 8 bits per weight and per-group f32 scales
-and biases. The adapter accepts caller-owned slices, checks shapes and
-overflow before the call, and maps C ABI status codes to Zig errors. Invalid
-input lengths leave the output slice unchanged.
-
-Run `./test/check-compute-core-cyna.sh` on Apple AArch64 with sibling
-`compute-core` and an installed Cyna toolchain. The script builds the Cyna
-static library, links it into a Zig test, and checks Affon's reference outputs
-and invalid-shape behavior, including the selected Zig R01 quantized fixture
-whole or axis reduction values, and a matmul followed by two reductions.
-
-Affon can create a persistent dense CPU graph with `createDenseGraphHandle`,
-run it with packed input bytes, read cache hit and miss counts, and release it
-with `deinit`. Input shapes and dtypes are fixed at creation. Each run needs
-the same input byte count and a correctly sized output buffer. A failed run
-leaves the output buffer unchanged. The linked gate checks two runs, one cache
-miss followed by one hit, a short output buffer, and cleanup.
-
-The same graph owner can create a CPU tensor from bytes for one graph input,
-read its bytes, and release it. Each tensor token carries the owning session,
-slot, and generation. A token from another graph or a released slot is rejected
-before reading or writing the caller's buffer.
-
-The owner can pass input tokens to `runTensors` and receive one token per
-selected output. Each output stays resident until the caller reads or releases
-it. Input tokens remain live across runs. The adapter also supports the packed
-byte run path.
+The public TypeScript CPU execution path now selects the in-process Cyna graph
+for covered Programs, including telemetry capture and structural output views.
+The compiled graph stays owned by its Affon executable and is reused across
+runs. Compute Core supplies tensor specifications, execution results, selected
+plan evidence, and cleanup through the native integration surface.
 
 Affon's public `affon:core` CPU Session selects Cyna for covered dense
-Programs. If Cyna cannot preserve the requested behavior, the routing record
-names the category, reason, operation, and option, and the Session keeps Zig as
-the explicit fallback. Evidence capture and compute timing still select Zig.
-Non-CPU backends and configurations that disable Cyna also remain outside the
-Cyna CPU route. The adapter described above remains the compatibility gate for
-the underlying Cyna ABI while the native package bridge gains the full Program
-protocol. New integration work belongs in `cyna/affon-native`; the C ABI
-adapter must not become the long-term Affon-to-compute-core boundary.
+Programs. The routing record names the backend, transport, category, reason,
+operation, and option. Programs outside the Cyna lowering surface report why
+the CPU route cannot accept them instead of silently changing backends.
+Evidence capture and compute timing use the same selected Cyna execution.
+Non-CPU backends remain outside this CPU host. New integration work belongs in
+`cyna/affon-native`.

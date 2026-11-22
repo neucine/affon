@@ -11,7 +11,7 @@ import tempfile
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("checkpoint", type=Path)
-    parser.add_argument("--affon", type=Path, default=Path(__file__).resolve().parents[1] / "zig-out/bin/affon")
+    parser.add_argument("--affon", type=Path, default=Path(__file__).resolve().parents[1] / "cyna/affon-native/build/affon-cyna-native")
     parser.add_argument("--tensor", help="Packed weight name; defaults to the first U32 .weight with scales/biases")
     parser.add_argument("--group-size", type=int, default=64)
     parser.add_argument("--matrix", action="store_true", help="Validate the packed matrix path with M128 and 64 spread output rows")

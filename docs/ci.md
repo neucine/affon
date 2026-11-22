@@ -6,7 +6,8 @@ Mac and the GPU Linux runner on `pc`.
 
 ## Prepare a release
 
-Create a branch named `release/vX.Y.Z`. Set the version in `build.zig.zon` and
+Create a branch named `release/vX.Y.Z`. Set the version in
+`cyna/affon-native/src/main.cy` and
 update the Unix installer and release notes for that version. Each push runs
 the full checks on both release hosts. Fixes pushed to the branch start a new
 candidate build.

@@ -29,7 +29,7 @@ def audit(manifest, binary, run_one):
         source_root, separator, source_relative = source_ref.partition("/")
         if not separator or source_root not in {"affon", "compute"}:
             raise ValueError(f"{identifier}: invalid source reference")
-        source_path = (ROOT if source_root == "affon" else ROOT.parent / "compute") / source_relative
+        source_path = (ROOT if source_root == "affon" else ROOT.parent / "compute-core") / source_relative
         if not source_path.is_file() or not boundary.get("source_assertion") or boundary["source_assertion"] not in source_path.read_text():
             raise ValueError(f"{identifier}: dispatch source changed; review boundary policy")
         sides = []
@@ -59,7 +59,7 @@ def audit(manifest, binary, run_one):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, default=ROOT / "test/benchmark/dispatch-boundaries.json")
-    parser.add_argument("--binary", type=Path, default=ROOT / "zig-out/bin/affon")
+    parser.add_argument("--binary", type=Path, default=ROOT / "cyna/affon-native/build/affon-cyna-native")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     report = audit(json.loads(args.manifest.read_text()), args.binary, probe_module().run_one)

@@ -49,8 +49,6 @@ export type SessionTelemetry = Readonly<{
 }>
 export type SessionOptions = Readonly<{
   device?: Device
-  /** Select the Zig CPU reference explicitly, or use the available CPU route. */
-  cpuExecution?: "auto" | "zig"
   determinism?: "strict" | "allow_nondeterministic"
   telemetry?: false | TelemetryOptions
 }>
@@ -121,9 +119,7 @@ function normalizedCompileOptions(options: CompileOptions = {}): Required<Compil
 function normalizedSessionOptions(options: SessionOptions = {}): Readonly<Record<string, unknown>> {
   const determinism = options.determinism ?? "strict"
   if (determinism !== "strict" && determinism !== "allow_nondeterministic") throw new TypeError(`unsupported determinism: ${determinism}`)
-  const cpuExecution = options.cpuExecution ?? "auto"
-  if (cpuExecution !== "auto" && cpuExecution !== "zig") throw new TypeError(`unsupported cpuExecution: ${cpuExecution}`)
-  if (options.telemetry === false) return Object.freeze({ determinism, cpuExecution, telemetry: null })
+  if (options.telemetry === false) return Object.freeze({ determinism, telemetry: null })
   const requestedTiming = options.telemetry?.computeTiming
   if (requestedTiming !== undefined && !["none", "invocation", "kernel"].includes(requestedTiming))
     throw new TypeError(`unsupported computeTiming: ${requestedTiming}`)
@@ -133,7 +129,7 @@ function normalizedSessionOptions(options: SessionOptions = {}): Readonly<Record
       requestedTiming !== (legacyTiming ? "kernel" : "none"))
     throw new TypeError("computeTiming conflicts with backendTiming")
   const computeTiming = requestedTiming ?? (legacyTiming === true ? "kernel" : "none")
-  return Object.freeze({ determinism, cpuExecution, telemetry: Object.freeze({
+  return Object.freeze({ determinism, telemetry: Object.freeze({
     computeTiming,
     backendTiming: computeTiming === "kernel",
     hardwareMetrics: options.telemetry?.hardwareMetrics ?? false,
@@ -425,6 +421,17 @@ function snapshotTensorData(value: unknown, options: { label: string; finite?: b
     data: Object.freeze(children.map(child => child.data)),
     shape: Object.freeze([children.length, ...childShape]),
   }
+}
+
+function flattenTensorData(value: TensorData): number[] {
+  if (typeof value === "number") return [value]
+  const result: number[] = []
+  const visit = (item: TensorData): void => {
+    if (typeof item === "number") result.push(item)
+    else for (const child of item) visit(child)
+  }
+  visit(value)
+  return result
 }
 
 function broadcastShape(left: readonly number[], right: readonly number[]): number[] {
@@ -1632,9 +1639,9 @@ export class Executable<Out extends FormalTensor | readonly FormalTensor[] = For
   [EXECUTABLE_NATIVE](): any { return this.nativeExecutable }
   [EXECUTABLE_ROUTING](): Readonly<{
     schema_version: 1
-    backend: "zig" | "cyna"
+    backend: "cyna"
     configured_backend: "cpu" | "metal" | "cuda"
-    transport: "zig" | "in_process" | "persistent_process"
+    transport: "in_process"
     category: "success" | "configuration" | "backend" | "observability" | "lowering" | "operation" | "dense_graph"
     reason: string
     operation: string | null
@@ -1643,7 +1650,7 @@ export class Executable<Out extends FormalTensor | readonly FormalTensor[] = For
     if (this.#disposed) throw new Error("Executable has been disposed")
     return freezeJson(JSON.parse(native.executableRouting(this.nativeExecutable)))
   }
-  [EXECUTABLE_BACKEND](): "zig" | "cyna" {
+  [EXECUTABLE_BACKEND](): "cyna" {
     if (this.#disposed) throw new Error("Executable has been disposed")
     return native.executableBackend(this.nativeExecutable)
   }
@@ -1660,16 +1667,11 @@ export class Executable<Out extends FormalTensor | readonly FormalTensor[] = For
     const explanation = JSON.parse(native.explainExecutable(this.nativeExecutable))
     explanation.selected_physical_values = JSON.parse(native.selectedPhysicalValues(this.nativeExecutable))
     explanation.selected_physical_liveness = JSON.parse(native.selectedPhysicalLiveness(this.nativeExecutable))
-    if (native.executableBackend(this.nativeExecutable) === "cyna") {
-      explanation.execution_backend = "cyna"
-      explanation.executable_plan_backend = "zig_reference"
-      explanation.actual_plan_report = "cyna_selected_physical_nodes before execution; Session.runtimeEvidence() after execution"
-      explanation.cyna_selected_semantic_steps = JSON.parse(native.cynaSelectedSteps(this.nativeExecutable))
-      explanation.cyna_selected_physical_nodes = JSON.parse(native.cynaSelectedPhysicalNodes(this.nativeExecutable))
-      explanation.cyna_residual_decisions = JSON.parse(native.cynaResidualDecisions(this.nativeExecutable))
-      explanation.cyna_selection_comparison = JSON.parse(native.cynaSelectionComparison(this.nativeExecutable))
-      explanation.cyna_search = JSON.parse(native.cynaSearchEvidence(this.nativeExecutable))
-    }
+    explanation.cyna_selected_semantic_steps = JSON.parse(native.cynaSelectedSteps(this.nativeExecutable))
+    explanation.cyna_selected_physical_nodes = JSON.parse(native.cynaSelectedPhysicalNodes(this.nativeExecutable))
+    explanation.cyna_residual_decisions = JSON.parse(native.cynaResidualDecisions(this.nativeExecutable))
+    explanation.cyna_selection_comparison = JSON.parse(native.cynaSelectionComparison(this.nativeExecutable))
+    explanation.cyna_search = JSON.parse(native.cynaSearchEvidence(this.nativeExecutable))
     return freezeJson(explanation)
   }
   [EXECUTABLE_EVIDENCE](): Readonly<Record<string, unknown>> | null {
@@ -1885,7 +1887,14 @@ export class Session {
       throw new TypeError("Tensor axes must contain one non-empty name per dimension")
     }
     if (requestedShape && elementCount(requestedShape) !== elementCount(snapshot.shape)) throw new TypeError("Tensor shape does not match its values")
-    const value = native.sessionTensor(this.#native, snapshot.data, dtype, shape)
+    const value = dtype === "f32"
+      ? native.sessionTensorBytes(
+          this.#native,
+          new Float32Array(flattenTensorData(snapshot.data)).buffer,
+          dtype,
+          shape,
+        )
+      : native.sessionTensor(this.#native, snapshot.data, dtype, shape)
     if (options.axes) {
       Object.defineProperty(value, "axes", { value: Object.freeze([...options.axes]), enumerable: true })
     }
