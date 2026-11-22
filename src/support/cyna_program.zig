@@ -503,7 +503,7 @@ pub fn lower(
         error.OutOfMemory => return err,
         else => {
             diagnostic.* = .{
-                .category = "dense_graph",
+                .category = "inference",
                 .reason = @errorName(err),
             };
             return null;
@@ -558,12 +558,14 @@ pub fn lower(
             .complete_evaluations = search_limits.complete_evaluations,
             .physical_work = search_limits.physical_work,
             .ready_work = search_limits.ready_work,
+            .max_peak_active_bytes = search_limits.resources.max_peak_active_bytes,
+            .max_invocation_scratch_bytes = search_limits.resources.max_invocation_scratch_bytes,
         },
     ) catch |err| switch (err) {
         error.OutOfMemory => return err,
         else => {
             diagnostic.* = .{
-                .category = "dense_graph",
+                .category = "compile",
                 .reason = @errorName(err),
             };
             return null;

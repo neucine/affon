@@ -186,10 +186,8 @@ pub fn build(b: *std.Build) void {
     const cyna_build_step = b.step("build-cyna-native", "Build Affon's native Cyna bridge");
     cyna_build_step.dependOn(&cyna_build.step);
 
-    const cyna_native_test = b.addSystemCommand(&.{cyna_command});
-    cyna_native_test.addArg("run");
-    cyna_native_test.addDirectoryArg(b.path("cyna/affon-native"));
-    cyna_native_test.step.dependOn(&cyna_install.step);
+    const cyna_native_test = b.addSystemCommand(&.{ "sh", "cyna/affon-native/test/shutdown.sh" });
+    cyna_native_test.step.dependOn(&cyna_build.step);
     const cyna_native_test_step = b.step("test-cyna-native", "Run Affon's native Cyna integration smoke test");
     cyna_native_test_step.dependOn(&cyna_native_test.step);
 }

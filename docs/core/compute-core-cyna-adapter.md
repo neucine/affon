@@ -17,9 +17,14 @@ one Cyna runtime, Compute Program execution, and the Hao dependency together.
 exposes `src/native_api.cy`. Affon's bridge combines those package APIs and is
 the place where the TypeScript-facing runtime is wired.
 
-The migration target is for the public TypeScript execution path to cross this
-Cyna-native bridge. Zig remains temporary host and parity infrastructure while
-the persistent process protocol is implemented; it is not the intended normal
+The public TypeScript execution path now crosses this Cyna-native bridge for
+CPU Programs that do not request telemetry capture. Affon keeps one child
+process and compiled graph alive per executable, sends length-delimited
+compile, run, evidence, and shutdown requests, and reconstructs output tensors
+from the returned bytes and Compute Core tensor specs. Telemetry-enabled
+executions and Programs whose public outputs must retain a structural view
+layout continue to use the in-process adapter. Zig remains the host,
+explanation, and fallback implementation; it is not the intended normal CPU
 compute backend.
 
 The remaining sections describe the earlier isolated Zig adapter and its C ABI

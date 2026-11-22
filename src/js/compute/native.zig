@@ -4,6 +4,7 @@ const compute = @import("compute");
 const build_options = @import("build_options");
 const cyna_program = @import("../../support/cyna_program.zig");
 const cyna_evidence = @import("../../support/cyna_evidence.zig");
+const cyna_process = @import("../../support/cyna_process.zig");
 const telemetry = @import("zig_libs").telemetry;
 const config = @import("../../config.zig");
 const compat = @import("../../support/compat.zig");
@@ -252,6 +253,7 @@ const SessionObject = struct {
     cyna_profiler_markers: bool = false,
     cyna_timing_scope: []const u8 = "capture",
     telemetry_enabled: bool = false,
+    cyna_process_eligible: bool = false,
     children: usize = 0,
     disposed: bool = false,
     host_alive: bool = true,
@@ -266,6 +268,7 @@ const TensorObject = struct {
 const ExecutableRouting = struct {
     execution_backend: []const u8,
     configured_backend: []const u8,
+    transport: []const u8,
     category: []const u8,
     reason: []const u8,
     operation: ?[]const u8 = null,
@@ -275,10 +278,12 @@ const ExecutableRouting = struct {
 const ExecutableObject = struct {
     value: ?*compute.Executable,
     cyna: ?*anyopaque = null,
+    cyna_process: ?*cyna_process.Process = null,
     owner: *SessionObject,
     explanation_json: []u8,
     routing: ExecutableRouting,
     needs_seed: bool,
+    dense_inputs: bool,
     owner_released: bool = false,
 };
 
@@ -359,6 +364,7 @@ fn executableFinalizer(_: u32, handle: u64) callconv(.c) void {
         const value: *cyna_program.Executable = @ptrCast(@alignCast(raw));
         value.deinit();
     };
+    if (object.cyna_process) |process| process.deinit();
     if (!object.owner_released) releaseSession(object.owner);
     allocator.free(object.explanation_json);
     allocator.destroy(object);
@@ -1025,14 +1031,17 @@ fn createExecutableObject(
     ctx: abi.JSContext,
     value: *compute.Executable,
     cyna_value: ?*anyopaque,
+    cyna_process_value: ?*cyna_process.Process,
     owner: *SessionObject,
     needs_seed: bool,
+    dense_inputs: bool,
     explanation_json: []u8,
     routing: ExecutableRouting,
 ) abi.JSValue {
     const object = allocator.create(ExecutableObject) catch {
         allocator.free(explanation_json);
         value.deinit();
+        if (cyna_process_value) |process| process.deinit();
         if (comptime build_options.compute_cyna) if (cyna_value) |raw| {
             const cyna_value_ptr: *cyna_program.Executable = @ptrCast(@alignCast(raw));
             cyna_value_ptr.deinit();
@@ -1043,8 +1052,10 @@ fn createExecutableObject(
     object.* = .{
         .value = value,
         .cyna = cyna_value,
+        .cyna_process = cyna_process_value,
         .owner = owner,
         .needs_seed = needs_seed,
+        .dense_inputs = dense_inputs,
         .explanation_json = explanation_json,
         .routing = routing,
     };
@@ -1086,6 +1097,8 @@ const JsonSearchLimits = struct {
     completeEvaluations: ?usize = null,
     physicalWork: ?usize = null,
     readyWork: ?usize = null,
+    maxPeakActiveBytes: ?usize = null,
+    maxInvocationScratchBytes: ?usize = null,
 };
 
 fn compileOptionsFromJson(bytes: []const u8, dense_inputs: *bool) !compute.CompileOptions {
@@ -1098,6 +1111,8 @@ fn compileOptionsFromJson(bytes: []const u8, dense_inputs: *bool) !compute.Compi
     if (parsed.value.searchLimits.completeEvaluations) |value| limits.complete_evaluations = value;
     if (parsed.value.searchLimits.physicalWork) |value| limits.physical_work = value;
     if (parsed.value.searchLimits.readyWork) |value| limits.ready_work = value;
+    if (parsed.value.searchLimits.maxPeakActiveBytes) |value| limits.resources.max_peak_active_bytes = value;
+    if (parsed.value.searchLimits.maxInvocationScratchBytes) |value| limits.resources.max_invocation_scratch_bytes = value;
     return .{
         .optimization_level = if (std.mem.eql(u8, parsed.value.optimizationLevel, "none")) .none else if (std.mem.eql(u8, parsed.value.optimizationLevel, "safe")) .safe else return error.InvalidOptimizationLevel,
         .numerical_policy = if (std.mem.eql(u8, parsed.value.numericalPolicy, "exact_only")) .exact_only else if (std.mem.eql(u8, parsed.value.numericalPolicy, "backend_equivalent")) .backend_equivalent else if (std.mem.eql(u8, parsed.value.numericalPolicy, "approximate")) .approximate else return error.InvalidNumericalPolicy,
@@ -1157,6 +1172,11 @@ fn jsCreateSession(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [
         .profiler_markers = telemetry_options.profilerMarkers,
     };
     object.cyna_profiler_markers = observation.profiler_markers;
+    object.cyna_process_eligible = observation.timing == .none and
+        observation.hardware_metrics == false and
+        observation.profiler_markers == false and
+        telemetry_options.captureRecords == null and
+        telemetry_options.bridgeTiming == false;
     if (observation.timing != .none) object.cyna_observation_limit = 65_536;
     if (telemetry_options.captureRecords) |count| {
         if (count == 0 or count > 4_194_304) {
@@ -1372,7 +1392,48 @@ fn jsSessionFull(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c
     return createTensorObjectOwned(ctx, value, owner.backend, owner);
 }
 
-fn compileNativeProgram(ctx: abi.JSContext, owner: *SessionObject, program_value: *const compute.Program, needs_seed: bool, options: compute.CompileOptions, dense_inputs: bool) abi.JSValue {
+fn goalName(goal: compute.OptimizationGoal) []const u8 {
+    return switch (goal) {
+        .balanced => "balanced",
+        .latency => "latency",
+        .throughput => "throughput",
+        .memory => "memory",
+    };
+}
+
+fn programRequiresInProcessLayout(program_json: []const u8) bool {
+    const Node = struct {
+        op: ?[]const u8 = null,
+    };
+    const Program = struct {
+        nodes: []const Node,
+    };
+    const parsed = std.json.parseFromSlice(Program, allocator, program_json, .{
+        .ignore_unknown_fields = true,
+    }) catch return true;
+    defer parsed.deinit();
+    for (parsed.value.nodes) |node| {
+        const operation = node.op orelse continue;
+        if (std.mem.eql(u8, operation, "reshape") or
+            std.mem.eql(u8, operation, "permute") or
+            std.mem.eql(u8, operation, "transpose") or
+            std.mem.eql(u8, operation, "squeeze") or
+            std.mem.eql(u8, operation, "unsqueeze") or
+            std.mem.eql(u8, operation, "slice"))
+            return true;
+    }
+    return false;
+}
+
+fn compileNativeProgram(
+    ctx: abi.JSContext,
+    owner: *SessionObject,
+    program_value: *const compute.Program,
+    needs_seed: bool,
+    options: compute.CompileOptions,
+    dense_inputs: bool,
+    process_program_json: ?[]const u8,
+) abi.JSValue {
     const layouts = allocator.alloc(compute.InputLayout, if (dense_inputs) program_value.inputs().len else 0) catch return errorValue(ctx, "input layout allocation failed");
     defer allocator.free(layouts);
     @memset(layouts, .dense);
@@ -1402,9 +1463,11 @@ fn compileNativeProgram(ctx: abi.JSContext, owner: *SessionObject, program_value
         return errorValue(ctx, "Program explanation serialization failed");
     };
     var cyna_executable: ?*cyna_program.Executable = null;
+    var process: ?*cyna_process.Process = null;
     var routing = ExecutableRouting{
         .execution_backend = "zig",
         .configured_backend = @tagName(owner.backend),
+        .transport = "zig",
         .category = "configuration",
         .reason = "cyna_disabled",
     };
@@ -1413,6 +1476,7 @@ fn compileNativeProgram(ctx: abi.JSContext, owner: *SessionObject, program_value
             routing = .{
                 .execution_backend = "zig",
                 .configured_backend = @tagName(owner.backend),
+                .transport = "zig",
                 .category = "configuration",
                 .reason = "zig_requested",
             };
@@ -1420,6 +1484,7 @@ fn compileNativeProgram(ctx: abi.JSContext, owner: *SessionObject, program_value
             routing = .{
                 .execution_backend = "zig",
                 .configured_backend = @tagName(owner.backend),
+                .transport = "zig",
                 .category = "backend",
                 .reason = "non_cpu_backend",
             };
@@ -1453,15 +1518,36 @@ fn compileNativeProgram(ctx: abi.JSContext, owner: *SessionObject, program_value
                     return errorValue(ctx, "out of memory");
                 };
                 cyna_executable.?.* = value;
+                if (!needs_seed and owner.cyna_process_eligible and
+                    process_program_json != null and
+                    !programRequiresInProcessLayout(process_program_json.?))
+                {
+                    if (cyna_process.Process.start()) |candidate| {
+                        var owns_candidate = true;
+                        defer if (owns_candidate) candidate.deinit();
+                        if (candidate.compile(goalName(options.optimization_goal), process_program_json.?)) |_| {
+                            process = candidate;
+                            owns_candidate = false;
+                        } else |err| {
+                            if (std.c.getenv("AFFON_CYNA_PROCESS_DEBUG") != null)
+                                std.log.err("Cyna process compilation failed: {s}", .{@errorName(err)});
+                        }
+                    } else |err| {
+                        if (std.c.getenv("AFFON_CYNA_PROCESS_DEBUG") != null)
+                            std.log.err("Cyna process start failed: {s}", .{@errorName(err)});
+                    }
+                }
                 routing = .{
                     .execution_backend = "cyna",
                     .configured_backend = "cpu",
+                    .transport = if (process == null) "in_process" else "persistent_process",
                     .category = "success",
                     .reason = "lowered",
                 };
             } else routing = .{
                 .execution_backend = "zig",
                 .configured_backend = "cpu",
+                .transport = "zig",
                 .category = diagnostic.category,
                 .reason = diagnostic.reason,
                 .operation = if (diagnostic.operation) |tag| @tagName(tag) else null,
@@ -1475,8 +1561,10 @@ fn compileNativeProgram(ctx: abi.JSContext, owner: *SessionObject, program_value
         ctx,
         executable,
         cyna_executable,
+        process,
         owner,
         needs_seed,
+        dense_inputs,
         explanation_json,
         routing,
     );
@@ -1520,7 +1608,7 @@ fn jsCompileProgram(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: 
         }
         var derivative = compute.differentiate(allocator, built.value, .{ .output = built.mapped[loss_id], .with_respect_to = variables }) catch return errorValue(ctx, "Program differentiation failed");
         defer derivative.deinit();
-        return compileNativeProgram(ctx, owner, derivative.program(), true, options, dense_inputs);
+        return compileNativeProgram(ctx, owner, derivative.program(), true, options, dense_inputs, null);
     }
     if (std.mem.eql(u8, source.kind, "optimize")) return typeError(ctx, "optimize Program native lowering is not implemented");
     var built = buildJsonProgram(source, source.outputs) catch |err| {
@@ -1529,7 +1617,7 @@ fn jsCompileProgram(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: 
         return errorValue(ctx, rendered.ptr);
     };
     defer built.deinit();
-    return compileNativeProgram(ctx, owner, built.value, false, options, dense_inputs);
+    return compileNativeProgram(ctx, owner, built.value, false, options, dense_inputs, json);
 }
 
 fn jsExplainExecutable(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [*c]abi.JSValueConst) callconv(.c) abi.JSValue {
@@ -1806,6 +1894,8 @@ fn jsCynaSearchEvidence(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, ar
                 .complete_evaluations = evidence.limits.complete_evaluations,
                 .physical_work = evidence.limits.physical_work,
                 .ready_work = evidence.limits.ready_work,
+                .max_peak_active_bytes = evidence.limits.max_peak_active_bytes,
+                .max_invocation_scratch_bytes = evidence.limits.max_invocation_scratch_bytes,
             },
             .evaluated_states = evidence.evaluated_states,
             .structural_expansions = evidence.structural_expansions,
@@ -1881,6 +1971,78 @@ fn collectCynaObservations(
         };
         owner.value.?.recordExternalNode(run_id, executable_id, graph_kind, observed.node_id, observed.schedule_position, if (observed.timing_available) observed.elapsed_ns else null, observed.succeeded, observed.materialized_view, @intCast(observed.kernel_count));
     }
+}
+
+fn appendTensorBytes(tensor: *const compute.Tensor, bytes: *std.ArrayList(u8)) !void {
+    const spec = tensor.spec();
+    const dimensions = spec.dimensions();
+    const strides = tensor.strides();
+    const width = spec.dtype().size();
+    const count = elementCount(dimensions);
+    const source = tensor.bytes();
+    const offset = tensor.offsetBytes();
+    var expected_stride: usize = 1;
+    var dense = true;
+    for (0..dimensions.len) |reverse| {
+        const axis = dimensions.len - 1 - reverse;
+        if (dimensions[axis] > 1 and strides[axis] != @as(isize, @intCast(expected_stride))) dense = false;
+        expected_stride = std.math.mul(usize, expected_stride, dimensions[axis]) catch return error.TensorTooLarge;
+    }
+    const length = std.math.mul(usize, count, width) catch return error.TensorTooLarge;
+    if (dense) {
+        if (offset > source.len or length > source.len - offset) return error.InvalidTensor;
+        try bytes.appendSlice(allocator, source[offset .. offset + length]);
+        return;
+    }
+    try bytes.ensureUnusedCapacity(allocator, length);
+    for (0..count) |linear| {
+        var remainder = linear;
+        var element: isize = @intCast(offset / width);
+        for (0..dimensions.len) |reverse| {
+            const axis = dimensions.len - 1 - reverse;
+            const coordinate = remainder % dimensions[axis];
+            remainder /= dimensions[axis];
+            element += @as(isize, @intCast(coordinate)) * strides[axis];
+        }
+        if (element < 0) return error.InvalidTensor;
+        const byte_offset = std.math.mul(usize, @intCast(element), width) catch return error.InvalidTensor;
+        if (byte_offset > source.len or width > source.len - byte_offset) return error.InvalidTensor;
+        bytes.appendSliceAssumeCapacity(source[byte_offset .. byte_offset + width]);
+    }
+}
+
+fn runCynaProcess(
+    owner: *SessionObject,
+    process: *cyna_process.Process,
+    inputs: []const *compute.Tensor,
+    dense_inputs: bool,
+) ![]*compute.Tensor {
+    if (process.input_count != inputs.len) return error.InputCountMismatch;
+    if (dense_inputs) for (inputs) |input| {
+        if (!denseTensor(input)) return error.GuardMismatch;
+    };
+    var input_buffer: std.ArrayList(u8) = .empty;
+    defer input_buffer.deinit(allocator);
+    for (inputs) |input| try appendTensorBytes(input, &input_buffer);
+    const response = try process.run(input_buffer.items);
+    defer allocator.free(response);
+    const result = try allocator.alloc(*compute.Tensor, process.outputs.len);
+    errdefer allocator.free(result);
+    var initialized: usize = 0;
+    errdefer for (result[0..initialized]) |output| output.deinit();
+    var offset: usize = 0;
+    const session = owner.value orelse return error.SessionDisposed;
+    for (process.outputs, 0..) |output, index| {
+        const byte_count = try output.byteCount();
+        if (byte_count > response.len - offset) return error.InvalidOutputSize;
+        var spec = try output.tensorSpec();
+        defer spec.deinit();
+        result[index] = try session.createTensor(spec, response[offset .. offset + byte_count]);
+        initialized += 1;
+        offset += byte_count;
+    }
+    if (offset != response.len) return error.InvalidOutputSize;
+    return result;
 }
 
 fn runCynaWithSpan(
@@ -1986,6 +2148,8 @@ fn jsRunExecutable(ctx: abi.JSContext, _: abi.JSValueConst, argc: c_int, argv: [
     input_bound = true;
     const run_start_ns = if (profiling) cyna_program.profileNow() else 0;
     const outputs = blk: {
+        if (object.cyna_process) |process|
+            break :blk runCynaProcess(object.owner, process, inputs, object.dense_inputs);
         if (comptime build_options.compute_cyna) if (object.cyna) |raw| {
             const cyna_executable: *cyna_program.Executable = @ptrCast(@alignCast(raw));
             break :blk runCynaWithSpan(object.owner, cyna_executable, executable, inputs, bridge_scope);
@@ -2022,10 +2186,11 @@ fn routingJson(routing: ExecutableRouting) ![]u8 {
     if (routing.operation) |operation| {
         if (routing.option) |option| return std.fmt.allocPrint(
             allocator,
-            "{{\"schema_version\":1,\"backend\":\"{s}\",\"configured_backend\":\"{s}\",\"category\":\"{s}\",\"reason\":\"{s}\",\"operation\":\"{s}\",\"option\":\"{s}\"}}",
+            "{{\"schema_version\":1,\"backend\":\"{s}\",\"configured_backend\":\"{s}\",\"transport\":\"{s}\",\"category\":\"{s}\",\"reason\":\"{s}\",\"operation\":\"{s}\",\"option\":\"{s}\"}}",
             .{
                 routing.execution_backend,
                 routing.configured_backend,
+                routing.transport,
                 routing.category,
                 routing.reason,
                 operation,
@@ -2034,14 +2199,14 @@ fn routingJson(routing: ExecutableRouting) ![]u8 {
         );
         return std.fmt.allocPrint(
             allocator,
-            "{{\"schema_version\":1,\"backend\":\"{s}\",\"configured_backend\":\"{s}\",\"category\":\"{s}\",\"reason\":\"{s}\",\"operation\":\"{s}\",\"option\":null}}",
-            .{ routing.execution_backend, routing.configured_backend, routing.category, routing.reason, operation },
+            "{{\"schema_version\":1,\"backend\":\"{s}\",\"configured_backend\":\"{s}\",\"transport\":\"{s}\",\"category\":\"{s}\",\"reason\":\"{s}\",\"operation\":\"{s}\",\"option\":null}}",
+            .{ routing.execution_backend, routing.configured_backend, routing.transport, routing.category, routing.reason, operation },
         );
     }
     return std.fmt.allocPrint(
         allocator,
-        "{{\"schema_version\":1,\"backend\":\"{s}\",\"configured_backend\":\"{s}\",\"category\":\"{s}\",\"reason\":\"{s}\",\"operation\":null,\"option\":null}}",
-        .{ routing.execution_backend, routing.configured_backend, routing.category, routing.reason },
+        "{{\"schema_version\":1,\"backend\":\"{s}\",\"configured_backend\":\"{s}\",\"transport\":\"{s}\",\"category\":\"{s}\",\"reason\":\"{s}\",\"operation\":null,\"option\":null}}",
+        .{ routing.execution_backend, routing.configured_backend, routing.transport, routing.category, routing.reason },
     );
 }
 

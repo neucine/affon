@@ -119,6 +119,7 @@ describe("public CPU Session Cyna execution", () => {
       expect(routing.schema_version).toBe(1)
       expect(routing.backend).toBe("cyna")
       expect(routing.configured_backend).toBe("cpu")
+      expect(routing.transport).toBe("persistent_process")
       expect(routing.category).toBe("success")
       expect(routing.reason).toBe("lowered")
       expect(routing.operation).toBe(null)
@@ -761,6 +762,41 @@ describe("public CPU Session Cyna execution", () => {
     }
   })
 
+  test("applies public resource limits on the Cyna route", () => {
+    const source = program("cyna_resource_limits", p =>
+      neg(p.argument("value", Tensor.f32([2]))))
+    const session = new Session({ device: "cpu", telemetry: { captureRecords: 8 } })
+    expect(() => session.compile(source, {
+      searchLimits: { maxPeakActiveBytes: 0 },
+    })).toThrow()
+    expect(() => session.compile(source, {
+      searchLimits: { maxPeakActiveBytes: -1 },
+    })).toThrow("invalid searchLimits.maxPeakActiveBytes")
+
+    const executable = session.compile(source, {
+      searchLimits: {
+        maxPeakActiveBytes: 1024,
+        maxInvocationScratchBytes: 0,
+      },
+    })
+    if (requireCyna) {
+      expect((executable as any)[backendSymbol]()).toBe("cyna")
+      const search = (executable.explain() as any).cyna_search
+      expect(search.limits.max_peak_active_bytes).toBe(1024)
+      expect(search.limits.max_invocation_scratch_bytes).toBe(0)
+    }
+    const value = session.tensor([2, -3])
+    const result = executable.run({ value }) as any
+    expect(result.to_array()).toEqual([-2, 3])
+    if (requireCyna) {
+      const evidence = session.runtimeEvidence(executable) as any
+      expect(evidence.schema_version).toBe(10)
+      expect(evidence.search.max_peak_active_bytes).toBe(1024)
+      expect(evidence.search.max_invocation_scratch_bytes).toBe(0)
+    }
+    result.dispose(); value.dispose(); executable.dispose(); session.dispose()
+  })
+
   test("selects and executes fused multiply then subtract like Zig", () => {
     for (const dtype of ["f32", "f64", "i64"] as const) {
       const spec = dtype === "f32" ? Tensor.f32([2]) : dtype === "f64" ? Tensor.f64([2]) : Tensor.i64([2])
@@ -993,7 +1029,7 @@ describe("public CPU Session Cyna execution", () => {
     expect(result.to_array()).toEqual([9, 12])
     if (requireCyna) {
       const evidence = session.runtimeEvidence(executable) as any
-      expect(evidence.schema_version).toBe(9)
+      expect(evidence.schema_version).toBe(10)
       expect(evidence.search.structural_states).toBe(1)
       expect(evidence.search.evaluated_states).toBe(1)
       expect(evidence.search.truncated).toBe(true)
@@ -1150,7 +1186,11 @@ describe("public CPU Session Cyna execution", () => {
     const session = new Session({ device: "cpu" })
     const executable = session.compile(source)
     const dense = session.compile(denseSource, { denseInputs: true })
-    if (requireCyna) expect((executable as any)[backendSymbol]()).toBe("cyna")
+    if (requireCyna) {
+      expect((executable as any)[backendSymbol]()).toBe("cyna")
+      expect((executable as any)[routingSymbol]().transport).toBe("in_process")
+      expect((dense as any)[routingSymbol]().transport).toBe("persistent_process")
+    }
 
     const matrix = session.tensor([[1, 2, 3], [4, 5, 6]])
     const batch = session.tensor([[[1], [2], [3]], [[4], [5], [6]]])

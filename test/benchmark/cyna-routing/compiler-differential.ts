@@ -71,6 +71,8 @@ for (const [name, searchLimits] of [
   ['complete_evaluations', { completeEvaluations: 1 }],
   ['physical_work', { physicalWork: 1 }],
   ['ready_work', { readyWork: 1 }],
+  ['maximum_peak_active_bytes', { maxPeakActiveBytes: 1024 }],
+  ['maximum_invocation_scratch_bytes', { maxInvocationScratchBytes: 0 }],
 ] as const)
   compare(`bounded_search_${name}`, boundedSearchProgram, searchLimits)
 

@@ -551,6 +551,9 @@ extern fn compute_core_dense_graph_observation_count(handle: ?*anyopaque, droppe
 extern fn compute_core_read_dense_graph_run_state(handle: ?*anyopaque, output: [*]usize, word_count: usize) c_int;
 extern fn compute_core_read_dense_graph_selection(handle: ?*anyopaque, output: [*]usize, word_count: usize) c_int;
 extern fn compute_core_read_dense_graph_search(handle: ?*anyopaque, output: [*]usize, word_count: usize) c_int;
+extern fn compute_core_read_dense_graph_preparation(handle: ?*anyopaque, output: [*]usize, word_count: usize) c_int;
+extern fn compute_core_describe_dense_graph_preparation_failure(handle: ?*anyopaque, index: usize, words: [*]usize, word_count: usize, implementation: [*]u8, implementation_capacity: usize, configuration: [*]u8, configuration_capacity: usize) c_int;
+extern fn compute_core_read_dense_graph_resources(handle: ?*anyopaque, output: [*]usize, word_count: usize) c_int;
 extern fn compute_core_dense_graph_physical_node_count(handle: ?*anyopaque) usize;
 extern fn compute_core_dense_graph_physical_value_count(handle: ?*anyopaque) usize;
 extern fn compute_core_read_dense_graph_physical_values(handle: ?*anyopaque, output: [*]usize, word_count: usize) c_int;
@@ -686,6 +689,8 @@ pub const SearchLimits = struct {
     complete_evaluations: usize = 16_384,
     physical_work: usize = 8_192,
     ready_work: usize = 16_384,
+    max_peak_active_bytes: ?usize = null,
+    max_invocation_scratch_bytes: ?usize = null,
 };
 
 fn denseInput(comptime T: type) type {
@@ -1281,12 +1286,144 @@ pub const DenseGraphHandle = struct {
         ready_truncated: bool,
     };
 
+    pub const PreparationFailureEvidence = struct {
+        node_id: usize,
+        phase: enum(usize) {
+            persistent_scratch = 1,
+            implementation = 2,
+        },
+        is_conversion: bool,
+        step_index: ?usize,
+        source_value: ?usize,
+        target_layout: ?usize,
+        implementation_version: usize,
+        error_code: usize,
+        implementation_hex: []u8,
+        configuration_hex: []u8,
+
+        pub fn deinit(self: *PreparationFailureEvidence, allocator: std.mem.Allocator) void {
+            allocator.free(self.implementation_hex);
+            allocator.free(self.configuration_hex);
+        }
+    };
+
+    pub const PreparationEvidence = struct {
+        physical_work_checked: usize,
+        physical_work_truncated: bool,
+        attempts: usize,
+        failures: []PreparationFailureEvidence,
+
+        pub fn deinit(self: *PreparationEvidence, allocator: std.mem.Allocator) void {
+            for (self.failures) |*failure| failure.deinit(allocator);
+            allocator.free(self.failures);
+        }
+    };
+
+    pub const ResourceEvidence = struct {
+        live_bytes: usize,
+        peak_live_bytes: usize,
+        live_tensors: usize,
+        max_resident_bytes: ?usize,
+        prepared_cache_entries: usize,
+        prepared_cache_bytes: usize,
+        invocation_scratch_bytes: usize,
+        persistent_scratch_bytes: usize,
+        cpu_pool_reserved_bytes: usize,
+        cpu_pool_active_bytes: usize,
+        cpu_pool_cached_bytes: usize,
+        host_readback_bytes: usize,
+    };
+
+    pub fn resourceEvidence(self: *const DenseGraphHandle) Error!ResourceEvidence {
+        if (self.raw == null) return error.InvalidShape;
+        var words: [12]usize = undefined;
+        if (compute_core_read_dense_graph_resources(self.raw, &words, words.len) != 0)
+            return error.CoreFailure;
+        return .{
+            .live_bytes = words[0],
+            .peak_live_bytes = words[1],
+            .live_tensors = words[2],
+            .max_resident_bytes = if (words[3] == 0) null else words[3],
+            .prepared_cache_entries = words[4],
+            .prepared_cache_bytes = words[5],
+            .invocation_scratch_bytes = words[6],
+            .persistent_scratch_bytes = words[7],
+            .cpu_pool_reserved_bytes = words[8],
+            .cpu_pool_active_bytes = words[9],
+            .cpu_pool_cached_bytes = words[10],
+            .host_readback_bytes = words[11],
+        };
+    }
+
+    pub fn preparationEvidence(
+        self: *const DenseGraphHandle,
+        allocator: std.mem.Allocator,
+    ) !PreparationEvidence {
+        if (self.raw == null) return error.InvalidShape;
+        var words: [4]usize = undefined;
+        if (compute_core_read_dense_graph_preparation(self.raw, &words, words.len) != 0)
+            return error.CoreFailure;
+        if (words[1] > 1) return error.CoreFailure;
+        const failures = try allocator.alloc(PreparationFailureEvidence, words[3]);
+        errdefer allocator.free(failures);
+        var initialized: usize = 0;
+        errdefer {
+            for (failures[0..initialized]) |*failure| failure.deinit(allocator);
+        }
+        for (failures, 0..) |*failure, index| {
+            var description: [10]usize = undefined;
+            var implementation_buffer: [4096]u8 = undefined;
+            var configuration_buffer: [4096]u8 = undefined;
+            if (compute_core_describe_dense_graph_preparation_failure(
+                self.raw,
+                index,
+                &description,
+                description.len,
+                &implementation_buffer,
+                implementation_buffer.len,
+                &configuration_buffer,
+                configuration_buffer.len,
+            ) != 0) return error.CoreFailure;
+            if (description[1] < 1 or description[1] > 2 or description[2] > 1 or
+                description[8] > implementation_buffer.len or
+                description[9] > configuration_buffer.len) return error.CoreFailure;
+            failure.* = .{
+                .node_id = description[0],
+                .phase = @fromBackingInt(@intCast(description[1])),
+                .is_conversion = description[2] == 1,
+                .step_index = if (description[3] == 0) null else description[3] - 1,
+                .source_value = if (description[4] == 0) null else description[4] - 1,
+                .target_layout = if (description[5] == 0) null else description[5],
+                .implementation_version = description[6],
+                .error_code = description[7],
+                .implementation_hex = try std.fmt.allocPrint(
+                    allocator,
+                    "{x}",
+                    .{implementation_buffer[0..description[8]]},
+                ),
+                .configuration_hex = try std.fmt.allocPrint(
+                    allocator,
+                    "{x}",
+                    .{configuration_buffer[0..description[9]]},
+                ),
+            };
+            initialized += 1;
+        }
+        return .{
+            .physical_work_checked = words[0],
+            .physical_work_truncated = words[1] == 1,
+            .attempts = words[2],
+            .failures = failures,
+        };
+    }
+
     pub fn searchEvidence(self: *const DenseGraphHandle) Error!SearchEvidence {
         if (self.raw == null) return error.InvalidShape;
-        var words: [10]usize = undefined;
+        var words: [12]usize = undefined;
         if (compute_core_read_dense_graph_search(self.raw, &words, words.len) != 0)
             return error.CoreFailure;
         if (words[8] > 1 or words[9] > 1) return error.CoreFailure;
+        const unset = std.math.maxInt(usize);
         return .{
             .limits = .{
                 .structural_states = words[0],
@@ -1294,6 +1431,8 @@ pub const DenseGraphHandle = struct {
                 .complete_evaluations = words[2],
                 .physical_work = words[3],
                 .ready_work = words[4],
+                .max_peak_active_bytes = if (words[10] == unset) null else words[10],
+                .max_invocation_scratch_bytes = if (words[11] == unset) null else words[11],
             },
             .evaluated_states = words[5],
             .structural_expansions = words[6],
@@ -1797,6 +1936,8 @@ pub fn createDenseGraphHandleWithConstantsAndSearch(
         search_limits.complete_evaluations,
         search_limits.physical_work,
         search_limits.ready_work,
+        search_limits.max_peak_active_bytes orelse std.math.maxInt(usize),
+        search_limits.max_invocation_scratch_bytes orelse std.math.maxInt(usize),
     };
     const raw = compute_core_create_dense_graph_handle_configured(
         @backingInt(goal),

@@ -16,6 +16,8 @@ export type SearchLimits = Readonly<{
   completeEvaluations?: number
   physicalWork?: number
   readyWork?: number
+  maxPeakActiveBytes?: number
+  maxInvocationScratchBytes?: number
 }>
 export type CompileOptions = Readonly<{
   denseInputs?: boolean
@@ -97,8 +99,21 @@ function normalizedCompileOptions(options: CompileOptions = {}): Required<Compil
   }
   if (typeof result.denseInputs !== "boolean") throw new TypeError("denseInputs must be boolean")
   for (const [name, value] of Object.entries(result.searchLimits)) {
-    if (!["structuralStates", "structuralExpansions", "completeEvaluations", "physicalWork", "readyWork"].includes(name) ||
-        !Number.isSafeInteger(value) || value < 1) throw new TypeError(`invalid searchLimits.${name}`)
+    const searchLimit = [
+      "structuralStates",
+      "structuralExpansions",
+      "completeEvaluations",
+      "physicalWork",
+      "readyWork",
+    ].includes(name)
+    const resourceLimit = [
+      "maxPeakActiveBytes",
+      "maxInvocationScratchBytes",
+    ].includes(name)
+    if ((!searchLimit && !resourceLimit) ||
+        !Number.isSafeInteger(value) || value < (searchLimit ? 1 : 0)) {
+      throw new TypeError(`invalid searchLimits.${name}`)
+    }
   }
   return Object.freeze(result)
 }
@@ -1619,6 +1634,7 @@ export class Executable<Out extends FormalTensor | readonly FormalTensor[] = For
     schema_version: 1
     backend: "zig" | "cyna"
     configured_backend: "cpu" | "metal" | "cuda"
+    transport: "zig" | "in_process" | "persistent_process"
     category: "success" | "configuration" | "backend" | "observability" | "lowering" | "operation" | "dense_graph"
     reason: string
     operation: string | null

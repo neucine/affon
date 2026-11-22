@@ -36,12 +36,35 @@ host timing scope. On CPU hardware metrics and NVTX profiler markers are
 unavailable; Cyna reports that availability in its runtime evidence while
 keeping execution on its own route.
 
-The nondefault `searchLimits` Program also routes to Cyna. Affon passes all five
-public limits through the configured graph ABI. Cyna applies the structural
-state, expansion, complete-evaluation, and ready-work budgets, records the
-applied values and truncation, and includes them in `explain()` and runtime
-evidence schema 9. `highest_impact_portable_lowering` is `null` because this
-corpus has no Zig fallback.
+The nondefault `searchLimits` Program also routes to Cyna. Affon passes all
+seven public limits through the configured graph ABI. Cyna applies the
+structural state, expansion, complete-evaluation, physical-work, ready-work,
+peak-active-byte, and per-offer invocation-scratch budgets. It records the
+applied values and truncation in `explain()` and runtime evidence schema 10.
+The runtime report also separates preparation attempts and rejected offers
+from session memory, prepared cache bytes, invocation and persistent scratch,
+CPU pool capacity, and host readback. `highest_impact_portable_lowering` is
+`null` because this corpus has no Zig fallback.
+
+The public session cap is aggregate admission, not a limit on one allocation.
+Before a new tensor or run is admitted, Cyna trims inactive cached CPU buffers
+and counts the backend's total reserved pool plus prepared graph, persistent
+scratch, invocation scratch, and staging demand. Runtime evidence keeps those
+components separate.
+
+CPU physical selection now has real alternatives. Generic elementwise work can
+choose the `cpu_elementwise` implementation, dense conversion demand can choose
+the portable `cpu_contiguous` configuration, and deterministic costs compare
+transfers, synchronizations, dispatches, library calls, estimated work,
+temporary bytes, and target score. A model ID keeps unrelated cost domains in
+discovery order.
+
+Preparation can reject an instruction or conversion and reselect up to four
+times with a shared 131,072-check offer budget. Public `physicalWork` controls
+combination exposure rather than that budget. Failed resources are released,
+persistent scratch failure is terminal, and the prepared-cache key distinguishes
+the executable's original selection from the graph that actually prepared.
+The compiler differential compares 896 plans with zero mismatches.
 
 ## Corpus
 
@@ -189,20 +212,19 @@ the script compares every output value and prints JSON timing samples. Set
 `AFFON_PROBE_SIZE` to compare square matrix sizes. Set `AFFON_PROBE_BATCH` above
 one to use a rank-three left input with the same right matrix in each batch.
 
-On 2026-11-17 in New Zealand, an Apple M4 with 16 GB memory running macOS
+On 2026-11-19 in New Zealand, an Apple M4 with 16 GB memory running macOS
 26.6.2 produced these ReleaseFast results after two warmups and seven timed
-samples. The Cyna route reused unchanged input tensors. The CPU source changes
-include dense softmax, embedding, index selection, view copies, and structural
-copies, plus an accelerated f32 dot product.
+samples. The Cyna and Zig routes ran in separate sequential processes with
+selected-plan capture enabled. The Cyna route reused unchanged input tensors.
 
 | Backend | Workload | Median (ms) | Standard deviation (ms) | Tokens/s |
 | --- | --- | ---: | ---: | ---: |
-| Cyna | prefill, 64 tokens | 9.704 | 0.016 | 6595.22 |
-| Zig | prefill, 64 tokens | 31.533 | 0.093 | 2029.62 |
-| Cyna | cached decode, 1 token | 1.175 | 0.003 | 851.06 |
-| Zig | cached decode, 1 token | 1.614 | 0.019 | 619.58 |
+| Cyna | prefill, 64 tokens | 3.852 | 0.012 | 16614.75 |
+| Zig | prefill, 64 tokens | 31.365 | 0.026 | 2040.49 |
+| Cyna | cached decode, 1 token | 0.372 | 0.003 | 2688.17 |
+| Zig | cached decode, 1 token | 1.625 | 0.022 | 615.38 |
 
-Cyna took 0.31 times as long as Zig for prefill and 0.73 times as long for
+Cyna took 0.123 times as long as Zig for prefill and 0.229 times as long for
 cached decode. Set `AFFON_CYNA_PROFILE=1` to print per invocation pack, input
 creation, graph, and output times plus prepared cache hit and miss counts.
 Set `AFFON_CYNA_RUN_PROFILE=1` to time the Cyna execution wrapper, or
@@ -210,24 +232,22 @@ Set `AFFON_CYNA_RUN_PROFILE=1` to time the Cyna execution wrapper, or
 output wrapping. Run each profile switch separately: printing a profile line
 inside another measured boundary adds time to that boundary.
 
-The dense output path now creates the Zig tensor directly from Cyna's copied
-backing bytes. In the 128×128 dense matrix probe, the warm output stage fell
-from a 6 µs median to 4 µs. The full Cyna sample stayed near 46 µs, while the
-Zig sample was near 12 µs; graph execution remained about 17 µs. A paired
-Llama run after this change measured 9.452/29.928 ms prefill and 1.189/1.541 ms
-decode for Cyna/Zig, with all logits inside tolerance. These timings include
-host noise and do not isolate kernel work.
-
-The dense input route now checks the tensor's backing bytes against the cached
-input without first making a packed copy. A paired 128×128 run measured a
-36.7 µs Cyna median and an 11.05 µs Zig median. The public runtime suite
-passed 26/26, and the paired Llama run passed numerical parity with Cyna/Zig
-medians of 9.668/31.656 ms prefill and 1.181/1.600 ms decode. The improvement
-in the small matrix run is modest and can vary with host activity.
-
 The outputs agreed numerically: maximum absolute differences were `7.15e-7`
-for prefill and `4.47e-7` for decode, with no values outside the f32 `3e-4`
-absolute plus relative tolerance. The benchmark runner writes the full samples and build logs to its output
+for prefill and `1.19e-6` for decode, with no values outside the f32 `3e-4`
+absolute plus relative tolerance. The selected plans covered all 137 source
+nodes, used the same seven dense conversions, reported the same peak active
+bytes for both workloads, and had no semantic or source-order mismatches.
+
+The separate selection and indexing probe ran seven samples of 20 invocations
+per route. Embedding measured 13.45 µs for Cyna and 7.75 µs for Zig, a 1.74
+ratio. Top-k measured 22.15 µs for Cyna and 21.80 µs for Zig, a 1.02 ratio.
+Comparison, where, and scatter-add were faster on Cyna in that run. Warm
+prepared-cache hits now bind dense inputs in one pass, and top-k executes one
+physical node that emits both values and indices. These small fixtures isolate
+different host and kernel costs from Llama, and their timings vary with host
+activity.
+
+The benchmark runner writes the full samples and build logs to its output
 directory. This shape and host do not establish performance for other models,
 dtypes, batch sizes, or CPU hardware.
 
@@ -237,12 +257,13 @@ No portable Cyna lowering target appears in the authored, imported, or model
 sample. Every added Program routes through Cyna. Adding another lowering
 rule now would be driven by vocabulary shape rather than a measured fallback.
 
-The bounded execution milestone is now met for the Programs above. A first
-Llama performance comparison is also complete, but it shows a large Cyna
-slowdown rather than backend parity. Compile coverage still does not imply
-complete numerical, dtype, or model coverage. Keep looking for repeated
-lowering fallbacks as the corpus grows, and extend runtime evidence before
-turning any compile-only route into a broader support claim.
+The bounded execution milestone is now met for the Programs above. The Llama
+fixture is faster on Cyna for both measured workloads. Top-k is at parity in
+the focused probe, and embedding has narrowed to 1.74 times Zig rather than a
+model-level blocker. Compile coverage still does not imply complete numerical,
+dtype, or model coverage. Keep looking for repeated lowering fallbacks as the
+corpus grows, and extend runtime evidence before turning any compile-only route
+into a broader support claim.
 
 Keep the following limits explicit when comparing later runs:
 

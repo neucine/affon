@@ -25,7 +25,7 @@ describe("Program execution state and lowering", () => {
     expect(result.to_array()).toEqual([6, 8])
     expect(result.to_bytes().byteLength).toBe(8)
     const evidence = session.runtimeEvidence(executable) as any
-    expect(evidence.schema_version).toBe(evidence.backend === "cyna_cpu" ? 9 : 3)
+    expect(evidence.schema_version).toBe(evidence.backend === "cyna_cpu" ? 10 : 3)
     expect(evidence.dropped_event_count).toBe(0)
     expect(evidence.entries.length).toBe(1)
     expect(evidence.entries[0].invocation_count).toBe(1)

@@ -110,6 +110,8 @@ describe('Cyna runtime numerical parity', () => {
       ['completeEvaluations', 1],
       ['physicalWork', 1],
       ['readyWork', 1],
+      ['maxPeakActiveBytes', 1024],
+      ['maxInvocationScratchBytes', 0],
     ] as const) {
       runPaired(`search limit ${name}`, source, undefined, session => ({
         a: session.tensor([1, 2]),

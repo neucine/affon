@@ -62,6 +62,8 @@ const SearchEvidence = struct {
     complete_evaluations: usize,
     physical_work: usize,
     ready_work: usize,
+    max_peak_active_bytes: ?usize,
+    max_invocation_scratch_bytes: ?usize,
     evaluated_states: usize,
     applied_structural_expansions: usize,
     applied_complete_evaluations: usize,
@@ -144,12 +146,19 @@ pub fn serialize(
     const executable_id = source.id().int();
     const last_path = if (handle.runState()) |state| state.path else |_| core.DenseGraphHandle.ExecutionPath.unknown;
     const search_evidence = handle.searchEvidence() catch null;
+    var preparation = handle.preparationEvidence(allocator) catch null;
+    const resources = handle.resourceEvidence() catch null;
+    defer {
+        if (preparation) |*value| value.deinit(allocator);
+    }
     const search: ?SearchEvidence = if (search_evidence) |evidence| .{
         .structural_states = evidence.limits.structural_states,
         .structural_expansions = evidence.limits.structural_expansions,
         .complete_evaluations = evidence.limits.complete_evaluations,
         .physical_work = evidence.limits.physical_work,
         .ready_work = evidence.limits.ready_work,
+        .max_peak_active_bytes = evidence.limits.max_peak_active_bytes,
+        .max_invocation_scratch_bytes = evidence.limits.max_invocation_scratch_bytes,
         .evaluated_states = evidence.evaluated_states,
         .applied_structural_expansions = evidence.structural_expansions,
         .applied_complete_evaluations = evidence.complete_evaluations,
@@ -243,7 +252,7 @@ pub fn serialize(
     const executable_id_text = try std.fmt.allocPrint(allocator, "{d}", .{executable_id});
     defer allocator.free(executable_id_text);
     const Report = struct {
-        schema_version: u32 = 9,
+        schema_version: u32 = 10,
         suite: []const u8 = "compute_observability",
         program_id: u64,
         program_id_text: []const u8,
@@ -257,6 +266,8 @@ pub fn serialize(
         prepared_cache_misses: usize,
         prepared_cache_bytes: usize,
         search: ?SearchEvidence,
+        preparation: ?core.DenseGraphHandle.PreparationEvidence,
+        resources: ?core.DenseGraphHandle.ResourceEvidence,
         entries: []const Entry,
         observed_run_count: usize,
         observed_failed_run_count: usize,
@@ -282,6 +293,8 @@ pub fn serialize(
         .prepared_cache_misses = handle.cacheMisses(),
         .prepared_cache_bytes = handle.cacheBytes(),
         .search = search,
+        .preparation = preparation,
+        .resources = resources,
         .observed_run_count = observed_runs,
         .observed_failed_run_count = observed_failed_runs,
         .dropped_event_count = dropped,
