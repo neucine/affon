@@ -16,9 +16,10 @@ interface DataLoaderOpts {
 interface Column {
   name: string
   kind: 'numeric' | 'categorical'
-  numeric: number[]
+  numeric: Float64Array
   strings: string[]
   categories: string[]
+  codes: Uint32Array
 }
 
 interface Selection {
@@ -30,11 +31,58 @@ function invalid(message: string): never {
   throw new AffonError('invalid_arg', message)
 }
 
-function parseCsv(source: string): string[][] {
-  const rows: string[][] = []
+function numericCell(value: string): number | null {
+  if (value.length === 0) return NaN
+  const parsed = Number(value)
+  if (Number.isFinite(parsed)) return parsed === 0 && value.trim().length === 0 ? NaN : parsed
+  const trimmed = value.trim()
+  if (trimmed.length === 0) return NaN
+  return trimmed === 'NaN' || trimmed === 'Infinity' || trimmed === '-Infinity' ? parsed : null
+}
+
+function scanCsv(source: string, visit: (row: string[]) => void): void {
+  const pendingBlankRows: string[][] = []
+  const publish = (row: string[]) => {
+    if (row.every(value => value.length === 0)) {
+      pendingBlankRows.push(row)
+    } else {
+      for (const pending of pendingBlankRows) visit(pending)
+      pendingBlankRows.length = 0
+      visit(row)
+    }
+  }
+
+  if (!source.includes('"') && !source.includes('\r')) {
+    let row: string[] = []
+    let start = 0
+    for (let index = 0; index < source.length; index++) {
+      const character = source[index]
+      if (character === ',') {
+        row.push(source.slice(start, index))
+        start = index + 1
+      } else if (character === '\n') {
+        row.push(source.slice(start, index))
+        publish(row)
+        row = []
+        start = index + 1
+      }
+    }
+    if (start < source.length || row.length > 0) {
+      row.push(source.slice(start))
+      publish(row)
+    }
+    return
+  }
+
   let row: string[] = []
   let cell = ''
   let quoted = false
+  const flush = () => {
+    row.push(cell)
+    publish(row)
+    row = []
+    cell = ''
+  }
   for (let index = 0; index < source.length; index++) {
     const character = source[index]
     if (quoted) {
@@ -56,57 +104,152 @@ function parseCsv(source: string): string[][] {
       row.push(cell)
       cell = ''
     } else if (character === '\n') {
-      row.push(cell)
-      rows.push(row)
-      row = []
-      cell = ''
+      flush()
     } else if (character !== '\r') {
       cell += character
     }
   }
-  if (cell.length > 0 || row.length > 0) {
-    row.push(cell)
-    rows.push(row)
-  }
-  while (rows.length > 0 && rows[rows.length - 1].every(value => value.length === 0)) rows.pop()
-  return rows
+  if (cell.length > 0 || row.length > 0) flush()
 }
 
-function numericCell(value: string): number | null {
-  const trimmed = value.trim()
-  if (trimmed.length === 0) return NaN
-  const parsed = Number(trimmed)
-  return Number.isFinite(parsed) || trimmed === 'NaN' || trimmed === 'Infinity' || trimmed === '-Infinity'
-    ? parsed
-    : null
+class NumericBuilder {
+  #chunks: Float64Array[] = []
+  #current = new Float64Array(16_384)
+  #offset = 0
+  length = 0
+
+  push(value: number): void {
+    if (this.#offset === this.#current.length) {
+      this.#chunks.push(this.#current)
+      this.#current = new Float64Array(this.#current.length)
+      this.#offset = 0
+    }
+    this.#current[this.#offset++] = value
+    this.length++
+  }
+
+  finish(): Float64Array {
+    const values = new Float64Array(this.length)
+    let offset = 0
+    for (const chunk of this.#chunks) {
+      values.set(chunk, offset)
+      offset += chunk.length
+    }
+    values.set(this.#current.subarray(0, this.#offset), offset)
+    return values
+  }
+}
+
+function numericColumns(names: string[], builders: NumericBuilder[]): Column[] {
+  return names.map((name, index) => ({
+    name,
+    kind: 'numeric',
+    numeric: builders[index].finish(),
+    strings: [],
+    categories: [],
+    codes: new Uint32Array(0),
+  }))
 }
 
 function parseColumns(source: string): Column[] {
-  const rows = parseCsv(source)
-  if (rows.length === 0 || rows[0].length === 0) invalid('read(): EmptyCSV')
-  const names = rows[0]
-  const dataRows = rows.slice(1)
-  const firstRowNumeric = dataRows.length > 0 &&
-    dataRows[0].every(value => numericCell(value) !== null)
-  return names.map((name, column) => {
-    const raw = dataRows.map(row => row[column] ?? '')
-    const numeric = raw.map(value => numericCell(value))
-    if (firstRowNumeric || numeric.every(value => value !== null)) {
-      return {
-        name,
-        kind: 'numeric',
-        numeric: numeric.map(value => {
-          if (value === null) invalid('read(): InvalidNumericValue')
-          return value
-        }),
-        strings: [],
-        categories: [],
+  let names: string[] | null = null
+  let rowCount = 0
+  let firstRowNumeric = false
+  let numericColumnFlags: boolean[] = []
+  let builders: NumericBuilder[] | null = null
+
+  scanCsv(source, row => {
+    if (names === null) {
+      if (row.length === 0) return
+      names = row
+      numericColumnFlags = row.map(() => true)
+      return
+    }
+    if (rowCount === 0) {
+      const cells = names.map((_, column) => row[column] ?? '')
+      const parsedCells = cells.map(numericCell)
+      firstRowNumeric = parsedCells.every(value => value !== null)
+      if (firstRowNumeric) {
+        builders = names.map(() => new NumericBuilder())
+        for (let column = 0; column < parsedCells.length; column++) {
+          builders[column].push(parsedCells[column]!)
+        }
+      } else {
+        for (let column = 0; column < parsedCells.length; column++) {
+          if (parsedCells[column] === null) numericColumnFlags[column] = false
+        }
+      }
+      rowCount++
+      return
+    }
+    if (builders) {
+      for (let column = 0; column < names.length; column++) {
+        const parsed = numericCell(row[column] ?? '')
+        if (parsed === null) invalid('read(): InvalidNumericValue')
+        builders[column].push(parsed)
+      }
+      rowCount++
+      return
+    }
+    for (let column = 0; column < names.length; column++) {
+      if (numericColumnFlags[column] && numericCell(row[column] ?? '') === null) {
+        numericColumnFlags[column] = false
       }
     }
-    const categories: string[] = []
-    for (const value of raw) if (!categories.includes(value)) categories.push(value)
-    return { name, kind: 'categorical', numeric: [], strings: raw, categories }
+    rowCount++
   })
+
+  if (names === null || names.length === 0) invalid('read(): EmptyCSV')
+  const headers: string[] = names
+  if (builders) return numericColumns(headers, builders)
+
+  const kinds = headers.map((_, column) => firstRowNumeric || numericColumnFlags[column] ? 'numeric' : 'categorical')
+  const columns: Column[] = headers.map((name, column) => kinds[column] === 'numeric'
+    ? {
+        name,
+        kind: 'numeric',
+        numeric: new Float64Array(rowCount),
+        strings: [],
+        categories: [],
+        codes: new Uint32Array(0),
+      }
+    : {
+        name,
+        kind: 'categorical',
+        numeric: new Float64Array(0),
+        strings: new Array(rowCount),
+        categories: [],
+        codes: new Uint32Array(rowCount),
+      })
+  const categoryMaps = headers.map(() => new Map<string, number>())
+  let dataRow = 0
+  let sawHeader = false
+  scanCsv(source, row => {
+    if (!sawHeader) {
+      sawHeader = true
+      return
+    }
+    for (let index = 0; index < headers.length; index++) {
+      const value = row[index] ?? ''
+      const column = columns[index]
+      if (column.kind === 'numeric') {
+        const parsed = numericCell(value)
+        if (parsed === null) invalid('read(): InvalidNumericValue')
+        column.numeric[dataRow] = parsed
+      } else {
+        let code = categoryMaps[index].get(value)
+        if (code === undefined) {
+          code = column.categories.length
+          categoryMaps[index].set(value, code)
+          column.categories.push(value)
+        }
+        column.strings[dataRow] = value
+        column.codes[dataRow] = code
+      }
+    }
+    dataRow++
+  })
+  return columns
 }
 
 class Dataset {
@@ -152,18 +295,31 @@ class Dataset {
     if (strategy !== 'onehot' && strategy !== 'label') invalid(`unsupported encode strategy: ${strategy}`)
     if (source.kind === 'numeric') return this
     if (strategy === 'label') {
-      const numeric = source.strings.map(value => source.categories.indexOf(value))
       const columns = [...this.#columns]
-      columns[index] = { name: source.name, kind: 'numeric', numeric, strings: [], categories: [] }
+      columns[index] = {
+        name: source.name,
+        kind: 'numeric',
+        numeric: Float64Array.from(source.codes),
+        strings: [],
+        categories: [],
+        codes: new Uint32Array(0),
+      }
       return this.#withColumns(columns)
     }
-    const encoded: Column[] = source.categories.map(category => ({
-      name: `${source.name}_${category}`,
-      kind: 'numeric',
-      numeric: source.strings.map(value => value === category ? 1 : 0),
-      strings: [],
-      categories: [],
-    }))
+    const encoded: Column[] = source.categories.map((category, categoryIndex) => {
+      const numeric = new Float64Array(source.codes.length)
+      for (let row = 0; row < source.codes.length; row++) {
+        if (source.codes[row] === categoryIndex) numeric[row] = 1
+      }
+      return {
+        name: `${source.name}_${category}`,
+        kind: 'numeric',
+        numeric,
+        strings: [],
+        categories: [],
+        codes: new Uint32Array(0),
+      }
+    })
     return this.#withColumns([
       ...this.#columns.slice(0, index),
       ...encoded,
@@ -197,7 +353,7 @@ class Dataset {
       return {
         ...source,
         numeric: range === 0
-          ? [...source.numeric]
+          ? source.numeric.slice()
           : source.numeric.map(value => (value - minimum) / range),
       }
     }))
@@ -214,7 +370,7 @@ class Dataset {
       return {
         ...source,
         numeric: spread === 0
-          ? [...source.numeric]
+          ? source.numeric.slice()
           : source.numeric.map(value => (value - mean) / spread),
       }
     }))
@@ -263,8 +419,15 @@ class Dataset {
       if (!selected.some(column => Number.isNaN(column.numeric[row]))) keep.push(row)
     }
     return this.#withColumns(this.#columns.map(column => column.kind === 'numeric'
-      ? { ...column, numeric: keep.map(row => column.numeric[row]) }
-      : { ...column, strings: keep.map(row => column.strings[row]) }))
+      ? {
+          ...column,
+          numeric: Float64Array.from(keep, row => column.numeric[row]),
+        }
+      : {
+          ...column,
+          strings: keep.map(row => column.strings[row]),
+          codes: Uint32Array.from(keep, row => column.codes[row]),
+        }))
   }
 
   rename(oldName: string, newName: string): Dataset {
@@ -321,11 +484,35 @@ class Dataset {
       const right = other.#columns[index]
       if (left.kind !== right.kind) invalid('concat(): column type mismatch')
       if (left.kind === 'numeric') {
-        return { ...left, numeric: [...left.numeric, ...right.numeric] }
+        const numeric = new Float64Array(left.numeric.length + right.numeric.length)
+        numeric.set(left.numeric)
+        numeric.set(right.numeric, left.numeric.length)
+        return { ...left, numeric }
       }
       const categories = [...left.categories]
-      for (const category of right.categories) if (!categories.includes(category)) categories.push(category)
-      return { ...left, categories, strings: [...left.strings, ...right.strings] }
+      const categoryIndexes = new Map(left.categories.map((category, categoryIndex) => [category, categoryIndex]))
+      const rightIndexes = new Map<number, number>()
+      for (let categoryIndex = 0; categoryIndex < right.categories.length; categoryIndex++) {
+        const category = right.categories[categoryIndex]
+        let target = categoryIndexes.get(category)
+        if (target === undefined) {
+          target = categories.length
+          categoryIndexes.set(category, target)
+          categories.push(category)
+        }
+        rightIndexes.set(categoryIndex, target)
+      }
+      const codes = new Uint32Array(left.codes.length + right.codes.length)
+      codes.set(left.codes)
+      for (let row = 0; row < right.codes.length; row++) {
+        codes[left.codes.length + row] = rightIndexes.get(right.codes[row])!
+      }
+      return {
+        ...left,
+        categories,
+        strings: [...left.strings, ...right.strings],
+        codes,
+      }
     })
     return this.#withColumns(columns)
   }
@@ -364,8 +551,12 @@ class Dataset {
 
   #take(rows: number[]): Dataset {
     return this.#withColumns(this.#columns.map(column => column.kind === 'numeric'
-      ? { ...column, numeric: rows.map(row => column.numeric[row]) }
-      : { ...column, strings: rows.map(row => column.strings[row]) }))
+      ? { ...column, numeric: Float64Array.from(rows, row => column.numeric[row]) }
+      : {
+          ...column,
+          strings: rows.map(row => column.strings[row]),
+          codes: Uint32Array.from(rows, row => column.codes[row]),
+        }))
   }
 
   #schema(columns: Column[]): Record<string, number[]> {
@@ -379,18 +570,24 @@ class Dataset {
     return schema
   }
 
-  #flat(columns: Column[]): { values: number[], width: number } {
+  #flat(columns: Column[], dtype: 'f32' | 'f64'): {
+    values: Float32Array | Float64Array
+    width: number
+  } {
     let width = 0
     for (const column of columns) width += column.kind === 'numeric' ? 1 : column.categories.length
-    const values: number[] = []
+    const values = dtype === 'f32'
+      ? new Float32Array(this.#rowCount() * width)
+      : new Float64Array(this.#rowCount() * width)
+    let offset = 0
     for (let row = 0; row < this.#rowCount(); row++) {
       for (const column of columns) {
         if (column.kind === 'numeric') {
-          values.push(column.numeric[row])
+          values[offset++] = column.numeric[row]
         } else {
-          const category = column.categories.indexOf(column.strings[row])
+          const category = column.codes[row]
           for (let index = 0; index < column.categories.length; index++) {
-            values.push(index === category ? 1 : 0)
+            values[offset++] = index === category ? 1 : 0
           }
         }
       }
@@ -403,13 +600,12 @@ class Dataset {
     const dtype = opts.dtype ?? 'f32'
     if (dtype !== 'f32' && dtype !== 'f64') invalid("toTensor(): dtype must be 'f32' or 'f64'")
     if (this.#rowCount() === 0) invalid('toTensor(): no data')
-    const flat = this.#flat(this.#columns)
-    const rows: number[][] = []
-    for (let start = 0; start < flat.values.length; start += flat.width) {
-      rows.push(flat.values.slice(start, start + flat.width))
-    }
+    const flat = this.#flat(this.#columns, dtype)
     return {
-      data: opts.session.tensor(rows, { dtype }),
+      data: opts.session.fromBytes(flat.values.buffer as ArrayBuffer, {
+        dtype,
+        shape: [this.#rowCount(), flat.width],
+      }),
       schema: this.#schema(this.#columns),
     }
   }
@@ -428,19 +624,17 @@ class Dataset {
     if (this.#rowCount() === 0) invalid('toTensors(): no data')
     const features = this.#selection.features.map(name => this.#columns[this.#find(name)])
     const target = this.#columns[this.#find(this.#selection.target)]
-    const flatX = this.#flat(features)
-    const flatY = this.#flat([target])
-    const rowsX: number[][] = []
-    for (let start = 0; start < flatX.values.length; start += flatX.width) {
-      rowsX.push(flatX.values.slice(start, start + flatX.width))
-    }
-    const rowsY: any = flatY.width === 1 ? flatY.values : Array.from(
-      { length: this.#rowCount() },
-      (_, row) => flatY.values.slice(row * flatY.width, (row + 1) * flatY.width),
-    )
+    const flatX = this.#flat(features, dtype)
+    const flatY = this.#flat([target], dtype)
     return {
-      X: opts.session.tensor(rowsX, { dtype }),
-      y: opts.session.tensor(rowsY, { dtype }),
+      X: opts.session.fromBytes(flatX.values.buffer as ArrayBuffer, {
+        dtype,
+        shape: [this.#rowCount(), flatX.width],
+      }),
+      y: opts.session.fromBytes(flatY.values.buffer as ArrayBuffer, {
+        dtype,
+        shape: flatY.width === 1 ? [this.#rowCount()] : [this.#rowCount(), flatY.width],
+      }),
       schema: this.#schema(features),
     }
   }
