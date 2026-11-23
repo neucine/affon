@@ -112,9 +112,6 @@ declare module "affon:core/native" {
     exportEvidenceCapture(session: NativeSession, executable: NativeExecutable): string;
     stftPower(signal: NativeTensor, window: NativeTensor, hop: number, paddedLength: number, frames: number): NativeTensor;
     filterbank(spectrum: NativeTensor, filters: NativeTensor): NativeTensor;
-    saveNative(entries: readonly { name: string; value: NativeTensor }[], path: string): void;
-    loadNative(path: string, names?: readonly string[]): Record<string, NativeTensor>;
-    inspectCheckpoint(path: string): Record<string, { dtype: "BF16" | "F32" | "F64" | "U32" | "I64"; shape: number[] }>;
   };
 
   export default native;

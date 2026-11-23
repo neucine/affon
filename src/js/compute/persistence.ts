@@ -1,5 +1,5 @@
 import { AffonError } from 'affon:errors'
-import native from 'affon:core/native'
+import native from 'affon:checkpoint/native'
 
 type DType = 'bf16' | 'f32' | 'f64' | 'u32' | 'i64'
 type Device = 'cpu' | 'metal' | 'cuda' | `cuda:${number}`

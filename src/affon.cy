@@ -6,6 +6,7 @@ import { exists } from std.fs;
 import { env_get } from std.process;
 import { write_stderr } from hao.stderr;
 import { join } from std.path;
+import .js.checkpoint.native as checkpoint_native;
 import .js.compute.native;
 
 pub const version = "0.4.2";
@@ -179,6 +180,10 @@ pub fn compatible(): bool {
 pub fn register(runtime: &const Runtime, root: string): i32 {
     if native.register(runtime) != 0 {
         write_stderr("Unable to register the Affon Cyna native module\n");
+        return 1;
+    }
+    if checkpoint_native.register(runtime) != 0 {
+        write_stderr("Unable to register the Affon checkpoint native module\n");
         return 1;
     }
     return register_modules(runtime, root);
