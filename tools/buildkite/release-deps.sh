@@ -4,7 +4,7 @@
 set -euo pipefail
 
 source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-hao_pin=8904668fc4c01c7b868d7b447067a5f0e1c1d35a
+hao_pin=5da9b69bf19809811d70fd6c26c027c63d84033d
 compute_pin=646d01a4af019962016405693dcc76cd6b752222
 
 check_current_pin() {
@@ -77,4 +77,5 @@ mkdir -p "$CARGO_TARGET_DIR"
 (
   cd "$workspace/hao"
   bash ./build_deps.sh
+  sh ./tools/prepare_std_modules.sh
 )
