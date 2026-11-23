@@ -72,7 +72,9 @@ export AFFON_SITE_HAO_REF="$hao_pin"
 clone_pinned hao "$hao_pin" hao
 clone_pinned compute-core "$compute_pin" compute-core
 
-export CARGO_TARGET_DIR="$cache_root/hao-transpiler"
+# Hao's Cyna manifests link the transpiler from its checkout-local target path.
+# Keep Cargo's output there so the pinned dependency layout works in CI.
+export CARGO_TARGET_DIR="$workspace/hao/libs/transpiler/target"
 mkdir -p "$CARGO_TARGET_DIR"
 (
   cd "$workspace/hao"
