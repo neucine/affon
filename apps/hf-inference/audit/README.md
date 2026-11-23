@@ -32,9 +32,9 @@ The tiny checkpoint tests interoperability, not meaningful language quality.
 From the repository root:
 
 ```sh
-zig build install
+cyna build .
 AFFON_DEVICE=cpu AFFON_HF_MODEL_DIR=/tmp/affon-hf-tiny-gpt2 \
-  AFFON_AUDIT_BUILD=Debug ./zig-out/bin/affon apps/hf-inference/audit/audit.ts
+  AFFON_AUDIT_BUILD=Debug ./build/affon apps/hf-inference/audit/audit.ts
 ```
 
 Set `AFFON_DEVICE=metal` or `cuda` on a suitable host to exercise those backends.
@@ -62,9 +62,9 @@ The following limits describe the GPT-2 path; encoder/vision probes are below.
 Run offline regression tests with:
 
 ```sh
-./zig-out/bin/affon test apps/hf-inference
-./zig-out/bin/affon test packages/@affon/tokenizers/test
-./zig-out/bin/affon test test/e2e/checkpoint
+./build/affon test apps/hf-inference
+./build/affon test packages/@affon/tokenizers/test
+./build/affon test test/e2e/checkpoint
 ```
 
 ## Wider and production-sized decoder probes
@@ -88,7 +88,7 @@ HF_HOME=/tmp/affon-hf-cache /tmp/affon-hf-venv/bin/python \
   --output /tmp/affon-hf-distilgpt2
 AFFON_DEVICE=cpu AFFON_AUDIT_BUILD=Debug \
   AFFON_HF_MODEL_DIR=/tmp/affon-hf-distilgpt2 \
-  ./zig-out/bin/affon apps/hf-inference/audit/audit.ts
+  ./build/affon apps/hf-inference/audit/audit.ts
 ```
 
 Point `AFFON_HF_MODEL_DIR` at the wide fixture to run that probe. Change
@@ -117,15 +117,15 @@ HF_HOME=/tmp/affon-hf-cache /tmp/affon-hf-venv/bin/python \
   --revision 3f49326eb077187dfe1c2a2bb15fbd74e6ab91e3 \
   --output /tmp/affon-hf-vit
 AFFON_DEVICE=cpu AFFON_AUDIT_BUILD=Debug AFFON_HF_MODEL_DIR=/tmp/affon-hf-bert \
-  ./zig-out/bin/affon apps/hf-inference/audit/audit-domain.ts
+  ./build/affon apps/hf-inference/audit/audit-domain.ts
 ```
 
-Use an isolated optimized build for the CPU vision audit:
+Use an optimized build for the CPU vision audit:
 
 ```sh
-zig build -Doptimize=ReleaseFast --prefix /tmp/affon-hf-release install
+cyna build .
 AFFON_DEVICE=cpu AFFON_AUDIT_BUILD=ReleaseFast AFFON_HF_MODEL_DIR=/tmp/affon-hf-vit \
-  /tmp/affon-hf-release/bin/affon apps/hf-inference/audit/audit-domain.ts
+  ./build/affon apps/hf-inference/audit/audit-domain.ts
 ```
 
 `audit-domain.ts` separates processor and forward checks. Passing native

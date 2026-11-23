@@ -20,6 +20,19 @@ fn run_file(runtime: &const Runtime, path: string, test_file: bool): i32 {
         }
         return runtime.eval(content, path);
     }
+    const reason = script_read_error(path, 32 * 1024 * 1024);
+    if reason == 2 {
+        write_stderr("NameTooLong\n");
+    } else if reason == 1 {
+        write_stderr("StreamTooLong\n");
+    } else if reason == 0 {
+        write_stderr("FileNotFound\n");
+    } else {
+        write_stderr("FileReadFailed\n");
+    }
+    if test_file {
+        return 2;
+    }
     return 1;
 }
 

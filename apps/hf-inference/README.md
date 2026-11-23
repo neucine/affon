@@ -33,7 +33,7 @@ Run from the repository root:
 
 ```sh
 AFFON_DEVICE=metal AFFON_HF_CACHE="$PWD/apps/hf-inference/artifacts/hf-cache" \
-  ./zig-out/bin/affon apps/hf-inference/src/serve/server.ts
+  ./build/affon apps/hf-inference/src/serve/server.ts
 ```
 
 - [Serving and browser UI](src/serve/README.md)
@@ -43,8 +43,8 @@ AFFON_DEVICE=metal AFFON_HF_CACHE="$PWD/apps/hf-inference/artifacts/hf-cache" \
 - [ONNX graph-import experiment](onnx/README.md)
 
 ```sh
-./zig-out/bin/affon test apps/hf-inference/tests
-./zig-out/bin/affon apps/hf-inference/tests/serve/image-url-check.ts
+./build/affon test apps/hf-inference/tests
+./build/affon apps/hf-inference/tests/serve/image-url-check.ts
 ```
 
 ### Image model choices

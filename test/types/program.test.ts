@@ -33,9 +33,11 @@ import {
 } from "affon:nn"
 
 // @ts-expect-error The removed compute compatibility module must stay unavailable.
-import "affon:core/legacy"
+import * as legacyCompute from "affon:core/legacy"
 // @ts-expect-error The removed neural-network compatibility module must stay unavailable.
-import "affon:nn/legacy"
+import * as legacyNN from "affon:nn/legacy"
+void legacyCompute
+void legacyNN
 import * as optimModule from "affon:optim"
 
 // @ts-expect-error Compute implementation modules are not part of the public type graph.

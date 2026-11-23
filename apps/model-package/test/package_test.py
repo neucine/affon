@@ -12,7 +12,7 @@ package = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(package)
 GRAPH = package.ROOT / "packages/@affon/onnx/test/fixtures"
 LLAMA = package.ROOT / "packages/@affon/huggingface/test/fixtures/llama"
-AFFON = str(package.ROOT / "zig-out/bin/affon")
+AFFON = str(package.ROOT / "build/affon")
 
 
 def flatten(value):

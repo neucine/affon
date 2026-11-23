@@ -1,9 +1,13 @@
-# Node ownership experiment
+# Historical Node ownership experiment
 
 This is a narrow Node-API binding to the real Affon compute Session and CPU tensor
 storage. It measures native storage release when tensors are disposed explicitly
 versus when JavaScript references are dropped. It does not implement Program
 execution or the public `@affon/core` package.
+
+This experiment predates Affon's Cyna-native runtime. Its native addon remains
+useful as historical evidence, but it only builds against the legacy Zig-backed
+branch and is not part of the current executable.
 
 On macOS with Zig 0.17 and Node 22:
 
@@ -64,7 +68,7 @@ disposal.
 
 ## Hao control
 
-Run `AFFON_DEVICE=cpu ./zig-out/bin/affon run experiments/node-ownership/hao.ts`
+Run `AFFON_DEVICE=cpu ./build/affon run experiments/node-ownership/hao.ts`
 from the Affon repository root. Affon 0.4.0 built against Hao's `legacy` branch
 reports the following result. With
 the same 500 one MiB tensors, `compute.storage/live_bytes` was 524,288,000

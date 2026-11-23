@@ -4,8 +4,8 @@
 set -euo pipefail
 
 source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-hao_pin=5da9b69bf19809811d70fd6c26c027c63d84033d
-compute_pin=646d01a4af019962016405693dcc76cd6b752222
+hao_pin=1b3ea5670ea115a232510e42bfc21c8f237df156
+compute_pin=aabf13ef4fe597799099733fcffb8dad834a5176
 
 check_current_pin() {
   local repo="$1" branch="$2" pin="$3" branch_tip

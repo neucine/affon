@@ -1,21 +1,20 @@
 FROM rust:1.94-bookworm AS build
-ARG TARGETARCH
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl xz-utils python3 libunwind-dev && rm -rf /var/lib/apt/lists/*
-RUN case "$TARGETARCH" in \
-      arm64) arch=aarch64; checksum=ea4b09bfb22ec6f6c6ceac57ab63efb6b46e17ab08d21f69f3a48b38e1534f17 ;; \
-      amd64) arch=x86_64; checksum=70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00 ;; \
-      *) exit 1 ;; \
-    esac && \
-    curl -fsSL "https://ziglang.org/download/0.16.0/zig-${arch}-linux-0.16.0.tar.xz" -o /tmp/zig.tar.xz && \
-    echo "$checksum  /tmp/zig.tar.xz" | sha256sum -c - && \
-    mkdir /opt/zig && tar -xJf /tmp/zig.tar.xz -C /opt/zig --strip-components=1 && rm /tmp/zig.tar.xz
-ENV PATH="/opt/zig:${PATH}"
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential ca-certificates cmake curl libcurl4-openssl-dev libffi-dev \
+      libssl-dev libunwind-dev libzmq3-dev patch pkg-config python3 xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+COPY cyna/ /opt/cyna/
+ENV PATH="/opt/cyna/bin:${PATH}"
 COPY source/ /workspace/
+WORKDIR /workspace/hao
+RUN bash ./build_deps.sh && sh ./tools/prepare_std_modules.sh
 WORKDIR /workspace/affon
-RUN zig build -Doptimize=ReleaseFast --prefix /out
+RUN mkdir -p /out/bin && cyna build . --output /out/bin/affon
 
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends libunwind8 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libcurl4 libffi8 libssl3 libunwind8 libzmq5 \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=build /out/bin/affon /usr/local/bin/affon
 COPY --from=build /workspace/affon/packages /opt/affon/packages
 COPY --from=build /workspace/affon/apps/vision-serving/src /opt/affon/apps/vision-serving/src

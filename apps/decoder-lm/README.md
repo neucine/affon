@@ -61,6 +61,6 @@ workflow configuration is handled by `src/workflow.ts`.
 Run the application tests from the repository root:
 
 ```sh
-./zig-out/bin/affon test apps/decoder-lm/test
+./build/affon test apps/decoder-lm/test
 bun x tsc -p apps/decoder-lm/tsconfig.json --noEmit
 ```
