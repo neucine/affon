@@ -48,9 +48,7 @@ release_commit="$(buildkite-agent meta-data get release_commit)"
 test "$release_commit" = "$BUILDKITE_COMMIT"
 export AFFON_RELEASE_TAG="$tag"
 export AFFON_RELEASE_PLATFORM="$platform"
-if [ "$platform" != windows-x64 ]; then
-  "$root/tools/release.sh" check
-fi
+"$root/tools/release.sh" check
 "$root/tools/release.sh" build
 "$root/tools/release.sh" smoke-local
 buildkite-agent artifact upload 'dist/release/*'

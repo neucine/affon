@@ -193,6 +193,7 @@ run_release_tests() {
   export RUNTIME_PACKAGE_PATH="${RUNTIME_PACKAGE_PATH:-$ROOT/packages}"
   run bun x tsc -p src/tsconfig.json --noEmit
   run bun x tsc -p test/types/tsconfig.json --noEmit
+  run bun x tsc -p test/e2e/program/operations/tsconfig.json --noEmit
   run bun x tsc -p packages/@affon/models/tsconfig.json --noEmit
   run bun x tsc -p packages/@affon/tokenizers/tsconfig.json --noEmit
   run bun x tsc -p apps/decoder-lm/tsconfig.json --noEmit
