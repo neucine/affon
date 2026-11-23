@@ -1,4 +1,3 @@
-import { parse } from std.json;
 import {
     compile_for_resident_with_search_limits
 } from compute_core.compiler.resident;
@@ -19,7 +18,6 @@ import {
     PreparedBackend,
     Program,
     ProgramBuilder,
-    SessionConfig,
     StateId,
     Tensor,
     TensorSpec,
@@ -31,7 +29,83 @@ import {
     i64_spec,
     u32_spec
 } from compute_core.lib;
-import .support.json_value as json;
+
+pub enum ProgramKind: i32 {
+    authored = 0,
+    gradient = 1,
+}
+
+pub enum ProgramNodeKind: i32 {
+    argument = 0,
+    parameter = 1,
+    state = 2,
+    constant = 3,
+    operation = 4,
+    gradient = 5,
+}
+
+pub enum CompileOptimizationLevel: i32 {
+    disabled = 0,
+    safe = 1,
+}
+
+pub enum NumericalPolicy: i32 {
+    exact_only = 0,
+    backend_equivalent = 1,
+    approximate = 2,
+}
+
+pub enum ExplanationLevel: i32 {
+    summary = 0,
+    detailed = 1,
+}
+
+pub struct OperationOptions {
+    pub axis: ?usize;
+    pub keep_dims: bool;
+    pub minimum: ?f64;
+    pub maximum: ?f64;
+    pub value: ?f64;
+    pub epsilon: ?f64;
+    pub k: ?usize;
+    pub num_classes: ?usize;
+    pub class_axis: usize;
+    pub bits: ?usize;
+    pub group_size: ?usize;
+    pub axes: ?List<usize>;
+    pub permutation: ?List<usize>;
+    pub ranges: ?List<SliceRange>;
+    pub largest: bool;
+    pub sorted: bool;
+}
+
+pub struct ProgramNodeInput {
+    pub id: usize;
+    pub kind: ProgramNodeKind;
+    pub spec: TensorSpec;
+    pub op: ?OpTag;
+    pub operands: List<usize>;
+    pub options: OperationOptions;
+    pub constant: ?f64;
+    pub constant_bytes: ?List<u8>;
+    pub gradient_target: ?usize;
+}
+
+pub struct ProgramInput {
+    pub kind: ProgramKind;
+    pub nodes: List<ProgramNodeInput>;
+    pub outputs: ?List<usize>;
+}
+
+pub struct CompileOptionsInput {
+    pub optimization_level: CompileOptimizationLevel;
+    pub optimization_goal: OptimizationGoal;
+    pub numerical_policy: NumericalPolicy;
+    pub explanation_level: ExplanationLevel;
+    pub dense_inputs: bool;
+    pub residual_policy: ResidualPolicy;
+    pub search_limits: SearchLimits;
+}
 
 pub struct OutputSpec {
     pub dtype: DType;
@@ -53,8 +127,8 @@ pub struct CompiledGraph {
 }
 
 pub struct CompileSettings {
-    pub optimization_level: string;
-    pub optimization_goal: string;
+    pub optimization_level: CompileOptimizationLevel;
+    pub optimization_goal: OptimizationGoal;
     pub dense_inputs: bool;
     pub residual_policy: ResidualPolicy;
     pub search_limits: SearchLimits;
@@ -64,44 +138,25 @@ fn invalid(): ComputeError {
     return ComputeError.invalid_program_graph;
 }
 
-fn require_string(value: ?string): string ! ComputeError {
-    if value is text {
-        return text;
-    }
-    throw invalid();
-}
-
 fn require_usize(value: ?usize): usize ! ComputeError {
-    if value as? usize is found {
+    if value is found {
         return found;
     }
     throw invalid();
 }
 
 fn require_number(value: ?f64): f64 ! ComputeError {
-    if value as? f64 is found {
+    if value is found {
         return found;
     }
     throw invalid();
 }
 
-fn dtype(text: string): ?DType {
-    if text == "f32" {
-        return DType.f32;
+fn require_op(value: ?OpTag): OpTag ! ComputeError {
+    if value is selected {
+        return selected;
     }
-    if text == "f64" {
-        return DType.f64;
-    }
-    if text == "i64" {
-        return DType.i64;
-    }
-    if text == "u32" {
-        return DType.u32;
-    }
-    if text == "bf16" {
-        return DType.bf16;
-    }
-    return none;
+    throw invalid();
 }
 
 pub fn dtype_width(value: DType): usize {
@@ -146,45 +201,22 @@ pub fn tensor_bytes(value: &const Tensor): List<u8> {
     return result;
 }
 
-fn dimensions(value: &const json.Value): List<usize> !ComputeError {
-    var result: List<usize> = list<usize>();
-    if value is .array(items) {
-        for item in items.items[..] {
-            if item is .number(number) {
-                const dimension = try require_usize(json.parse_usize(number.spelling));
-                result.push(dimension);
-            } else {
-                throw invalid();
-            }
-        }
-        return result;
+fn tensor_spec(selected_dtype: DType,
+    dimensions: []const usize
+): TensorSpec ! ComputeError {
+    if selected_dtype == DType.f32 {
+        return try f32_spec(dimensions);
     }
-    throw invalid();
-}
-
-fn tensor_spec(value: &const json.Value): TensorSpec ! ComputeError {
-    if value is .object(object) {
-        const dtype_text = try require_string(json.string_field(&object, "dtype"));
-        if dtype(dtype_text) is selected_dtype {
-            const shape_index = try require_usize(json.field_index(&object, "shape"));
-            const shape = try dimensions(&object.members[shape_index].value);
-            if selected_dtype == DType.f32 {
-                return try f32_spec(shape[..]);
-            }
-            if selected_dtype == DType.f64 {
-                return try f64_spec(shape[..]);
-            }
-            if selected_dtype == DType.i64 {
-                return try i64_spec(shape[..]);
-            }
-            if selected_dtype == DType.u32 {
-                return try u32_spec(shape[..]);
-            }
-            return try bf16_spec(shape[..]);
-        }
-        throw invalid();
+    if selected_dtype == DType.f64 {
+        return try f64_spec(dimensions);
     }
-    throw invalid();
+    if selected_dtype == DType.i64 {
+        return try i64_spec(dimensions);
+    }
+    if selected_dtype == DType.u32 {
+        return try u32_spec(dimensions);
+    }
+    return try bf16_spec(dimensions);
 }
 
 fn append_u16(output: &List<u8>, value: u16): void {
@@ -220,7 +252,7 @@ fn round_shift(value: u64, shift: u32): u64 {
     const remainder = value & mask;
     const halfway = (1 as u64) << (shift - 1);
     if remainder > halfway or
-        (remainder == halfway and (result & 1) != 0) {
+    (remainder == halfway and (result & 1) != 0) {
         result = result + 1;
     }
     return result;
@@ -256,7 +288,7 @@ fn f32_bits(value: f64): u32 {
         }
         const selected_exponent = ((unbiased + 127) as u32) << 23;
         return sign | selected_exponent |
-            (rounded as u32 & 0x007fffff);
+        (rounded as u32 & 0x007fffff);
     }
     const subnormal_shift = 0 - (unbiased + 97);
     if subnormal_shift < 0 or subnormal_shift >= 64 {
@@ -290,81 +322,49 @@ fn append_number(output: &List<u8>, selected_dtype: DType,
     }
 }
 
-fn append_constant(output: &List<u8>, selected_dtype: DType,
-    value: &const json.Value
-): void ! ComputeError {
-    switch value {
-        .number(number) => {
-            append_number(output, selected_dtype,
-                try require_number(json.parse_number(number.spelling))
-            );
-        }
-        .array(items) => {
-            for item in items.items[..] {
-                try append_constant(output, selected_dtype, &item);
-            }
-        }
-        _ => {
-            throw invalid();
-        }
-    }
+fn owned_spec(node: &const ProgramNodeInput): TensorSpec {
+    return TensorSpec {
+        dtype: node.spec.dtype,
+        dimensions: node.spec.dimensions.clone(),
+        axis_names: none
+    };
 }
 
 fn add_constant(program_builder: &ProgramBuilder,
-    spec: TensorSpec, value: &const json.Value
+    node: &const ProgramNodeInput, spec: TensorSpec
 ): usize ! ComputeError {
     var bytes: List<u8> = list<u8>();
-    const count = try spec.element_count();
-    var repeated = false;
-    if value is .number(number) {
-        if count != 1 {
-            const selected = try require_number(
-                json.parse_number(number.spelling)
-            );
-            var index: usize = 0;
-            while index < count {
-                append_number(&bytes, spec.dtype, selected);
-                index = index + 1;
-            }
-            repeated = true;
-        }
-    }
-    if not repeated {
-        try append_constant(&bytes, spec.dtype, value);
-    }
-    if bytes.len() != count * dtype_width(spec.dtype) {
-        throw invalid();
-    }
-    return try program_builder.add_bytes_constant(spec, bytes.view());
-}
-
-fn operand(node: &const json.Object, index: usize): usize ! ComputeError {
-    const operands_index = try require_usize(json.field_index(node, "operands"));
-    if node.members[operands_index].value is .array(items) {
-        if index >= items.items.len() {
+    const count = try node.spec.element_count();
+    if node.constant_bytes is values {
+        if values.len() != count * dtype_width(node.spec.dtype) {
             throw invalid();
         }
-        if items.items[index] is .number(number) {
-            return try require_usize(json.parse_usize(number.spelling));
+        for value in values[..] {
+            bytes.push(value);
         }
+    } else if node.constant is scalar {
+        var index: usize = 0;
+        while index < count {
+            append_number(&bytes, node.spec.dtype, scalar);
+            index = index + 1;
+        }
+    } else {
+        throw invalid();
     }
-    throw invalid();
+    if bytes.len() != count * dtype_width(node.spec.dtype) {
+        throw invalid();
+    }
+    return try program_builder.add_bytes_constant(
+        spec,
+        bytes.view()
+    );
 }
 
-fn operand_ids(node: &const json.Object): List<usize> !ComputeError {
-    var result: List<usize> = list<usize>();
-    const operands_index = try require_usize(json.field_index(node, "operands"));
-    if node.members[operands_index].value is .array(items) {
-        for item in items.items[..] {
-            if item is .number(number) {
-                result.push(try require_usize(json.parse_usize(number.spelling)));
-            } else {
-                throw invalid();
-            }
-        }
-        return result;
+fn operand(node: &const ProgramNodeInput, index: usize): usize ! ComputeError {
+    if index >= node.operands.len() {
+        throw invalid();
     }
-    throw invalid();
+    return node.operands[index];
 }
 
 fn mapped_id(mapped: []const usize, source: usize): usize ! ComputeError {
@@ -374,347 +374,109 @@ fn mapped_id(mapped: []const usize, source: usize): usize ! ComputeError {
     return mapped[source];
 }
 
-fn option_usize(node: &const json.Object, key: string,
-    fallback: ?usize
-): ?usize {
-    const options_index = json.field_index(node, "options");
-    if options_index is index {
-        if node.members[index].value is .object(options) {
-            if json.usize_field(&options, key) is value {
-                return value;
-            }
-        }
-    }
-    return fallback;
-}
-
-fn option_bool(node: &const json.Object, key: string, fallback: bool): bool {
-    const options_index = json.field_index(node, "options");
-    if options_index is index {
-        if node.members[index].value is .object(options) {
-            return json.bool_field(&options, key, fallback);
-        }
-    }
-    return fallback;
-}
-
-fn option_number(node: &const json.Object, key: string,
-    fallback: ?f64
-): ?f64 {
-    const options_index = json.field_index(node, "options");
-    if options_index is index {
-        if node.members[index].value is .object(options) {
-            if json.number_field(&options, key) is value {
-                return value;
-            }
-        }
-    }
-    return fallback;
-}
-
-fn option_usizes(node: &const json.Object, key: string): ?List<usize> {
-    if json.field_index(node, "options") is options_index {
-        if node.members[options_index].value is .object(options) {
-            if json.field_index(&options, key) is field_index {
-                if options.members[field_index].value is .array(items) {
-                    var result: List<usize> = list<usize>();
-                    for item in items.items[..] {
-                        if item is .number(number) {
-                            const maybe_value = json.parse_usize(number.spelling);
-                            if maybe_value is value {
-                                result.push(value);
-                            } else {
-                                return none;
-                            }
-                        } else {
-                            return none;
-                        }
-                    }
-                    return result;
-                }
-            }
-        }
-    }
-    return none;
-}
-
-fn option_string(node: &const json.Object, key: string): ?string {
-    if json.field_index(node, "options") is options_index {
-        if node.members[options_index].value is .object(options) {
-            return json.string_field(&options, key);
-        }
-    }
-    return none;
-}
-
-fn option_slice_ranges(node: &const json.Object): ?List<SliceRange> {
-    if json.field_index(node, "options") is options_index {
-        if node.members[options_index].value is .object(options) {
-            if json.field_index(&options, "ranges") is ranges_index {
-                if options.members[ranges_index].value is .array(items) {
-                    var result: List<SliceRange> = list<SliceRange>();
-                    for item in items.items[..] {
-                        if item is .object(range) {
-                            const start = json.usize_field(&range, "start");
-                            const stop = json.usize_field(&range, "stop");
-                            if start is selected_start {
-                                if stop is selected_stop {
-                                    var step: isize = 1;
-                                    if json.usize_field(
-                                        &range,
-                                        "step"
-                                    ) is selected_step {
-                                        step = selected_step as isize;
-                                    }
-                                    result.push(SliceRange {
-                                        start: selected_start,
-                                        stop: selected_stop,
-                                        step: step
-                                    });
-                                } else {
-                                    return none;
-                                }
-                            } else {
-                                return none;
-                            }
-                        } else {
-                            return none;
-                        }
-                    }
-                    return result;
-                }
-            }
-        }
-    }
-    return none;
-}
-
-fn binary_tag(operation: string): ?OpTag {
-    if operation == "add" {
-        return OpTag.add;
-    }
-    if operation == "sub" {
-        return OpTag.sub;
-    }
-    if operation == "mul" {
-        return OpTag.mul;
-    }
-    if operation == "div" {
-        return OpTag.div;
-    }
-    if operation == "eq" {
-        return OpTag.eq;
-    }
-    if operation == "lt" {
-        return OpTag.lt;
-    }
-    if operation == "gt" {
-        return OpTag.gt;
-    }
-    if operation == "matmul" {
-        return OpTag.matmul;
-    }
-    if operation == "dot" {
-        return OpTag.dot;
-    }
-    return none;
-}
-
-fn unary_tag(operation: string): ?OpTag {
-    if operation == "abs" {
-        return OpTag.abs;
-    }
-    if operation == "neg" {
-        return OpTag.neg;
-    }
-    if operation == "sign" {
-        return OpTag.sign;
-    }
-    if operation == "relu" {
-        return OpTag.relu;
-    }
-    if operation == "exp" {
-        return OpTag.exp;
-    }
-    if operation == "log" {
-        return OpTag.log;
-    }
-    if operation == "sqrt" {
-        return OpTag.sqrt;
-    }
-    if operation == "sigmoid" {
-        return OpTag.sigmoid;
-    }
-    if operation == "silu" {
-        return OpTag.silu;
-    }
-    if operation == "tanh" {
-        return OpTag.tanh;
-    }
-    if operation == "erf" {
-        return OpTag.erf;
-    }
-    if operation == "gelu" {
-        return OpTag.gelu;
-    }
-    if operation == "sin" {
-        return OpTag.sin;
-    }
-    if operation == "cos" {
-        return OpTag.cos;
-    }
-    return none;
-}
-
-fn all_reduction_tag(operation: string): ?OpTag {
-    if operation == "sum" {
-        return OpTag.sum_all;
-    }
-    if operation == "mean" {
-        return OpTag.mean_all;
-    }
-    if operation == "min" {
-        return OpTag.min_all;
-    }
-    if operation == "max" {
-        return OpTag.max_all;
-    }
-    if operation == "variance" {
-        return OpTag.variance_all;
-    }
-    if operation == "std" {
-        return OpTag.std_all;
-    }
-    if operation == "argmin" {
-        return OpTag.argmin_all;
-    }
-    if operation == "argmax" {
-        return OpTag.argmax_all;
-    }
-    return none;
-}
-
-fn axis_reduction_tag(operation: string): ?OpTag {
-    if operation == "sum" {
-        return OpTag.sum_axis;
-    }
-    if operation == "mean" {
-        return OpTag.mean_axis;
-    }
-    if operation == "min" {
-        return OpTag.min_axis;
-    }
-    if operation == "max" {
-        return OpTag.max_axis;
-    }
-    if operation == "variance" {
-        return OpTag.variance_axis;
-    }
-    if operation == "std" {
-        return OpTag.std_axis;
-    }
-    if operation == "argmin" {
-        return OpTag.argmin_axis;
-    }
-    if operation == "argmax" {
-        return OpTag.argmax_axis;
-    }
-    return none;
-}
-
-fn add_operation(builder: &ProgramBuilder, node: &const json.Object,
+fn add_operation(builder: &ProgramBuilder, node: &const ProgramNodeInput,
     mapped: []const usize
 ): usize ! ComputeError {
-    const operation = try require_string(json.string_field(node, "op"));
-    if binary_tag(operation) is tag {
-        return try builder.add(tag,
+    const tag = try require_op(node.op);
+    const options = &node.options;
+    if tag == OpTag.add or tag == OpTag.sub or tag == OpTag.mul or
+    tag == OpTag.div or tag == OpTag.eq or tag == OpTag.lt or
+    tag == OpTag.gt or tag == OpTag.matmul or tag == OpTag.dot {
+        return try builder.add(
+            tag,
             try mapped_id(mapped, try operand(node, 0)),
             try mapped_id(mapped, try operand(node, 1))
         );
     }
-    if unary_tag(operation) is tag {
-        return try builder.add_unary(tag,
+    if tag == OpTag.abs or tag == OpTag.neg or tag == OpTag.sign or
+    tag == OpTag.relu or tag == OpTag.exp or tag == OpTag.log or
+    tag == OpTag.sqrt or tag == OpTag.sigmoid or tag == OpTag.silu or
+    tag == OpTag.tanh or tag == OpTag.erf or tag == OpTag.gelu or
+    tag == OpTag.sin or tag == OpTag.cos {
+        return try builder.add_unary(
+            tag,
             try mapped_id(mapped, try operand(node, 0))
         );
     }
-    if all_reduction_tag(operation) is tag {
-        if option_usize(node, "axis", none) is none {
-            return try builder.add_reduce_all(tag,
-                try mapped_id(mapped, try operand(node, 0)),
-                option_bool(node, "keep_dims", false)
-            );
-        }
-    }
-    if axis_reduction_tag(operation) is tag {
-        return try builder.add_reduce_axis(tag,
+    if tag == OpTag.sum_all or tag == OpTag.mean_all or
+    tag == OpTag.min_all or tag == OpTag.max_all or
+    tag == OpTag.variance_all or tag == OpTag.std_all or
+    tag == OpTag.argmin_all or tag == OpTag.argmax_all {
+        return try builder.add_reduce_all(
+            tag,
             try mapped_id(mapped, try operand(node, 0)),
-            try require_usize(option_usize(node, "axis", none)),
-            option_bool(node, "keep_dims", false)
+            options.keep_dims
         );
     }
-    if operation == "softmax" or operation == "log_softmax" {
-        var tag = OpTag.log_softmax;
-        if operation == "softmax" {
-            tag = OpTag.softmax;
-        }
-        return try builder.add_softmax(tag,
+    if tag == OpTag.sum_axis or tag == OpTag.mean_axis or
+    tag == OpTag.min_axis or tag == OpTag.max_axis or
+    tag == OpTag.variance_axis or tag == OpTag.std_axis or
+    tag == OpTag.argmin_axis or tag == OpTag.argmax_axis {
+        return try builder.add_reduce_axis(
+            tag,
             try mapped_id(mapped, try operand(node, 0)),
-            try require_usize(option_usize(node, "axis", none))
+            try require_usize(options.axis),
+            options.keep_dims
         );
     }
-    if operation == "reshape" or operation == "reduce_to_shape" {
-        const spec_index = try require_usize(json.field_index(node, "spec"));
-        if node.members[spec_index].value is .object(spec) {
-            const shape_index = try require_usize(json.field_index(&spec, "shape"));
-            const target = try dimensions(&spec.members[shape_index].value);
-            if operation == "reshape" {
-                return try builder.add_reshape(
-                    try mapped_id(mapped, try operand(node, 0)), target[..]
-                );
-            }
-            return try builder.add_reduce_to_shape(
-                try mapped_id(mapped, try operand(node, 0)), target[..]
-            );
-        }
-        throw invalid();
+    if tag == OpTag.softmax or tag == OpTag.log_softmax {
+        return try builder.add_softmax(
+            tag,
+            try mapped_id(mapped, try operand(node, 0)),
+            try require_usize(options.axis)
+        );
     }
-    if operation == "permute" {
-        if option_usizes(node, "axes") is axes {
+    if tag == OpTag.reshape {
+        return try builder.add_reshape(
+            try mapped_id(mapped, try operand(node, 0)),
+            node.spec.dimensions[..]
+        );
+    }
+    if tag == OpTag.reduce_to_shape {
+        return try builder.add_reduce_to_shape(
+            try mapped_id(mapped, try operand(node, 0)),
+            node.spec.dimensions[..]
+        );
+    }
+    if tag == OpTag.permute {
+        if options.axes is axes {
             return try builder.add_permute(
-                try mapped_id(mapped, try operand(node, 0)), axes[..]
+                try mapped_id(mapped, try operand(node, 0)),
+                axes[..]
             );
         }
         throw invalid();
     }
-    if operation == "transpose" {
-        if option_usizes(node, "permutation") is axes {
+    if tag == OpTag.transpose {
+        if options.permutation is axes {
             return try builder.add_transpose_permutation(
-                try mapped_id(mapped, try operand(node, 0)), axes[..]
+                try mapped_id(mapped, try operand(node, 0)),
+                axes[..]
             );
         }
         return try builder.add_transpose(
             try mapped_id(mapped, try operand(node, 0))
         );
     }
-    if operation == "squeeze" {
+    if tag == OpTag.squeeze {
         return try builder.add_squeeze(
             try mapped_id(mapped, try operand(node, 0)),
-            option_usize(node, "axis", none)
+            options.axis
         );
     }
-    if operation == "unsqueeze" {
+    if tag == OpTag.unsqueeze {
         return try builder.add_unsqueeze(
             try mapped_id(mapped, try operand(node, 0)),
-            try require_usize(option_usize(node, "axis", none))
+            try require_usize(options.axis)
         );
     }
-    if operation == "contiguous" {
+    if tag == OpTag.contiguous {
         return try builder.add_contiguous(
             try mapped_id(mapped, try operand(node, 0))
         );
     }
-    if operation == "slice" {
-        if option_slice_ranges(node) is ranges {
+    if tag == OpTag.slice {
+        if options.ranges is ranges {
             return try builder.add_slice(
                 try mapped_id(mapped, try operand(node, 0)),
                 ranges[..]
@@ -722,448 +484,257 @@ fn add_operation(builder: &ProgramBuilder, node: &const json.Object,
         }
         throw invalid();
     }
-    if operation == "cast" {
-        const spec_index = try require_usize(json.field_index(node, "spec"));
-        if node.members[spec_index].value is .object(spec) {
-            const target = try require_string(json.string_field(&spec, "dtype"));
-            if dtype(target) is target_dtype {
-                return try builder.add_cast(
-                    try mapped_id(mapped, try operand(node, 0)),
-                    target_dtype
-                );
-            }
-        }
-        throw invalid();
-    }
-    if operation == "clamp" {
-        return try builder.add_clamp(
+    if tag == OpTag.cast {
+        return try builder.add_cast(
             try mapped_id(mapped, try operand(node, 0)),
-            try require_number(option_number(node, "min", none)),
-            try require_number(option_number(node, "max", none))
+            node.spec.dtype
         );
     }
-    if operation == "where" {
+    if tag == OpTag.clamp {
+        return try builder.add_clamp(
+            try mapped_id(mapped, try operand(node, 0)),
+            try require_number(options.minimum),
+            try require_number(options.maximum)
+        );
+    }
+    if tag == OpTag.where {
         return try builder.add_where(
             try mapped_id(mapped, try operand(node, 0)),
             try mapped_id(mapped, try operand(node, 1)),
             try mapped_id(mapped, try operand(node, 2))
         );
     }
-    if operation == "masked_fill" {
+    if tag == OpTag.masked_fill {
         return try builder.add_masked_fill(
             try mapped_id(mapped, try operand(node, 0)),
             try mapped_id(mapped, try operand(node, 1)),
-            try require_number(option_number(node, "value", none))
+            try require_number(options.value)
         );
     }
-    if operation == "cat" or operation == "stack" {
-        const sources = try operand_ids(node);
+    if tag == OpTag.cat or tag == OpTag.stack {
         var values: List<usize> = list<usize>();
-        for source in sources[..] {
+        for source in node.operands[..] {
             values.push(try mapped_id(mapped, source));
         }
-        const axis = try require_usize(option_usize(node, "axis", none));
-        if operation == "cat" {
+        const axis = try require_usize(options.axis);
+        if tag == OpTag.cat {
             return try builder.add_cat(values.view(), axis);
         }
         return try builder.add_stack(values.view(), axis);
     }
-    if operation == "layer_norm" or operation == "rms_norm" {
-        var tag = OpTag.rms_norm;
-        if operation == "layer_norm" {
-            tag = OpTag.layer_norm;
-        }
+    if tag == OpTag.layer_norm or tag == OpTag.rms_norm {
         return try builder.add_normalization(
             tag,
             try mapped_id(mapped, try operand(node, 0)),
-            try require_usize(option_usize(node, "axis", none)),
-            try require_number(option_number(node, "epsilon", none))
+            try require_usize(options.axis),
+            try require_number(options.epsilon)
         );
     }
-    if operation == "embedding" {
+    if tag == OpTag.embedding {
         return try builder.add_embedding(
             try mapped_id(mapped, try operand(node, 0)),
             try mapped_id(mapped, try operand(node, 1))
         );
     }
-    if operation == "index_select" or operation == "gather" {
+    if tag == OpTag.index_select or tag == OpTag.gather {
         const lhs = try mapped_id(mapped, try operand(node, 0));
         const rhs = try mapped_id(mapped, try operand(node, 1));
-        const axis = try require_usize(option_usize(node, "axis", none));
-        if operation == "index_select" {
+        const axis = try require_usize(options.axis);
+        if tag == OpTag.index_select {
             return try builder.add_index_select(lhs, rhs, axis);
         }
         return try builder.add_gather(lhs, rhs, axis);
     }
-    if operation == "scatter_add" {
+    if tag == OpTag.scatter_add {
         return try builder.add_scatter_add(
             try mapped_id(mapped, try operand(node, 0)),
             try mapped_id(mapped, try operand(node, 1)),
             try mapped_id(mapped, try operand(node, 2)),
-            try require_usize(option_usize(node, "axis", none))
+            try require_usize(options.axis)
         );
     }
-    if operation == "topk_values" or operation == "topk_indices" {
+    if tag == OpTag.top_k_values or tag == OpTag.top_k_indices {
         const pair = try builder.add_top_k_with_sort(
             try mapped_id(mapped, try operand(node, 0)),
-            try require_usize(option_usize(node, "axis", none)),
-            try require_usize(option_usize(node, "k", none)),
-            option_bool(node, "largest", true),
-            option_bool(node, "sorted", true)
+            try require_usize(options.axis),
+            try require_usize(options.k),
+            options.largest,
+            options.sorted
         );
-        if operation == "topk_indices" {
+        if tag == OpTag.top_k_indices {
             return pair.indices;
         }
         return pair.values;
     }
-    if operation == "one_hot" {
+    if tag == OpTag.one_hot {
         return try builder.add_one_hot(
             try mapped_id(mapped, try operand(node, 0)),
-            try require_usize(option_usize(node, "num_classes", none))
+            try require_usize(options.num_classes)
         );
     }
-    if operation == "cross_entropy" or operation == "dense_cross_entropy" or
-    operation == "log_softmax_nll" {
-        var tag = OpTag.cross_entropy_indexed;
-        if operation == "dense_cross_entropy" {
-            tag = OpTag.cross_entropy;
-        } else if operation == "log_softmax_nll" {
-            tag = OpTag.log_softmax_nll;
-        }
-        const requested_axis = option_usize(node, "class_axis", 1);
-        var axis: usize = 1;
-        if requested_axis is selected_axis {
-            axis = selected_axis;
-        }
-        return try builder.add_cross_entropy(tag,
+    if tag == OpTag.cross_entropy or tag == OpTag.cross_entropy_indexed or
+    tag == OpTag.log_softmax_nll {
+        return try builder.add_cross_entropy(
+            tag,
             try mapped_id(mapped, try operand(node, 0)),
             try mapped_id(mapped, try operand(node, 1)),
-            axis
+            options.class_axis
         );
     }
-    if operation == "quantized_matmul" {
+    if tag == OpTag.quantized_matmul {
         return try builder.add_quantized_matmul(
             try mapped_id(mapped, try operand(node, 0)),
             try mapped_id(mapped, try operand(node, 1)),
             try mapped_id(mapped, try operand(node, 2)),
             try mapped_id(mapped, try operand(node, 3)),
-            try require_usize(option_usize(node, "bits", none)),
-            try require_usize(option_usize(node, "group_size", none))
+            try require_usize(options.bits),
+            try require_usize(options.group_size)
         );
     }
     throw invalid();
 }
 
-fn build_program(document: &const json.Value,
+fn build_program(options: &const ProgramInput,
     source_instruction_by_step: &List<usize>, mapped: &List<usize>,
     selected_outputs: ?[]const usize
 ): Program ! ComputeError {
-    if document is .object(program) {
-        const nodes_index = try require_usize(json.field_index(&program, "nodes"));
-        if program.members[nodes_index].value is .array(nodes) {
-            if mapped.len() != nodes.items.len() {
-                throw invalid();
+    if mapped.len() != options.nodes.len() {
+        throw invalid();
+    }
+    var program_builder = builder();
+    var state_sequence: u64 = 0;
+    for node in options.nodes[..] {
+        const id = node.id;
+        if id >= mapped.len() {
+            throw invalid();
+        }
+        switch node.kind {
+            .gradient => {}
+            .argument => {
+                mapped[id] = program_builder.add_input(owned_spec(&node));
             }
-            var program_builder = builder();
-            var state_sequence: u64 = 0;
-            for node in nodes.items[..] {
-                if node is .object(value) {
-                    const id = try require_usize(json.usize_field(&value, "id"));
-                    if id >= mapped.len() {
-                        throw invalid();
-                    }
-                    const kind = try require_string(json.string_field(&value, "kind"));
-                    if kind == "gradient" {
-                        continue;
-                    }
-                    const spec_index = try require_usize(json.field_index(&value, "spec"));
-                    const spec = try tensor_spec(&value.members[spec_index].value);
-                    if json.string_field(&value, "role") is role {
-                        if role == "argument" {
-                            mapped[id] = program_builder.add_input(spec);
-                            continue;
-                        }
-                        if role == "parameter" or role == "state" {
-                            var selected_role = InputRole.model_state;
-                            if role == "parameter" {
-                                selected_role = InputRole.parameter;
-                            }
-                            mapped[id] = try program_builder.add_state_input(
-                                spec, selected_role,
-                                StateId.from_int(state_sequence)
-                            );
-                            state_sequence = state_sequence + 1;
-                            continue;
-                        }
-                        if role == "constant" {
-                            const value_index = try require_usize(json.field_index(&value, "value"));
-                            mapped[id] = try add_constant(&program_builder, spec,
-                                &value.members[value_index].value
-                            );
-                            continue;
-                        }
-                        throw invalid();
-                    }
-                    const instruction = program_builder.instruction_count();
-                    mapped[id] = try add_operation(
-                        &program_builder,
-                        &value,
-                        mapped.view()
-                    );
-                    while source_instruction_by_step.len() <
-                        program_builder.instruction_count() {
-                        source_instruction_by_step.push(instruction);
-                    }
-                } else {
-                    throw invalid();
-                }
-            }
-            var selected: List<usize> = list<usize>();
-            if selected_outputs is outputs {
-                for output in outputs[..] {
-                    selected.push(try mapped_id(mapped.view(), output));
-                }
-            } else {
-                const outputs_index = try require_usize(
-                    json.field_index(&program, "outputs")
+            .parameter => {
+                mapped[id] = try program_builder.add_state_input(
+                    owned_spec(&node),
+                    InputRole.parameter,
+                    StateId.from_int(state_sequence)
                 );
-                if program.members[outputs_index].value is .array(outputs) {
-                    for output in outputs.items[..] {
-                        if output is .number(number) {
-                            const source = try require_usize(
-                                json.parse_usize(number.spelling)
-                            );
-                            selected.push(try mapped_id(
-                                mapped.view(),
-                                source
-                            ));
-                        } else {
-                            throw invalid();
-                        }
-                    }
-                } else {
-                    throw invalid();
+                state_sequence = state_sequence + 1;
+            }
+            .state => {
+                mapped[id] = try program_builder.add_state_input(
+                    owned_spec(&node),
+                    InputRole.model_state,
+                    StateId.from_int(state_sequence)
+                );
+                state_sequence = state_sequence + 1;
+            }
+            .constant => {
+                mapped[id] = try add_constant(
+                    &program_builder,
+                    &node,
+                    owned_spec(&node)
+                );
+            }
+            .operation => {
+                const instruction = program_builder.instruction_count();
+                mapped[id] = try add_operation(
+                    &program_builder,
+                    &node,
+                    mapped.view()
+                );
+                while source_instruction_by_step.len() <
+                program_builder.instruction_count() {
+                    source_instruction_by_step.push(instruction);
                 }
             }
-            return try program_builder.finish(selected.view());
+        }
+    }
+    var selected: List<usize> = list<usize>();
+    if selected_outputs is outputs {
+        for output in outputs[..] {
+            selected.push(try mapped_id(mapped.view(), output));
+        }
+    } else if options.outputs is outputs {
+        for output in outputs[..] {
+            selected.push(try mapped_id(mapped.view(), output));
+        }
+    } else {
+        throw invalid();
+    }
+    return try program_builder.finish(selected.view());
+}
+
+fn gradient_count(options: &const ProgramInput): usize {
+    var count: usize = 0;
+    for node in options.nodes[..] {
+        if node.kind == ProgramNodeKind.gradient {
+            count = count + 1;
+        }
+    }
+    return count;
+}
+
+fn gradient_loss_id(options: &const ProgramInput): usize ! ComputeError {
+    for node in options.nodes[..] {
+        if node.kind == ProgramNodeKind.gradient {
+            return try operand(&node, 0);
         }
     }
     throw invalid();
 }
 
-fn node_count(document: &const json.Value): usize !ComputeError {
-    if document is .object(program) {
-        const nodes_index = try require_usize(
-            json.field_index(&program, "nodes")
-        );
-        if program.members[nodes_index].value is .array(nodes) {
-            return nodes.items.len();
+fn gradient_target_id(node: &const ProgramNodeInput): usize ! ComputeError {
+    return try require_usize(node.gradient_target);
+}
+
+fn compile_settings(options: &const CompileOptionsInput): CompileSettings {
+    return CompileSettings {
+        optimization_level: options.optimization_level,
+        optimization_goal: options.optimization_goal,
+        dense_inputs: options.dense_inputs,
+        residual_policy: options.residual_policy,
+        search_limits: SearchLimits {
+            structural_states: options.search_limits.structural_states,
+            structural_expansions:
+            options.search_limits.structural_expansions,
+            complete_evaluations:
+            options.search_limits.complete_evaluations,
+            physical_work: options.search_limits.physical_work,
+            ready_work: options.search_limits.ready_work,
+            max_peak_active_bytes:
+            options.search_limits.max_peak_active_bytes,
+            max_invocation_scratch_bytes:
+            options.search_limits.max_invocation_scratch_bytes
         }
-    }
-    throw invalid();
-}
-
-fn gradient_count(document: &const json.Value): usize !ComputeError {
-    if document is .object(program) {
-        const nodes_index = try require_usize(
-            json.field_index(&program, "nodes")
-        );
-        if program.members[nodes_index].value is .array(nodes) {
-            var count: usize = 0;
-            for node in nodes.items[..] {
-                if node is .object(value) {
-                    if json.string_field(&value, "kind") is kind {
-                        if kind == "gradient" {
-                            count = count + 1;
-                        }
-                    }
-                }
-            }
-            return count;
-        }
-    }
-    throw invalid();
-}
-
-fn gradient_loss_id(document: &const json.Value): usize !ComputeError {
-    if document is .object(program) {
-        const nodes_index = try require_usize(
-            json.field_index(&program, "nodes")
-        );
-        if program.members[nodes_index].value is .array(nodes) {
-            for node in nodes.items[..] {
-                if node is .object(value) {
-                    if json.string_field(&value, "kind") is kind {
-                        if kind == "gradient" {
-                            return try operand(&value, 0);
-                        }
-                    }
-                }
-            }
-        }
-    }
-    throw invalid();
-}
-
-fn gradient_target_id(document: &const json.Value,
-    ordinal: usize
-): usize !ComputeError {
-    if document is .object(program) {
-        const nodes_index = try require_usize(
-            json.field_index(&program, "nodes")
-        );
-        if program.members[nodes_index].value is .array(nodes) {
-            var current: usize = 0;
-            var provenance: ?string = none;
-            for node in nodes.items[..] {
-                if node is .object(value) {
-                    if json.string_field(&value, "kind") is kind {
-                        if kind == "gradient" {
-                            if current == ordinal {
-                                provenance = option_string(
-                                    &value,
-                                    "with_respect_to"
-                                );
-                                break;
-                            }
-                            current = current + 1;
-                        }
-                    }
-                }
-            }
-            if provenance is selected {
-                for node in nodes.items[..] {
-                    if node is .object(value) {
-                        if json.string_field(
-                            &value,
-                            "provenance"
-                        ) is candidate {
-                            if candidate == selected {
-                                return try require_usize(
-                                    json.usize_field(&value, "id")
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    throw invalid();
-}
-
-fn goal(value: string): OptimizationGoal {
-    if value == "memory" {
-        return OptimizationGoal.memory;
-    }
-    if value == "latency" {
-        return OptimizationGoal.latency;
-    }
-    if value == "throughput" {
-        return OptimizationGoal.throughput;
-    }
-    return OptimizationGoal.balanced;
-}
-
-fn program_kind(document: &const json.Value): string !ComputeError {
-    if document is .object(program) {
-        return try require_string(json.string_field(&program, "kind"));
-    }
-    throw invalid();
-}
-
-fn compile_settings(options_json: ?string): CompileSettings {
-    var result = CompileSettings {
-        optimization_level: "safe",
-        optimization_goal: "balanced",
-        dense_inputs: false,
-        residual_policy: ResidualPolicy.retain,
-        search_limits: default_search_limits()
     };
-    if options_json is text {
-        const document = parse(text) catch (error_code) {
-            const ignored = error_code;
-            return result;
-        };
-        if document is .object(options) {
-            if json.string_field(&options, "optimizationLevel") is level {
-                result.optimization_level = level;
-            }
-            if json.string_field(&options, "optimizationGoal") is selected_goal {
-                result.optimization_goal = selected_goal;
-            }
-            result.dense_inputs = json.bool_field(
-                &options,
-                "denseInputs",
-                false
-            );
-            if json.string_field(&options, "residualPolicy") is policy {
-                if policy == "automatic" {
-                    result.residual_policy = ResidualPolicy.automatic;
-                } else if policy == "recompute" {
-                    result.residual_policy = ResidualPolicy.recompute;
-                }
-            }
-            if json.field_index(&options, "searchLimits") is limits_index {
-                if options.members[limits_index].value is .object(limits) {
-                    if json.usize_field(
-                        &limits,
-                        "structuralStates"
-                    ) is value {
-                        result.search_limits.structural_states = value;
-                    }
-                    if json.usize_field(
-                        &limits,
-                        "structuralExpansions"
-                    ) is value {
-                        result.search_limits.structural_expansions = value;
-                    }
-                    if json.usize_field(
-                        &limits,
-                        "completeEvaluations"
-                    ) is value {
-                        result.search_limits.complete_evaluations = value;
-                    }
-                    if json.usize_field(
-                        &limits,
-                        "physicalWork"
-                    ) is value {
-                        result.search_limits.physical_work = value;
-                    }
-                    if json.usize_field(
-                        &limits,
-                        "readyWork"
-                    ) is value {
-                        result.search_limits.ready_work = value;
-                    }
-                    if json.usize_field(
-                        &limits,
-                        "maxPeakActiveBytes"
-                    ) is value {
-                        result.search_limits.max_peak_active_bytes = value;
-                    }
-                    if json.usize_field(
-                        &limits,
-                        "maxInvocationScratchBytes"
-                    ) is value {
-                        result.search_limits.max_invocation_scratch_bytes =
-                            value;
-                    }
-                }
-            }
-        }
-    }
-    return result;
 }
 
-pub fn compile_program(document: &const json.Value,
-    options_json: ?string, backend: &const PreparedBackend
+fn goal_name(value: OptimizationGoal): string {
+    return switch value {
+        .baseline => "none";
+        .memory => "memory";
+        .balanced => "balanced";
+        .latency => "latency";
+        .throughput => "throughput";
+    };
+}
+
+fn level_name(value: CompileOptimizationLevel): string {
+    return switch value {
+        .disabled => "none";
+        .safe => "safe";
+    };
+}
+
+pub fn compile_program(options: &const ProgramInput,
+    compile_options: &const CompileOptionsInput,
+    backend: &const PreparedBackend
 ): CompiledGraph ! ComputeError {
     var source_instruction_by_step: List<usize> = list<usize>();
     var mapped: List<usize> = list<usize>();
-    const node_total = try node_count(document);
     var node_index: usize = 0;
-    while node_index < node_total {
+    while node_index < options.nodes.len() {
         mapped.push((0 as usize) -% 1);
         node_index = node_index + 1;
     }
@@ -1171,33 +742,29 @@ pub fn compile_program(document: &const json.Value,
     var loss_id: usize = 0;
     var loss_outputs: [1]usize = [0];
     var selected_outputs: ?[]const usize = none;
-    const kind = try program_kind(document);
-    if kind == "gradient" {
-        loss_id = try gradient_loss_id(document);
+    if options.kind == ProgramKind.gradient {
+        loss_id = try gradient_loss_id(options);
         loss_outputs[0] = loss_id;
         const frozen_loss_outputs: []const usize = loss_outputs[..];
         selected_outputs = frozen_loss_outputs;
     }
     var program = try build_program(
-        document,
+        options,
         &source_instruction_by_step,
         &mapped,
         selected_outputs
     );
-    if kind == "gradient" {
-        const derivative_count = try gradient_count(document);
+    if options.kind == ProgramKind.gradient {
+        const derivative_count = gradient_count(options);
         if derivative_count == 0 {
             throw invalid();
         }
         var targets: List<usize> = list<usize>();
-        var derivative_index: usize = 0;
-        while derivative_index < derivative_count {
-            const source = try gradient_target_id(
-                document,
-                derivative_index
-            );
-            targets.push(try mapped_id(mapped.view(), source));
-            derivative_index = derivative_index + 1;
+        for node in options.nodes[..] {
+            if node.kind == ProgramNodeKind.gradient {
+                const source = try gradient_target_id(&node);
+                targets.push(try mapped_id(mapped.view(), source));
+            }
         }
         var derivative = try differentiate(
             &program,
@@ -1206,13 +773,11 @@ pub fn compile_program(document: &const json.Value,
         );
         program = derivative.into_program();
         needs_seed = true;
-    } else if kind != "authored" {
-        throw invalid();
     }
     while source_instruction_by_step.len() < program.instructions.len() {
         source_instruction_by_step.push(source_instruction_by_step.len());
     }
-    const settings = compile_settings(options_json);
+    const settings = compile_settings(compile_options);
     var layouts: List<AbstractLayout> = list<AbstractLayout>();
     if settings.dense_inputs {
         var input_index: usize = 0;
@@ -1226,8 +791,8 @@ pub fn compile_program(document: &const json.Value,
     if settings.dense_inputs {
         selected_layouts = frozen_layouts[..];
     }
-    var selected_goal = goal(settings.optimization_goal);
-    if settings.optimization_level == "none" {
+    var selected_goal = settings.optimization_goal;
+    if settings.optimization_level == CompileOptimizationLevel.disabled {
         selected_goal = OptimizationGoal.baseline;
     }
     const executable = try compile_for_resident_with_search_limits(
@@ -1259,8 +824,8 @@ pub fn compile_program(document: &const json.Value,
         source_instruction_by_step: source_instruction_by_step,
         needs_seed: needs_seed,
         dense_inputs: settings.dense_inputs,
-        optimization_goal: settings.optimization_goal,
-        optimization_level: settings.optimization_level,
+        optimization_goal: goal_name(settings.optimization_goal),
+        optimization_level: level_name(settings.optimization_level),
         residual_policy: settings.residual_policy,
         observed_run_count: 0,
         failed_run_count: 0,

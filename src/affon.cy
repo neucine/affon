@@ -100,10 +100,19 @@ fn register_modules(runtime: &const Runtime, root: string): i32 {
     }
     if register_file(runtime, root.clone(), "affon:core",
         "src/js/compute/public.ts"
-    ) != 0 { return 1; }
+    ) != 0 {
+        return 1;
+    }
     if register_file(runtime, root.clone(), "affon:_internal/compute/program",
         "src/js/compute/program.ts"
-    ) != 0 { return 1; }
+    ) != 0 {
+        return 1;
+    }
+    if register_file(runtime, root.clone(), "affon:_internal/compute/program_wire",
+        "src/js/compute/program_wire.ts"
+    ) != 0 {
+        return 1;
+    }
     if register_file(runtime, root.clone(), "affon:ops", "src/js/ops.ts") != 0 {
         return 1;
     }
@@ -115,31 +124,49 @@ fn register_modules(runtime: &const Runtime, root: string): i32 {
     }
     if register_file(runtime, root.clone(), "affon:core/persistence.ts",
         "src/js/compute/persistence.ts"
-    ) != 0 { return 1; }
+    ) != 0 {
+        return 1;
+    }
     if register_file(runtime, root.clone(), "affon:checkpoint",
         "src/js/checkpoint/index.ts"
-    ) != 0 { return 1; }
+    ) != 0 {
+        return 1;
+    }
     if register_file(runtime, root.clone(), "affon:dataset",
         "src/js/dataset/index.ts"
-    ) != 0 { return 1; }
+    ) != 0 {
+        return 1;
+    }
     if register_file(runtime, root.clone(), "affon:dataset/tabular.ts",
         "src/js/dataset/tabular.ts"
-    ) != 0 { return 1; }
+    ) != 0 {
+        return 1;
+    }
     if register_file(runtime, root.clone(), "affon:dataset/text.ts",
         "src/js/dataset/text.ts"
-    ) != 0 { return 1; }
+    ) != 0 {
+        return 1;
+    }
     if register_file(runtime, root.clone(), "affon:dataset/text_io.ts",
         "src/js/dataset/text_io.ts"
-    ) != 0 { return 1; }
+    ) != 0 {
+        return 1;
+    }
     if register_file(runtime, root.clone(), "affon:dataset/text_loader.ts",
         "src/js/dataset/text_loader.ts"
-    ) != 0 { return 1; }
+    ) != 0 {
+        return 1;
+    }
     if register_file(runtime, root.clone(), "affon:dataset/text_utils.ts",
         "src/js/dataset/text_utils.ts"
-    ) != 0 { return 1; }
+    ) != 0 {
+        return 1;
+    }
     if register_file(runtime, root.clone(), "affon:dataset/token_windows.ts",
         "src/js/dataset/token_windows.ts"
-    ) != 0 { return 1; }
+    ) != 0 {
+        return 1;
+    }
     return register_file(runtime, root, "affon:dataset/tokenizer.ts",
         "src/js/dataset/tokenizer.ts"
     );

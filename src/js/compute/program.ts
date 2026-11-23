@@ -1,6 +1,7 @@
 import native from "affon:core/native"
 import telemetry from "std:telemetry"
 import type { LRSchedule, Optimizer } from "affon:optim"
+import { compileOptionsKey, nativeCompileOptions, nativeProgram, nativeSessionOptions } from "affon:_internal/compute/program_wire"
 
 export type ProgramDType = "bf16" | "f32" | "f64" | "u32" | "i64"
 export type Device = "cpu" | "metal" | "cuda" | `cuda:${number}`
@@ -1840,7 +1841,7 @@ export class Session {
     const normalized = normalizedSessionOptions(options) as any
     this.determinism = normalized.determinism
     this.telemetry = normalized.telemetry ?? false
-    this.#native = native.createSession(this.device as any, JSON.stringify(normalized))
+    this.#native = native.createSession(this.device as any, nativeSessionOptions(this.determinism, this.telemetry))
   }
   get disposed(): boolean { return this.#disposed }
   tensor(values: TensorData, options: { dtype?: ProgramDType; axes?: readonly string[] } = {}): Tensor {
@@ -1917,7 +1918,7 @@ export class Session {
     if (this.#disposed) throw new Error("Session has been disposed")
     if (!isProgram(source)) throw new TypeError("Session.compile expects a Program")
     const normalized = normalizedCompileOptions(options)
-    const key = JSON.stringify(normalized)
+    const key = compileOptionsKey(normalized)
     let variants = this.#cache.get(source)
     const cached = variants?.get(key)
     if (cached && !cached.disposed) return cached as Executable<Out>
@@ -1938,7 +1939,11 @@ export class Session {
     } else {
       const inspection = source.inspect()
       const lowered = this.device === "cuda" ? cudaDenseLossInspection(inspection) : inspection
-      executable = new Executable(this, source, native.compileProgram(this.#native, JSON.stringify(lowered), JSON.stringify(normalized))) as Executable<Out>
+      executable = new Executable(
+        this,
+        source,
+        native.compileProgram(this.#native, nativeProgram(lowered), nativeCompileOptions(normalized)),
+      ) as Executable<Out>
     }
     variants.set(key, executable)
     return executable

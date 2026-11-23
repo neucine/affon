@@ -1,6 +1,11 @@
 import compute_core.lib as compute;
-import { ComputeError, DType } from compute_core.lib;
+import { ComputeError, DType, OptimizationGoal } from compute_core.lib;
 import { OpTag } from compute_core.types;
+import { SliceRange } from compute_core.program.operation;
+import {
+    ResidualPolicy,
+    default_search_limits
+} from compute_core.compiler.executable;
 import { error_name } from compute_core.compiler.index;
 import compute_core.program.support.bfloat;
 import compute_core.backend.cpu.math_unary as cpu_math;
@@ -14,7 +19,13 @@ import hao.js;
 import { Runtime } from hao.runtime;
 import .support.cyna_program as graph;
 import .support.cyna_evidence as plan;
-import .support.json_value as fields;
+import {
+    CompileOptimizationLevel,
+    ExplanationLevel,
+    NumericalPolicy,
+    ProgramKind,
+    ProgramNodeKind
+} from .support.cyna_program;
 
 struct SessionSlot {
     generation: u32;
@@ -537,6 +548,807 @@ fn tensor_dispose(ctx: *c_void, this_value: js.JsValue,
     return js.undefined();
 }
 
+fn optional_i64_property(ctx: *c_void, object: js.JsValue,
+    name: c_str
+): ?i64 {
+    const value = js.get_property_str(ctx, object, name);
+    defer js.free_value(ctx, value);
+    if js.is_undefined(value) {
+        return none;
+    }
+    return js.read_int(ctx, value);
+}
+
+fn parse_decimal_usize(text: string): ?usize {
+    var value: usize = 0;
+    const bytes = text.bytes();
+    if bytes.len() == 0 {
+        return none;
+    }
+    var index: usize = 0;
+    while index < bytes.len() {
+        const byte = bytes[index];
+        if byte < 48 or byte > 57 {
+            return none;
+        }
+        const digit = (byte - 48) as usize;
+        if value > ((0 as usize) -% 1 - digit) / 10 {
+            return none;
+        }
+        value = value * 10 + digit;
+        index = index + 1;
+    }
+    return value;
+}
+
+fn decode_dtype(value: i64): ?DType {
+    return switch value {
+        1 => DType.f32;
+        2 => DType.f64;
+        3 => DType.i64;
+        4 => DType.u32;
+        5 => DType.bf16;
+        _ => none;
+    };
+}
+
+fn decode_program_kind(value: i64): ?ProgramKind {
+    return switch value {
+        0 => ProgramKind.authored;
+        1 => ProgramKind.gradient;
+        _ => none;
+    };
+}
+
+fn decode_program_node_kind(value: i64): ?ProgramNodeKind {
+    return switch value {
+        0 => ProgramNodeKind.argument;
+        1 => ProgramNodeKind.parameter;
+        2 => ProgramNodeKind.state;
+        3 => ProgramNodeKind.constant;
+        4 => ProgramNodeKind.operation;
+        5 => ProgramNodeKind.gradient;
+        _ => none;
+    };
+}
+
+fn decode_compile_level(value: i64): ?CompileOptimizationLevel {
+    return switch value {
+        0 => CompileOptimizationLevel.disabled;
+        1 => CompileOptimizationLevel.safe;
+        _ => none;
+    };
+}
+
+fn decode_optimization_goal(value: i64): ?OptimizationGoal {
+    return switch value {
+        1 => OptimizationGoal.memory;
+        2 => OptimizationGoal.balanced;
+        3 => OptimizationGoal.latency;
+        4 => OptimizationGoal.throughput;
+        _ => none;
+    };
+}
+
+fn decode_numerical_policy(value: i64): ?NumericalPolicy {
+    return switch value {
+        0 => NumericalPolicy.exact_only;
+        1 => NumericalPolicy.backend_equivalent;
+        2 => NumericalPolicy.approximate;
+        _ => none;
+    };
+}
+
+fn decode_explanation_level(value: i64): ?ExplanationLevel {
+    return switch value {
+        0 => ExplanationLevel.summary;
+        1 => ExplanationLevel.detailed;
+        _ => none;
+    };
+}
+
+fn decode_residual_policy(value: i64): ?ResidualPolicy {
+    return switch value {
+        0 => ResidualPolicy.retain;
+        1 => ResidualPolicy.automatic;
+        2 => ResidualPolicy.recompute;
+        _ => none;
+    };
+}
+
+fn decode_op_tag(value: i64): ?OpTag {
+    return switch value {
+        1 => OpTag.add;
+        2 => OpTag.sub;
+        3 => OpTag.mul;
+        4 => OpTag.div;
+        5 => OpTag.matmul;
+        6 => OpTag.abs;
+        7 => OpTag.neg;
+        8 => OpTag.sign;
+        9 => OpTag.relu;
+        10 => OpTag.sum_all;
+        11 => OpTag.mean_all;
+        12 => OpTag.sum_axis;
+        13 => OpTag.mean_axis;
+        14 => OpTag.min_all;
+        15 => OpTag.max_all;
+        16 => OpTag.argmin_all;
+        17 => OpTag.argmax_all;
+        18 => OpTag.min_axis;
+        19 => OpTag.max_axis;
+        20 => OpTag.argmin_axis;
+        21 => OpTag.argmax_axis;
+        22 => OpTag.variance_all;
+        23 => OpTag.std_all;
+        24 => OpTag.variance_axis;
+        25 => OpTag.std_axis;
+        26 => OpTag.reshape;
+        27 => OpTag.permute;
+        28 => OpTag.transpose;
+        29 => OpTag.squeeze;
+        30 => OpTag.unsqueeze;
+        31 => OpTag.contiguous;
+        32 => OpTag.slice;
+        33 => OpTag.cast;
+        34 => OpTag.scatter_add;
+        35 => OpTag.gather;
+        36 => OpTag.index_select;
+        37 => OpTag.embedding;
+        38 => OpTag.one_hot;
+        39 => OpTag.top_k_values;
+        40 => OpTag.top_k_indices;
+        41 => OpTag.eq;
+        42 => OpTag.lt;
+        43 => OpTag.gt;
+        44 => OpTag.where;
+        45 => OpTag.masked_fill;
+        46 => OpTag.cat;
+        47 => OpTag.stack;
+        48 => OpTag.clamp;
+        49 => OpTag.exp;
+        50 => OpTag.log;
+        51 => OpTag.sqrt;
+        52 => OpTag.sigmoid;
+        53 => OpTag.silu;
+        54 => OpTag.tanh;
+        55 => OpTag.erf;
+        56 => OpTag.gelu;
+        57 => OpTag.sin;
+        58 => OpTag.cos;
+        59 => OpTag.softmax;
+        60 => OpTag.log_softmax;
+        61 => OpTag.cross_entropy;
+        62 => OpTag.cross_entropy_indexed;
+        63 => OpTag.layer_norm;
+        64 => OpTag.rms_norm;
+        65 => OpTag.quantized_matmul;
+        66 => OpTag.log_softmax_nll;
+        67 => OpTag.dot;
+        68 => OpTag.reduce_to_shape;
+        _ => none;
+    };
+}
+
+fn optional_usize_property(ctx: *c_void, object: js.JsValue,
+    name: c_str
+): ?usize {
+    if optional_i64_property(ctx, object, name) is value {
+        if value >= 0 {
+            return value as usize;
+        }
+    }
+    return none;
+}
+
+fn optional_number_property(ctx: *c_void, object: js.JsValue,
+    name: c_str
+): ?f64 {
+    const value = js.get_property_str(ctx, object, name);
+    defer js.free_value(ctx, value);
+    if js.is_undefined(value) {
+        return none;
+    }
+    return js.read_number(ctx, value);
+}
+
+fn optional_flag_property(ctx: *c_void, object: js.JsValue,
+    name: c_str, fallback: bool
+): ?bool {
+    const value = optional_i64_property(ctx, object, name);
+    if value is selected {
+        if selected == 0 {
+            return false;
+        }
+        if selected == 1 {
+            return true;
+        }
+        return none;
+    }
+    return fallback;
+}
+
+fn usize_array_property(ctx: *c_void, object: js.JsValue,
+    name: c_str
+): ?List<usize> {
+    const value = js.get_property_str(ctx, object, name);
+    defer js.free_value(ctx, value);
+    if js.is_undefined(value) {
+        return none;
+    }
+    if js.is_array(value) == 0 {
+        return none;
+    }
+    const length = property_int(ctx, value, "length");
+    if length is selected {
+        if selected < 0 or selected > 1_048_576 {
+            return none;
+        }
+        var result: List<usize> = list<usize>();
+        var index: usize = 0;
+        while index < selected as usize {
+            const item = js.get_property_uint32(ctx, value, index as c_uint);
+            defer js.free_value(ctx, item);
+            if js.read_int(ctx, item) is item_value {
+                if item_value < 0 {
+                    return none;
+                }
+                result.push(item_value as usize);
+            } else {
+                return none;
+            }
+            index = index + 1;
+        }
+        return result;
+    }
+    return none;
+}
+
+fn slice_ranges_property(ctx: *c_void, object: js.JsValue
+): ?List<SliceRange> {
+    const value = js.get_property_str(ctx, object, "ranges");
+    defer js.free_value(ctx, value);
+    if js.is_undefined(value) {
+        return none;
+    }
+    if js.is_array(value) == 0 {
+        return none;
+    }
+    const length = property_int(ctx, value, "length");
+    if length is selected {
+        if selected < 0 or selected > 32 {
+            return none;
+        }
+        var result: List<SliceRange> = list<SliceRange>();
+        var index: usize = 0;
+        while index < selected as usize {
+            const item = js.get_property_uint32(ctx, value, index as c_uint);
+            defer js.free_value(ctx, item);
+            if optional_usize_property(ctx, item, "start") is start {
+                if optional_usize_property(ctx, item, "stop") is stop {
+                    var step: isize = 1;
+                    if optional_usize_property(ctx, item, "step") is selected_step {
+                        step = selected_step as isize;
+                    }
+                    result.push(SliceRange {
+                        start: start,
+                        stop: stop,
+                        step: step
+                    });
+                } else {
+                    return none;
+                }
+            } else {
+                return none;
+            }
+            index = index + 1;
+        }
+        return result;
+    }
+    return none;
+}
+
+fn bytes_property(ctx: *c_void, object: js.JsValue,
+    name: c_str
+): ?List<u8> {
+    const value = js.get_property_str(ctx, object, name);
+    defer js.free_value(ctx, value);
+    if js.is_undefined(value) {
+        return none;
+    }
+    var length_storage: [1]c_size_t = [0];
+    const pointer = js.get_array_buffer(
+        ctx,
+        length_storage[..].ptr,
+        value
+    );
+    if pointer is source {
+        const length = length_storage[0];
+        if length as usize > 268_435_456 {
+            return none;
+        }
+        var result: List<u8> = list<u8>();
+        var index: usize = 0;
+        while index < length as usize {
+            unchecked {
+                result.push(*(source + index) as u8);
+            }
+            index = index + 1;
+        }
+        return result;
+    }
+    return none;
+}
+
+fn default_operation_options(): graph.OperationOptions {
+    const result: graph.OperationOptions = {
+        axis: none,
+        keep_dims: false,
+        minimum: none,
+        maximum: none,
+        value: none,
+        epsilon: none,
+        k: none,
+        num_classes: none,
+        class_axis: 1,
+        bits: none,
+        group_size: none,
+        axes: none,
+        permutation: none,
+        ranges: none,
+        largest: true,
+        sorted: true
+    };
+    return result;
+}
+
+fn empty_tensor_spec(): TensorSpec {
+    return TensorSpec {
+        dtype: DType.f32,
+        dimensions: list<usize>(),
+        axis_names: none
+    };
+}
+
+fn default_program_node_input(): graph.ProgramNodeInput {
+    const result: graph.ProgramNodeInput = {
+        id: 0,
+        kind: ProgramNodeKind.argument,
+        spec: empty_tensor_spec(),
+        op: none,
+        operands: list<usize>(),
+        options: default_operation_options(),
+        constant: none,
+        constant_bytes: none,
+        gradient_target: none
+    };
+    return result;
+}
+
+fn default_program_input(): graph.ProgramInput {
+    const result: graph.ProgramInput = {
+        kind: ProgramKind.authored,
+        nodes: list<graph.ProgramNodeInput>(),
+        outputs: none
+    };
+    return result;
+}
+
+fn default_compile_options_input(): graph.CompileOptionsInput {
+    const result: graph.CompileOptionsInput = {
+        optimization_level: CompileOptimizationLevel.safe,
+        optimization_goal: OptimizationGoal.balanced,
+        numerical_policy: NumericalPolicy.backend_equivalent,
+        explanation_level: ExplanationLevel.summary,
+        dense_inputs: false,
+        residual_policy: ResidualPolicy.retain,
+        search_limits: default_search_limits()
+    };
+    return result;
+}
+
+fn decode_operation_options(ctx: *c_void, value: js.JsValue,
+    op: OpTag, output: &graph.OperationOptions
+): bool {
+    output.axis = none;
+    output.keep_dims = false;
+    output.minimum = none;
+    output.maximum = none;
+    output.value = none;
+    output.epsilon = none;
+    output.k = none;
+    output.num_classes = none;
+    output.class_axis = 1;
+    output.bits = none;
+    output.group_size = none;
+    output.axes = none;
+    output.permutation = none;
+    output.ranges = none;
+    output.largest = true;
+    output.sorted = true;
+    if op == OpTag.sum_all or op == OpTag.mean_all or
+    op == OpTag.min_all or op == OpTag.max_all or
+    op == OpTag.variance_all or op == OpTag.std_all or
+    op == OpTag.argmin_all or op == OpTag.argmax_all or
+    op == OpTag.sum_axis or op == OpTag.mean_axis or
+    op == OpTag.min_axis or op == OpTag.max_axis or
+    op == OpTag.variance_axis or op == OpTag.std_axis or
+    op == OpTag.argmin_axis or op == OpTag.argmax_axis {
+        output.axis = optional_usize_property(ctx, value, "axis");
+        if optional_flag_property(ctx, value, "keep_dims", false) is keep {
+            output.keep_dims = keep;
+        } else {
+            return false;
+        }
+    }
+    if op == OpTag.softmax or op == OpTag.log_softmax or
+    op == OpTag.squeeze or op == OpTag.unsqueeze or
+    op == OpTag.cat or op == OpTag.stack or op == OpTag.scatter_add or
+    op == OpTag.gather or op == OpTag.index_select or
+    op == OpTag.layer_norm or op == OpTag.rms_norm {
+        output.axis = optional_usize_property(ctx, value, "axis");
+    }
+    if op == OpTag.permute {
+        output.axes = usize_array_property(ctx, value, "axes");
+        if output.axes is none {
+            return false;
+        }
+    }
+    if op == OpTag.transpose {
+        output.permutation =
+        usize_array_property(ctx, value, "permutation");
+    }
+    if op == OpTag.slice {
+        output.ranges = slice_ranges_property(ctx, value);
+        if output.ranges is none {
+            return false;
+        }
+    }
+    if op == OpTag.clamp {
+        output.minimum = optional_number_property(ctx, value, "min");
+        output.maximum = optional_number_property(ctx, value, "max");
+    }
+    if op == OpTag.masked_fill {
+        output.value = optional_number_property(ctx, value, "fill_value");
+    }
+    if op == OpTag.layer_norm or op == OpTag.rms_norm {
+        output.epsilon = optional_number_property(ctx, value, "epsilon");
+    }
+    if op == OpTag.top_k_values or op == OpTag.top_k_indices {
+        output.axis = optional_usize_property(ctx, value, "axis");
+        output.k = optional_usize_property(ctx, value, "k");
+        if optional_flag_property(ctx, value, "largest", true) is largest {
+            output.largest = largest;
+        } else {
+            return false;
+        }
+        if optional_flag_property(ctx, value, "sorted", true) is sorted {
+            output.sorted = sorted;
+        } else {
+            return false;
+        }
+    }
+    if op == OpTag.one_hot {
+        output.num_classes =
+        optional_usize_property(ctx, value, "num_classes");
+    }
+    if op == OpTag.cross_entropy or op == OpTag.cross_entropy_indexed or
+    op == OpTag.log_softmax_nll {
+        if optional_usize_property(ctx, value, "class_axis") is axis {
+            output.class_axis = axis;
+        }
+    }
+    if op == OpTag.quantized_matmul {
+        output.bits = optional_usize_property(ctx, value, "bits");
+        output.group_size =
+        optional_usize_property(ctx, value, "group_size");
+    }
+    return true;
+}
+
+fn decode_program_node(ctx: *c_void, value: js.JsValue,
+    index: usize, output: &graph.ProgramNodeInput
+): bool {
+    const id = optional_usize_property(ctx, value, "id");
+    if id is selected_id {
+        if selected_id != index {
+            return false;
+        }
+        output.id = selected_id;
+    } else {
+        return false;
+    }
+    const kind_value = optional_i64_property(ctx, value, "kind");
+    if kind_value is none {
+        return false;
+    }
+    const kind = decode_program_node_kind(kind_value);
+    if kind is none {
+        return false;
+    }
+    output.kind = kind;
+    const dtype_value = optional_i64_property(ctx, value, "dtype");
+    if dtype_value is none {
+        return false;
+    }
+    const selected_dtype = decode_dtype(dtype_value);
+    if selected_dtype is none {
+        return false;
+    }
+    const shape_value = js.get_property_str(ctx, value, "shape");
+    const dimensions = shape(ctx, shape_value);
+    js.free_value(ctx, shape_value);
+    if dimensions is none {
+        return false;
+    }
+    const tensor_spec = spec(selected_dtype, dimensions[..])
+    catch (error_code) {
+        const ignored = error_code;
+        return false;
+    };
+    output.spec = tensor_spec;
+    output.operands = list<usize>();
+    if usize_array_property(ctx, value, "operands") is selected_operands {
+        output.operands = selected_operands;
+    }
+    output.op = none;
+    output.options = default_operation_options();
+    const op_value = optional_i64_property(ctx, value, "op");
+    if op_value is numeric_op {
+        const selected_op = decode_op_tag(numeric_op);
+        if selected_op is tag {
+            output.op = tag;
+            if not decode_operation_options(
+                ctx,
+                value,
+                tag,
+                &output.options
+            ) {
+                return false;
+            }
+        } else if kind_value == 4 {
+            return false;
+        }
+    } else if kind_value == 4 {
+        return false;
+    }
+    output.constant = optional_number_property(ctx, value, "constant");
+    output.constant_bytes = bytes_property(ctx, value, "constant_bytes");
+    output.gradient_target =
+    optional_usize_property(ctx, value, "gradient_target");
+    return true;
+}
+
+fn positive_usize_property(ctx: *c_void, object: js.JsValue,
+    name: c_str, fallback: usize
+): usize {
+    if optional_i64_property(ctx, object, name) is value {
+        if value > 0 {
+            return value as usize;
+        }
+    }
+    return fallback;
+}
+
+fn compile_level_property(ctx: *c_void, object: js.JsValue
+): ?i64 {
+    return optional_i64_property(ctx, object, "optimization_level");
+}
+
+fn optimization_goal_property(ctx: *c_void, object: js.JsValue
+): ?i64 {
+    return optional_i64_property(ctx, object, "optimization_goal");
+}
+
+fn numerical_policy_property(ctx: *c_void, object: js.JsValue
+): ?i64 {
+    return optional_i64_property(ctx, object, "numerical_policy");
+}
+
+fn explanation_level_property(ctx: *c_void, object: js.JsValue
+): ?i64 {
+    return optional_i64_property(ctx, object, "explanation_level");
+}
+
+fn residual_policy_property(ctx: *c_void, object: js.JsValue
+): ?i64 {
+    return optional_i64_property(ctx, object, "residual_policy");
+}
+
+fn decode_compile_options(ctx: *c_void, value: js.JsValue,
+    output: &graph.CompileOptionsInput
+): bool {
+    if js.is_undefined(value) {
+        const defaults: graph.CompileOptionsInput = {
+            optimization_level: CompileOptimizationLevel.safe,
+            optimization_goal: OptimizationGoal.balanced,
+            numerical_policy: NumericalPolicy.backend_equivalent,
+            explanation_level: ExplanationLevel.summary,
+            dense_inputs: false,
+            residual_policy: ResidualPolicy.retain,
+            search_limits: default_search_limits()
+        };
+        output.optimization_level = defaults.optimization_level;
+        output.optimization_goal = defaults.optimization_goal;
+        output.numerical_policy = defaults.numerical_policy;
+        output.explanation_level = defaults.explanation_level;
+        output.dense_inputs = false;
+        output.residual_policy = defaults.residual_policy;
+        output.search_limits = defaults.search_limits;
+        return true;
+    }
+    const version = optional_i64_property(ctx, value, "schema_version");
+    if version is selected_version {
+        if selected_version != 1 {
+            return false;
+        }
+    } else {
+        return false;
+    }
+    const level_value = compile_level_property(ctx, value);
+    const goal_value = optimization_goal_property(ctx, value);
+    const policy_value = numerical_policy_property(ctx, value);
+    const explanation_value = explanation_level_property(ctx, value);
+    const residual_value = residual_policy_property(ctx, value);
+    if level_value is none {
+        return false;
+    }
+    if goal_value is none {
+        return false;
+    }
+    if policy_value is none {
+        return false;
+    }
+    if explanation_value is none {
+        return false;
+    }
+    if residual_value is none {
+        return false;
+    }
+    const level = decode_compile_level(level_value);
+    const goal = decode_optimization_goal(goal_value);
+    const policy = decode_numerical_policy(policy_value);
+    const explanation = decode_explanation_level(explanation_value);
+    const residual = decode_residual_policy(residual_value);
+    if level is none {
+        return false;
+    }
+    if goal is none {
+        return false;
+    }
+    if policy is none {
+        return false;
+    }
+    if explanation is none {
+        return false;
+    }
+    if residual is none {
+        return false;
+    }
+    const dense_inputs =
+    optional_flag_property(ctx, value, "dense_inputs", false);
+    if dense_inputs is none {
+        return false;
+    }
+    var limits = default_search_limits();
+    limits.structural_states = positive_usize_property(
+        ctx,
+        value,
+        "structural_states",
+        limits.structural_states
+    );
+    limits.structural_expansions = positive_usize_property(
+        ctx,
+        value,
+        "structural_expansions",
+        limits.structural_expansions
+    );
+    limits.complete_evaluations = positive_usize_property(
+        ctx,
+        value,
+        "complete_evaluations",
+        limits.complete_evaluations
+    );
+    limits.physical_work = positive_usize_property(
+        ctx,
+        value,
+        "physical_work",
+        limits.physical_work
+    );
+    limits.ready_work = positive_usize_property(
+        ctx,
+        value,
+        "ready_work",
+        limits.ready_work
+    );
+    limits.max_peak_active_bytes = optional_usize_property(
+        ctx,
+        value,
+        "max_peak_active_bytes"
+    );
+    limits.max_invocation_scratch_bytes = optional_usize_property(
+        ctx,
+        value,
+        "max_invocation_scratch_bytes"
+    );
+    output.optimization_level = level;
+    output.optimization_goal = goal;
+    output.numerical_policy = policy;
+    output.explanation_level = explanation;
+    output.dense_inputs = dense_inputs;
+    output.residual_policy = residual;
+    output.search_limits = limits;
+    return true;
+}
+
+fn decode_program(ctx: *c_void, value: js.JsValue,
+    output: &graph.ProgramInput
+): bool {
+    const version = optional_i64_property(ctx, value, "schema_version");
+    if version is selected_version {
+        if selected_version != 2 {
+            return false;
+        }
+    } else {
+        return false;
+    }
+    const kind_value = optional_i64_property(ctx, value, "kind");
+    if kind_value is none {
+        return false;
+    }
+    const kind = decode_program_kind(kind_value);
+    if kind is none {
+        return false;
+    }
+    const nodes_value = js.get_property_str(ctx, value, "nodes");
+    if js.is_array(nodes_value) == 0 {
+        js.free_value(ctx, nodes_value);
+        return false;
+    }
+    const length_value = property_int(ctx, nodes_value, "length");
+    var node_length: usize = 0;
+    if length_value is selected_length {
+        if selected_length < 0 or selected_length > 1_048_576 {
+            js.free_value(ctx, nodes_value);
+            return false;
+        }
+        node_length = selected_length as usize;
+    } else {
+        js.free_value(ctx, nodes_value);
+        return false;
+    }
+    var nodes: List<graph.ProgramNodeInput> =
+    list<graph.ProgramNodeInput>();
+    var index: usize = 0;
+    while index < node_length {
+        const node_value = js.get_property_uint32(
+            ctx,
+            nodes_value,
+            index as c_uint
+        );
+        var decoded_node = default_program_node_input();
+        const valid_node = decode_program_node(
+            ctx,
+            node_value,
+            index,
+            &decoded_node
+        );
+        js.free_value(ctx, node_value);
+        if valid_node {
+            nodes.push(decoded_node);
+        } else {
+            js.free_value(ctx, nodes_value);
+            return false;
+        }
+        index = index + 1;
+    }
+    js.free_value(ctx, nodes_value);
+    output.kind = kind;
+    output.nodes = nodes;
+    output.outputs = usize_array_property(ctx, value, "outputs");
+    return true;
+}
+
 fn create_session(ctx: *c_void, _: js.JsValue, argument_count: c_int,
     arguments_pointer: *const js.JsValue
 ): js.JsValue {
@@ -554,7 +1366,7 @@ fn create_session(ctx: *c_void, _: js.JsValue, argument_count: c_int,
         } else if text.starts_with("cuda:") {
             const bytes = text.bytes();
             const suffix = string.from(bytes[5..]);
-            const parsed = fields.parse_usize(suffix);
+            const parsed = parse_decimal_usize(suffix);
             if parsed is ordinal {
                 if ordinal <= 4_294_967_295 {
                     uses_cuda = true;
@@ -592,53 +1404,77 @@ fn create_session(ctx: *c_void, _: js.JsValue, argument_count: c_int,
     var hardware_metrics = false;
     var profiler_markers = false;
     if argument_count >= 2 {
-        if js.read_string(ctx, argument(arguments_pointer, 1)) is options_json {
-            const document = json.parse(options_json) catch (error_code) {
-                const ignored = error_code;
+        const options = argument(arguments_pointer, 1);
+        const version = optional_i64_property(ctx, options, "schema_version");
+        if version is selected_version {
+            if selected_version != 1 {
                 return js.type_error(ctx, "invalid Session options");
-            };
-            if document is .object(options) {
-                if fields.field_index(&options, "telemetry") is telemetry_index {
-                    if options.members[telemetry_index].value is
-                    .object(telemetry_options) {
-                        if fields.usize_field(
-                            &telemetry_options,
-                            "captureRecords"
-                        ) is records {
-                            if records == 0 or records > 4_194_304 {
-                                return js.type_error(
-                                    ctx,
-                                    "captureRecords must be between 1 and 4194304"
-                                );
-                            }
-                            capture_enabled = true;
-                            capture_capacity = records;
-                            timing_scope = "capture";
-                        }
-                        if fields.string_field(
-                            &telemetry_options,
-                            "computeTiming"
-                        ) is selected_timing {
-                            if selected_timing == "invocation" or
-                            selected_timing == "kernel" {
-                                timing_scope = selected_timing;
-                            } else if selected_timing == "none" and
-                            not capture_enabled {
-                                timing_scope = "none";
-                            }
-                        }
-                        hardware_metrics = fields.bool_field(
-                            &telemetry_options,
-                            "hardwareMetrics",
-                            false
-                        );
-                        profiler_markers = fields.bool_field(
-                            &telemetry_options,
-                            "profilerMarkers",
-                            false
-                        );
-                    }
+            }
+        } else {
+            return js.type_error(ctx, "invalid Session options");
+        }
+        const enabled = optional_flag_property(
+            ctx,
+            options,
+            "telemetry_enabled",
+            false
+        );
+        if enabled is none {
+            return js.type_error(ctx, "invalid Session options");
+        }
+        if enabled {
+            if optional_usize_property(
+                ctx,
+                options,
+                "capture_records"
+            ) is records {
+                if records == 0 or records > 4_194_304 {
+                    return js.type_error(
+                        ctx,
+                        "captureRecords must be between 1 and 4194304"
+                    );
                 }
+                capture_enabled = true;
+                capture_capacity = records;
+                timing_scope = "capture";
+            }
+            if optional_usize_property(
+                ctx,
+                options,
+                "compute_timing"
+            ) is selected_timing {
+                if selected_timing == 1 {
+                    timing_scope = "invocation";
+                } else if selected_timing == 2 {
+                    timing_scope = "kernel";
+                } else if selected_timing == 0 and not capture_enabled {
+                    timing_scope = "none";
+                } else if selected_timing != 0 {
+                    return js.type_error(
+                        ctx,
+                        "invalid computeTiming option"
+                    );
+                }
+            }
+            if optional_flag_property(
+                ctx,
+                options,
+                "hardware_metrics",
+                false
+            ) is selected_hardware {
+                hardware_metrics = selected_hardware;
+            } else {
+                return js.type_error(ctx, "invalid Session options");
+            }
+            if optional_flag_property(
+                ctx,
+                options,
+                "profiler_markers",
+                false
+            ) is selected_markers {
+                profiler_markers = selected_markers;
+            } else {
+                return js.type_error(ctx, "invalid Session options");
             }
         }
     }
@@ -1030,26 +1866,30 @@ fn compile_program(ctx: *c_void, _: js.JsValue, argument_count: c_int,
     arguments_pointer: *const js.JsValue
 ): js.JsValue {
     if argument_count < 2 {
-        return js.type_error(ctx, "compileProgram expects Session and Program JSON");
+        return js.type_error(ctx, "compileProgram expects Session and Program");
     }
     const session = live_session(ctx, argument(arguments_pointer, 0));
     if session is none {
         return js.type_error(ctx, "invalid Session");
     }
-    const program_json = js.read_string(ctx, argument(arguments_pointer, 1));
-    if program_json is none {
-        return js.type_error(ctx, "Program must be JSON");
+    var program = default_program_input();
+    if not decode_program(
+        ctx,
+        argument(arguments_pointer, 1),
+        &program
+    ) {
+        return js.type_error(ctx, "invalid Program descriptor");
     }
-    var options_json: ?string = none;
+    var options_value = js.undefined();
     if argument_count >= 3 {
-        options_json = js.read_string(ctx, argument(arguments_pointer, 2));
+        options_value = argument(arguments_pointer, 2);
     }
-    const document = json.parse(program_json) catch (error_code) {
-        const ignored = error_code;
-        return js.type_error(ctx, "Program must be valid JSON");
-    };
+    var options = default_compile_options_input();
+    if not decode_compile_options(ctx, options_value, &options) {
+        return js.type_error(ctx, "invalid compile options descriptor");
+    }
     const backend = session_backend(session);
-    const compiled = graph.compile_program(&document, options_json, &backend)
+    const compiled = graph.compile_program(&program, &options, &backend)
     catch (error_code) {
         const failure = error_name(error_code);
         if sessions[session].cuda {
@@ -2178,12 +3018,9 @@ fn checkpoint_entries(header: &const json.Value,
                 continue;
             }
             if member.value is .object(metadata) {
-                const dtype_index = fields.field_index(&metadata, "dtype");
-                const shape_index = fields.field_index(&metadata, "shape");
-                const offsets_index = fields.field_index(
-                    &metadata,
-                    "data_offsets"
-                );
+                const dtype_index = metadata.find("dtype");
+                const shape_index = metadata.find("shape");
+                const offsets_index = metadata.find("data_offsets");
                 if dtype_index is none {
                     return none;
                 }
