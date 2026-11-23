@@ -76,5 +76,5 @@ export CARGO_TARGET_DIR="$cache_root/hao-transpiler"
 mkdir -p "$CARGO_TARGET_DIR"
 (
   cd "$workspace/hao"
-  ./build_deps.sh
+  bash ./build_deps.sh
 )
