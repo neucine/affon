@@ -1973,7 +1973,9 @@ export class Session {
             throw new TypeError(`${formal.name} initializer does not match its TensorSpec`)
           }
         }
-        const copied = raw && typeof raw === "object" && "to_array" in raw ? native.sessionTensorCopy(this.#native, raw) : undefined
+        const copied = raw && typeof raw === "object" && typeof (raw as any).dispose === "function"
+          ? native.sessionTensorCopy(this.#native, raw)
+          : undefined
         let value: Tensor
         if (raw instanceof ArrayBuffer) {
           value = this.fromBytes(raw, formal.spec)
