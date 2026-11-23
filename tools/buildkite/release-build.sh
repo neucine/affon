@@ -11,6 +11,13 @@ elif [ "$(uname -s)" = Darwin ]; then
 else
   export PATH="$HOME/.bun/bin:$HOME/.local/bin:$PATH"
 fi
+for cyna_bin in \
+  "$HOME/.cyna/0.5.4-beta.local.20261122/bin" \
+  "$HOME/.cyna/current/bin"; do
+  if [ -d "$cyna_bin" ]; then
+    export PATH="$cyna_bin:$PATH"
+  fi
+done
 platform="${1:?expected fast, darwin-arm64, linux-x64, or windows-x64}"
 case "$platform:$(uname -s):$(uname -m)" in
   fast:Darwin:arm64|darwin-arm64:Darwin:arm64|linux-x64:Linux:x86_64|windows-x64:MINGW*:x86_64|windows-x64:MSYS*:x86_64) ;;
