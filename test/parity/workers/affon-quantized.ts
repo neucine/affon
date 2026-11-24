@@ -39,12 +39,23 @@ const wShape = [wPhysical.length, wPhysical[0].length]
 const sShape = [sPhysical.length, sPhysical[0].length]
 const bShape = [bPhysical.length, bPhysical[0].length]
 const spec = (dims: number[]) => dtype === 'bf16' ? Tensor.bf16(dims) : Tensor.f32(dims)
+const tensorFromValues = (session: Session, values: unknown, dims: number[]) => {
+  if (dtype !== 'bf16') return session.tensor(values, { dtype: 'f32' })
+  const source = Float32Array.from((values as any[]).flat(Infinity))
+  const encoded = new Uint16Array(source.length)
+  const bits = new DataView(source.buffer, source.byteOffset, source.byteLength)
+  for (let i = 0; i < source.length; i++) {
+    const word = bits.getUint32(i * 4, true)
+    encoded[i] = ((word + 0x7fff + ((word >>> 16) & 1)) >>> 16) & 0xffff
+  }
+  return session.fromBytes(encoded.buffer, spec(dims))
+}
 const session = new Session({ device: backend as 'cpu' | 'metal' | 'cuda', telemetry: false })
 try {
-  const x = session.tensor(xPhysical, { dtype: dtype as 'f32' | 'bf16' })
+  const x = tensorFromValues(session, xPhysical, xShape)
   const w = session.tensor(wPhysical, { dtype: 'u32' })
-  const s = session.tensor(sPhysical, { dtype: dtype as 'f32' | 'bf16' })
-  const b = session.tensor(bPhysical, { dtype: dtype as 'f32' | 'bf16' })
+  const s = tensorFromValues(session, sPhysical, sShape)
+  const b = tensorFromValues(session, bPhysical, bShape)
   try {
     const source = program(`parity_${kind}_quantized_matmul`, p => {
       const xArg = p.argument('x', spec(xShape))
@@ -81,10 +92,16 @@ try {
       if (kind === 'probe') {
         console.log(JSON.stringify({ schema_version: 1, suite: 'affon_capability_probe', ...base, explanation }))
       } else {
-        const selected_path = explanation.executable.physical_nodes.map((node: any) => ({
-          implementation_id: node.implementation_id || (node.view_permutation?.length ? 'view.transpose' : `view.${node.view_transform}`),
-          implementation_version: node.implementation_version, configuration_digest: node.configuration_digest,
-          ...(node.action === 'view' ? { view_slice_ranges: node.view_slice_ranges, view_permutation: node.view_permutation } : {}) }))
+        const nodes = explanation.selected_physical_nodes ?? explanation.executable?.physical_nodes ?? []
+        const selected_path = nodes.map((node: any) => ({
+          implementation_id: node.implementation_id || node.implementation ||
+            (node.view_permutation?.length ? 'view.transpose' : `view.${node.view_transform}`),
+          ...(node.implementation_version != null ? { implementation_version: node.implementation_version } : {}),
+          ...(node.configuration_digest != null ? { configuration_digest: node.configuration_digest } : {}),
+          ...((node.action || node.physical_action) === 'view' ? {
+            ...(node.view_slice_ranges != null ? { view_slice_ranges: node.view_slice_ranges } : {}),
+            ...(node.view_permutation != null ? { view_permutation: node.view_permutation } : {}),
+          } : {}) }))
         for (let i = 0; i < warmup; i++) run()
         const samples_ms: number[] = [], execution_ms: number[] = [], readback_ms: number[] = []
         for (let i = 0; i < samples; i++) {

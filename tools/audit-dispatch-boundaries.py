@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def probe_module():
-    spec = importlib.util.spec_from_file_location("capability_probes", ROOT / "tools/probe-capabilities.py")
+    spec = importlib.util.spec_from_file_location("capability_probes", ROOT / "test/parity/reference/probe-capabilities.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module

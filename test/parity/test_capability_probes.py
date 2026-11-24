@@ -5,7 +5,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-spec = importlib.util.spec_from_file_location("capability_probes", ROOT / "tools/probe-capabilities.py")
+spec = importlib.util.spec_from_file_location("capability_probes", ROOT / "test/parity/reference/probe-capabilities.py")
 probes = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(probes)
 

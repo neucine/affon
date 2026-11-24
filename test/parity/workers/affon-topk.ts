@@ -58,10 +58,16 @@ try {
     const explanation = executable.explain() as any
     if (kind === 'probe') console.log(JSON.stringify({ schema_version: 1, suite: 'affon_capability_probe', ...report, explanation }))
     else {
-      const selected_path = explanation.executable.physical_nodes.map((node: any) => ({
-        implementation_id: node.implementation_id || (node.view_permutation?.length ? 'view.transpose' : `view.${node.view_transform}`),
-        implementation_version: node.implementation_version, configuration_digest: node.configuration_digest,
-        ...(node.action === 'view' ? { view_slice_ranges: node.view_slice_ranges, view_permutation: node.view_permutation } : {}) }))
+      const nodes = explanation.selected_physical_nodes ?? explanation.executable?.physical_nodes ?? []
+      const selected_path = nodes.map((node: any) => ({
+        implementation_id: node.implementation_id || node.implementation ||
+          (node.view_permutation?.length ? 'view.transpose' : `view.${node.view_transform}`),
+        ...(node.implementation_version != null ? { implementation_version: node.implementation_version } : {}),
+        ...(node.configuration_digest != null ? { configuration_digest: node.configuration_digest } : {}),
+        ...((node.action || node.physical_action) === 'view' ? {
+          ...(node.view_slice_ranges != null ? { view_slice_ranges: node.view_slice_ranges } : {}),
+          ...(node.view_permutation != null ? { view_permutation: node.view_permutation } : {}),
+        } : {}) }))
       const iterations = Number(getEnv('AFFON_CELL_ITERATIONS') ?? '10')
       const samples = Number(getEnv('AFFON_CELL_SAMPLES') ?? '5')
       const warmup = Number(getEnv('AFFON_CELL_WARMUP') ?? '20')

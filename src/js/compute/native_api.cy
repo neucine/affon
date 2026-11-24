@@ -30,6 +30,7 @@ struct SessionSlot {
     alive: bool;
     context_address: usize;
     cuda: bool;
+    metal: bool;
     device: string;
     capture_enabled: bool;
     capture_capacity: usize;
@@ -87,6 +88,7 @@ var sessions: [64]SessionSlot = [SessionSlot {
     alive: false,
     context_address: 0,
     cuda: false,
+    metal: false,
     device: "cpu",
     capture_enabled: false,
     capture_capacity: 0,
@@ -155,12 +157,18 @@ fn session_backend(handle: usize): compute.PreparedBackend {
     if session.cuda {
         return compute.cuda_backend(context as! *compute.CudaContext);
     }
+    if session.metal {
+        return compute.metal_backend(context as! *compute.MetalContext);
+    }
     return compute.cpu_backend(context as! *compute.CpuContext);
 }
 
 fn session_evidence_backend(handle: usize): string {
     if handle < maximum_sessions and sessions[handle].cuda {
         return "cuda";
+    }
+    if handle < maximum_sessions and sessions[handle].metal {
+        return "metal";
     }
     return "cpu";
 }
@@ -1362,6 +1370,7 @@ fn create_session(ctx: *c_void, _: js.JsValue, argument_count: c_int,
     const requested_device = js.read_string(ctx, argument(arguments_pointer, 0));
     var selected_device = "";
     var uses_cuda = false;
+    var uses_metal = false;
     var device_ordinal: u32 = 0;
     if requested_device is text {
         selected_device = text;
@@ -1381,6 +1390,8 @@ fn create_session(ctx: *c_void, _: js.JsValue, argument_count: c_int,
             } else {
                 return js.type_error(ctx, "unsupported device");
             }
+        } else if text == "metal" {
+            uses_metal = true;
         } else if text != "cpu" {
             return js.type_error_string(
                 ctx,
@@ -1497,6 +1508,17 @@ fn create_session(ctx: *c_void, _: js.JsValue, argument_count: c_int,
         unchecked {
             context_address = context as! usize;
         }
+    } else if uses_metal {
+        const context = compute.allocate_metal_context() catch (error_code) {
+            const ignored = error_code;
+            return js.type_error_string(
+                ctx,
+                $"backend unavailable: {selected_device}"
+            );
+        };
+        unchecked {
+            context_address = context as! usize;
+        }
     } else {
         const context = compute.allocate_cpu_context() catch (error_code) {
             const ignored = error_code;
@@ -1514,6 +1536,7 @@ fn create_session(ctx: *c_void, _: js.JsValue, argument_count: c_int,
         alive: true,
         context_address: context_address,
         cuda: uses_cuda,
+        metal: uses_metal,
         device: selected_device,
         capture_enabled: capture_enabled,
         capture_capacity: capture_capacity,
@@ -1552,6 +1575,7 @@ fn session_dispose(ctx: *c_void, this_value: js.JsValue,
                 alive: false,
                 context_address: 0,
                 cuda: false,
+                metal: false,
                 device: "cpu",
                 capture_enabled: false,
                 capture_capacity: 0,
@@ -1592,6 +1616,10 @@ fn session_dispose(ctx: *c_void, this_value: js.JsValue,
                 if current.cuda {
                     compute.release_cuda_context(
                         context as! *compute.CudaContext
+                    );
+                } else if current.metal {
+                    compute.release_metal_context(
+                        context as! *compute.MetalContext
                     );
                 } else {
                     compute.release_cpu_context(
@@ -1986,9 +2014,11 @@ fn explain_executable(ctx: *c_void, _: js.JsValue, argument_count: c_int,
         return js.type_error(ctx, "invalid Executable");
     }
     const compiled = executable_value(handle);
+    const backend = session_evidence_backend(executable_sessions[handle]);
     return js.string(ctx, plan.explanation(
         &compiled.executable,
-        &compiled.source_instruction_by_step
+        &compiled.source_instruction_by_step,
+        backend
     ));
 }
 
@@ -2003,11 +2033,13 @@ fn executable_plan_json(ctx: *c_void, argument_count: c_int,
         return js.type_error(ctx, "invalid Executable");
     }
     const compiled = executable_value(handle);
+    const backend = session_evidence_backend(executable_sessions[handle]);
     const text = switch kind {
         1 => plan.selected_steps(&compiled.executable);
         2 => plan.selected_physical_nodes(
             &compiled.executable,
-            &compiled.source_instruction_by_step
+            &compiled.source_instruction_by_step,
+            backend
         );
         3 => plan.selected_physical_values(&compiled.executable);
         4 => plan.selected_physical_liveness(&compiled.executable);
@@ -2191,30 +2223,34 @@ fn run_executable(ctx: *c_void, _: js.JsValue, argument_count: c_int,
     const executable = executable_slot(executable_handle);
     const compiled = executable_value(executable_handle);
     const node_count = compiled.executable.graph.nodes.len();
-    var owned: List<compute.Tensor> = list<compute.Tensor>();
+    var borrowed: List<compute.TensorView> = list<compute.TensorView>();
+    var seed_holder: List<compute.Tensor> = list<compute.Tensor>();
     var index: usize = 0;
     while index < count as usize {
         const item = js.get_property_uint32(ctx, inputs, index as c_uint);
         defer js.free_value(ctx, item);
         if live_tensor(ctx, item) is handle {
-            const source = tensor_value(handle);
             if compiled.dense_inputs and not dense(handle) {
                 return js.type_error(
                     ctx,
                     "Program execution failed: GuardMismatch"
                 );
             }
-            owned.push(compute.clone_tensor(source));
+            borrowed.push(compute.tensor_view(tensor_value(handle))
+            catch (error_code) {
+                const ignored = error_code;
+                return js.type_error(ctx, "inputs must be Tensors");
+            });
         } else {
             return js.type_error(ctx, "inputs must be Tensors");
         }
         index = index + 1;
     }
     if compiled.needs_seed {
-        if owned.len() + 1 != compiled.executable.input_guards.len() {
+        if borrowed.len() + 1 != compiled.executable.input_guards.len() {
             return js.type_error(ctx, "Program execution failed: InvalidCommand");
         }
-        const guard_index = owned.len();
+        const guard_index = borrowed.len();
         const guard = &compiled.executable.input_guards[guard_index];
         if guard.spec.dtype == DType.i64 or guard.spec.dtype == DType.u32 {
             return js.type_error(
@@ -2232,7 +2268,12 @@ fn run_executable(ctx: *c_void, _: js.JsValue, argument_count: c_int,
             const ignored = error_code;
             return js.type_error(ctx, "seed creation failed");
         };
-        owned.push(seed);
+        seed_holder.push(seed);
+        borrowed.push(compute.tensor_view(&seed_holder[0])
+        catch (error_code) {
+            const ignored = error_code;
+            return js.type_error(ctx, "seed creation failed");
+        });
     }
     const started = now_ns();
     var outputs: List<compute.Tensor> = list<compute.Tensor>();
@@ -2240,10 +2281,10 @@ fn run_executable(ctx: *c_void, _: js.JsValue, argument_count: c_int,
         outputs = empty;
     } else {
         const backend = session_backend(executable_sessions[executable_handle]);
-        outputs = compute.run_with_backend(
+        outputs = compute.run_with_backend_views(
             &backend,
             &compiled.executable,
-            owned[..]
+            borrowed[..]
         ) catch (error_code) {
             if executable_sessions[executable_handle] < maximum_sessions and
             sessions[executable_sessions[executable_handle]].cuda {

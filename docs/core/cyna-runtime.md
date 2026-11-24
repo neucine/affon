@@ -20,13 +20,33 @@ target and its system libraries:
 cyna build . --build windows --output build/affon
 ```
 
+On Linux, use the `linux` config. It omits Apple-only Metal sources while
+keeping the CUDA and CPU backends available:
+
+```sh
+cyna build . --build linux --output build/affon
+```
+
 The executable installs Affon's TypeScript modules in Hao's embedded QuickJS
-runtime and registers `affon:core/native` directly from Cyna. Programs are
-compiled and run through Compute Core's Cyna API in the same process. CPU
-Sessions use a CPU backend context; `cuda` and `cuda:N` Sessions use the CUDA
-PreparedBackend and keep one CUDA context for the Session lifetime. There is no
-subprocess protocol, exported C ABI between these projects, or Zig execution
-path.
+runtime and registers `affon:core/native` directly from Cyna. QuickJS is Hao's
+internal JavaScript host, so Affon does not run or coordinate a separate Cyna
+process. Programs are compiled and run through Compute Core's Cyna API in the
+same process.
+
+Each TypeScript `Session` owns one persistent native context for its lifetime.
+CPU Sessions use a CPU context. `metal` Sessions use a Metal context and
+PreparedBackend. `cuda` and `cuda:N` Sessions use the CUDA PreparedBackend and
+retain one CUDA context until the Session is disposed. TypeScript calls the
+registered native API directly; input tensors are borrowed for each invocation,
+device buffers are released after execution, and compiled Executables remain
+resident so repeated runs do not recompile the Program.
+
+There is no subprocess protocol, exported C ABI between these projects, or Zig
+execution path.
+
+TypeScript readback goes through `Tensor.to_bytes()` and a typed JavaScript
+decoder. This keeps the native bridge to one buffer transfer and avoids one
+Hao-to-QuickJS call per tensor element when constructing `to_array()` results.
 
 Run focused tests with:
 

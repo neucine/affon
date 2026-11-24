@@ -10,6 +10,9 @@ opt = "release"
 [build.default]
 target = "native"
 
+[build.linux]
+target = "native"
+
 [build.windows]
 target = "x86_64-pc-windows-gnu"
 
@@ -18,12 +21,20 @@ compute_core = { path = "../compute-core", version = "0.1.0" }
 hao = { path = "../hao", version = "0.1.2" }
 
 [c]
-sources = ["../compute-core/src/backend/cpu/accelerated_matmul.c", "../compute-core/src/backend/cpu/top_k_fast.c", "../compute-core/src/backend/cuda/runtime.c", "../hao/src/bridge/qjs.c", "../hao/src/bridge/allocator.c", "../hao/src/bridge/host.c", "../hao/src/bridge/bounded_read.c", "../hao/src/bridge/jupyter.c", "../hao/src/bridge/telemetry.c"]
-include_paths = ["../hao/.deps/install/include", "/opt/homebrew/include"]
+sources = ["../compute-core/src/backend/cpu/accelerated_matmul.c", "../compute-core/src/backend/cpu/top_k_fast.c", "../compute-core/src/backend/cuda/runtime.c", "../compute-core/src/backend/metal/ffi.m", "../compute-core/src/backend/metal/stubs.c", "../hao/src/bridge/qjs.c", "../hao/src/bridge/allocator.c", "../hao/src/bridge/host.c", "../hao/src/bridge/bounded_read.c", "../hao/src/bridge/jupyter.c", "../hao/src/bridge/telemetry.c"]
+include_paths = ["../compute-core/src/backend/metal", "../hao/.deps/install/include", "/opt/homebrew/include"]
+flags = ["-fobjc-arc"]
+
+[c.linux]
+sources = ["../compute-core/src/backend/cpu/accelerated_matmul.c", "../compute-core/src/backend/cpu/top_k_fast.c", "../compute-core/src/backend/cuda/runtime.c", "../compute-core/src/backend/metal/stubs.c", "../hao/src/bridge/qjs.c", "../hao/src/bridge/allocator.c", "../hao/src/bridge/host.c", "../hao/src/bridge/bounded_read.c", "../hao/src/bridge/jupyter.c", "../hao/src/bridge/telemetry.c"]
+include_paths = ["../hao/.deps/install/include"]
 
 [c.windows]
-sources = ["../compute-core/src/backend/cpu/accelerated_matmul.c", "../compute-core/src/backend/cpu/top_k_fast.c", "../compute-core/src/backend/cuda/runtime.c", "../hao/src/bridge/qjs.c", "../hao/src/bridge/allocator.c", "../hao/src/bridge/host.c", "../hao/src/bridge/bounded_read.c", "../hao/src/bridge/jupyter.c", "../hao/src/bridge/telemetry.c"]
+sources = ["../compute-core/src/backend/cpu/accelerated_matmul.c", "../compute-core/src/backend/cpu/top_k_fast.c", "../compute-core/src/backend/cuda/runtime.c", "../compute-core/src/backend/metal/stubs.c", "../hao/src/bridge/qjs.c", "../hao/src/bridge/allocator.c", "../hao/src/bridge/host.c", "../hao/src/bridge/bounded_read.c", "../hao/src/bridge/jupyter.c", "../hao/src/bridge/telemetry.c"]
 include_paths = ["../hao/.deps/install/include", "C:/msys64/mingw64/include", "C:/msys64/mingw64/x86_64-w64-mingw32/include"]
+
+[asm]
+sources = ["src/js/compute/metal_frameworks.S"]
 
 [link]
 libs = ["quickjs", "uv", "hao_transpiler", "curl", "ffi", "zmq", "crypto"]

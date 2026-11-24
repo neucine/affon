@@ -140,7 +140,7 @@ records the compiler selected physical path. Use a ReleaseFast binary for
 evidence intended for performance work:
 
 ```sh
-python3 tools/probe-capabilities.py --binary build/affon \
+python3 test/parity/reference/probe-capabilities.py --binary build/affon \
   --output /tmp/affon-probes.json
 python3 tools/import-coverage-evidence.py --probe /tmp/affon-probes.json \
   --output /tmp/affon-outcomes.json
@@ -188,7 +188,7 @@ that has PyTorch and MPS support:
 
 ```sh
 apps/hf-inference/artifacts/preparation-env/bin/python \
-  tools/benchmark-cells-pytorch.py \
+  test/parity/reference/benchmark-cells-pytorch.py \
   --output-dir /tmp/affon-cell-peer --iterations 300 --samples 5 --rounds 3
 python3 tools/summarize-cell-performance.py /tmp/affon-cell-peer
 ```
@@ -227,7 +227,7 @@ noise is calibrated on the target. Reproduce the set with:
 
 ```sh
 apps/hf-inference/artifacts/preparation-env/bin/python \
-  tools/benchmark-cells-pytorch.py --kind program_peer \
+  test/parity/reference/benchmark-cells-pytorch.py --kind program_peer \
   --only metal/f32/sum_axis/long_axis,metal/f32/matmul/decode_m1,metal/f32/matmul/prefill \
   --iterations 100 --samples 5 --rounds 3 \
   --output-dir /tmp/affon-program-peer

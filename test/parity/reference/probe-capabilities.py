@@ -455,11 +455,17 @@ def run_one(binary, case):
     tolerance = relative_tolerance * max(1, max(abs(x) for x in reference))
     checksum_error = abs(result.get("output_checksum", float("nan")) - sum(reference))
     checksum_tolerance = tolerance * len(reference)
-    nodes = result["explanation"].get("executable", {}).get("physical_nodes", [])
-    path = [{"implementation_id": node.get("implementation_id") or ("view.transpose" if node.get("view_permutation") else "view." + str(node.get("view_transform"))),
-             "implementation_version": node.get("implementation_version"),
-             "configuration_digest": node.get("configuration_digest"),
-             **({"view_slice_ranges": node.get("view_slice_ranges"), "view_permutation": node.get("view_permutation")} if node.get("action") == "view" else {})}
+    nodes = result["explanation"].get("selected_physical_nodes") or result["explanation"].get(
+        "executable", {}).get("physical_nodes", [])
+    path = [{"implementation_id": node.get("implementation_id") or node.get("implementation") or (
+                 "view.transpose" if node.get("view_permutation") else "view." + str(node.get("view_transform"))),
+             **({"implementation_version": node["implementation_version"]}
+                if node.get("implementation_version") is not None else {}),
+             **({"configuration_digest": node["configuration_digest"]}
+                if node.get("configuration_digest") is not None else {}),
+             **({key: node[key] for key in ("view_slice_ranges", "view_permutation")
+                 if node.get(key) is not None}
+                if (node.get("action") or node.get("physical_action")) == "view" else {})}
             for node in nodes]
     if not path or any(not item["implementation_id"] for item in path):
         raise ValueError(f"{case['id']}: selected physical path missing")

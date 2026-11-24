@@ -135,6 +135,18 @@ fn physical_implementation(node: &const Task): string {
     };
 }
 
+fn backend_implementation(node: &const Task, backend: string): string {
+    const implementation = physical_implementation(node);
+    if backend == "cpu" or physical_is_view(node) {
+        return implementation;
+    }
+    if implementation.starts_with("cpu_") {
+        const suffix = string.from(implementation.bytes()[4..]);
+        return $"{backend}_{suffix}";
+    }
+    return $"{backend}_{implementation}";
+}
+
 fn physical_action(node: &const Task): string {
     return switch node.action {
         .instruction(selected) => switch selected.execution_class {
@@ -236,7 +248,7 @@ pub fn selected_steps(executable: &const compute.Executable): string {
 }
 
 pub fn selected_physical_nodes(executable: &const compute.Executable,
-    source_instruction_by_step: &const List<usize>
+    source_instruction_by_step: &const List<usize>, backend: string
 ): string {
     var items: List<json.Value> = list<json.Value>();
     var node_index: usize = 0;
@@ -249,7 +261,7 @@ pub fn selected_physical_nodes(executable: &const compute.Executable,
         var fields: List<json.Member> = list<json.Member>();
         fields.push(member("id", number(node_index)));
         fields.push(member("implementation", string_value(
-            physical_implementation(node)
+            backend_implementation(node, backend)
         )));
         fields.push(member("physical_action", string_value(
             physical_action(node)
@@ -708,7 +720,7 @@ pub fn search(executable: &const compute.Executable): string {
 }
 
 pub fn explanation(executable: &const compute.Executable,
-    _source_instruction_by_step: &const List<usize>
+    _source_instruction_by_step: &const List<usize>, backend: string
 ): string {
     var fields: List<json.Member> = list<json.Member>();
     fields.push(member("schema_version", number(3)));

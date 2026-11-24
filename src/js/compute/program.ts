@@ -364,6 +364,51 @@ function sameSpec(left: TensorSpec, right: TensorSpec): boolean {
 function scalarSpec(dtype: ProgramDType): TensorSpec { return freezeSpec(dtype, [1]) }
 
 function elementCount(shape: readonly number[]): number { return shape.reduce((product, size) => product * size, 1) }
+
+function tensorValuesFromBytes(bytes: ArrayBuffer, dtype: ProgramDType, shape: readonly number[]): TensorData {
+  if (shape.length === 2 && (dtype === "f32" || dtype === "f64" || dtype === "u32")) {
+    const encoded = dtype === "f32" ? new Float32Array(bytes) : dtype === "f64" ? new Float64Array(bytes) : new Uint32Array(bytes)
+    const columns = shape[1]
+    return Array.from({ length: shape[0] }, (_, row) => Array.from(encoded.subarray(row * columns, (row + 1) * columns)))
+  }
+  if (shape.length === 2 && dtype === "bf16") {
+    const encoded = new Uint16Array(bytes)
+    const widened = new Uint32Array(encoded.length)
+    for (let index = 0; index < encoded.length; index++) widened[index] = encoded[index] << 16
+    const decoded = new Float32Array(widened.buffer)
+    const columns = shape[1]
+    return Array.from({ length: shape[0] }, (_, row) => Array.from(decoded.subarray(row * columns, (row + 1) * columns)))
+  }
+  const count = elementCount(shape)
+  let values: number[]
+  if (dtype === "f32") {
+    values = Array.from(new Float32Array(bytes))
+  } else if (dtype === "f64") {
+    values = Array.from(new Float64Array(bytes))
+  } else if (dtype === "u32") {
+    values = Array.from(new Uint32Array(bytes))
+  } else {
+    const view = new DataView(bytes)
+    if (dtype === "i64") {
+      values = Array.from({ length: count }, (_, index) => Number(view.getBigInt64(index * 8, true)))
+    } else {
+      const encoded = new Uint16Array(bytes)
+      const widened = new Uint32Array(count)
+      for (let index = 0; index < count; index++) widened[index] = encoded[index] << 16
+      values = Array.from(new Float32Array(widened.buffer))
+    }
+  }
+  const nest = (depth: number, cursor: { value: number }): TensorData => {
+    if (depth === shape.length) return values[cursor.value++]
+    if (depth === shape.length - 1) {
+      const start = cursor.value
+      cursor.value += shape[depth]
+      return values.slice(start, cursor.value)
+    }
+    return Array.from({ length: shape[depth] }, () => nest(depth + 1, cursor))
+  }
+  return nest(0, { value: 0 })
+}
 const MAX_ARRAY_TENSOR_ENTRIES = 262144
 const LARGE_ARRAY_WARNING_ELEMENTS = 16384
 let warnedLargeArrayInput = false
@@ -1770,35 +1815,6 @@ export class Executable<Out extends FormalTensor | readonly FormalTensor[] = For
   [Symbol.dispose](): void { this.dispose() }
 }
 
-// CUDA accepts the original [batch, class, spatial] view directly. Match only
-// the flatten sequence authored by dense_cross_entropy and log_softmax_nll.
-function cudaDenseLossInspection(inspection: ProgramInspection): ProgramInspection {
-  if (inspection.kind !== "authored") return inspection
-  const nodes = inspection.nodes
-  const original = (id: number): ProgramNode | undefined => {
-    const reshape = nodes[id]
-    if (reshape?.op !== "reshape" || reshape.operands?.length !== 1) return
-    const contiguous = nodes[reshape.operands[0]]
-    if (contiguous?.op !== "contiguous" || contiguous.operands?.length !== 1) return
-    const transpose = nodes[contiguous.operands[0]]
-    if (transpose?.op !== "transpose" || transpose.operands?.length !== 1 ||
-        JSON.stringify(transpose.options?.permutation) !== "[0,2,1]") return
-    const input = nodes[transpose.operands[0]]
-    return input?.spec.shape.length === 3 ? input : undefined
-  }
-  let changed = false
-  const lowered = nodes.map(node => {
-    if ((node.op !== "dense_cross_entropy" && node.op !== "log_softmax_nll") ||
-        node.operands?.length !== 2 || node.options?.class_axis !== 1) return node
-    const logits = original(node.operands[0])
-    const targets = original(node.operands[1])
-    if (!logits || !targets || JSON.stringify(logits.spec.shape) !== JSON.stringify(targets.spec.shape)) return node
-    changed = true
-    return { ...node, operands: [logits.id, targets.id] }
-  })
-  return changed ? { ...inspection, nodes: lowered } : inspection
-}
-
 export class Session {
   readonly device: Device
   readonly determinism: "strict" | "allow_nondeterministic"
@@ -1911,11 +1927,10 @@ export class Session {
       }) as Executable<Out>
     } else {
       const inspection = source.inspect()
-      const lowered = this.device === "cuda" ? cudaDenseLossInspection(inspection) : inspection
       executable = new Executable(
         this,
         source,
-        native.compileProgram(this.#native, nativeProgram(lowered), nativeCompileOptions(normalized)),
+        native.compileProgram(this.#native, nativeProgram(inspection), nativeCompileOptions(normalized)),
       ) as Executable<Out>
     }
     variants.set(key, executable)
@@ -1977,10 +1992,25 @@ export class Session {
   }
   adopt(value: unknown): void {
     if (value && (typeof value === "object" || typeof value === "function")) {
-      const tensor = value as object & { dispose?: () => void; [Symbol.dispose]?: () => void }
+      const tensor = value as object & {
+        readonly dtype?: ProgramDType
+        readonly shape?: readonly number[]
+        to_bytes?: () => ArrayBuffer
+        dispose?: () => void
+        [Symbol.dispose]?: () => void
+      }
       if (tensorOwners.has(tensor)) return
       const nativeDispose = tensor.dispose
       if (typeof nativeDispose !== "function") throw new TypeError("Session can only adopt a Tensor")
+      const nativeToBytes = tensor.to_bytes
+      const dtype = tensor.dtype
+      const shape = tensor.shape
+      if (typeof nativeToBytes !== "function" || !dtype || !Array.isArray(shape)) throw new TypeError("Session can only adopt a Tensor")
+      const toArray = function (this: object): TensorData {
+        const bytes = nativeToBytes.call(this)
+        if (!(bytes instanceof ArrayBuffer)) throw new TypeError("Tensor.to_bytes() must return an ArrayBuffer")
+        return tensorValuesFromBytes(bytes, dtype, shape)
+      }
       const dispose = function (this: object) {
         if (disposedTensors.has(this)) return
         disposedTensors.add(this)
@@ -1990,6 +2020,7 @@ export class Session {
       Object.defineProperties(tensor, {
         disposed: { get: function (this: object) { return disposedTensors.has(this) }, enumerable: true },
         dispose: { value: dispose },
+        to_array: { value: toArray },
         [Symbol.dispose]: { value: dispose },
       })
       tensorOwners.set(tensor, this)

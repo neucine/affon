@@ -119,6 +119,14 @@ host_arch() {
   esac
 }
 
+cyna_build_config() {
+  case "$(host_os)" in
+    darwin) printf 'default\n' ;;
+    linux) printf 'linux\n' ;;
+    windows) printf 'windows\n' ;;
+  esac
+}
+
 asset_stem() {
   printf 'affon-%s-%s\n' "$(release_tag)" "$(release_platform)"
 }
@@ -210,7 +218,7 @@ run_checks() {
   [ "$(release_tag)" = "v$(version_string)" ] || fail "release tag must match the Cyna host version"
   require_install_script
 
-  run "$CYNA_BIN" build "$ROOT"
+  run "$CYNA_BIN" build "$ROOT" --build "$(cyna_build_config)"
   assert_checkout_binary
 
   if [ "$SKIP_TESTS" != "1" ]; then
@@ -236,7 +244,7 @@ build_artifacts() {
   binary_source="$(checkout_binary)"
   binary_asset="$DIST_DIR/$(binary_asset_name)"
 
-  run "$CYNA_BIN" build "$ROOT"
+  run "$CYNA_BIN" build "$ROOT" --build "$(cyna_build_config)"
   assert_checkout_binary
 
   rm -rf "$DIST_DIR"

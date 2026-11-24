@@ -39,6 +39,7 @@ if [ "$platform" = fast ]; then
     bun x tsc -p "$config/tsconfig.json" --noEmit
   done
   case "$(uname -s)" in
+    Linux) cyna build . --build linux --output build/affon ;;
     MINGW*|MSYS*|CYGWIN*) cyna build . --build windows --output build/affon ;;
     *) cyna build . --build default --output build/affon ;;
   esac
