@@ -12,10 +12,10 @@ elif [ "$(uname -s)" = Darwin ]; then
 else
   export PATH="$HOME/.bun/bin:$HOME/.local/bin:$PATH"
 fi
-if [ -d "$HOME/.cyna/0.5.4-beta.local.20261122/bin" ]; then
-  export PATH="$HOME/.cyna/0.5.4-beta.local.20261122/bin:$PATH"
-elif [ -d "$HOME/.cyna/current/bin" ]; then
+if [ -d "$HOME/.cyna/current/bin" ]; then
   export PATH="$HOME/.cyna/current/bin:$PATH"
+elif [ -d "$HOME/.cyna/0.5.4/bin" ]; then
+  export PATH="$HOME/.cyna/0.5.4/bin:$PATH"
 fi
 platform="${1:?expected fast, darwin-arm64, linux-x64, or windows-x64}"
 case "$platform:$(uname -s):$(uname -m)" in
@@ -27,6 +27,7 @@ test "$(git rev-parse HEAD)" = "${BUILDKITE_COMMIT:?Buildkite commit required}"
 for tool in cyna bun cargo python3 tar cc cmake; do
   command -v "$tool" >/dev/null || { echo "Missing release tool: $tool" >&2; exit 1; }
 done
+test "$(cyna version 2>&1)" = "cyna 0.5.4" || { echo "Cyna 0.5.4 required" >&2; exit 1; }
 test "$(bun --version)" = 1.2.16 || { echo "Bun 1.2.16 required" >&2; exit 1; }
 
 source "$root/tools/buildkite/release-deps.sh"
