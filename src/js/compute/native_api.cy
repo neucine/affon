@@ -15,15 +15,15 @@ import { Metric, MetricKind, MetricUnit } from std.telemetry;
 import { monotonic_ns } from std.time;
 import hao.js;
 import { Runtime } from hao.runtime;
-import .support.cyna_program as graph;
-import .support.cyna_evidence as plan;
+import .support.program as graph;
+import .support.evidence as plan;
 import {
     CompileOptimizationLevel,
     ExplanationLevel,
     NumericalPolicy,
     ProgramKind,
     ProgramNodeKind
-} from .support.cyna_program;
+} from .support.program;
 
 struct SessionSlot {
     generation: u32;
@@ -52,8 +52,6 @@ struct ExecutableSlot {
     session: usize;
     generation: u32;
     alive: bool;
-    explanation: string;
-    routing: string;
     run_count: usize;
     failed_run_count: usize;
     cache_hits: usize;
@@ -162,13 +160,9 @@ fn session_backend(handle: usize): compute.PreparedBackend {
 
 fn session_evidence_backend(handle: usize): string {
     if handle < maximum_sessions and sessions[handle].cuda {
-        return "cyna_cuda";
+        return "cuda";
     }
-    return "cyna_cpu";
-}
-
-fn routing_json(device: string): string {
-    return $"\{\"schema_version\":1,\"backend\":\"cyna\",\"configured_backend\":\"{device}\",\"transport\":\"in_process\",\"category\":\"success\",\"reason\":\"lowered\",\"operation\":null,\"option\":null\}";
+    return "cpu";
 }
 
 fn tensor_slot(handle: usize): *TensorSlot {
@@ -1907,7 +1901,7 @@ fn compile_program(ctx: *c_void, _: js.JsValue, argument_count: c_int,
         }
         return js.type_error_string(
             ctx,
-            $"Cyna lowering failed: {failure}"
+            $"Program lowering failed: {failure}"
         );
     };
     if next_executable >= maximum_executables {
@@ -1916,10 +1910,6 @@ fn compile_program(ctx: *c_void, _: js.JsValue, argument_count: c_int,
     const handle = next_executable;
     next_executable = next_executable + 1;
     const executable_generation = generation();
-    const explanation = plan.explanation(
-        &compiled.executable,
-        &compiled.source_instruction_by_step
-    );
     const owner = sessions[session];
     const box = new ExecutableBox {
         value: compiled
@@ -1929,8 +1919,6 @@ fn compile_program(ctx: *c_void, _: js.JsValue, argument_count: c_int,
         session: session,
         generation: executable_generation,
         alive: true,
-        explanation: explanation,
-        routing: routing_json(sessions[session].device),
         run_count: 0,
         failed_run_count: 0,
         cache_hits: 0,
@@ -1987,8 +1975,8 @@ fn executable_dispose(ctx: *c_void, this_value: js.JsValue,
     return js.undefined();
 }
 
-fn executable_json(ctx: *c_void, arguments_pointer: *const js.JsValue,
-    argument_count: c_int, explanation: bool
+fn explain_executable(ctx: *c_void, _: js.JsValue, argument_count: c_int,
+    arguments_pointer: *const js.JsValue
 ): js.JsValue {
     if argument_count < 1 {
         return js.type_error(ctx, "Executable argument is required");
@@ -1997,40 +1985,11 @@ fn executable_json(ctx: *c_void, arguments_pointer: *const js.JsValue,
     if handle is none {
         return js.type_error(ctx, "invalid Executable");
     }
-    const slot = executable_slot(handle);
-    if explanation {
-        const compiled = executable_value(handle);
-        return js.string(ctx, plan.explanation(
-            &compiled.executable,
-            &compiled.source_instruction_by_step
-        ));
-    }
-    unchecked {
-        return js.string(ctx, (*slot).routing);
-    }
-}
-
-fn explain_executable(ctx: *c_void, _: js.JsValue, argument_count: c_int,
-    arguments_pointer: *const js.JsValue
-): js.JsValue {
-    return executable_json(ctx, arguments_pointer, argument_count, true);
-}
-
-fn executable_routing(ctx: *c_void, _: js.JsValue, argument_count: c_int,
-    arguments_pointer: *const js.JsValue
-): js.JsValue {
-    return executable_json(ctx, arguments_pointer, argument_count, false);
-}
-
-fn executable_backend(ctx: *c_void, _: js.JsValue, argument_count: c_int,
-    arguments_pointer: *const js.JsValue
-): js.JsValue {
-    if argument_count < 1 or live_executable(
-        ctx, argument(arguments_pointer, 0)
-    ) is none {
-        return js.type_error(ctx, "invalid Executable");
-    }
-    return js.string(ctx, "cyna");
+    const compiled = executable_value(handle);
+    return js.string(ctx, plan.explanation(
+        &compiled.executable,
+        &compiled.source_instruction_by_step
+    ));
 }
 
 fn executable_plan_json(ctx: *c_void, argument_count: c_int,
@@ -2785,10 +2744,10 @@ pub fn add_exports(ctx: *c_void, module_ptr: *c_void): c_int {
     if js.add_module_export(ctx, module_ptr, "explainExecutable") != 0 {
         return -1;
     }
-    if js.add_module_export(ctx, module_ptr, "cynaSelectedSteps") != 0 {
+    if js.add_module_export(ctx, module_ptr, "selectedSemanticSteps") != 0 {
         return -1;
     }
-    if js.add_module_export(ctx, module_ptr, "cynaSelectedPhysicalNodes") != 0 {
+    if js.add_module_export(ctx, module_ptr, "selectedPhysicalNodes") != 0 {
         return -1;
     }
     if js.add_module_export(ctx, module_ptr, "selectedPhysicalValues") != 0 {
@@ -2797,19 +2756,13 @@ pub fn add_exports(ctx: *c_void, module_ptr: *c_void): c_int {
     if js.add_module_export(ctx, module_ptr, "selectedPhysicalLiveness") != 0 {
         return -1;
     }
-    if js.add_module_export(ctx, module_ptr, "cynaResidualDecisions") != 0 {
+    if js.add_module_export(ctx, module_ptr, "residualDecisions") != 0 {
         return -1;
     }
-    if js.add_module_export(ctx, module_ptr, "cynaSelectionComparison") != 0 {
+    if js.add_module_export(ctx, module_ptr, "selectionComparison") != 0 {
         return -1;
     }
-    if js.add_module_export(ctx, module_ptr, "cynaSearchEvidence") != 0 {
-        return -1;
-    }
-    if js.add_module_export(ctx, module_ptr, "executableRouting") != 0 {
-        return -1;
-    }
-    if js.add_module_export(ctx, module_ptr, "executableBackend") != 0 {
+    if js.add_module_export(ctx, module_ptr, "searchEvidence") != 0 {
         return -1;
     }
     if js.add_module_export(ctx, module_ptr, "runExecutable") != 0 {
@@ -2911,14 +2864,14 @@ pub fn initialize(ctx: *c_void, module_ptr: *c_void): c_int {
     ) != 0 {
         return -1;
     }
-    if install_function(ctx, object, "cynaSelectedSteps", selected_steps, 1,
-        module_ptr, "cynaSelectedSteps"
+    if install_function(ctx, object, "selectedSemanticSteps", selected_steps, 1,
+        module_ptr, "selectedSemanticSteps"
     ) != 0 {
         return -1;
     }
-    if install_function(ctx, object, "cynaSelectedPhysicalNodes",
+    if install_function(ctx, object, "selectedPhysicalNodes",
         selected_physical_nodes, 1,
-        module_ptr, "cynaSelectedPhysicalNodes"
+        module_ptr, "selectedPhysicalNodes"
     ) != 0 {
         return -1;
     }
@@ -2934,30 +2887,20 @@ pub fn initialize(ctx: *c_void, module_ptr: *c_void): c_int {
     ) != 0 {
         return -1;
     }
-    if install_function(ctx, object, "cynaResidualDecisions",
+    if install_function(ctx, object, "residualDecisions",
         residual_decisions, 1,
-        module_ptr, "cynaResidualDecisions"
+        module_ptr, "residualDecisions"
     ) != 0 {
         return -1;
     }
-    if install_function(ctx, object, "cynaSelectionComparison",
+    if install_function(ctx, object, "selectionComparison",
         selection_comparison, 1,
-        module_ptr, "cynaSelectionComparison"
+        module_ptr, "selectionComparison"
     ) != 0 {
         return -1;
     }
-    if install_function(ctx, object, "cynaSearchEvidence", search_evidence, 1,
-        module_ptr, "cynaSearchEvidence"
-    ) != 0 {
-        return -1;
-    }
-    if install_function(ctx, object, "executableRouting", executable_routing, 1,
-        module_ptr, "executableRouting"
-    ) != 0 {
-        return -1;
-    }
-    if install_function(ctx, object, "executableBackend", executable_backend, 1,
-        module_ptr, "executableBackend"
+    if install_function(ctx, object, "searchEvidence", search_evidence, 1,
+        module_ptr, "searchEvidence"
     ) != 0 {
         return -1;
     }

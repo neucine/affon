@@ -4,9 +4,10 @@ import { Session, Tensor, optimize, program } from 'affon:core'
 import { matmul, mean_squared_error, mul, reshape } from 'affon:ops'
 import { adam, sgd } from 'affon:optim'
 import { describe, expect, test } from 'std:test'
+import { createTempDirectory, createTempPath, removeTempPath } from '../../../support/temp.ts'
 
 describe('Program training workflow', () => {
-  test('restores optimizer tensors and step for the same next update', () => {
+  test('restores optimizer tensors and step for the same next update', async () => {
     const model = program('resumable_model', p => mul(
       p.argument('x', Tensor.f32([2])),
       p.parameter('weight', Tensor.f32([2]), { initializer: { kind: 'ones' } }),
@@ -29,7 +30,8 @@ describe('Program training workflow', () => {
       if (typeof value === 'number') optimizerScalars[name] = value
       else optimizerTensors[name] = value
     }
-    const prefix = `/tmp/affon-resume-workflow-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
+    const directory = await createTempDirectory('affon-resume-workflow')
+    const prefix = `${directory}/checkpoint`
     checkpoint.saveBundle(prefix, {
       state: firstState.parameters,
       tensorGroups: { optimizer: optimizerTensors },
@@ -70,9 +72,10 @@ describe('Program training workflow', () => {
     uninterrupted.dispose(); resumed.dispose()
     firstX.dispose(); firstTarget.dispose(); secondX.dispose(); secondTarget.dispose()
     firstState.dispose(); restoredState.dispose(); firstSession.dispose(); secondSession.dispose()
+    await removeTempPath(directory)
   })
 
-  test('trains, checkpoints, restores, and resumes with consistent state', () => {
+  test('trains, checkpoints, restores, and resumes with consistent state', async () => {
     const model = program('linear_workflow', p => mul(
       p.argument('x', Tensor.f32([3])),
       p.parameter('weight', Tensor.f32([1]), { initializer: { kind: 'zeros' } }),
@@ -101,7 +104,7 @@ describe('Program training workflow', () => {
     expect(lastLoss < firstLoss / 100).toBe(true)
     expect(state.optimizer_state.$step).toBe(12)
 
-    const path = `/tmp/affon-program-workflow-${Date.now()}-${Math.floor(Math.random() * 1e6)}.safetensors`
+    const path = `${await createTempPath('affon-program-workflow')}.safetensors`
     checkpoint.save({ weight: state.parameters[parameterName] }, path)
     const saved = checkpoint.load(path) as { weight: Tensor }
     const restored = session.initialize(model, { parameters: { [parameterName]: saved.weight.to_array() } })
@@ -115,6 +118,7 @@ describe('Program training workflow', () => {
     expect(restored.optimizer_state.$step).toBe(1)
     resumed.dispose(); before.dispose(); after.dispose(); saved.weight.dispose()
     restored.dispose(); x.dispose(); target.dispose(); state.dispose(); session.dispose()
+    await removeTempPath(path)
   })
 
   test('feeds dataset tensors into a compiled training Program', () => {

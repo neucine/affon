@@ -1,14 +1,15 @@
 import { test, expect, beforeAll, afterAll } from 'std:test'
 import fs from 'std:fs'
-import { getEnv, run } from 'std:process'
+import { getEnv } from 'std:process'
 import { Session, type Device, type Tensor } from 'affon:core'
 import { load_graph, semantic_loss_report } from '../src/index.ts'
+import { createTempDirectory, removeTempPath } from '../../../../test/support/temp.ts'
 
 const directory = 'packages/@affon/onnx/test/fixtures'
 const device = (getEnv('AFFON_DEVICE') ?? 'cpu') as Device
 let temporary = ''
-beforeAll(async () => { temporary = (await run({ cmd: 'mktemp', args: ['-d', '/tmp/affon-onnx-test.XXXXXX'] })).stdout.trim() })
-afterAll(async () => { if (temporary) await run({ cmd: 'rm', args: ['-rf', temporary] }) })
+beforeAll(async () => { temporary = await createTempDirectory('affon-onnx-test') })
+afterAll(async () => { if (temporary) await removeTempPath(temporary) })
 
 function runtime(model: ReturnType<typeof load_graph>) {
   const session = new Session({ device })

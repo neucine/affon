@@ -3,11 +3,12 @@ import checkpoint from 'affon:checkpoint'
 import { Session } from 'affon:core'
 import { describe, expect, test, values } from 'std:test'
 import { captureError } from '../../support/errors.ts'
+import { createTempPath, removeTempPath } from '../../support/temp.ts'
 
 describe('checkpoint bundle', () => {
-  test('saves and loads a checkpoint bundle with tensor groups and manifest metadata', () => {
+  test('saves and loads a checkpoint bundle with tensor groups and manifest metadata', async () => {
     const session = new Session({ device: 'cpu' })
-    const prefix = `/tmp/affon-checkpoint-bundle-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
+    const prefix = await createTempPath('affon-checkpoint-bundle')
     const state = {
       weight: session.tensor([[1, 2], [3, 4]], { dtype: 'f32' }),
     }
@@ -43,21 +44,25 @@ describe('checkpoint bundle', () => {
 
     fs.writeFileSync(`${prefix}.json`, JSON.stringify({
       ...manifest,
-      basePath: '/tmp',
+      basePath: prefix.slice(0, prefix.lastIndexOf('/')),
       tensorGroupPaths: { optimizer: 'missing-optimizer.safetensors' },
     }))
     expect(captureError(() => checkpoint.loadBundle(prefix))).toBeInstanceOf(Error)
-    fs.writeFileSync(`${prefix}.json`, JSON.stringify({ ...manifest, basePath: '/tmp' }))
+    fs.writeFileSync(`${prefix}.json`, JSON.stringify({
+      ...manifest,
+      basePath: prefix.slice(0, prefix.lastIndexOf('/')),
+    }))
     const recovered = checkpoint.loadBundle(prefix)
     expect(values(recovered.tensorGroups.optimizer.momentum)).toBeAllClose([0.1, 0.2])
     recovered.state.weight.dispose(); recovered.tensorGroups.optimizer.momentum.dispose()
     session.dispose()
+    await removeTempPath(prefix)
   })
 
-  test('missing and malformed bundle files fail, then a valid bundle still loads', () => {
+  test('missing and malformed bundle files fail, then a valid bundle still loads', async () => {
     const session = new Session({ device: 'cpu' })
+    const prefix = await createTempPath('affon-bundle-recovery')
     try {
-      const prefix = `/tmp/affon-bundle-recovery-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
       const missing = captureError(() => checkpoint.loadBundle(prefix))
       expect(missing).toBeInstanceOf(Error)
 
@@ -76,13 +81,16 @@ describe('checkpoint bundle', () => {
       expect(loaded.manifest.step).toBe(7)
       expect(values(loaded.state.weight)).toEqual([2, 4])
       loaded.state.weight.dispose()
-    } finally { session.dispose() }
+    } finally {
+      session.dispose()
+      await removeTempPath(prefix)
+    }
   })
 
-  test('a failed tensor group write does not publish a manifest and can be retried', () => {
+  test('a failed tensor group write does not publish a manifest and can be retried', async () => {
     const session = new Session({ device: 'cpu' })
+    const prefix = await createTempPath('affon-bundle-partial')
     try {
-      const prefix = `/tmp/affon-bundle-partial-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
       const weight = session.tensor([1, 3])
       const disposed = session.tensor([0])
       disposed.dispose()
@@ -98,6 +106,9 @@ describe('checkpoint bundle', () => {
       expect(values(loaded.tensorGroups.optimizer.momentum)).toEqual([0.5])
       loaded.state.weight.dispose(); loaded.tensorGroups.optimizer.momentum.dispose()
       weight.dispose(); momentum.dispose()
-    } finally { session.dispose() }
+    } finally {
+      session.dispose()
+      await removeTempPath(prefix)
+    }
   })
 })

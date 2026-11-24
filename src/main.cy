@@ -68,7 +68,9 @@ fn run_tests(runtime: &const Runtime, arguments: List<string>): i32 {
     if runtime.eval(
         "globalThis.__hao_test_started_ns = __hao_telemetry_monotonicNs();",
         "<affon-test-timing>"
-    ) != 0 { return 1; }
+    ) != 0 {
+        return 1;
+    }
     if runtime.eval("import 'std:test';", "<affon-test-setup>") != 0 {
         return 1;
     }
@@ -98,16 +100,13 @@ fn run_tests(runtime: &const Runtime, arguments: List<string>): i32 {
 }
 
 fn main(): i32 {
-    if affon.compatible() == false {
-        return 2;
-    }
     const arguments = args();
     if arguments.len() < 2 {
         usage();
         return 2;
     }
     if arguments.len() == 2 and
-        (arguments[1] == "--version" or arguments[1] == "version") {
+    (arguments[1] == "--version" or arguments[1] == "version") {
         print($"affon {affon.version}\n");
         return 0;
     }

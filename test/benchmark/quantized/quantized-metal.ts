@@ -6,7 +6,7 @@ import { getEnv } from 'std:process'
 const timing=getEnv('AFFON_QMM_TELEMETRY')==='on'
 for (const bits of [4, 8] as const) for (const m of [1, 8, 32, 128]) {
   const n=2048, k=1024, group_size=64, perWord=32/bits, mask=(1<<bits)-1
-  const session=new Session({device:'metal',telemetry:timing?{backendTiming:true}:false})
+  const session=new Session({device:'metal',telemetry:timing?{computeTiming: "kernel"}:false})
   const makeSource=(scalar:boolean)=>program('quantized_metal_benchmark',p=>{const y=quantized_matmul(
     p.argument('x',Tensor.f32([m,k])),p.argument('w',Tensor.u32([n,k/perWord])),
     p.argument('s',Tensor.bf16([n,k/group_size])),p.argument('b',Tensor.bf16([n,k/group_size])),{bits,group_size});return scalar?slice(y,[{start:0,stop:1},{start:0,stop:1}]):y})

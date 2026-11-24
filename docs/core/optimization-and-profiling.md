@@ -29,17 +29,19 @@ Runtime measurements are published through `std:telemetry`, alongside user
 spans and metrics. Backend timing and hardware metrics are independent.
 Unsupported metrics are reported as unavailable, never as measured zeroes.
 
-`computeTiming` selects backend timing scope:
+`computeTiming` selects backend timing scope (default: `"none"`). The former
+`backendTiming` option has been removed; use `computeTiming: "kernel"` for
+per-kernel timing.
+
+The supported scopes are:
 
 - `"none"` records no backend timing samples. Invocation and kernel-count
   evidence can still be requested independently through `hardwareMetrics`.
 - `"invocation"` records one deferred timing sample around all kernels launched
   by an invocation. This is the default choice for model profiling.
-- `"kernel"` preserves the legacy event pair around every observed backend
+- `"kernel"` records an event pair around every observed backend
   kernel launch, including successful cuBLAS operations.
 
-`telemetry: { backendTiming: true }` remains compatible and selects
-`computeTiming: "kernel"`. New code should set `computeTiming` explicitly.
 Kernel counts are emitted once per invocation from backend launch accounting,
 so choosing invocation timing or hardware-only observation does not infer the
 count from retained timing samples. CUDA direct launches and successful

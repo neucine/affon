@@ -1,14 +1,14 @@
 import {test,expect,beforeAll,afterAll} from 'std:test'
 import fs from 'std:fs'
-import {run} from 'std:process'
 import {load_processor} from '../src/processor.ts'
+import {createTempDirectory,removeTempPath} from '../../../../test/support/temp.ts'
 let directory=''
 beforeAll(async()=>{
- directory=(await run({cmd:'mktemp',args:['-d','/tmp/whisper-processor.XXXXXX']})).stdout.trim()
+ directory=await createTempDirectory('whisper-processor')
  fs.writeFileSync(`${directory}/config.json`,JSON.stringify({model_type:'whisper'}))
  fs.writeFileSync(`${directory}/preprocessor_config.json`,JSON.stringify({feature_extractor_type:'WhisperFeatureExtractor',feature_size:80,sampling_rate:16000,n_fft:400,hop_length:160,chunk_length:30}))
 })
-afterAll(async()=>{if(directory)await run({cmd:'rm',args:['-rf',directory]})})
+afterAll(async()=>{if(directory)await removeTempPath(directory)})
 test('Whisper centered STFT and Slaney features match HF, including padded tail',()=>{
  const p=load_processor(directory,{task:'automatic-speech-recognition'})
  const cases=JSON.parse(fs.readFileSync('packages/@affon/huggingface/test/fixtures/whisper-processor.json'))

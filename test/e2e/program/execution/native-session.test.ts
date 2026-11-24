@@ -1,16 +1,17 @@
-import { getEnv } from "std:process"
 import telemetry from "std:telemetry"
 import { describe, expect, test } from "std:test"
 import { add, cross_entropy, dense_cross_entropy, div, dot, embedding, gather, gelu, index_select, log_softmax_nll, matmul, mul, neg, permute, quantized_matmul, reduce_to_shape, reshape, scatter_add, sin, slice, squeeze, sub, sum, topk, transpose, unsqueeze } from "affon:ops"
 import { Session, Tensor, program } from "affon:core"
 
-const backendSymbol = Symbol.for("affon.compute.executable_backend")
-const routingSymbol = Symbol.for("affon.compute.executable_routing")
-const requireCyna = getEnv("AFFON_TEST_CYNA_SESSION") === "1"
 
-describe("public CPU Session Cyna execution", () => {
+describe("public CPU Session execution", () => {
+  test("rejects the removed telemetry alias", () => {
+    expect(() => new Session({ telemetry: { backendTiming: true } as any }))
+      .toThrow("backendTiming has been removed; use computeTiming")
+  })
+
   test("attributes one prepared top-k ranking to both outputs", () => {
-    const source = program("cyna_paired_topk", p => topk(p.argument("x", Tensor.f32([2, 4])), 2, 1))
+    const source = program("paired_topk", p => topk(p.argument("x", Tensor.f32([2, 4])), 2, 1))
     const session = new Session({ device: "cpu", telemetry: { captureRecords: 64 } })
     const executable = session.compile(source)
     const x = session.tensor([[3, 5, 5, 1], [2, 2, 4, 3]])
@@ -18,14 +19,13 @@ describe("public CPU Session Cyna execution", () => {
     expect(result[0].to_array()).toEqual([[5, 5], [4, 3]])
     expect(result[1].to_array()).toEqual([[1, 2], [2, 3]])
     const evidence = session.runtimeEvidence(executable) as any
-    if (requireCyna) {
+    {
       expect(evidence.execution_path).toBe("prepared")
-      expect(evidence.fallback_reason).toBe("no_fallback")
       expect(evidence.entries.map((entry: any) => entry.operation))
         .toEqual(["top_k_values", "top_k_values"])
       expect(evidence.entries.map((entry: any) => entry.origins))
         .toEqual([[0], [1]])
-      expect((executable.explain() as any).cyna_selected_physical_nodes
+      expect((executable.explain() as any).selected_physical_nodes
         .map((node: any) => node.implementation))
         .toEqual(["cpu_indexing_family", "cpu_indexing_family"])
       expect(evidence.entries.map((entry: any) =>
@@ -38,8 +38,8 @@ describe("public CPU Session Cyna execution", () => {
     x.dispose(); executable.dispose(); session.dispose()
   })
 
-  test("reports unavailable CPU hardware and profiler telemetry through Cyna", () => {
-    const source = program("cyna_profile_route", p => sin(p.argument("x", Tensor.f32([2]))))
+  test("reports unavailable CPU hardware and profiler telemetry through Compute Core", () => {
+    const source = program("profile_observation", p => sin(p.argument("x", Tensor.f32([2]))))
     for (const item of [
       {
         option: { hardwareMetrics: true },
@@ -72,11 +72,10 @@ describe("public CPU Session Cyna execution", () => {
         telemetry: { ...item.option, captureRecords: 64 },
       })
       const executable = session.compile(source)
-      if (requireCyna) expect((executable as any)[routingSymbol]().backend).toBe("cyna")
       const value = session.tensor([0, 1])
       const result = executable.run({ x: value }) as any
       expect(result.to_array()).toHaveLength(2)
-      if (requireCyna) item.check(session.runtimeEvidence(executable))
+      item.check(session.runtimeEvidence(executable))
       result.dispose()
       value.dispose()
       executable.dispose()
@@ -84,8 +83,8 @@ describe("public CPU Session Cyna execution", () => {
     }
   })
 
-  test("executes a covered Program through the in-process Cyna graph", () => {
-    const source = program("cyna_public_matmul_add", p => add(
+  test("executes a covered Program through the in-process Compute Core Program", () => {
+    const source = program("public_matmul_add", p => add(
       add(
         matmul(
           p.argument("left", Tensor.f32([2, 3])),
@@ -98,21 +97,6 @@ describe("public CPU Session Cyna execution", () => {
     const session = new Session({ device: "cpu" })
     const executable = session.compile(source)
     const denseGuarded = session.compile(source, { denseInputs: true })
-    const backend = (executable as any)[backendSymbol]()
-    expect(backend).toBe("cyna")
-    if (requireCyna) {
-      expect(backend).toBe("cyna")
-      expect((denseGuarded as any)[backendSymbol]()).toBe("cyna")
-      const routing = (executable as any)[routingSymbol]()
-      expect(routing.schema_version).toBe(1)
-      expect(routing.backend).toBe("cyna")
-      expect(routing.configured_backend).toBe("cpu")
-      expect(routing.transport).toBe("in_process")
-      expect(routing.category).toBe("success")
-      expect(routing.reason).toBe("lowered")
-      expect(routing.operation).toBe(null)
-      expect(routing.option).toBe(null)
-    }
 
     const leftSource = session.tensor([[1, 4], [2, 5], [3, 6]])
     const left = transpose(leftSource, [1, 0])
@@ -144,15 +128,11 @@ describe("public CPU Session Cyna execution", () => {
     session.dispose()
   })
 
-  test("enforces dense-input guards on the Cyna artifact", () => {
-    const source = program("cyna_dense_guard", p => sin(p.argument("x", Tensor.f32([2, 2]))))
+  test("enforces dense-input guards on the Compute Core artifact", () => {
+    const source = program("dense_guard", p => sin(p.argument("x", Tensor.f32([2, 2]))))
     const session = new Session({ device: "cpu" })
     const dense = session.compile(source, { denseInputs: true })
     const generic = session.compile(source)
-    if (requireCyna) {
-      expect((generic as any)[backendSymbol]()).toBe("cyna")
-      expect((dense as any)[backendSymbol]()).toBe("cyna")
-    }
     const input = session.tensor([[0, 1], [2, 3]])
     const view = transpose(input, [1, 0])
     dense.run({ x: input }).dispose()
@@ -163,11 +143,10 @@ describe("public CPU Session Cyna execution", () => {
     session.dispose()
   })
 
-  test("routes identity Programs through Cyna", () => {
-    const identity = program("cyna_identity", p => p.argument("value", Tensor.f32([2])))
+  test("executes identity Programs through Compute Core", () => {
+    const identity = program("identity", p => p.argument("value", Tensor.f32([2])))
     const session = new Session({ device: "cpu" })
     const identityExecutable = session.compile(identity)
-    if (requireCyna) expect((identityExecutable as any)[backendSymbol]()).toBe("cyna")
 
     const value = session.tensor([2, -3])
     const identityResult = identityExecutable.run({ value }) as any
@@ -179,17 +158,13 @@ describe("public CPU Session Cyna execution", () => {
     session.dispose()
   })
 
-  test("routes repeated binary operands through Cyna", () => {
-    const source = program("cyna_repeated_operand", p => {
+  test("executes repeated binary operands through Compute Core", () => {
+    const source = program("repeated_operand", p => {
       const value = p.argument("value", Tensor.f32([2]))
       return add(value, value)
     })
     const session = new Session({ device: "cpu" })
     const executable = session.compile(source)
-    if (requireCyna) {
-      expect((executable as any)[routingSymbol]().reason).toBe("lowered")
-      expect((executable as any)[backendSymbol]()).toBe("cyna")
-    }
 
     const value = session.tensor([2, -3])
     const result = executable.run({ value }) as any
@@ -201,11 +176,10 @@ describe("public CPU Session Cyna execution", () => {
     session.dispose()
   })
 
-  test("routes negation through Cyna", () => {
-    const source = program("cyna_neg", p => neg(p.argument("value", Tensor.f32([2]))))
+  test("executes negation through Compute Core", () => {
+    const source = program("neg", p => neg(p.argument("value", Tensor.f32([2]))))
     const session = new Session({ device: "cpu" })
     const executable = session.compile(source)
-    if (requireCyna) expect((executable as any)[backendSymbol]()).toBe("cyna")
 
     const value = session.tensor([2, -3])
     const result = executable.run({ value }) as any
@@ -217,17 +191,13 @@ describe("public CPU Session Cyna execution", () => {
     session.dispose()
   })
 
-  test("routes reduce_to_shape through Cyna", () => {
-    const source = program("cyna_reduce_shape", p => reduce_to_shape(
+  test("executes reduce_to_shape through Compute Core", () => {
+    const source = program("reduce_shape", p => reduce_to_shape(
       p.argument("value", Tensor.f32([2, 3])),
       [1, 3],
     ))
     const session = new Session({ device: "cpu" })
     const executable = session.compile(source)
-    if (requireCyna) {
-      expect((executable as any)[routingSymbol]().reason).toBe("lowered")
-      expect((executable as any)[backendSymbol]()).toBe("cyna")
-    }
 
     const value = session.tensor([[1, 2, 3], [4, 5, 6]])
     const result = executable.run({ value }) as any
@@ -240,8 +210,8 @@ describe("public CPU Session Cyna execution", () => {
     session.dispose()
   })
 
-  test("routes quantized matmul through Cyna", () => {
-    const source = program("cyna_quantized_matmul", p => quantized_matmul(
+  test("executes quantized matmul through Compute Core", () => {
+    const source = program("quantized_matmul", p => quantized_matmul(
       p.argument("x", Tensor.f32([1, 4])),
       p.argument("packed", Tensor.u32([1, 1])),
       p.argument("scales", Tensor.bf16([1, 1])),
@@ -250,12 +220,6 @@ describe("public CPU Session Cyna execution", () => {
     ))
     const session = new Session({ device: "cpu" })
     const executable = session.compile(source)
-    if (requireCyna) {
-      const routing = (executable as any)[routingSymbol]()
-      expect(routing.backend).toBe("cyna")
-      expect(routing.reason).toBe("lowered")
-      expect((executable as any)[backendSymbol]()).toBe("cyna")
-    }
 
     const x = session.tensor([[1, 2, 3, 4]])
     const packed = session.tensor([[0x04030201]], { dtype: "u32" })
@@ -273,8 +237,8 @@ describe("public CPU Session Cyna execution", () => {
     session.dispose()
   })
 
-  test("routes indexed and dense losses through Cyna", () => {
-    const source = program("cyna_losses", p => {
+  test("executes indexed and dense losses through Compute Core", () => {
+    const source = program("losses", p => {
       const logits = p.argument("logits", Tensor.f32([2, 3]))
       const targets = p.argument("targets", Tensor.f32([2, 3]))
       return [
@@ -285,12 +249,6 @@ describe("public CPU Session Cyna execution", () => {
     })
     const session = new Session({ device: "cpu" })
     const executable = session.compile(source)
-    if (requireCyna) {
-      const routing = (executable as any)[routingSymbol]()
-      expect(routing.backend).toBe("cyna")
-      expect(routing.reason).toBe("lowered")
-      expect((executable as any)[backendSymbol]()).toBe("cyna")
-    }
 
     const logits = session.tensor([[0, 0, 0], [0, 0, 0]])
     const labels = session.tensor([0, 2], { dtype: "i64" })
@@ -309,17 +267,15 @@ describe("public CPU Session Cyna execution", () => {
     session.dispose()
   })
 
-  test("routes axis and whole keepdim reductions through Cyna", () => {
-    const source = program("cyna_keepdim_reductions", p => {
+  test("executes axis and whole keepdim reductions through Compute Core", () => {
+    const source = program("keepdim_reductions", p => {
       const value = p.argument("value", Tensor.f32([2, 2]))
       return [sum(value, 1, true), sum(value, undefined, true)]
     })
     const session = new Session({ device: "cpu" })
     const executable = session.compile(source)
-    if (requireCyna) {
-      expect((executable as any)[routingSymbol]().reason).toBe("lowered")
-      expect((executable as any)[backendSymbol]()).toBe("cyna")
-      expect((executable.explain() as any).cyna_selected_physical_nodes.map((node: any) => node.operation).sort()).toEqual([
+    {
+      expect((executable.explain() as any).selected_physical_nodes.map((node: any) => node.operation).sort()).toEqual([
         "sum_all", "sum_axis",
       ])
     }
@@ -337,22 +293,17 @@ describe("public CPU Session Cyna execution", () => {
     session.dispose()
   })
 
-  test("runs evidence capture through Cyna", () => {
-    const source = program("cyna_evidence_fallback", p => sin(
+  test("runs evidence capture through Compute Core", () => {
+    const source = program("evidence_capture", p => sin(
       p.argument("value", Tensor.f32([2])),
     ))
     const session = new Session({ device: "cpu", telemetry: { captureRecords: 32 } })
     const executable = session.compile(source)
-    const routing = (executable as any)[routingSymbol]()
-    if (requireCyna) {
-      expect(routing.backend).toBe("cyna")
-      expect(routing.reason).toBe("lowered")
-    }
     const value = session.tensor([0, 1])
     const result = executable.run({ value }) as any
     const evidence = session.runtimeEvidence(executable) as any
-    if (requireCyna) {
-      expect(evidence.backend).toBe("cyna_cpu")
+    {
+      expect(evidence.backend).toBe("cpu")
       expect(evidence.entries[0].operation).toBe("sin")
       expect(evidence.entries[0].invocation_count).toBe(1)
     }
@@ -362,24 +313,19 @@ describe("public CPU Session Cyna execution", () => {
     session.dispose()
   })
 
-  test("runs invocation and kernel timing through Cyna", () => {
-    const source = program("cyna_timing_route", p => sin(
+  test("runs invocation and kernel timing through Compute Core", () => {
+    const source = program("timing_observation", p => sin(
       p.argument("value", Tensor.f32([2])),
     ))
     for (const computeTiming of ["invocation", "kernel"] as const) {
       const session = new Session({ device: "cpu", telemetry: { computeTiming, captureRecords: 64 } })
       const executable = session.compile(source)
-      const routing = (executable as any)[routingSymbol]()
-      if (requireCyna) {
-        expect(routing.backend).toBe("cyna")
-        expect(routing.reason).toBe("lowered")
-      }
       const value = session.tensor([0, 1])
       const runsBefore = telemetry.metrics().find(metric => metric.scope === "compute.execution" && metric.name === "runs_total")?.value ?? 0
       const timeBefore = telemetry.metrics().find(metric => metric.scope === "compute.backend" && metric.name === "elapsed_nanoseconds_total")?.value ?? 0
       const result = executable.run({ value }) as any
       expect(result.to_array()[0]).toBe(0)
-      if (requireCyna) {
+      {
         expect(telemetry.metrics().find(metric => metric.scope === "compute.execution" && metric.name === "runs_total")?.value).toBe(runsBefore + 1)
         expect((telemetry.metrics().find(metric => metric.scope === "compute.backend" && metric.name === "elapsed_nanoseconds_total")?.value ?? 0) > timeBefore).toBe(true)
         const evidence = session.runtimeEvidence(executable) as any
@@ -400,8 +346,8 @@ describe("public CPU Session Cyna execution", () => {
     }
   })
 
-  test("keeps Cyna evidence across runs and clears it on reset", () => {
-    const source = program("cyna_evidence_repeated", p => add(
+  test("keeps Compute Core evidence across runs and clears it on reset", () => {
+    const source = program("evidence_repeated", p => add(
       p.argument("left", Tensor.f32([2])), p.argument("right", Tensor.f32([2])),
     ))
     const session = new Session({ device: "cpu", telemetry: { captureRecords: 64 } })
@@ -411,8 +357,8 @@ describe("public CPU Session Cyna execution", () => {
     session.resetEvidence()
     for (let index = 0; index < 2; index++) (executable.run({ left, right }) as any).dispose()
     const evidence = session.runtimeEvidence(executable) as any
-    if (requireCyna) {
-      expect(evidence.backend).toBe("cyna_cpu")
+    {
+      expect(evidence.backend).toBe("cpu")
       expect(evidence.observed_run_count).toBe(2)
       expect(evidence.dropped_event_count).toBe(0)
       expect(evidence.entries[0].operation).toBe("add")
@@ -429,7 +375,7 @@ describe("public CPU Session Cyna execution", () => {
     }
     session.resetEvidence()
     const cleared = session.runtimeEvidence(executable) as any
-    if (requireCyna) {
+    {
       expect(cleared.observed_run_count).toBe(0)
       expect(cleared.entries[0].invocation_count).toBe(0)
       expect(cleared.entries[0].observed_schedule_position).toBe(null)
@@ -443,20 +389,20 @@ describe("public CPU Session Cyna execution", () => {
   })
 
   test("reports the selected memory graph and prepared reuse", () => {
-    const source = program("cyna_memory_plan", p => add(
+    const source = program("memory_plan", p => add(
       matmul(p.argument("left", Tensor.f32([2, 3])),
         transpose(p.argument("right", Tensor.f32([4, 3])), [1, 0])),
       p.argument("bias", Tensor.f32([2, 4])),
     ))
     const session = new Session({ device: "cpu", telemetry: { captureRecords: 64 } })
     const executable = session.compile(source, { optimizationGoal: "memory" })
-    const selectedNodes = requireCyna ? (executable.explain() as any).cyna_selected_physical_nodes : []
-    if (requireCyna) {
+    const selectedNodes = (executable.explain() as any).selected_physical_nodes
+    {
       const explanation = executable.explain() as any
-      expect(explanation.execution_backend).toBe("cyna")
-      expect(explanation.executable_plan_backend).toBe("cyna")
-      expect(explanation.cyna_selected_semantic_steps.some((step: any) => step.implementation_code === 1)).toBe(true)
-      expect(explanation.cyna_residual_decisions).toEqual([])
+      expect(explanation.execution_backend).toBe("compute_core")
+      expect(explanation.executable_plan_backend).toBe("compute_core")
+      expect(explanation.selected_semantic_steps.some((step: any) => step.implementation_code === 1)).toBe(true)
+      expect(explanation.residual_decisions).toEqual([])
       expect(selectedNodes.map((node: any) => node.implementation)).toEqual([
         "cpu_structural", "cpu_fused_matmul_add",
       ])
@@ -471,7 +417,7 @@ describe("public CPU Session Cyna execution", () => {
       result.dispose()
     }
     const evidence = session.runtimeEvidence(executable) as any
-    if (requireCyna) {
+    {
       expect(evidence.execution_path).toBe("prepared")
       expect(evidence.prepared_cache_misses).toBe(1)
       expect(evidence.prepared_cache_hits >= 1).toBe(true)
@@ -493,7 +439,7 @@ describe("public CPU Session Cyna execution", () => {
   })
 
   test("uses a transposed right matrix directly for batched matmul", () => {
-    const source = program("cyna_batched_transposed_rhs", p => matmul(
+    const source = program("batched_transposed_rhs", p => matmul(
       p.argument("left", Tensor.f32([1, 2, 3])),
       transpose(p.argument("right", Tensor.f32([4, 3])), [1, 0]),
     ))
@@ -509,10 +455,9 @@ describe("public CPU Session Cyna execution", () => {
     const changedRight = session.tensor([[2, 3, 4], [5, 6, 7], [8, 9, 10], [11, 12, 13]])
     const changed = executable.run({ left, right: changedRight }) as any
     expect(changed.to_array()).toEqual([[[20, 38, 56, 74], [47, 92, 137, 182]]])
-    if (requireCyna) {
+    {
       const evidence = session.runtimeEvidence(executable) as any
       expect(evidence.execution_path).toBe("prepared")
-      expect(evidence.fallback_reason).toBe("no_fallback")
       expect(evidence.prepared_cache_misses).toBe(1)
       expect(evidence.prepared_cache_hits >= 2).toBe(true)
       expect(evidence.prepared_cache_bytes).toBe(32)
@@ -524,7 +469,7 @@ describe("public CPU Session Cyna execution", () => {
   })
 
   test("uses a transposed f64 right matrix directly for batched matmul", () => {
-    const source = program("cyna_batched_transposed_f64_rhs", p => matmul(
+    const source = program("batched_transposed_f64_rhs", p => matmul(
       p.argument("left", Tensor.f64([1, 2, 3])),
       transpose(p.argument("right", Tensor.f64([4, 3])), [1, 0]),
     ))
@@ -534,7 +479,7 @@ describe("public CPU Session Cyna execution", () => {
     const right = session.tensor([[1, 2, 3], [4, 5, 6], [7, 8, 9], [10, 11, 12]], { dtype: "f64" })
     const result = executable.run({ left, right }) as any
     expect(result.to_array()).toEqual([[[14, 32, 50, 68], [32, 77, 122, 167]]])
-    if (requireCyna) {
+    {
       const evidence = session.runtimeEvidence(executable) as any
       expect(evidence.execution_path).toBe("prepared")
       expect(evidence.entries[0].materialized_view_count).toBe(0)
@@ -575,7 +520,7 @@ describe("public CPU Session Cyna execution", () => {
       },
     ]
     for (const item of cases) {
-      const source = program(`cyna_batched_transposed_${item.name}`, p => matmul(
+      const source = program(`batched_transposed_${item.name}`, p => matmul(
         p.argument("left", Tensor.f32(item.leftShape)),
         transpose(p.argument("right", Tensor.f32(item.rightShape)), [0, 2, 1]),
       ))
@@ -585,7 +530,7 @@ describe("public CPU Session Cyna execution", () => {
       const right = session.tensor(item.right)
       const result = executable.run({ left, right }) as any
       expect(result.to_array()).toEqual(item.expected)
-      if (requireCyna) {
+      {
         const evidence = session.runtimeEvidence(executable) as any
         expect(evidence.execution_path).toBe("prepared")
         expect(evidence.entries[0].materialized_view_count).toBe(0)
@@ -595,7 +540,7 @@ describe("public CPU Session Cyna execution", () => {
   })
 
   test("uses transposed f64 right batches directly", () => {
-    const source = program("cyna_batched_transposed_f64_right_batches", p => matmul(
+    const source = program("batched_transposed_f64_right_batches", p => matmul(
       p.argument("left", Tensor.f64([1, 1, 3])),
       transpose(p.argument("right", Tensor.f64([2, 2, 3])), [0, 2, 1]),
     ))
@@ -605,7 +550,7 @@ describe("public CPU Session Cyna execution", () => {
     const right = session.tensor([[[1, 2, 3], [4, 5, 6]], [[7, 8, 9], [10, 11, 12]]], { dtype: "f64" })
     const result = executable.run({ left, right }) as any
     expect(result.to_array()).toEqual([[[14, 32]], [[50, 68]]])
-    if (requireCyna) {
+    {
       const evidence = session.runtimeEvidence(executable) as any
       expect(evidence.execution_path).toBe("prepared")
       expect(evidence.entries[0].materialized_view_count).toBe(0)
@@ -614,7 +559,7 @@ describe("public CPU Session Cyna execution", () => {
   })
 
   test("aligns two broadcast batch axes for a direct right transpose", () => {
-    const source = program("cyna_rank_four_transposed_rhs", p => matmul(
+    const source = program("rank_four_transposed_rhs", p => matmul(
       p.argument("left", Tensor.f32([2, 1, 1, 3])),
       transpose(p.argument("right", Tensor.f32([1, 2, 2, 3])), [0, 1, 3, 2]),
     ))
@@ -630,7 +575,7 @@ describe("public CPU Session Cyna execution", () => {
       [[[14, 32]], [[50, 68]]],
       [[[32, 77]], [[122, 167]]],
     ])
-    if (requireCyna) {
+    {
       const evidence = session.runtimeEvidence(executable) as any
       expect(evidence.execution_path).toBe("prepared")
       expect(evidence.entries[0].materialized_view_count).toBe(0)
@@ -638,8 +583,8 @@ describe("public CPU Session Cyna execution", () => {
     result.dispose(); left.dispose(); right.dispose(); executable.dispose(); session.dispose()
   })
 
-  test("passes each optimization goal to Cyna plan selection", () => {
-    const source = program("cyna_goal_selection", p => add(
+  test("passes each optimization goal to Compute Core plan selection", () => {
+    const source = program("goal_selection", p => add(
       matmul(p.argument("left", Tensor.f32([2, 2])), p.argument("right", Tensor.f32([2, 2]))),
       p.argument("bias", Tensor.f32([2, 2])),
     ))
@@ -651,15 +596,15 @@ describe("public CPU Session Cyna execution", () => {
       const bias = session.tensor([[1, 1], [1, 1]])
       const result = executable.run({ left, right, bias }) as any
       expect(result.to_array()).toEqual([[20, 23], [44, 51]])
-      if (requireCyna) {
+      {
         const evidence = session.runtimeEvidence(executable) as any
-        expect((executable.explain() as any).execution_backend).toBe("cyna")
-        const cynaImplementations = evidence.entries.map((entry: any) => entry.physical_implementation)
+        expect((executable.explain() as any).execution_backend).toBe("compute_core")
+        const observedImplementations = evidence.entries.map((entry: any) => entry.physical_implementation)
         const selectedImplementations =
-          (executable.explain() as any).cyna_selected_physical_nodes
+          (executable.explain() as any).selected_physical_nodes
             .map((node: any) => node.implementation)
-        expect(cynaImplementations).toEqual(selectedImplementations)
-        expect(cynaImplementations.length >= 1).toBe(true)
+        expect(observedImplementations).toEqual(selectedImplementations)
+        expect(observedImplementations.length >= 1).toBe(true)
       }
       result.dispose(); left.dispose(); right.dispose(); bias.dispose(); executable.dispose(); session.dispose()
     }
@@ -668,7 +613,7 @@ describe("public CPU Session Cyna execution", () => {
   test("fuses batched matmul plus bias under the memory goal", () => {
     for (const dtype of ["f32", "f64"] as const) {
       const spec = (shape: readonly number[]) => dtype === "f32" ? Tensor.f32(shape) : Tensor.f64(shape)
-      const source = program(`cyna_batched_matmul_bias_${dtype}`, p => add(
+      const source = program(`batched_matmul_bias_${dtype}`, p => add(
         matmul(
           p.argument("left", spec([2, 3, 4])),
           p.argument("right", spec([2, 4, 5])),
@@ -691,13 +636,13 @@ describe("public CPU Session Cyna execution", () => {
         [[5, 6, 7, 8, 9], [5, 6, 7, 8, 9], [5, 6, 7, 8, 9]],
         [[9, 10, 11, 12, 13], [9, 10, 11, 12, 13], [9, 10, 11, 12, 13]],
       ])
-      if (requireCyna) {
-        expect((executable.explain() as any).execution_backend).toBe("cyna")
+      {
+        expect((executable.explain() as any).execution_backend).toBe("compute_core")
         const evidence = session.runtimeEvidence(executable) as any
         expect(evidence.execution_path).toBe("prepared")
         expect(evidence.entries.map((entry: any) => entry.physical_implementation))
           .toEqual(["cpu_fused_matmul_add"])
-        expect((executable.explain() as any).cyna_selected_physical_nodes
+        expect((executable.explain() as any).selected_physical_nodes
           .filter((node: any) => node.source_instruction_count > 0)
           .map((node: any) => node.program_origins)).toEqual([[0, 1]])
       }
@@ -706,40 +651,40 @@ describe("public CPU Session Cyna execution", () => {
     }
   })
 
-  test("selects add fusion families on Cyna", () => {
+  test("selects add fusion families on Compute Core", () => {
     const cases = [
-      program("cyna_add_add_goals", p => add(add(
+      program("add_add_goals", p => add(add(
         p.argument("a", Tensor.f32([2])), p.argument("b", Tensor.f32([2]))),
         p.argument("c", Tensor.f32([2])))),
-      program("cyna_add_gelu_goals", p => gelu(add(
+      program("add_gelu_goals", p => gelu(add(
         p.argument("a", Tensor.f32([2])), p.argument("b", Tensor.f32([2]))))),
     ]
     for (const [caseIndex, source] of cases.entries()) for (const optimizationGoal of ["balanced", "latency", "throughput", "memory"] as const) {
-      const cyna = new Session({ device: "cpu", telemetry: { captureRecords: 8 } })
-      const executable = cyna.compile(source, { optimizationGoal })
-      const a = cyna.tensor([1, 2]), b = cyna.tensor([3, 4]), c = cyna.tensor([5, 6])
+      const session = new Session({ device: "cpu", telemetry: { captureRecords: 8 } })
+      const executable = session.compile(source, { optimizationGoal })
+      const a = session.tensor([1, 2]), b = session.tensor([3, 4]), c = session.tensor([5, 6])
       const result = executable.run(caseIndex === 0 ? { a, b, c } : { a, b }) as any
-      if (requireCyna) {
-        expect((executable.explain() as any).execution_backend).toBe("cyna")
-        const implementations = (cyna.runtimeEvidence(executable) as any).entries
+      {
+        expect((executable.explain() as any).execution_backend).toBe("compute_core")
+        const implementations = (session.runtimeEvidence(executable) as any).entries
           .map((entry: any) => entry.physical_implementation)
         if (caseIndex === 0 && optimizationGoal === "latency") {
-          expect((executable.explain() as any).cyna_selected_physical_nodes
+          expect((executable.explain() as any).selected_physical_nodes
             .filter((node: any) => node.source_instruction_count > 0)
             .map((node: any) => node.origins)).toEqual([[0, 1]])
-          expect((executable.explain() as any).cyna_selected_physical_nodes
+          expect((executable.explain() as any).selected_physical_nodes
             .filter((node: any) => node.source_instruction_count > 0)
             .map((node: any) => node.program_origins)).toEqual([[0, 1]])
         }
         expect(implementations.length >= 1).toBe(true)
         expect(implementations.every((id: string) => id.startsWith("cpu_"))).toBe(true)
       }
-      result.dispose(); a.dispose(); b.dispose(); c.dispose(); executable.dispose(); cyna.dispose()
+      result.dispose(); a.dispose(); b.dispose(); c.dispose(); executable.dispose(); session.dispose()
     }
   })
 
-  test("applies public resource limits on the Cyna route", () => {
-    const source = program("cyna_resource_limits", p =>
+  test("applies public resource limits on the Compute Core compiler", () => {
+    const source = program("resource_limits", p =>
       neg(p.argument("value", Tensor.f32([2]))))
     const session = new Session({ device: "cpu", telemetry: { captureRecords: 8 } })
     expect(() => session.compile(source, {
@@ -755,18 +700,17 @@ describe("public CPU Session Cyna execution", () => {
         maxInvocationScratchBytes: 0,
       },
     })
-    if (requireCyna) {
-      expect((executable as any)[backendSymbol]()).toBe("cyna")
-      const search = (executable.explain() as any).cyna_search
+    {
+      const search = (executable.explain() as any).search
       expect(search.limits.max_peak_active_bytes).toBe(1024)
       expect(search.limits.max_invocation_scratch_bytes).toBe(0)
     }
     const value = session.tensor([2, -3])
     const result = executable.run({ value }) as any
     expect(result.to_array()).toEqual([-2, 3])
-    if (requireCyna) {
+    {
       const evidence = session.runtimeEvidence(executable) as any
-      expect(evidence.schema_version).toBe(10)
+      expect(evidence.schema_version).toBe(11)
       expect(evidence.search.max_peak_active_bytes).toBe(1024)
       expect(evidence.search.max_invocation_scratch_bytes).toBe(0)
     }
@@ -776,7 +720,7 @@ describe("public CPU Session Cyna execution", () => {
   test("selects and executes fused multiply then subtract", () => {
     for (const dtype of ["f32", "f64", "i64"] as const) {
       const spec = dtype === "f32" ? Tensor.f32([2]) : dtype === "f64" ? Tensor.f64([2]) : Tensor.i64([2])
-      const source = program(`cyna_fused_mul_sub_${dtype}`, p => sub(
+      const source = program(`fused_mul_sub_${dtype}`, p => sub(
         p.argument("parameter", spec),
         mul(p.argument("gradient", spec), p.argument("rate", spec)),
       ))
@@ -793,13 +737,13 @@ describe("public CPU Session Cyna execution", () => {
       const rate = session.tensor(rateValues, { dtype })
       const output = executable.run({ parameter, gradient, rate }) as any
       expect(output.to_array()).toEqual(dtype === "i64" ? [5, 0] : [79, 37])
-      if (requireCyna) {
+      {
         const explanation = executable.explain() as any
-        expect(explanation.execution_backend).toBe("cyna")
-        expect(explanation.cyna_selected_physical_nodes.map(
+        expect(explanation.execution_backend).toBe("compute_core")
+        expect(explanation.selected_physical_nodes.map(
           (node: any) => node.implementation
         )).toEqual(["cpu_fused_optimizer_update"])
-        expect(explanation.cyna_selected_physical_nodes[0].program_origins)
+        expect(explanation.selected_physical_nodes[0].program_origins)
           .toEqual([0, 1])
         expect((session.runtimeEvidence(executable) as any).execution_path)
           .toBe("prepared")
@@ -810,20 +754,19 @@ describe("public CPU Session Cyna execution", () => {
   })
 
   test("retains the unfused add chain when memory estimates tie", () => {
-    const source = program("cyna_memory_add_choice", p => add(add(add(
+    const source = program("memory_add_choice", p => add(add(add(
       p.argument("a", Tensor.f32([2])), p.argument("b", Tensor.f32([2]))),
       p.argument("c", Tensor.f32([2]))), p.argument("d", Tensor.f32([2]))))
-    const cyna = new Session({ device: "cpu" })
-    const selected = cyna.compile(source, { optimizationGoal: "memory" })
-    const a = cyna.tensor([1, 2]), b = cyna.tensor([3, 4])
-    const c = cyna.tensor([5, 6]), d = cyna.tensor([7, 8])
+    const session = new Session({ device: "cpu" })
+    const selected = session.compile(source, { optimizationGoal: "memory" })
+    const a = session.tensor([1, 2]), b = session.tensor([3, 4])
+    const c = session.tensor([5, 6]), d = session.tensor([7, 8])
     const output = selected.run({ a, b, c, d }) as any
     expect(output.to_array()).toEqual([16, 20])
-    if (requireCyna) {
-      expect((selected as any)[backendSymbol]()).toBe("cyna")
-      const actual = (selected.explain() as any).cyna_selected_physical_nodes
+    {
+      const actual = (selected.explain() as any).selected_physical_nodes
         .map((node: any) => node.implementation)
-      const comparison = (selected.explain() as any).cyna_selection_comparison
+      const comparison = (selected.explain() as any).selection_comparison
       expect(comparison.evaluated_states).toBe(3)
       expect(comparison.budget).toBe(16)
       expect(comparison.exclusion_search_truncated).toBe(false)
@@ -832,56 +775,55 @@ describe("public CPU Session Cyna execution", () => {
       expect(actual).toEqual(["cpu_add", "cpu_add", "cpu_add"])
     }
     output.dispose(); a.dispose(); b.dispose(); c.dispose(); d.dispose()
-    selected.dispose(); cyna.dispose()
+    selected.dispose(); session.dispose()
 
     for (const length of [4, 5, 6]) {
-      const longer = program(`cyna_memory_add_chain_${length}`, p => {
+      const longer = program(`memory_add_chain_${length}`, p => {
         let value = p.argument("x0", Tensor.f32([2]))
         for (let index = 1; index <= length; index++)
           value = add(value, p.argument(`x${index}`, Tensor.f32([2])))
         return value
       })
-      const cynaSession = new Session({ device: "cpu" })
-      const cynaPlan = cynaSession.compile(longer, { optimizationGoal: "memory" })
-      if (requireCyna) {
-        const actual = (cynaPlan.explain() as any).cyna_selected_physical_nodes
+      const session = new Session({ device: "cpu" })
+      const compiledPlan = session.compile(longer, { optimizationGoal: "memory" })
+      {
+        const actual = (compiledPlan.explain() as any).selected_physical_nodes
           .map((node: any) => node.implementation)
         expect(actual.every((implementation: string) =>
           implementation === "cpu_add")).toBe(true)
       }
-      cynaPlan.dispose(); cynaSession.dispose()
+      compiledPlan.dispose(); session.dispose()
     }
   })
 
   test("counts Program constant storage in a selected memory graph", () => {
-    const source = program("cyna_memory_constant_accounting", p => add(
+    const source = program("memory_constant_accounting", p => add(
       p.argument("x", Tensor.f32([2])),
       p.constant("offset", [1, 2], Tensor.f32([2])),
     ))
-    const cyna = new Session({ device: "cpu" })
-    const executable = cyna.compile(source, { optimizationGoal: "memory" })
-    const x = cyna.tensor([3, 4])
+    const session = new Session({ device: "cpu" })
+    const executable = session.compile(source, { optimizationGoal: "memory" })
+    const x = session.tensor([3, 4])
     const output = executable.run({ x }) as any
     expect(output.to_array()).toEqual([4, 6])
-    if (requireCyna) {
-      const comparison = (executable.explain() as any).cyna_selection_comparison
+    {
+      const comparison = (executable.explain() as any).selection_comparison
       expect(comparison.constant_input_bytes).toBe(8)
       const selected = executable.explain() as any
       expect(selected.selected_physical_values.map((value: any) => value.origin)).toContain("constant")
       expect(selected.selected_physical_liveness.peak_active_bytes).toBe(16)
     }
-    output.dispose(); x.dispose(); executable.dispose(); cyna.dispose()
+    output.dispose(); x.dispose(); executable.dispose(); session.dispose()
   })
 
-  test("runs a constant-only Program through Cyna", () => {
-    const source = program("cyna_constant_only", p => p.constant(
+  test("runs a constant-only Program through Compute Core", () => {
+    const source = program("constant_only", p => p.constant(
       "values", [3, 5], Tensor.f32([2])))
     const session = new Session({ device: "cpu" })
     const executable = session.compile(source)
     const output = executable.run({}) as any
     expect(output.to_array()).toEqual([3, 5])
-    if (requireCyna) {
-      expect((executable as any)[backendSymbol]()).toBe("cyna")
+    {
       expect((executable.explain() as any).selected_physical_values[0].origin).toBe("constant")
     }
     output.dispose(); executable.dispose(); session.dispose()
@@ -889,33 +831,33 @@ describe("public CPU Session Cyna execution", () => {
 
   test("selects memory plans for multiply and dot additions", () => {
     const cases = [
-      program("cyna_mul_add_goal", p => add(mul(
+      program("mul_add_goal", p => add(mul(
         p.argument("a", Tensor.f32([2])), p.argument("b", Tensor.f32([2]))),
         p.argument("c", Tensor.f32([2])))),
-      program("cyna_dot_add_goal", p => add(dot(
+      program("dot_add_goal", p => add(dot(
         p.argument("a", Tensor.f32([2])), p.argument("b", Tensor.f32([2]))),
         p.argument("c", Tensor.f32([])))),
     ]
     for (const [caseIndex, source] of cases.entries()) {
-      const cyna = new Session({ device: "cpu", telemetry: { captureRecords: 8 } })
-      const executable = cyna.compile(source, { optimizationGoal: "memory" })
-      const a = cyna.tensor([1, 2]), b = cyna.tensor([3, 4])
-      const c = caseIndex === 0 ? cyna.tensor([5, 6]) : cyna.tensor(5)
+      const session = new Session({ device: "cpu", telemetry: { captureRecords: 8 } })
+      const executable = session.compile(source, { optimizationGoal: "memory" })
+      const a = session.tensor([1, 2]), b = session.tensor([3, 4])
+      const c = caseIndex === 0 ? session.tensor([5, 6]) : session.tensor(5)
       const result = executable.run({ a, b, c }) as any
-      if (requireCyna) {
-        const implementations = (cyna.runtimeEvidence(executable) as any).entries
+      {
+        const implementations = (session.runtimeEvidence(executable) as any).entries
           .map((entry: any) => entry.physical_implementation)
         expect(implementations.length >= 1).toBe(true)
         expect(implementations.every((id: string) =>
           id.startsWith("cpu_"))).toBe(true)
       }
-      result.dispose(); a.dispose(); b.dispose(); c.dispose(); executable.dispose(); cyna.dispose()
+      result.dispose(); a.dispose(); b.dispose(); c.dispose(); executable.dispose(); session.dispose()
     }
   })
 
   test("selects dense matrix epilogues", () => {
     for (const size of [8, 16, 128]) {
-      const source = program(`cyna_dense_epilogue_goal_${size}`, p => add(
+      const source = program(`dense_epilogue_goal_${size}`, p => add(
         matmul(p.argument("left", Tensor.f32([size, size])),
           p.argument("right", Tensor.f32([size, size]))),
         p.argument("bias", Tensor.f32([size])),
@@ -923,60 +865,58 @@ describe("public CPU Session Cyna execution", () => {
       const matrix = Array.from({ length: size }, (_, row) =>
         Array.from({ length: size }, (_, column) => row === column ? 1 : 0))
       for (const optimizationGoal of ["balanced", "latency", "throughput"] as const) {
-        const cyna = new Session({ device: "cpu", telemetry: { captureRecords: 8 } })
-        const executable = cyna.compile(source, { optimizationGoal, denseInputs: true })
-        const left = cyna.tensor(matrix), right = cyna.tensor(matrix)
-        const bias = cyna.tensor(Array(size).fill(1))
+        const session = new Session({ device: "cpu", telemetry: { captureRecords: 8 } })
+        const executable = session.compile(source, { optimizationGoal, denseInputs: true })
+        const left = session.tensor(matrix), right = session.tensor(matrix)
+        const bias = session.tensor(Array(size).fill(1))
         const result = executable.run({ left, right, bias }) as any
         expect(result.to_array()).toEqual(matrix.map(row => row.map(value => value + 1)))
-        if (requireCyna) {
-          const actual = (cyna.runtimeEvidence(executable) as any).entries.map((entry: any) => entry.physical_implementation)
+        {
+          const actual = (session.runtimeEvidence(executable) as any).entries.map((entry: any) => entry.physical_implementation)
           expect(actual.length >= 1).toBe(true)
           expect(actual.every((id: string) => id.startsWith("cpu_"))).toBe(true)
         }
-        result.dispose(); left.dispose(); right.dispose(); bias.dispose(); executable.dispose(); cyna.dispose()
+        result.dispose(); left.dispose(); right.dispose(); bias.dispose(); executable.dispose(); session.dispose()
       }
     }
   })
 
   test("reports the baseline plan when optimization is disabled", () => {
-    const source = program("cyna_no_optimization", p => add(add(
+    const source = program("no_optimization", p => add(add(
       p.argument("a", Tensor.f32([2])), p.argument("b", Tensor.f32([2]))),
       p.argument("c", Tensor.f32([2]))))
-    const cyna = new Session({ device: "cpu", telemetry: { captureRecords: 8 } })
-    const executable = cyna.compile(source, { optimizationLevel: "none" })
-    const a = cyna.tensor([1, 2]), b = cyna.tensor([3, 4]), c = cyna.tensor([5, 6])
+    const session = new Session({ device: "cpu", telemetry: { captureRecords: 8 } })
+    const executable = session.compile(source, { optimizationLevel: "none" })
+    const a = session.tensor([1, 2]), b = session.tensor([3, 4]), c = session.tensor([5, 6])
     const result = executable.run({ a, b, c }) as any
     expect(result.to_array()).toEqual([9, 12])
-    if (requireCyna) {
-      const actual = (cyna.runtimeEvidence(executable) as any).entries.map((entry: any) => entry.physical_implementation)
+    {
+      const actual = (session.runtimeEvidence(executable) as any).entries.map((entry: any) => entry.physical_implementation)
       expect(actual).toEqual(["cpu_add", "cpu_add"])
     }
-    result.dispose(); a.dispose(); b.dispose(); c.dispose(); executable.dispose(); cyna.dispose()
+    result.dispose(); a.dispose(); b.dispose(); c.dispose(); executable.dispose(); session.dispose()
   })
 
-  test("applies bounded search limits on the Cyna route", () => {
-    const source = program("cyna_bounded_search", p => add(add(
+  test("applies bounded search limits on the Compute Core compiler", () => {
+    const source = program("bounded_search", p => add(add(
       p.argument("a", Tensor.f32([2])), p.argument("b", Tensor.f32([2]))),
       p.argument("c", Tensor.f32([2]))))
     const session = new Session({ device: "cpu", telemetry: { captureRecords: 8 } })
     const executable = session.compile(source, { searchLimits: { structuralStates: 1 } })
-    if (requireCyna) {
-      expect((executable as any)[backendSymbol]()).toBe("cyna")
-      expect((executable as any)[routingSymbol]().reason).toBe("lowered")
+    {
       const explanation = executable.explain() as any
-      expect(explanation.cyna_search.limits.structural_states).toBe(1)
-      expect(explanation.cyna_search.evaluated_states).toBe(1)
-      expect(explanation.cyna_search.truncated).toBe(true)
-      expect(explanation.cyna_selected_physical_nodes.map((node: any) => node.implementation))
+      expect(explanation.search.limits.structural_states).toBe(1)
+      expect(explanation.search.evaluated_states).toBe(1)
+      expect(explanation.search.truncated).toBe(true)
+      expect(explanation.selected_physical_nodes.map((node: any) => node.implementation))
         .toEqual(["cpu_add", "cpu_add"])
     }
     const a = session.tensor([1, 2]), b = session.tensor([3, 4]), c = session.tensor([5, 6])
     const result = executable.run({ a, b, c }) as any
     expect(result.to_array()).toEqual([9, 12])
-    if (requireCyna) {
+    {
       const evidence = session.runtimeEvidence(executable) as any
-      expect(evidence.schema_version).toBe(10)
+      expect(evidence.schema_version).toBe(11)
       expect(evidence.search.structural_states).toBe(1)
       expect(evidence.search.evaluated_states).toBe(1)
       expect(evidence.search.truncated).toBe(true)
@@ -984,8 +924,8 @@ describe("public CPU Session Cyna execution", () => {
     result.dispose(); a.dispose(); b.dispose(); c.dispose(); executable.dispose(); session.dispose()
   })
 
-  test("applies every public search limit on the Cyna route", () => {
-    const source = program("cyna_all_search_limits", p => add(add(
+  test("applies every public search limit on the Compute Core compiler", () => {
+    const source = program("all_search_limits", p => add(add(
       p.argument("a", Tensor.f32([2])), p.argument("b", Tensor.f32([2]))),
       p.argument("c", Tensor.f32([2]))))
     const session = new Session({ device: "cpu" })
@@ -998,9 +938,8 @@ describe("public CPU Session Cyna execution", () => {
     ] as const
     for (const [name, value] of cases) {
       const executable = session.compile(source, { searchLimits: { [name]: value } })
-      if (requireCyna) {
-        expect((executable as any)[backendSymbol]()).toBe("cyna")
-        const search = (executable.explain() as any).cyna_search
+      {
+        const search = (executable.explain() as any).search
         const field = name.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`)
         expect(search.limits[field]).toBe(value)
         expect(search.complete_evaluations >= 1).toBe(true)
@@ -1010,12 +949,11 @@ describe("public CPU Session Cyna execution", () => {
     session.dispose()
   })
 
-  test("keeps residual-free programs on Cyna under recompute policy", () => {
-    const source = program("cyna_residual_policy", p => add(
+  test("keeps residual-free programs on Compute Core under recompute policy", () => {
+    const source = program("residual_policy", p => add(
       p.argument("a", Tensor.f32([2])), p.argument("b", Tensor.f32([2]))))
     const session = new Session({ device: "cpu" })
     const executable = session.compile(source, { residualPolicy: "recompute" })
-    if (requireCyna) expect((executable as any)[backendSymbol]()).toBe("cyna")
     const a = session.tensor([1, 2]), b = session.tensor([3, 4])
     const result = executable.run({ a, b }) as any
     expect(result.to_array()).toEqual([4, 6])
@@ -1023,7 +961,7 @@ describe("public CPU Session Cyna execution", () => {
   })
 
   test("reuses a prepared graph while replacing changed input values", () => {
-    const source = program("cyna_changed_input_plan", p => add(
+    const source = program("changed_input_plan", p => add(
       p.argument("x", Tensor.f32([2])), p.argument("bias", Tensor.f32([2])),
     ))
     const session = new Session({ device: "cpu", telemetry: { captureRecords: 64 } })
@@ -1037,7 +975,7 @@ describe("public CPU Session Cyna execution", () => {
       result.dispose()
     }
     const evidence = session.runtimeEvidence(executable) as any
-    if (requireCyna) {
+    {
       expect(evidence.execution_path).toBe("prepared")
       expect(evidence.prepared_cache_misses).toBe(1)
       expect(evidence.prepared_cache_hits).toBe(2)
@@ -1047,8 +985,8 @@ describe("public CPU Session Cyna execution", () => {
     x.dispose(); changed.dispose(); bias.dispose(); executable.dispose(); session.dispose()
   })
 
-  test("reports Cyna capture overflow", () => {
-    const source = program("cyna_evidence_overflow", p => neg(p.argument("value", Tensor.f32([2]))))
+  test("reports Compute Core capture overflow", () => {
+    const source = program("evidence_overflow", p => neg(p.argument("value", Tensor.f32([2]))))
     const session = new Session({ device: "cpu", telemetry: { captureRecords: 1 } })
     const executable = session.compile(source)
     const value = session.tensor([1, 2])
@@ -1056,7 +994,7 @@ describe("public CPU Session Cyna execution", () => {
     const result = executable.run({ value }) as any
     result.dispose()
     const evidence = session.runtimeEvidence(executable) as any
-    if (requireCyna) {
+    {
       expect(evidence.dropped_event_count > 0).toBe(true)
       expect(evidence.run_count_complete).toBe(false)
       expect(evidence.kernel_count_evidence).toBe("unavailable")
@@ -1066,8 +1004,8 @@ describe("public CPU Session Cyna execution", () => {
     session.dispose()
   })
 
-  test("attributes Cyna view execution to its semantic step", () => {
-    const source = program("cyna_evidence_view", p => transpose(p.argument("value", Tensor.f32([2, 3])), [1, 0]))
+  test("attributes Compute Core view execution to its semantic step", () => {
+    const source = program("evidence_view", p => transpose(p.argument("value", Tensor.f32([2, 3])), [1, 0]))
     const session = new Session({ device: "cpu", telemetry: { captureRecords: 64 } })
     const executable = session.compile(source)
     const value = session.tensor([[1, 2, 3], [4, 5, 6]])
@@ -1075,14 +1013,13 @@ describe("public CPU Session Cyna execution", () => {
     const result = executable.run({ value }) as any
     expect(result.to_array()).toEqual([[1, 4], [2, 5], [3, 6]])
     const evidence = session.runtimeEvidence(executable) as any
-    if (requireCyna) {
+    {
       const entry = evidence.entries.find((item: any) => item.operation === "transpose")
       expect(entry.graph_kind).toBe("resident_view")
       expect(entry.invocation_count).toBe(1)
       expect(entry.materialized_view_count).toBe(0)
       expect(entry.kernel_count).toBe(0)
       expect(evidence.execution_path).toBe("resident_view")
-      expect(evidence.fallback_reason).toBe("view_path_selected")
     }
     result.dispose()
     value.dispose()
@@ -1090,8 +1027,8 @@ describe("public CPU Session Cyna execution", () => {
     session.dispose()
   })
 
-  test("records failed Cyna execution without a success completion", () => {
-    const source = program("cyna_evidence_failure", p => div(
+  test("records failed execution without a success completion", () => {
+    const source = program("evidence_failure", p => div(
       p.argument("left", Tensor.i64([1])), p.argument("right", Tensor.i64([1])),
     ))
     const session = new Session({ device: "cpu", telemetry: { captureRecords: 64 } })
@@ -1101,7 +1038,7 @@ describe("public CPU Session Cyna execution", () => {
     session.resetEvidence()
     expect(() => executable.run({ left, right })).toThrow()
     const evidence = session.runtimeEvidence(executable) as any
-    if (requireCyna) {
+    {
       expect(evidence.observed_run_count).toBe(1)
       expect(evidence.observed_failed_run_count).toBe(1)
       expect(evidence.entries[0].failed_count).toBe(1)
@@ -1112,8 +1049,8 @@ describe("public CPU Session Cyna execution", () => {
     session.dispose()
   })
 
-  test("returns public layout views from Cyna without losing stride guards", () => {
-    const source = program("cyna_public_layout_views", p => {
+  test("returns public layout views from Compute Core without losing stride guards", () => {
+    const source = program("public_layout_views", p => {
       const matrix = p.argument("matrix", Tensor.f32([2, 3]))
       const batch = p.argument("batch", Tensor.f32([2, 3, 1]))
       const padded = p.argument("padded", Tensor.f32([1, 2, 1]))
@@ -1127,17 +1064,12 @@ describe("public CPU Session Cyna execution", () => {
         slice(wide, [{ start: 1, stop: 3 }, { start: 1, stop: 4, step: 2 }]),
       ]
     })
-    const denseSource = program("cyna_layout_guard", p => sin(
+    const denseSource = program("layout_guard", p => sin(
       p.argument("x", Tensor.f32([3, 2])),
     ))
     const session = new Session({ device: "cpu" })
     const executable = session.compile(source)
     const dense = session.compile(denseSource, { denseInputs: true })
-    if (requireCyna) {
-      expect((executable as any)[backendSymbol]()).toBe("cyna")
-      expect((executable as any)[routingSymbol]().transport).toBe("in_process")
-      expect((dense as any)[routingSymbol]().transport).toBe("in_process")
-    }
 
     const matrix = session.tensor([[1, 2, 3], [4, 5, 6]])
     const batch = session.tensor([[[1], [2], [3]], [[4], [5], [6]]])
@@ -1173,8 +1105,8 @@ describe("public CPU Session Cyna execution", () => {
     session.dispose()
   })
 
-  test("executes indexed Programs through the in-process Cyna graph", () => {
-    const source = program("cyna_public_indexed_ops", p => {
+  test("executes indexed Programs through the in-process Compute Core Program", () => {
+    const source = program("public_indexed_ops", p => {
       const input = p.argument("input", Tensor.f32([2, 3]))
       const rows = p.argument("rows", Tensor.i64([2]))
       const table = p.argument("table", Tensor.f32([4, 2]))
@@ -1192,7 +1124,6 @@ describe("public CPU Session Cyna execution", () => {
     })
     const session = new Session({ device: "cpu" })
     const executable = session.compile(source)
-    if (requireCyna) expect((executable as any)[backendSymbol]()).toBe("cyna")
 
     const input = session.tensor([[10, 20, 30], [40, 50, 60]])
     const rows = session.tensor([2, 0], { dtype: "i64" })
@@ -1230,13 +1161,13 @@ describe("public CPU Session Cyna execution", () => {
     session.dispose()
   })
 
-  test("preserves indexed failures and reusable executables on Cyna", () => {
-    const selectedSource = program("cyna_public_index_select_bounds", p => index_select(
+  test("preserves indexed failures and reusable executables on Compute Core", () => {
+    const selectedSource = program("public_index_select_bounds", p => index_select(
       p.argument("input", Tensor.f32([2, 2])),
       0,
       p.argument("indices", Tensor.i64([1])),
     ))
-    const scatteredSource = program("cyna_public_scatter_bounds", p => scatter_add(
+    const scatteredSource = program("public_scatter_bounds", p => scatter_add(
       p.argument("base", Tensor.f32([2, 2])),
       p.argument("indices", Tensor.i64([1, 2])),
       p.argument("updates", Tensor.f32([1, 2])),
@@ -1245,10 +1176,6 @@ describe("public CPU Session Cyna execution", () => {
     const session = new Session({ device: "cpu" })
     const selected = session.compile(selectedSource)
     const scattered = session.compile(scatteredSource)
-    if (requireCyna) {
-      expect((selected as any)[backendSymbol]()).toBe("cyna")
-      expect((scattered as any)[backendSymbol]()).toBe("cyna")
-    }
 
     const input = session.tensor([[1, 2], [3, 4]])
     const invalidRow = session.tensor([2], { dtype: "i64" })

@@ -1,12 +1,10 @@
 import { test, expect, beforeAll, afterAll } from 'std:test'
 import fs from 'std:fs'
-import { run } from 'std:process'
 import { decode_wav, resample_audio, load_processor } from '../src/index.ts'
+import { createTempDirectory, removeTempPath } from '../../../../test/support/temp.ts'
 let directory = ''
 beforeAll(async () => {
-  directory = (
-    await run({ cmd: 'mktemp', args: ['-d', '/tmp/affon-audio-test.XXXXXX'] })
-  ).stdout.trim()
+  directory = await createTempDirectory('affon-audio-test')
   fs.writeFileSync(
     `${directory}/config.json`,
     JSON.stringify({ model_type: 'audio-spectrogram-transformer' }),
@@ -25,7 +23,7 @@ beforeAll(async () => {
   )
 })
 afterAll(async () => {
-  if (directory) await run({ cmd: 'rm', args: ['-rf', directory] })
+  if (directory) await removeTempPath(directory)
 })
 test('AST matches independent HF features including DC removal, padding, and truncation', () => {
   const processor = load_processor(directory, { task: 'audio-classification' })

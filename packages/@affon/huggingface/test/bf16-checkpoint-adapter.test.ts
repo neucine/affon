@@ -1,11 +1,11 @@
 import {expect,test} from 'std:test'
-import {run} from 'std:process'
 import checkpoint from 'affon:checkpoint'
 import {Session} from 'affon:core'
 import {prepare_encoder_checkpoint} from '../src/adapters/encoder-checkpoint.ts'
+import {createTempDirectory,removeTempPath} from '../../../../test/support/temp.ts'
 
 test('shared BERT/ViT/Llama linear mapper preserves BF16 dtype and transposition', async () => {
-  const directory=(await run({cmd:'mktemp',args:['-d','/tmp/affon-bf16-adapter.XXXXXX']})).stdout.trim()
+  const directory=await createTempDirectory('affon-bf16-adapter')
   const session=new Session({device:'cpu'})
   const weight=session.tensor([[1,2,3],[4,5,6]],{dtype:'bf16'})
   try {
@@ -17,6 +17,6 @@ test('shared BERT/ViT/Llama linear mapper preserves BF16 dtype and transposition
     expect(adapter.weights['linear.weight'].shape).toEqual([3,2])
     expect(adapter.weights['linear.weight'].to_array()).toEqual([[1,4],[2,5],[3,6]])
   } finally {
-    weight.dispose();session.dispose();await run({cmd:'rm',args:['-rf',directory]})
+    weight.dispose();session.dispose();await removeTempPath(directory)
   }
 })

@@ -36,7 +36,10 @@ if [ "$platform" = fast ]; then
   for config in src test/types test/e2e/program/operations packages/@affon/models packages/@affon/tokenizers apps/decoder-lm; do
     bun x tsc -p "$config/tsconfig.json" --noEmit
   done
-  cyna build .
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) cyna build . --build windows --output build/affon ;;
+    *) cyna build . --build default --output build/affon ;;
+  esac
   "$root/build/affon" examples/first-program.ts
   exit 0
 fi

@@ -5,12 +5,13 @@ import checkpoint from 'affon:checkpoint'
 import { Session, type Tensor } from 'affon:core'
 import { load_gpt2 } from '../src/adapters/gpt2.ts'
 import { execute_causal, generate_causal } from './execute-causal.ts'
+import { createTempDirectory, removeTempPath } from '../../../../test/support/temp.ts'
 
 let directory = ''
 let model: ReturnType<typeof load_gpt2>
 let source: Session
 beforeAll(async () => {
-  directory = (await run({ cmd: 'mktemp', args: ['-d', '/tmp/affon-program-window-test.XXXXXX'] })).stdout.trim()
+  directory = await createTempDirectory('affon-program-window-test')
   const config = { model_type: 'gpt2', activation_function: 'gelu_new', n_embd: 8, n_head: 2, n_layer: 2, n_positions: 8, vocab_size: 17, layer_norm_epsilon: 1e-5 }
   fs.writeFileSync(`${directory}/config.json`, JSON.stringify(config))
   source = new Session({ device: 'cpu' })
@@ -30,7 +31,7 @@ beforeAll(async () => {
   checkpoint.save(weights, `${directory}/model.safetensors`)
   model = load_gpt2(directory)
 })
-afterAll(async () => { source?.dispose(); if (directory) await run({ cmd: 'rm', args: ['-rf', directory] }) })
+afterAll(async () => { source?.dispose(); if (directory) await removeTempPath(directory) })
 
 function close(actual: unknown, expected: unknown) {
   const a = (actual as number[]).flat(Infinity) as number[]

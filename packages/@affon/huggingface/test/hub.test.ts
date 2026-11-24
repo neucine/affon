@@ -2,8 +2,13 @@ import fs from 'std:fs'
 import { run } from 'std:process'
 import { describe, expect, test } from 'std:test'
 import { snapshot_download, load_processor } from '../src/index.ts'
+import { createTempDirectory, removeTempPath } from '../../../../test/support/temp.ts'
 
 const revision = '0123456789abcdef0123456789abcdef01234567'
+async function digest(path: string): Promise<string> {
+  try { return (await run({ cmd: 'shasum', args: ['-a', '256', path] })).stdout.split(/\s/)[0] }
+  catch { return (await run({ cmd: 'sha256sum', args: [path] })).stdout.split(/\s/)[0] }
+}
 async function rejects(fn: () => Promise<unknown>, message: string) {
   let failure = ''
   try { await fn() } catch (error) { failure = String(error) }
@@ -16,7 +21,7 @@ describe('HF snapshots', () => {
     await rejects(() => snapshot_download('owner/model', { revision, cache_dir: 'relative' }), 'absolute')
   })
   test('offline cache validates content and rejects incomplete or corrupted snapshots', async () => {
-    const root = (await run({ cmd: 'mktemp', args: ['-d', '/tmp/affon-hf-cache-test.XXXXXX'] })).stdout.trim()
+    const root = await createTempDirectory('affon-hf-cache-test')
     try {
       const options = { revision, cache_dir: root, local_files_only: true }
       await rejects(() => snapshot_download('owner/model', options), 'not cached')
@@ -27,7 +32,7 @@ describe('HF snapshots', () => {
       fs.writeFileSync(`${directory}/model.safetensors`, 'test weight bytes')
       const files = []
       for (const name of ['config.json', 'model.safetensors']) {
-        const sha256 = (await run({ cmd: 'shasum', args: ['-a', '256', `${directory}/${name}`] })).stdout.split(/\s/)[0]
+        const sha256 = await digest(`${directory}/${name}`)
         files.push({ name, size: fs.statSync(`${directory}/${name}`).size, sha256 })
       }
       fs.writeFileSync(`${directory}/affon-snapshot.json`, JSON.stringify({ format: 'affon-hf-snapshot/v1', model_id: 'owner/model', revision, files }))
@@ -38,7 +43,7 @@ describe('HF snapshots', () => {
       fs.writeFileSync(`${directory}/affon-snapshot.json`, JSON.stringify({ format: 'affon-hf-snapshot/v1', model_id: 'owner/model', revision, files }))
       await rejects(() => snapshot_download('owner/model', options), 'Invalid HF cache manifest')
     } finally {
-      await run({ cmd: 'rm', args: ['-rf', root] })
+      await removeTempPath(root)
     }
   })
   test('processor dispatch rejects unsupported task/model combinations', () => {

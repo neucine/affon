@@ -92,7 +92,10 @@ void schemaVersion
 void inspectionKind
 void inspectedNode
 void inspectedComponent
-const publicTelemetryOptions: TelemetryOptions = { backendTiming: true, computeTiming: "kernel" }
+// @ts-expect-error The removed telemetry alias is not part of the public API.
+const removedTelemetryOption: TelemetryOptions = { backendTiming: true }
+void removedTelemetryOption
+const publicTelemetryOptions: TelemetryOptions = { computeTiming: "kernel" }
 const publicInvocationTelemetry: TelemetryOptions = { computeTiming: "invocation", hardwareMetrics: true }
 const publicSessionOptions: SessionOptions = { device: "cpu", determinism: "strict", telemetry: publicTelemetryOptions }
 const publicInvocationSessionOptions: SessionOptions = { device: "cuda", telemetry: publicInvocationTelemetry }

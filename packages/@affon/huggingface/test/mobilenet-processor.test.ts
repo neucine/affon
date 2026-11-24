@@ -1,15 +1,10 @@
 import { test, expect, beforeAll, afterAll } from "std:test";
 import fs from "std:fs";
-import { run } from "std:process";
 import { load_processor } from "../src/processor.ts";
+import { createTempDirectory, removeTempPath } from "../../../../test/support/temp.ts";
 let directory = "";
 beforeAll(async () => {
-  directory = (
-    await run({
-      cmd: "mktemp",
-      args: ["-d", "/tmp/affon-mobile-processor.XXXXXX"],
-    })
-  ).stdout.trim();
+  directory = await createTempDirectory("affon-mobile-processor");
   fs.writeFileSync(
     `${directory}/config.json`,
     JSON.stringify({ model_type: "mobilenet_v2" }),
@@ -23,7 +18,7 @@ beforeAll(async () => {
   );
 });
 afterAll(async () => {
-  if (directory) await run({ cmd: "rm", args: ["-rf", directory] });
+  if (directory) await removeTempPath(directory);
 });
 test("MobileNet RGB preprocessing matches HF across aspect ratios and upsampling", () => {
   const processor = load_processor(directory, { task: "image-classification" });

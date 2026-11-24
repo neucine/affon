@@ -8,8 +8,16 @@ runtime.
 Build and run it from the Affon repository root:
 
 ```sh
-cyna build .
+CYNA_BIN="${CYNA_BIN:-cyna}"
+"$CYNA_BIN" build . --build default --output build/affon
 AFFON_ROOT="$PWD" build/affon examples/first-program.ts
+```
+
+On Windows, use the `windows` build config so Cyna selects the installed GNU
+target and its system libraries:
+
+```sh
+cyna build . --build windows --output build/affon
 ```
 
 The executable installs Affon's TypeScript modules in Hao's embedded QuickJS

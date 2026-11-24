@@ -1,5 +1,6 @@
 import { testDevices, testOn } from '../../devices.ts'
 import { describe, expect, test } from 'std:test'
+import { createTempPath, removeTempPath } from '../../../support/temp.ts'
 import checkpoint from 'affon:checkpoint'
 import { Session, Tensor, gradient, program, update_parameters } from 'affon:core'
 import { add, argmax, cast, clamp, cross_entropy, div, dot, embedding, eq, exp, gather, gt, index_select, layer_norm, lt, masked_fill, matmul, mean, min, mul, neg, sign, softmax, std, sum, variance, where } from 'affon:ops'
@@ -261,8 +262,8 @@ describe('bf16 and u32 tensor dtypes', () => {
     integerSum.dispose(); floatSum.dispose(); integers.dispose(); floats.dispose(); session.dispose()
   })
 
-  test('checkpoint round trips bf16 and u32 storage', () => {
-    const path = `/tmp/affon-new-dtypes-${Date.now()}-${Math.floor(Math.random() * 1e6)}.safetensors`
+  test('checkpoint round trips bf16 and u32 storage', async () => {
+    const path = `${await createTempPath('affon-new-dtypes')}.safetensors`
     const session = new Session({ device: 'cpu' })
     const bf16 = session.tensor([1.01171875, -2.5], { dtype: 'bf16' })
     const u32 = session.tensor([0, 0xffffffff], { dtype: 'u32' })
@@ -274,6 +275,7 @@ describe('bf16 and u32 tensor dtypes', () => {
     expect(loaded.u32.dtype).toBe('u32')
     expect(loaded.u32.to_array()).toEqual([0, 0xffffffff])
     loaded.bf16.dispose(); loaded.u32.dispose(); bf16.dispose(); u32.dispose(); session.dispose()
+    await removeTempPath(path)
   })
 
   for (const device of testDevices(['cpu', 'metal', 'cuda'] as const)) test(`bf16 parameters can be differentiated on ${device}`, () => {

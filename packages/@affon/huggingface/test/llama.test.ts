@@ -3,6 +3,7 @@ import fs from 'std:fs'
 import { run } from 'std:process'
 import { load_llama, load_model, format_smollm2_chat } from '../src/index.ts'
 import { execute_causal, generate_causal } from './execute-causal.ts'
+import { createTempDirectory, removeTempPath } from '../../../../test/support/temp.ts'
 
 const directory = 'packages/@affon/huggingface/test/fixtures/llama'
 const reference = JSON.parse(fs.readFileSync(`${directory}/reference.json`))
@@ -48,12 +49,12 @@ test('SmolLM2 formats default and explicit system messages without duplicating t
 })
 
 test('Llama rejects unsupported variants and malformed dimensions before weight loading', async () => {
-  const temp = (await run({cmd:'mktemp',args:['-d','/tmp/affon-llama-validation.XXXXXX']})).stdout.trim()
+  const temp = await createTempDirectory('affon-llama-validation')
   const config = JSON.parse(fs.readFileSync(`${directory}/config.json`))
   try {
     for (const change of [{tie_word_embeddings:false}, {attention_bias:true}, {mlp_bias:true}, {rope_scaling:{type:'linear',factor:2}}, {rope_interleaved:true}, {num_key_value_heads:3}, {hidden_size:15}, {eos_token_id:33}, {rope_theta:0}, {rms_norm_eps:0}]) {
       fs.writeFileSync(`${temp}/config.json`, JSON.stringify({...config,...change}))
       expect(() => load_llama(temp)).toThrow('Llama')
     }
-  } finally { await run({cmd:'rm',args:['-rf',temp]}) }
+  } finally { await removeTempPath(temp) }
 })

@@ -35,10 +35,8 @@ declare module "affon:core" {
   }>;
   export type ComputeTimingScope = "none" | "invocation" | "kernel";
   export type TelemetryOptions = Readonly<{
-    /** Per-invocation backend timing scope. Defaults from backendTiming or none. */
+    /** Per-invocation backend timing scope. Defaults to none. */
     computeTiming?: ComputeTimingScope;
-    /** Compatibility switch: true selects kernel timing, false selects none. */
-    backendTiming?: boolean;
     hardwareMetrics?: boolean;
     profilerMarkers?: boolean;
     bridgeTiming?: boolean;
@@ -47,8 +45,6 @@ declare module "affon:core" {
   }>;
   export type SessionTelemetry = Readonly<{
     computeTiming: ComputeTimingScope;
-    /** True only for the legacy per-kernel timing scope. */
-    backendTiming: boolean;
     hardwareMetrics: boolean;
     profilerMarkers: boolean;
     bridgeTiming: boolean;

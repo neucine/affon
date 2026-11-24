@@ -529,7 +529,7 @@ pub fn evidence(executable: &const compute.Executable,
     }
 
     var fields: List<json.Member> = list<json.Member>();
-    fields.push(member("schema_version", number(10)));
+    fields.push(member("schema_version", number(11)));
     fields.push(member("suite", string_value("compute_observability")));
     fields.push(member("program_id", number(0)));
     fields.push(member("program_id_text", string_value("0")));
@@ -544,13 +544,10 @@ pub fn evidence(executable: &const compute.Executable,
         }
     }
     var execution_path = "prepared";
-    var fallback_reason = "no_fallback";
     if views_only {
         execution_path = "resident_view";
-        fallback_reason = "view_path_selected";
     }
     fields.push(member("execution_path", string_value(execution_path)));
-    fields.push(member("fallback_reason", string_value(fallback_reason)));
     fields.push(member("prepared_cache_hits", number(stats.cache_hits)));
     fields.push(member("prepared_cache_misses", number(
         stats.cache_misses
@@ -714,12 +711,12 @@ pub fn explanation(executable: &const compute.Executable,
     _source_instruction_by_step: &const List<usize>
 ): string {
     var fields: List<json.Member> = list<json.Member>();
-    fields.push(member("schema_version", number(2)));
+    fields.push(member("schema_version", number(3)));
     fields.push(member("kind", string_value("program")));
-    fields.push(member("execution_backend", string_value("cyna")));
-    fields.push(member("executable_plan_backend", string_value("cyna")));
+    fields.push(member("execution_backend", string_value("compute_core")));
+    fields.push(member("executable_plan_backend", string_value("compute_core")));
     fields.push(member("actual_plan_report", string_value(
-        "Affon and Compute Core selected this exact Cyna executable plan"
+        "Affon and Compute Core selected this exact Compute Core executable plan"
     )));
     fields.push(member("selected_physical_values", array(
         list<json.Value>()
@@ -727,19 +724,19 @@ pub fn explanation(executable: &const compute.Executable,
     fields.push(member("selected_physical_liveness", object(
         list<json.Member>()
     )));
-    fields.push(member("cyna_selected_semantic_steps", array(
+    fields.push(member("selected_semantic_steps", array(
         list<json.Value>()
     )));
-    fields.push(member("cyna_selected_physical_nodes", array(
+    fields.push(member("selected_physical_nodes", array(
         list<json.Value>()
     )));
-    fields.push(member("cyna_residual_decisions", array(
+    fields.push(member("residual_decisions", array(
         list<json.Value>()
     )));
-    fields.push(member("cyna_selection_comparison", object(
+    fields.push(member("selection_comparison", object(
         list<json.Member>()
     )));
-    fields.push(member("cyna_search", search_value(executable)));
+    fields.push(member("search", search_value(executable)));
     var search_limits: List<json.Member> = list<json.Member>();
     search_limits.push(member("structural_states", number(
         executable.evidence.limits.structural_states

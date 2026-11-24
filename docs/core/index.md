@@ -22,8 +22,8 @@ compiler/runtime controls and extension rules, then consult the
 [Quantized Inference](./quantized-inference.md) documents the affine packed-weight
 operation, native CPU/Metal implementations, and benchmark protocol.
 
-[Cyna Compute Core Integration Probe](./compute-core-cyna-adapter.md) records the
-isolated Affon consumer adapter and its build and parity check.
+[Compute Core integration](./compute-core-integration.md) describes the
+in-process runtime, build command, and execution evidence.
 
 
 ## Smallest useful example

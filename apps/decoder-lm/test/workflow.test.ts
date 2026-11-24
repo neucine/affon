@@ -5,9 +5,10 @@ import checkpoint from 'affon:checkpoint'
 
 import { loadDecoderLMWorkflowConfig, trainDecoderLMFromConfig } from '../src/index.ts'
 import type { DecoderLMWorkflowConfig } from '../src/workflow.ts'
+import { createTempPath } from '../../../test/support/temp.ts'
 
-function fixture(name: string): { config: DecoderLMWorkflowConfig; prefix: string; configPath: string } {
-  const prefix = `/tmp/affon-decoder-program-${name}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
+async function fixture(name: string): Promise<{ config: DecoderLMWorkflowConfig; prefix: string; configPath: string }> {
+  const prefix = await createTempPath(`affon-decoder-program-${name}`)
   const corpusPath = `${prefix}.txt`
   const configPath = `${prefix}.json`
   fs.writeFileSync(corpusPath, 'hello world\nhello there\nhello world\n')
@@ -27,8 +28,8 @@ function fixture(name: string): { config: DecoderLMWorkflowConfig; prefix: strin
 }
 
 describe('@affon/decoder-lm Program workflow', () => {
-  test('loads config and trains through the canonical Program model', () => {
-    const value = fixture('train')
+  test('loads config and trains through the canonical Program model', async () => {
+    const value = await fixture('train')
     const loaded = loadDecoderLMWorkflowConfig(value.configPath)
     const result = trainDecoderLMFromConfig(loaded)
     expect(result.summary.program.name).toBe('decoder_lm')
@@ -39,8 +40,8 @@ describe('@affon/decoder-lm Program workflow', () => {
     result.state.dispose(); result.session.dispose()
   })
 
-  test('uses Session compilation for the requested Program', () => {
-    const value = fixture('compiled')
+  test('uses Session compilation for the requested Program', async () => {
+    const value = await fixture('compiled')
     const result = trainDecoderLMFromConfig(value.config)
     const inference = program('workflow_inference', p => result.model({
       token_ids: p.argument('token_ids', Tensor.i64([1, 3], { axes: ['batch', 'token'] })),
@@ -50,8 +51,8 @@ describe('@affon/decoder-lm Program workflow', () => {
     result.state.dispose(); result.session.dispose()
   })
 
-  test('writes an epoch checkpoint and resumes it', () => {
-    const value = fixture('resume')
+  test('writes an epoch checkpoint and resumes it', async () => {
+    const value = await fixture('resume')
     value.config.checkpoint = { prefix: value.prefix, everyNEpochs: 1 }
     const first = trainDecoderLMFromConfig(value.config)
     expect(first.training.checkpointPaths).toEqual([`${value.prefix}-epoch-1`])
@@ -64,8 +65,8 @@ describe('@affon/decoder-lm Program workflow', () => {
     resumed.state.dispose(); resumed.session.dispose()
   })
 
-  test('resumed training matches continuous model and optimizer state', () => {
-    const continuousFixture = fixture('continuous-state')
+  test('resumed training matches continuous model and optimizer state', async () => {
+    const continuousFixture = await fixture('continuous-state')
     continuousFixture.config.training.epochs = 2
     continuousFixture.config.checkpoint = { prefix: continuousFixture.prefix, everyNEpochs: 1 }
     const continuous = trainDecoderLMFromConfig(continuousFixture.config)
@@ -73,7 +74,7 @@ describe('@affon/decoder-lm Program workflow', () => {
     expect(continuous.training.steps).toBe(2)
     continuous.state.dispose(); continuous.session.dispose()
 
-    const interruptedFixture = fixture('interrupted-state')
+    const interruptedFixture = await fixture('interrupted-state')
     interruptedFixture.config.checkpoint = { prefix: interruptedFixture.prefix, everyNEpochs: 1 }
     const interrupted = trainDecoderLMFromConfig(interruptedFixture.config)
     const firstPath = `${interruptedFixture.prefix}-epoch-1`
@@ -122,8 +123,8 @@ describe('@affon/decoder-lm Program workflow', () => {
     }
   })
 
-  test('resumes a saved step inside an epoch without repeating the first batch', () => {
-    const value = fixture('mid-epoch')
+  test('resumes a saved step inside an epoch without repeating the first batch', async () => {
+    const value = await fixture('mid-epoch')
     value.config.training.maxTrainBatchesPerEpoch = 2
     value.config.checkpoint = { prefix: value.prefix, everyNEpochs: 1, everyNSteps: 1 }
     const continuous = trainDecoderLMFromConfig(value.config)
@@ -157,8 +158,8 @@ describe('@affon/decoder-lm Program workflow', () => {
     }
   })
 
-  test('rejects a corrupt checkpoint and resumes after it is repaired', () => {
-    const value = fixture('corrupt-resume')
+  test('rejects a corrupt checkpoint and resumes after it is repaired', async () => {
+    const value = await fixture('corrupt-resume')
     value.config.checkpoint = { prefix: value.prefix, everyNEpochs: 1 }
     const first = trainDecoderLMFromConfig(value.config)
     first.state.dispose(); first.session.dispose()
@@ -177,8 +178,8 @@ describe('@affon/decoder-lm Program workflow', () => {
     resumed.state.dispose(); resumed.session.dispose()
   })
 
-  test('switching optimizer kind restores weights with a fresh optimizer step', () => {
-    const value = fixture('optimizer-switch')
+  test('switching optimizer kind restores weights with a fresh optimizer step', async () => {
+    const value = await fixture('optimizer-switch')
     value.config.checkpoint = { prefix: value.prefix, everyNEpochs: 1 }
     const first = trainDecoderLMFromConfig(value.config)
     first.state.dispose(); first.session.dispose()
@@ -203,8 +204,8 @@ describe('@affon/decoder-lm Program workflow', () => {
     resumed.state.dispose(); resumed.session.dispose()
   })
 
-  test('generates samples and captures bounded runtime snapshots', () => {
-    const value = fixture('report')
+  test('generates samples and captures bounded runtime snapshots', async () => {
+    const value = await fixture('report')
     value.config.report = {
       sample: { prompt: 'hello', max_new_tokens: 1, everyNEpochs: 1 },
       monitor: { everyBatches: 1, maxSamples: 2 },

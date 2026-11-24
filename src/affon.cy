@@ -1,5 +1,3 @@
-import compute_core.lib as compute;
-import hao.native_api as hao;
 import { Runtime } from hao.runtime;
 import { read_file_limited, script_read_error } from hao.fs;
 import { exists } from std.fs;
@@ -48,11 +46,7 @@ pub fn source_root(): ?string {
 }
 
 pub fn hao_modules_root(root: string): ?string {
-    var candidate = join2(root.clone(), "../hao/build/modules");
-    if exists(candidate.clone()) catch (code) => false {
-        return candidate;
-    }
-    candidate = join2(root.clone(), "../hao/src/.cyna-cache/modules");
+    const candidate = join2(root.clone(), "../hao/build/modules");
     if exists(candidate.clone()) catch (code) => false {
         return candidate;
     }
@@ -173,13 +167,9 @@ fn register_modules(runtime: &const Runtime, root: string): i32 {
     );
 }
 
-pub fn compatible(): bool {
-    return compute.api_version() == 1 and hao.api_version() == 1;
-}
-
 pub fn register(runtime: &const Runtime, root: string): i32 {
     if native.register(runtime) != 0 {
-        write_stderr("Unable to register the Affon Cyna native module\n");
+        write_stderr("Unable to register the Affon compute native module\n");
         return 1;
     }
     if checkpoint_native.register(runtime) != 0 {

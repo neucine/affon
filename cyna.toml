@@ -7,6 +7,12 @@ entry = "src/main.cy"
 [build]
 opt = "release"
 
+[build.default]
+target = "native"
+
+[build.windows]
+target = "x86_64-pc-windows-gnu"
+
 [dependencies]
 compute_core = { path = "../compute-core", version = "0.1.0" }
 hao = { path = "../hao", version = "0.1.2" }
@@ -15,6 +21,14 @@ hao = { path = "../hao", version = "0.1.2" }
 sources = ["../compute-core/src/backend/cpu/accelerated_matmul.c", "../compute-core/src/backend/cpu/top_k_fast.c", "../compute-core/src/backend/cuda/runtime.c", "../hao/src/bridge/qjs.c", "../hao/src/bridge/allocator.c", "../hao/src/bridge/host.c", "../hao/src/bridge/bounded_read.c", "../hao/src/bridge/jupyter.c", "../hao/src/bridge/telemetry.c"]
 include_paths = ["../hao/.deps/install/include", "/opt/homebrew/include"]
 
+[c.windows]
+sources = ["../compute-core/src/backend/cpu/accelerated_matmul.c", "../compute-core/src/backend/cpu/top_k_fast.c", "../compute-core/src/backend/cuda/runtime.c", "../hao/src/bridge/qjs.c", "../hao/src/bridge/allocator.c", "../hao/src/bridge/host.c", "../hao/src/bridge/bounded_read.c", "../hao/src/bridge/jupyter.c", "../hao/src/bridge/telemetry.c"]
+include_paths = ["../hao/.deps/install/include", "C:/msys64/mingw64/include", "C:/msys64/mingw64/x86_64-w64-mingw32/include"]
+
 [link]
 libs = ["quickjs", "uv", "hao_transpiler", "curl", "ffi", "zmq", "crypto"]
 search_paths = ["../hao/.deps/install/lib", "../hao/libs/transpiler/target/release", "/opt/homebrew/lib"]
+
+[link.windows]
+libs = ["quickjs", "uv", "hao_transpiler", "curl.dll", "ffi", "zmq.dll", ":libmingwex.a", "crypto", ":libmsvcrt.a", "ws2_32", "userenv", "advapi32", "crypt32", "iphlpapi", "ole32", "dbghelp", "gcc_s", "gcc_eh"]
+search_paths = ["../hao/.deps/install/lib", "../hao/libs/transpiler/target/release", "C:/msys64/mingw64/lib", "C:/msys64/mingw64/lib/gcc/x86_64-w64-mingw32/16.2.0"]

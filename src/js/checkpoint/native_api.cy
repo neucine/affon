@@ -3,7 +3,7 @@ import { DType } from compute_core.lib;
 import std.fs;
 import std.json;
 import hao.js;
-import .support.cyna_program as graph;
+import .support.program as graph;
 import .js.compute.native_api as compute_host;
 
 struct CheckpointTensor {

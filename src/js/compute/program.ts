@@ -30,10 +30,8 @@ export type CompileOptions = Readonly<{
   searchLimits?: SearchLimits
 }>
 export type TelemetryOptions = Readonly<{
-  /** Per-invocation backend timing scope. Defaults from backendTiming or none. */
+  /** Per-invocation backend timing scope. Defaults to none. */
   computeTiming?: ComputeTimingScope
-  /** Compatibility switch: true selects kernel timing, false selects none. */
-  backendTiming?: boolean
   hardwareMetrics?: boolean
   profilerMarkers?: boolean
   bridgeTiming?: boolean
@@ -41,8 +39,6 @@ export type TelemetryOptions = Readonly<{
 }>
 export type SessionTelemetry = Readonly<{
   computeTiming: ComputeTimingScope
-  /** True only for the legacy per-kernel timing scope. */
-  backendTiming: boolean
   hardwareMetrics: boolean
   profilerMarkers: boolean
   bridgeTiming: boolean
@@ -121,18 +117,14 @@ function normalizedSessionOptions(options: SessionOptions = {}): Readonly<Record
   const determinism = options.determinism ?? "strict"
   if (determinism !== "strict" && determinism !== "allow_nondeterministic") throw new TypeError(`unsupported determinism: ${determinism}`)
   if (options.telemetry === false) return Object.freeze({ determinism, telemetry: null })
+  if (options.telemetry && "backendTiming" in options.telemetry)
+    throw new TypeError("backendTiming has been removed; use computeTiming")
   const requestedTiming = options.telemetry?.computeTiming
   if (requestedTiming !== undefined && !["none", "invocation", "kernel"].includes(requestedTiming))
     throw new TypeError(`unsupported computeTiming: ${requestedTiming}`)
-  const legacyTiming = options.telemetry?.backendTiming
-  if (legacyTiming !== undefined && typeof legacyTiming !== "boolean") throw new TypeError("backendTiming must be boolean")
-  if (legacyTiming !== undefined && requestedTiming !== undefined &&
-      requestedTiming !== (legacyTiming ? "kernel" : "none"))
-    throw new TypeError("computeTiming conflicts with backendTiming")
-  const computeTiming = requestedTiming ?? (legacyTiming === true ? "kernel" : "none")
+  const computeTiming = requestedTiming ?? "none"
   return Object.freeze({ determinism, telemetry: Object.freeze({
     computeTiming,
-    backendTiming: computeTiming === "kernel",
     hardwareMetrics: options.telemetry?.hardwareMetrics ?? false,
     profilerMarkers: options.telemetry?.profilerMarkers ?? false,
     bridgeTiming: options.telemetry?.bridgeTiming ?? false,
@@ -259,8 +251,6 @@ const BUILDER = Symbol.for("affon.compute.program_builder")
 const EMIT = Symbol("affon.compute.emit_operation")
 const FORMAL_OPERATION = Symbol("affon.compute.formal_operation")
 const FORMAL_SCALAR = Symbol("affon.compute.formal_scalar")
-const EXECUTABLE_BACKEND = Symbol.for("affon.compute.executable_backend")
-const EXECUTABLE_ROUTING = Symbol.for("affon.compute.executable_routing")
 const parameterUpdateSources = new WeakMap<Program, {
   source: Program<Record<string, FormalTensor>, FormalTensor>
   gradients: Program<Record<string, FormalTensor>, FormalTensor | readonly FormalTensor[]>
@@ -1638,23 +1628,6 @@ export class Executable<Out extends FormalTensor | readonly FormalTensor[] = For
   }
   get disposed(): boolean { return this.#disposed }
   [EXECUTABLE_NATIVE](): any { return this.nativeExecutable }
-  [EXECUTABLE_ROUTING](): Readonly<{
-    schema_version: 1
-    backend: "cyna"
-    configured_backend: "cpu" | "metal" | "cuda"
-    transport: "in_process"
-    category: "success" | "configuration" | "backend" | "observability" | "lowering" | "operation" | "dense_graph"
-    reason: string
-    operation: string | null
-    option: string | null
-  }> {
-    if (this.#disposed) throw new Error("Executable has been disposed")
-    return freezeJson(JSON.parse(native.executableRouting(this.nativeExecutable)))
-  }
-  [EXECUTABLE_BACKEND](): "cyna" {
-    if (this.#disposed) throw new Error("Executable has been disposed")
-    return native.executableBackend(this.nativeExecutable)
-  }
   explain(): CompilationExplanation {
     if (this.#disposed) throw new Error("Executable has been disposed")
     if (this.optimization) return freezeJson({
@@ -1668,11 +1641,11 @@ export class Executable<Out extends FormalTensor | readonly FormalTensor[] = For
     const explanation = JSON.parse(native.explainExecutable(this.nativeExecutable))
     explanation.selected_physical_values = JSON.parse(native.selectedPhysicalValues(this.nativeExecutable))
     explanation.selected_physical_liveness = JSON.parse(native.selectedPhysicalLiveness(this.nativeExecutable))
-    explanation.cyna_selected_semantic_steps = JSON.parse(native.cynaSelectedSteps(this.nativeExecutable))
-    explanation.cyna_selected_physical_nodes = JSON.parse(native.cynaSelectedPhysicalNodes(this.nativeExecutable))
-    explanation.cyna_residual_decisions = JSON.parse(native.cynaResidualDecisions(this.nativeExecutable))
-    explanation.cyna_selection_comparison = JSON.parse(native.cynaSelectionComparison(this.nativeExecutable))
-    explanation.cyna_search = JSON.parse(native.cynaSearchEvidence(this.nativeExecutable))
+    explanation.selected_semantic_steps = JSON.parse(native.selectedSemanticSteps(this.nativeExecutable))
+    explanation.selected_physical_nodes = JSON.parse(native.selectedPhysicalNodes(this.nativeExecutable))
+    explanation.residual_decisions = JSON.parse(native.residualDecisions(this.nativeExecutable))
+    explanation.selection_comparison = JSON.parse(native.selectionComparison(this.nativeExecutable))
+    explanation.search = JSON.parse(native.searchEvidence(this.nativeExecutable))
     return freezeJson(explanation)
   }
   [EXECUTABLE_EVIDENCE](): Readonly<Record<string, unknown>> | null {

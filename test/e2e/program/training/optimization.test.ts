@@ -21,7 +21,7 @@ describe("Program optimization", () => {
     const session = new Session({
       device: "cpu",
       determinism: "strict",
-      telemetry: { backendTiming: true, hardwareMetrics: true },
+      telemetry: { computeTiming: "kernel", hardwareMetrics: true },
     })
     const summary = session.compile(source, { optimizationLevel: "safe", explanationLevel: "summary" })
     const reference = session.compile(source, { optimizationLevel: "none", explanationLevel: "detailed" })
@@ -32,7 +32,7 @@ describe("Program optimization", () => {
     expect(session.compile(source, { optimizationLevel: "safe", explanationLevel: "detailed" }) === optimized).toBe(true)
     const summaryExplanation = summary.explain() as any
     const detailedExplanation = optimized.explain() as any
-    expect(detailedExplanation.schema_version).toBe(2)
+    expect(detailedExplanation.schema_version).toBe(3)
     expect((bounded.explain() as any).executable.selection.search_limits.complete_evaluations).toBe(4)
     expect((bounded.explain() as any).executable.selection.search_limits.structural_states).toBe(2)
     expect(detailedExplanation.executable.optimizations.length >= summaryExplanation.executable.optimizations.length).toBe(true)
