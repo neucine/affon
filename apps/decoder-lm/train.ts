@@ -59,31 +59,32 @@ type RuntimeMetric = ReturnType<typeof telemetry.metrics>[number]
 
 let previousRuntimeMetrics: RuntimeMetric[] | null = null
 
-function metricValue(metrics: readonly RuntimeMetric[], scope: string, name: string): number {
-  return metrics.find((metric) => metric.scope === scope && metric.name === name)?.value ?? 0
+function metricValue(metrics: readonly RuntimeMetric[], scope: string, name: string): number | undefined {
+  return metrics.find((metric) => metric.scope === scope && metric.name === name)?.value
 }
 
 function formatRuntimeStats(): string {
   const stats = telemetry.metrics()
-  const toMb = (bytes: number) => (bytes / (1024 * 1024)).toFixed(1)
-  const activeDevice = config.device === 'cuda' ? 'cuda' : config.device === 'metal' ? 'metal' : 'cpu'
-  const liveDeviceBytes = metricValue(stats, 'compute.storage', `live_${activeDevice}_bytes`)
-  const peakDeviceBytes = metricValue(stats, 'compute.storage', `peak_${activeDevice}_bytes`)
-  const deviceAllocatedBytes = activeDevice === 'cuda'
-    ? metricValue(stats, 'compute.memory', 'cuda_device_current_allocated_bytes')
-    : activeDevice === 'metal'
-      ? metricValue(stats, 'compute.memory', 'metal_device_current_allocated_bytes')
-      : 0
-  const deltaPoolHits = metricValue(stats, 'compute.memory', 'device_pool_hit_count')
-    - metricValue(previousRuntimeMetrics ?? [], 'compute.memory', 'device_pool_hit_count')
-  const deltaPoolMisses = metricValue(stats, 'compute.memory', 'device_pool_miss_count')
-    - metricValue(previousRuntimeMetrics ?? [], 'compute.memory', 'device_pool_miss_count')
-  const deltaAllocations = metricValue(stats, 'compute.storage', 'allocation_count')
-    - metricValue(previousRuntimeMetrics ?? [], 'compute.storage', 'allocation_count')
-  const deltaReuses = metricValue(stats, 'compute.storage', 'reuse_count')
-    - metricValue(previousRuntimeMetrics ?? [], 'compute.storage', 'reuse_count')
+  const toMb = (bytes: number | undefined) => bytes === undefined ? 'n/a' : (bytes / (1024 * 1024)).toFixed(1)
+  const deltaMb = (scope: string, name: string) => {
+    const current = metricValue(stats, scope, name)
+    const previous = metricValue(previousRuntimeMetrics ?? [], scope, name)
+    return toMb(current === undefined || previous === undefined ? undefined : current - previous)
+  }
+  const liveStorageBytes = metricValue(stats, 'compute.storage', 'live_bytes')
+  const qjsBytes = metricValue(stats, 'runtime.memory', 'qjs_heap_used_bytes')
+  const residentBytes = metricValue(stats, 'runtime.memory', 'resident_bytes')
+  const physicalBytes = metricValue(stats, 'runtime.memory', 'physical_footprint_bytes')
+  const parts = [
+    `storage_live_mb=${toMb(liveStorageBytes)}`,
+    `storage_allocated_since_prev_mb=${deltaMb('compute.storage', 'allocated_bytes_total')}`,
+    `storage_released_since_prev_mb=${deltaMb('compute.storage', 'released_bytes_total')}`,
+    `qjs_used_mb=${toMb(qjsBytes)}`,
+    `resident_mb=${toMb(residentBytes)}`,
+  ]
+  if (physicalBytes !== undefined) parts.push(`phys_mb=${toMb(physicalBytes)}`)
   previousRuntimeMetrics = stats
-  return `${activeDevice}_live_mb=${toMb(liveDeviceBytes)} ${activeDevice}_device_mb=${toMb(deviceAllocatedBytes)} ${activeDevice}_peak_mb=${toMb(peakDeviceBytes)} device_pool_mb=${toMb(metricValue(stats, 'compute.memory', 'device_pool_live_bytes'))} device_pool_peak_mb=${toMb(metricValue(stats, 'compute.memory', 'device_pool_peak_bytes'))} cpu_live_mb=${toMb(metricValue(stats, 'compute.storage', 'live_cpu_bytes'))} cpu_peak_mb=${toMb(metricValue(stats, 'compute.storage', 'peak_cpu_bytes'))} qjs_used_mb=${toMb(metricValue(stats, 'runtime.memory', 'qjs_heap_used_bytes'))} resident_mb=${toMb(metricValue(stats, 'runtime.memory', 'resident_bytes'))} resident_peak_mb=${toMb(metricValue(stats, 'runtime.memory', 'resident_peak_bytes'))} phys_mb=${toMb(metricValue(stats, 'runtime.memory', 'physical_footprint_bytes'))} phys_peak_mb=${toMb(metricValue(stats, 'runtime.memory', 'physical_footprint_peak_bytes'))} storage_allocations_since_prev=${deltaAllocations} storage_reuses_since_prev=${deltaReuses} pool_hits_since_prev=${deltaPoolHits} pool_misses_since_prev=${deltaPoolMisses}`
+  return parts.join(' ')
 }
 
 console.log('starting training workflow...')

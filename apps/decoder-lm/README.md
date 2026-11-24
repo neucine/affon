@@ -58,6 +58,16 @@ compatibility object.
 Corpus preparation and token-window persistence live in `src/data`. Complete
 workflow configuration is handled by `src/workflow.ts`.
 
+## WikiText with an 8,192-token vocabulary
+
+The [training guide](../../docs/site/docs/getting-started/train-language-model.mdx)
+uses the bundled `wikitext-8k` tokenizer and config. It trains a six-layer
+decoder for 256 batches and saves a checkpoint. Create the output directory
+and run the guide's command from the repository root. To regenerate the
+tokenizer, install Python `tokenizers==0.22.2` and run
+`python3 apps/decoder-lm/train-wikitext-tokenizer.py`. A new tokenizer needs
+new token caches and a new model checkpoint.
+
 Run the application tests from the repository root:
 
 ```sh

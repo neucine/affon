@@ -1,0 +1,97 @@
+{
+  "device": "metal",
+  "tokenizer": {
+    "family": "hf-tokenizer-json",
+    "path": "apps/decoder-lm/data/wikitext-8k-tokenizer.json",
+    "specialTokens": {
+      "eos": "<|endoftext|>"
+    }
+  },
+  "corpus": {
+    "paths": [
+      "apps/decoder-lm/data/wikitext-2-train.txt"
+    ],
+    "validationPaths": [
+      "apps/decoder-lm/data/wikitext-2-validation.txt"
+    ],
+    "tokenCachePath": "apps/decoder-lm/artifacts/wikitext-8k/train-cache.json",
+    "tokenCacheKey": "wikitext-8k-bpe-v1",
+    "validationTokenCachePath": "apps/decoder-lm/artifacts/wikitext-8k/validation-cache.json",
+    "validationTokenCacheKey": "wikitext-8k-bpe-v1",
+    "preprocess": {
+      "replacements": [
+        {
+          "from": " @-@ ",
+          "to": "-"
+        },
+        {
+          "from": " @,@ ",
+          "to": ","
+        },
+        {
+          "from": "<unk>",
+          "to": ""
+        }
+      ],
+      "normalizeWhitespace": true
+    },
+    "addBos": false,
+    "addEos": true,
+    "seqLen": 256,
+    "stride": 128,
+    "shuffle": true
+  },
+  "model": {
+    "dModel": 256,
+    "numLayers": 6,
+    "numHeads": 8,
+    "hiddenDim": 1024,
+    "causal": true,
+    "positional": "learned",
+    "maxSeqLen": 256,
+    "tieEmbeddings": true
+  },
+  "training": {
+    "epochs": 1,
+    "batchSize": 4,
+    "validationBatchSize": 4,
+    "shuffleSeed": 123,
+    "maxTrainBatchesPerEpoch": 256,
+    "maxEvalBatches": 32,
+    "lr": 0.0003
+  },
+  "checkpoint": {
+    "prefix": "apps/decoder-lm/artifacts/wikitext-8k/first-run",
+    "restoreOptimizerState": false,
+    "everyNEpochs": 1,
+    "everyNSteps": 0,
+    "metadata": {
+      "dataset": "WikiText-2"
+    }
+  },
+  "report": {
+    "progress": {
+      "trainPhase": false,
+      "trainLossEveryBatches": 5,
+      "runtimeStatsEveryBatches": 64,
+      "evalEveryBatches": 64,
+      "epochSummary": true
+    },
+    "monitor": {
+      "everyBatches": 25,
+      "maxSamples": 1024,
+      "path": "apps/decoder-lm/artifacts/wikitext-8k/first-run-monitor.json"
+    },
+    "sample": {
+      "prompt": "The history of",
+      "max_new_tokens": 96,
+      "everyNEpochs": 1,
+      "temperature": 0.7,
+      "top_k": 20,
+      "addBos": false,
+      "skipSpecialTokens": true,
+      "banSpecialTokens": true
+    },
+    "summaryPath": "apps/decoder-lm/artifacts/wikitext-8k/first-run-summary.json"
+  }
+}
