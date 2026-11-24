@@ -8,6 +8,7 @@ if [ "$(uname -s)" = Linux ]; then
   export PATH="/opt/neucine-release-tools/cyna/bin:/opt/neucine-release-tools/bun/bin:/usr/lib/llvm-22/bin:$PATH"
 elif [ "$(uname -s)" = Darwin ]; then
   export PATH="$HOME/.bun/bin:/opt/homebrew/bin:$PATH"
+  export SDKROOT="$(xcrun --show-sdk-path)"
 else
   export PATH="$HOME/.bun/bin:$HOME/.local/bin:$PATH"
 fi
