@@ -95,3 +95,11 @@ intend to run:
 First-party package and app tests provide evidence for the configurations they
 name. They should not be read as a blanket promise for every model or exported
 graph.
+
+## Measured coverage
+
+[Full-catalog parity evidence](./parity-evidence.md) records sweeps against
+PyTorch for every Metal case in the master capability catalog and every case in
+the reviewed CUDA mirror. It lists numerical coverage, terminal unsupported
+cases, parity and timing results for the operator and Program checks, and the
+slowest cells on each target.

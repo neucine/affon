@@ -109,11 +109,17 @@ try {
     const executable = session.compile(source, { explanationLevel: 'detailed', denseInputs })
     try {
       const runInputs = mask ? { x, y, mask } : z ? { x, y, bias: z } : { x, y }
-      const path = (executable.explain() as any).executable.physical_nodes.map((node: any) => ({
-        implementation_id: node.implementation_id || (node.view_permutation?.length ? 'view.transpose' : `view.${node.view_transform}`),
-        implementation_version: node.implementation_version,
-        configuration_digest: node.configuration_digest,
-        ...(node.action === 'view' ? { view_slice_ranges: node.view_slice_ranges, view_permutation: node.view_permutation } : {}),
+      const explanation = executable.explain() as any
+      const nodes = explanation.selected_physical_nodes ?? explanation.executable?.physical_nodes ?? []
+      const path = nodes.map((node: any) => ({
+        implementation_id: node.implementation_id || node.implementation ||
+          (node.view_permutation?.length ? 'view.transpose' : `view.${node.view_transform}`),
+        ...(node.implementation_version != null
+          ? { implementation_version: node.implementation_version } : {}),
+        ...(node.configuration_digest != null
+          ? { configuration_digest: node.configuration_digest } : {}),
+        ...((node.action || node.physical_action) === 'view'
+          ? { view_slice_ranges: node.view_slice_ranges, view_permutation: node.view_permutation } : {}),
       }))
       let outputShape: number[] | null = null
       let outputDtype: string | null = null

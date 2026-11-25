@@ -166,14 +166,16 @@ read-only filesystem and model mount. The test container was removed afterward.
 The image remains available locally; amd64 has not been tested. Results and the
 image ID are recorded in `reports/cpu/container-smoke.json`.
 
-The image builds the current Affon checkout and its sibling `hao`, `compute`,
-and `zig-libs` sources on Linux. The context generator copies only explicit source
-directories; it excludes model weights, build caches, and Git directories.
+The image builds the current Affon checkout and its sibling `hao` and
+`compute-core` sources on Linux. The context generator copies only explicit
+source directories; it excludes model weights, build caches, and Git directories.
 Affon's Linux build explicitly links the Rust transpiler archive because ELF
 linking does not resolve that archive when nested inside `hao_runtime`.
 
 ```sh
-python3 apps/vision-serving/deploy/prepare-context.py apps/vision-serving/build/context
+python3 apps/vision-serving/deploy/prepare-context.py \
+  --cyna-distribution "$HOME/.cyna/0.5.4-beta.local.20261122" \
+  apps/vision-serving/build/context
 docker build -t affon-vision:experiment apps/vision-serving/build/context
 python apps/vision-serving/deploy/smoke-container.py \
   --image affon-vision:experiment --model-dir /path/to/model \
@@ -181,11 +183,14 @@ python apps/vision-serving/deploy/smoke-container.py \
 ```
 
 Use a new context path or refresh your generated context after changing source.
-The image uses Rust 1.94, checksum-pinned Zig 0.16.0, and locked Cargo/Zig library
-dependencies. Base images and OS packages are not pinned by digest. Builds require
-network access. The runtime image runs as UID/GID 65532 and expects read access
-to mounted model files, including Safetensors files that converters may create
-with owner-only permissions. The smoke runner makes a separate readable copy.
+The context builder requires a Cyna distribution built for the container target,
+either through `--cyna-distribution` or `CYNA_DISTRIBUTION_DIR`. This keeps the
+image on the same compiler version as the source and avoids rebuilding the
+compiler with Zig. The image uses Rust 1.94. Base images and OS packages are not
+pinned by digest. Builds require network access. The runtime image runs as
+UID/GID 65532 and expects read access to mounted model files, including
+Safetensors files that converters may create with owner-only permissions. The
+smoke runner makes a separate readable copy.
 
 `deploy/kserve.yaml` defines the custom runtime and an `InferenceService`. It
 expects an existing KServe installation, an image reference you publish, and a

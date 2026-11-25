@@ -2,6 +2,7 @@ import fs from 'std:fs'
 import { text } from 'affon:dataset/text.ts'
 import { describe, expect, test } from 'std:test'
 import { createLookupTokenizer } from '../../../packages/@affon/tokenizers/src/index.ts'
+import { createTempPath } from '../../../test/support/temp.ts'
 
 import {
   createPackedTextCorpusFromConfig,
@@ -45,7 +46,7 @@ describe('decoder-lm corpus', () => {
     expect(windows.length > 0).toBeTruthy()
   })
 
-  test('loads packed corpora from multiple files and token caches', () => {
+  test('loads packed corpora from multiple files and token caches', async () => {
     const tokenizer = createLookupTokenizer({
       '<bos>': 0,
       '<eos>': 1,
@@ -57,7 +58,7 @@ describe('decoder-lm corpus', () => {
       specialTokens: { bos: '<bos>', eos: '<eos>', unk: '<unk>' },
     })
 
-    const prefix = `/tmp/affon-transformers-corpus-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
+    const prefix = await createTempPath('affon-transformers-corpus')
     const trainA = `${prefix}-train-a.txt`
     const trainB = `${prefix}-train-b.txt`
     const valFile = `${prefix}-val.txt`
@@ -89,7 +90,7 @@ describe('decoder-lm corpus', () => {
     expect(fromCache.trainWindows).toEqual(fromFiles.trainWindows)
   })
 
-  test('ignores token caches when the configured cache key changes', () => {
+  test('ignores token caches when the configured cache key changes', async () => {
     const tokenizer = createLookupTokenizer({
       '<eos>': 0,
       hello: 1,
@@ -99,7 +100,7 @@ describe('decoder-lm corpus', () => {
       specialTokens: { eos: '<eos>' },
     })
 
-    const prefix = `/tmp/affon-transformers-corpus-cache-key-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
+    const prefix = await createTempPath('affon-transformers-corpus-cache-key')
     const corpusPath = `${prefix}.txt`
     const cacheFile = `${prefix}.cache.json`
     fs.writeFileSync(corpusPath, 'hello world\n')
@@ -117,7 +118,7 @@ describe('decoder-lm corpus', () => {
     expect(packed.trainRows).toEqual([[1, 2, 0]])
   })
 
-  test('preprocesses text rows before tokenization', () => {
+  test('preprocesses text rows before tokenization', async () => {
     const tokenizer = createLookupTokenizer({
       '<eos>': 0,
       hello: 1,
@@ -126,7 +127,7 @@ describe('decoder-lm corpus', () => {
       specialTokens: { eos: '<eos>' },
     })
 
-    const prefix = `/tmp/affon-transformers-corpus-preprocess-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
+    const prefix = await createTempPath('affon-transformers-corpus-preprocess')
     const corpusPath = `${prefix}.txt`
     fs.writeFileSync(corpusPath, 'hello <unk> world\n')
 
@@ -144,7 +145,7 @@ describe('decoder-lm corpus', () => {
     expect(packed.trainRows).toEqual([[1, 2, 0]])
   })
 
-  test('uses dataset.text line reading for file corpora', () => {
+  test('uses dataset.text line reading for file corpora', async () => {
     const tokenizer = createLookupTokenizer({
       '<bos>': 0,
       '<eos>': 1,
@@ -156,7 +157,7 @@ describe('decoder-lm corpus', () => {
       specialTokens: { bos: '<bos>', eos: '<eos>', unk: '<unk>' },
     })
 
-    const prefix = `/tmp/affon-transformers-corpus-lines-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
+    const prefix = await createTempPath('affon-transformers-corpus-lines')
     const corpusPath = `${prefix}.txt`
     fs.writeFileSync(corpusPath, ' hello world \n\nhello there\n')
 
@@ -179,7 +180,7 @@ describe('decoder-lm corpus', () => {
     ])
   })
 
-  test('uses dataset.text paragraph reading for paragraph corpora', () => {
+  test('uses dataset.text paragraph reading for paragraph corpora', async () => {
     const tokenizer = createLookupTokenizer({
       '<bos>': 0,
       '<eos>': 1,
@@ -191,7 +192,7 @@ describe('decoder-lm corpus', () => {
       specialTokens: { bos: '<bos>', eos: '<eos>', unk: '<unk>' },
     })
 
-    const prefix = `/tmp/affon-transformers-corpus-paragraphs-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
+    const prefix = await createTempPath('affon-transformers-corpus-paragraphs')
     const corpusPath = `${prefix}.txt`
     fs.writeFileSync(corpusPath, ' hello world \n\nhello there\n')
 

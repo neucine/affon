@@ -51,5 +51,5 @@ Unicode, whitespace, contractions, added-token boundaries, and ByteLevel options
 Run from the repository root:
 
 ```sh
-./zig-out/bin/affon test packages/@affon/tokenizers/test
+./build/affon test packages/@affon/tokenizers/test
 ```

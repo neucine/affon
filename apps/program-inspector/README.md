@@ -26,7 +26,7 @@ truth.
 Generate the two-layer decoder LM inspection used as a complex manual fixture:
 
 ```sh
-RUNTIME_PACKAGE_PATH="$PWD/packages" ./zig-out/bin/affon run \
+RUNTIME_PACKAGE_PATH="$PWD/packages" ./build/affon run \
   apps/program-inspector/generate-decoder-inspection.ts
 ```
 

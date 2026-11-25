@@ -16,14 +16,15 @@ Program -> Session.compile -> Executable.run -> evaluated Tensor
 Start with [Compute Programs](./compute.md), use
 [Optimization, Profiling, and Evidence](./optimization-and-profiling.md) for
 compiler/runtime controls and extension rules, then consult the
-[Backend Support](./backend-support.md) for device contracts and
+[Backend Support](./backend-support.md) for device contracts,
+[Full-catalog Parity Evidence](./parity-evidence.md) for measured coverage, and
 [Error Handling](./errors.md) for failure and cleanup patterns.
 
 [Quantized Inference](./quantized-inference.md) documents the affine packed-weight
 operation, native CPU/Metal implementations, and benchmark protocol.
 
-[Cyna Compute Core Integration Probe](./compute-core-cyna-adapter.md) records the
-isolated Affon consumer adapter and its build and parity check.
+[Compute Core integration](./compute-core-integration.md) describes the
+in-process runtime, build command, and execution evidence.
 
 
 ## Smallest useful example

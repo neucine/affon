@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-ROOTS = {"affon": ROOT, "compute": ROOT.parent / "compute"}
+ROOTS = {"affon": ROOT, "compute": ROOT.parent / "compute-core"}
 TIERS = {"operator", "program", "model"}
 
 

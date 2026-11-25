@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 LEDGER = ROOT / 'test/benchmark/results/coverage-outcomes-current-mac-2026-10-29.json'
 REPORT = ROOT / 'test/benchmark/results/parity-metal-invalid-boundaries-2026-10-31.json'
 WORKER = ROOT / 'test/parity/invalid-index-boundary.ts'
-AFFON = ROOT / 'zig-out/bin/affon'
+AFFON = ROOT / 'build/affon'
 PROGRAM = ROOT / 'src/js/compute/program.ts'
 METAL = ROOT.parent / 'compute/src/backend/metal/ffi.m'
 

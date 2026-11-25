@@ -33,9 +33,11 @@ import {
 } from "affon:nn"
 
 // @ts-expect-error The removed compute compatibility module must stay unavailable.
-import "affon:core/legacy"
+import * as legacyCompute from "affon:core/legacy"
 // @ts-expect-error The removed neural-network compatibility module must stay unavailable.
-import "affon:nn/legacy"
+import * as legacyNN from "affon:nn/legacy"
+void legacyCompute
+void legacyNN
 import * as optimModule from "affon:optim"
 
 // @ts-expect-error Compute implementation modules are not part of the public type graph.
@@ -90,7 +92,10 @@ void schemaVersion
 void inspectionKind
 void inspectedNode
 void inspectedComponent
-const publicTelemetryOptions: TelemetryOptions = { backendTiming: true, computeTiming: "kernel" }
+// @ts-expect-error The removed telemetry alias is not part of the public API.
+const removedTelemetryOption: TelemetryOptions = { backendTiming: true }
+void removedTelemetryOption
+const publicTelemetryOptions: TelemetryOptions = { computeTiming: "kernel" }
 const publicInvocationTelemetry: TelemetryOptions = { computeTiming: "invocation", hardwareMetrics: true }
 const publicSessionOptions: SessionOptions = { device: "cpu", determinism: "strict", telemetry: publicTelemetryOptions }
 const publicInvocationSessionOptions: SessionOptions = { device: "cuda", telemetry: publicInvocationTelemetry }

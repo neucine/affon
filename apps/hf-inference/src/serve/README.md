@@ -114,9 +114,9 @@ affon apps/hf-inference/tests/serve/image-url-check.ts
 Build the updated runtime, then enable SmolLM2 alongside DistilGPT-2:
 
 ```sh
-zig build -Doptimize=ReleaseFast --prefix /tmp/affon-smollm-release install
+cyna build .
 AFFON_SMOLLM2=1 AFFON_DEVICE=metal AFFON_HF_CACHE="$PWD/apps/hf-inference/artifacts/hf-cache" \
-  /tmp/affon-smollm-release/bin/affon apps/hf-inference/src/serve/server.ts
+  ./build/affon apps/hf-inference/src/serve/server.ts
 ```
 
 In **Text generation**, select **SmolLM2 135M Instruct**. Each request is a fresh
@@ -147,7 +147,7 @@ use a CUDA build and its verified local Hub cache:
 ```sh
 AFFON_APERTUS=1 AFFON_TEXT_ONLY=1 AFFON_DEVICE=cuda AFFON_HF_OFFLINE=1 \
   AFFON_HF_CACHE="$PWD/artifacts/hf-cache" \
-  ./zig-out/bin/affon apps/hf-inference/src/serve/server.ts
+  ./build/affon apps/hf-inference/src/serve/server.ts
 ```
 
 The text model list labels it **Apertus 8B**. Startup initializes the CUDA

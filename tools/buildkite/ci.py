@@ -22,9 +22,10 @@ def run(*args: str) -> str:
 
 
 def version() -> str:
-    match = re.search(r'\.version\s*=\s*"([^"]+)"', (ROOT / "build.zig.zon").read_text())
+    source = (ROOT / "src/affon.cy").read_text()
+    match = re.search(r'^pub const version = "([^"]+)";$', source, re.MULTILINE)
     if not match:
-        raise SystemExit("build.zig.zon has no version")
+        raise SystemExit("Cyna host has no version")
     return match.group(1)
 
 
@@ -58,7 +59,7 @@ def candidate() -> None:
     branch = os.environ["BUILDKITE_BRANCH"]
     match = BRANCH.fullmatch(branch)
     if not match or version() != match.group(1):
-        raise SystemExit("release branch and build.zig.zon versions differ")
+        raise SystemExit("release branch and Cyna host versions differ")
     metadata("release_tag", f"v{match.group(1)}")
     metadata("release_commit", commit())
     print(f"Candidate v{match.group(1)} at {commit()}")
@@ -74,7 +75,7 @@ def detect() -> None:
         return
     selected, number = release
     if version() != selected:
-        raise SystemExit("merged release version differs from build.zig.zon")
+        raise SystemExit("merged release version differs from the Cyna host")
     metadata("release_tag", f"v{selected}")
     metadata("release_commit", sha)
     metadata("release_pr", str(number))

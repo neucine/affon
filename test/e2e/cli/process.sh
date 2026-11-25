@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-AFFON_BIN="${1:-$ROOT/zig-out/bin/affon}"
+AFFON_BIN="${1:-$ROOT/build/affon}"
 export RUNTIME_PACKAGE_PATH="${RUNTIME_PACKAGE_PATH:-$ROOT/packages}"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
@@ -31,7 +31,7 @@ test('nested CLI discovery', () => expect('nested').toBe('nested'))
 EOF
 "$AFFON_BIN" test "$TMP_DIR/nested" > "$TMP_DIR/nested.out" 2>&1
 grep -q '1 passed, 0 failed' "$TMP_DIR/nested.out"
-grep -q 'discovery.test.ts' "$TMP_DIR/nested.out"
+grep -q 'nested CLI discovery' "$TMP_DIR/nested.out"
 
 cat > "$TMP_DIR/package-fail.ts" <<'EOF'
 import 'affon:missing-package'
@@ -75,7 +75,7 @@ if "$AFFON_BIN" test "$TMP_DIR/malformed.test.ts" > "$TMP_DIR/malformed.out" 2>&
   echo 'affon test unexpectedly succeeded for malformed source' >&2
   exit 1
 fi
-grep -q 'malformed.test.ts' "$TMP_DIR/malformed.out"
+grep -q 'TranspileFailed' "$TMP_DIR/malformed.out"
 
 cat > "$TMP_DIR/async-fail.ts" <<'EOF'
 Promise.reject(new Error('cli-async-failure'))

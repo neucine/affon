@@ -78,7 +78,7 @@ def calibrate(binary, case, runs, samples, iterations, maximum_ratio, maximum_ab
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--binary", type=Path, default=ROOT / "zig-out/bin/affon")
+    parser.add_argument("--binary", type=Path, default=ROOT / "build/affon")
     parser.add_argument("--catalog", type=Path, default=ROOT / "test/benchmark/capability-probes.json")
     parser.add_argument("--only", required=True, help="Comma-separated cell IDs")
     parser.add_argument("--output-dir", type=Path, required=True)

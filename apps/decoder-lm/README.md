@@ -71,6 +71,6 @@ new token caches and a new model checkpoint.
 Run the application tests from the repository root:
 
 ```sh
-./zig-out/bin/affon test apps/decoder-lm/test
+./build/affon test apps/decoder-lm/test
 bun x tsc -p apps/decoder-lm/tsconfig.json --noEmit
 ```

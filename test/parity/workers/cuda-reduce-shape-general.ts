@@ -28,7 +28,7 @@ try {
               const raw = output.to_array() as any
               results.push({ id: c.id, composed, shape: output.shape, dtype: output.dtype,
                 values: typeof raw === 'number' ? [raw] : (raw as any[]).flat(Infinity),
-                path: explanation.executable.physical_nodes.map((node: any) => node.implementation_id || 'view') })
+                path: (explanation.selected_physical_nodes ?? explanation.executable?.physical_nodes ?? []).map((node: any) => node.implementation_id || node.implementation || 'view') })
             } finally { output.dispose() }
           } finally { executable.dispose() }
         } catch (error) { results.push({ id: c.id, composed, error: String(error) }) }

@@ -69,19 +69,19 @@ other types and layouts use the existing paths.
 ## Reproduce
 
 Prepare the model as described in [README.md](README.md#prepare-the-model), then
-build Affon in ReleaseFast mode. Run from the repository root:
+build Affon in release mode. Run from the repository root:
 
 ```sh
-zig build -Doptimize=ReleaseFast -p /tmp/affon-cpu-profile-build
+cyna build .
 python apps/vision-serving/run-cpu-audit.py \
-  --model-dir /path/to/model --affon /tmp/affon-cpu-profile-build/bin/affon \
+  --model-dir /path/to/model --affon ./build/affon \
   --output apps/vision-serving/reports/profile/final
 python apps/vision-serving/benchmark.py \
-  --model-dir /path/to/model --affon /tmp/affon-cpu-profile-build/bin/affon \
+  --model-dir /path/to/model --affon ./build/affon \
   --output apps/vision-serving/reports/profile/serving-final-t4 \
   --threads 4 --iterations 50 --warmups 5 --memory-iterations 500
 python apps/vision-serving/benchmark.py \
-  --model-dir /path/to/model --affon /tmp/affon-cpu-profile-build/bin/affon \
+  --model-dir /path/to/model --affon ./build/affon \
   --output apps/vision-serving/reports/profile/serving-final-t1 \
   --threads 1 --iterations 50 --warmups 5
 ```

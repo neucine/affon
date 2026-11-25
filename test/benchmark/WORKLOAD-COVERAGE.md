@@ -85,7 +85,7 @@ lower-level planner contains a threshold.
 Run `python3 tools/coverage-matrix.py` for a summary or add `--details` for
 every cell. [`coverage-policy.json`](coverage-policy.json) declares the finite
 regimes for each operation family. The generator reads all 69 `OpTag` values
-and all five `DType` values from Compute's canonical `types.zig`, then expands
+and all five `DType` values from Compute's canonical `types.cy`, then expands
 them over CPU, Metal, and CUDA. The current matrix has 8,173 **candidate**
 cells. A new operation or dtype breaks generation until its regime policy is
 reviewed. This prevents new API surface from silently escaping the facility.
@@ -140,7 +140,7 @@ records the compiler selected physical path. Use a ReleaseFast binary for
 evidence intended for performance work:
 
 ```sh
-python3 tools/probe-capabilities.py --binary zig-out/bin/affon \
+python3 test/parity/reference/probe-capabilities.py --binary build/affon \
   --output /tmp/affon-probes.json
 python3 tools/import-coverage-evidence.py --probe /tmp/affon-probes.json \
   --output /tmp/affon-outcomes.json
@@ -151,7 +151,7 @@ python3 tools/coverage-matrix.py --outcomes /tmp/affon-outcomes.json
 not classified as unsupported. An unsupported decision requires a reviewed
 reason. Run CUDA probes on the CUDA target with `--backend cuda`; lack of a
 CUDA device on this Mac supplies no information about CUDA support.
-The first fresh Zig 0.17 ReleaseFast run is
+The first fresh ReleaseFast-era run is
 [`results/coverage-capability-mac-2026-10-29.json`](results/coverage-capability-mac-2026-10-29.json):
 all ten declared CPU and Metal f32 probes passed the independent output check.
 It records binary and source identities, and the source checkout was dirty.
@@ -188,7 +188,7 @@ that has PyTorch and MPS support:
 
 ```sh
 apps/hf-inference/artifacts/preparation-env/bin/python \
-  tools/benchmark-cells-pytorch.py \
+  test/parity/reference/benchmark-cells-pytorch.py \
   --output-dir /tmp/affon-cell-peer --iterations 300 --samples 5 --rounds 3
 python3 tools/summarize-cell-performance.py /tmp/affon-cell-peer
 ```
@@ -227,7 +227,7 @@ noise is calibrated on the target. Reproduce the set with:
 
 ```sh
 apps/hf-inference/artifacts/preparation-env/bin/python \
-  tools/benchmark-cells-pytorch.py --kind program_peer \
+  test/parity/reference/benchmark-cells-pytorch.py --kind program_peer \
   --only metal/f32/sum_axis/long_axis,metal/f32/matmul/decode_m1,metal/f32/matmul/prefill \
   --iterations 100 --samples 5 --rounds 3 \
   --output-dir /tmp/affon-program-peer
@@ -736,11 +736,11 @@ The [first 256-cell CUDA batch](results/coverage-capability-cuda-first-2026-10-3
 
 The exact [256-cell catalog](../parity/catalogs/cuda-first-256.json) is retained, and its
 SHA-256 matches the probe artifact. On the CUDA machine, with this checkout,
-Zig 0.17, the ReleaseFast Affon binary, and a Python environment with PyTorch
+Cyna, the release-mode Affon binary, and a Python environment with PyTorch
 CUDA, rerun it into a fresh directory:
 
 ```sh
-zig build -Doptimize=ReleaseFast
+cyna build .
 python3 test/parity/run.py \
   --catalog test/parity/catalogs/cuda-first-256.json \
   --output-dir test/benchmark/results/cuda-rerun-YYYYMMDD \
@@ -782,8 +782,10 @@ The remaining Metal gaps include operations the probe worker cannot express yet:
 `cross_entropy` and `cross_entropy_indexed_backward`. Covering them needs a
 reference formula in the Python probe and a matching operation in the
 `test/parity/workers/affon-probe.ts` program switch, the
-`test/parity/workers/affon-benchmark.ts` worker and the Zig JSON operation map in
-`src/js/compute/native.zig`. CUDA coverage now continues in larger batches on the RTX 3090; remaining CUDA candidate cells stay unknown until checked.
+`test/parity/workers/affon-benchmark.ts` worker and the Cyna JSON operation map
+in `src/js/compute/native_api.cy`. CUDA coverage now continues in larger
+batches on the RTX 3090; remaining CUDA candidate cells stay unknown until
+checked.
 
 ## Baseline repeatability
 
@@ -937,7 +939,7 @@ and expanded shapes; only each case's own matched peer is compared.
 
 ### Dispatch boundary audit
 
-Run `python3 tools/audit-dispatch-boundaries.py --binary zig-out/bin/affon`
+Run `python3 tools/audit-dispatch-boundaries.py --binary build/affon`
 to check the declared transitions in [`dispatch-boundaries.json`](dispatch-boundaries.json).
 The audit checks output correctness and the compiler selected physical path
 on each side. It also verifies that the source predicate named by the policy

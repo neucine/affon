@@ -1,15 +1,15 @@
 import { afterAll, beforeAll, expect, test } from 'std:test'
-import { run } from 'std:process'
 import fs from 'std:fs'
 import checkpoint from 'affon:checkpoint'
 import { Session, type Tensor } from 'affon:core'
 import { load_model, load_olmoe } from '../src/index.ts'
 import { execute_causal } from './execute-causal.ts'
+import { createTempDirectory, removeTempPath } from '../../../../test/support/temp.ts'
 
 let directory = ''
 let session: Session
 beforeAll(async () => {
-  directory = (await run({ cmd: 'mktemp', args: ['-d', '/tmp/affon-olmoe-test.XXXXXX'] })).stdout.trim()
+  directory = await createTempDirectory('affon-olmoe-test')
   fs.writeFileSync(`${directory}/config.json`, JSON.stringify({ model_type: 'olmoe', hidden_act: 'silu',
     tie_word_embeddings: false, attention_bias: false, attention_dropout: 0, norm_topk_prob: false,
     hidden_size: 4, intermediate_size: 4, num_attention_heads: 1, num_key_value_heads: 1,
@@ -30,7 +30,7 @@ beforeAll(async () => {
       ? [[0, 0, 0, 0], [1, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]] : matrix(i === 0 ? 1 : 0))
   checkpoint.save(weights, `${directory}/model.safetensors`)
 })
-afterAll(async () => { session?.dispose(); if (directory) await run({ cmd: 'rm', args: ['-rf', directory] }) })
+afterAll(async () => { session?.dispose(); if (directory) await removeTempPath(directory) })
 
 test('OLMoE maps separate expert weights and executes top-1 routing', () => {
   const model = load_model(directory, { task: 'text-generation' })

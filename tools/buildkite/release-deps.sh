@@ -4,9 +4,8 @@
 set -euo pipefail
 
 source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-hao_pin=7c73a564056af4cbb47998278b5253d726e03d9f
-compute_pin=dc66696c6444d4077bea9e172e1f6e1d990ed223
-zig_libs_pin=c5b61fbdd2c7c02d875212e7111a27be3aaf2f17
+hao_pin=42d57709117a7414547ef60808d9c6e31bf084e8
+compute_pin=0bcc364d3b1d18334ebd1439b78d285ec3310b7f
 
 check_current_pin() {
   local repo="$1" branch="$2" pin="$3" branch_tip
@@ -21,8 +20,8 @@ check_current_pin() {
 
 if [ "${1:-}" = --check-pins ]; then
   result=0
-  check_current_pin hao legacy "$hao_pin" || result=1
-  check_current_pin compute main "$compute_pin" || result=1
+  check_current_pin hao main "$hao_pin" || result=1
+  check_current_pin compute-core main "$compute_pin" || result=1
   exit "$result"
 fi
 task_id="${BUILDKITE_JOB_ID:-local-$$}"
@@ -70,19 +69,15 @@ clone_pinned() {
 }
 
 export AFFON_SITE_HAO_REF="$hao_pin"
-clone_pinned hao "$hao_pin" hao-legacy
-clone_pinned compute "$compute_pin" compute
-clone_pinned zig-libs "$zig_libs_pin" zig-libs
+clone_pinned hao "$hao_pin" hao
+clone_pinned compute-core "$compute_pin" compute-core
 
-mkdir -p "$HOME/.cache/neucine/affon-build/zig" "$HOME/.cache/neucine/affon-build/cargo"
-case "$(uname -s)" in
-  MINGW*|MSYS*|CYGWIN*)
-    mkdir -p "$root/.zig-cache" "$workspace/hao-legacy/libs/transpiler/target"
-    export ZIG_GLOBAL_CACHE_DIR="$HOME/.cache/neucine/affon-build/zig"
-    export CARGO_TARGET_DIR="$workspace/hao-legacy/libs/transpiler/target"
-    ;;
-  *)
-    ln -s "$HOME/.cache/neucine/affon-build/zig" "$root/.zig-cache"
-    ln -s "$HOME/.cache/neucine/affon-build/cargo" "$workspace/hao-legacy/libs/transpiler/target"
-    ;;
-esac
+# Hao's Cyna manifests link the transpiler from its checkout-local target path.
+# Keep Cargo's output there so the pinned dependency layout works in CI.
+export CARGO_TARGET_DIR="$workspace/hao/libs/transpiler/target"
+mkdir -p "$CARGO_TARGET_DIR"
+(
+  cd "$workspace/hao"
+  bash ./build_deps.sh
+  sh ./tools/prepare_std_modules.sh
+)

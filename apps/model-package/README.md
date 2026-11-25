@@ -24,8 +24,8 @@ Run from the repository root, with Python 3.11+ and a current Affon on PATH:
 
 ```sh
 # Build the current checkout, then expose its executable and local packages:
-zig build -Doptimize=ReleaseFast
-export PATH="$PWD/zig-out/bin:$PATH"
+cyna build .
+export PATH="$PWD/build:$PATH"
 export RUNTIME_PACKAGE_PATH="$PWD/packages"
 
 python3 apps/model-package/package.py pack \
@@ -121,10 +121,11 @@ manifests, same-size corruption, missing files, unsupported adapters, invalid
 paths, adapter file contracts, and failed publication.
 
 Validated on 2026-09-29: all eight tests passed on macOS arm64 / CPU with a fresh
-ReleaseFast build of this checkout. The installed `affon` and preexisting
-`zig-out/bin/affon` were too old for current model APIs. The verification build
-was installed at `/tmp/affon-model-package-build/bin/affon`; no global installation
-was changed. Metal execution is exposed but was not validated in this experiment.
+release build of this checkout. The installed `affon` and the preexisting build
+were too old for current model APIs. The verification build was installed at
+`/tmp/affon-model-package-build/bin/affon`; no global installation was changed.
+The current Cyna build writes `build/affon`. Metal execution is exposed but was
+not validated in this experiment.
 
 The experiment tests shared packaging and explicit adapter boundaries. Its main
 remaining question is how much compatibility metadata a second engine needs.

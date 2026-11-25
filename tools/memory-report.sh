@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BINARY="${AFFON_BINARY:-$ROOT/zig-out/bin/affon}"
+BINARY="${AFFON_BINARY:-$ROOT/build/affon}"
 CONFIG="${1:-}"
 OUTPUT="${2:-}"
 HISTORY="${3:-${AFFON_MEMORY_HISTORY:-}}"

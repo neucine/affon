@@ -15,7 +15,7 @@ import time
 def main():
     root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--affon', type=Path, default=root / 'zig-out/bin/affon')
+    parser.add_argument('--affon', type=Path, default=root / 'build/affon')
     parser.add_argument('--affon-telemetry',choices=['on','off'],default='off')
     parser.add_argument('--output', type=Path, default=root / 'test/benchmark/results/quantized-metal-profiled-vs-mlx-m4.json')
     args = parser.parse_args()
@@ -84,8 +84,8 @@ def main():
         mx.clear_cache()
     report = dict(date=datetime.now(ZoneInfo('Pacific/Auckland')).isoformat(), hardware='Apple M4',
                   affon_base_commit=subprocess.check_output(['git','-C',str(root),'rev-parse','HEAD'],text=True).strip(),
-                  compute_base_commit=subprocess.check_output(['git','-C',str(root.parent/'compute'),'rev-parse','HEAD'],text=True).strip(),
-                  source_state='uncommitted profiled native quantized_matmul and readback changes accompanying this report', build='Zig 0.16.0 ReleaseFast', os=platform.platform(), python=platform.python_version(), mlx=mx.__version__,
+                  compute_base_commit=subprocess.check_output(['git','-C',str(root.parent/'compute-core'),'rev-parse','HEAD'],text=True).strip(),
+                  source_state='uncommitted profiled native quantized_matmul and readback changes accompanying this report', build='Cyna release', os=platform.platform(), python=platform.python_version(), mlx=mx.__version__,
                   method=dict(warmup_ms=300, samples=5, iterations=30, resident_weights=True,
                               input_dtype='f32', parameter_dtype='bf16', output_dtype='f32',
                               timed_scope='call + output allocation + synchronization + full nested-list readback',

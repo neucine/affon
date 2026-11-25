@@ -5,8 +5,8 @@
 
 ## Verification
 
-- [ ] `zig build`
-- [ ] `zig build test`
+- [ ] `cyna build .`
+- [ ] Focused Cyna-host tests pass
 - [ ] `./tools/test-runtime.sh`
 - [ ] `bun x tsc -p src/tsconfig.json --noEmit`
 - [ ] `bun x tsc -p test/types/tsconfig.json --noEmit`

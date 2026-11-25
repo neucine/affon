@@ -65,6 +65,36 @@ Connect stable Program nodes to lowering decisions and runtime evidence without
 making backend plans part of Program meaning. Reports should explain unsupported
 operations and fallbacks with the exact dtype, shape, and target involved.
 
+The former compile-only routing survey covered authored operation Programs,
+public ONNX importer fixtures, and GPT-2, BERT, ViT, and Llama Programs with f32
+and BF16 parameter storage. Public CPU Sessions now compile and run through the
+in-process Compute Core Cyna path.
+
+Bounded execution evidence now covers 11 test cases and 16 representative
+Programs through public CPU Sessions. The corpus includes all three prepared
+ONNX fixtures, small GPT-2, BERT, and ViT models, and Llama prefill plus cached
+decode. Focused f64 and BF16 unary, reduction, and matmul Programs add dtype and
+shape coverage, and a small GPT-2 Program exercises BF16 parameter storage
+through public model constructors. Each Cyna output matched its retained
+reference evidence. f32 uses `3e-4` absolute plus relative tolerance, f64 uses
+`1e-12`, and BF16 output uses one BF16 relative unit (`1/128`).
+
+This establishes representative numerical agreement, not complete model,
+dtype, quality, or performance coverage. Keep the compile-only survey as the
+lower barrier that reports new fallbacks as the corpus grows.
+
+The bounded performance comparison covers synthetic f32 Llama prefill and
+cached decode in separate release-mode processes. With prepared CPU caching for
+internal layout views, a local probe showed one miss followed by three hits per
+graph. With input reuse and accelerated f32 matrix multiplication on an Apple
+M4 running macOS 26.6.2, the latest CPU kernel source changes brought Cyna
+below the retained former implementation's time for 64-token prefill and near
+it for one cached decode token. Outputs agreed within the f32 tolerance.
+The benchmark excludes model
+construction, compilation, state and input setup, and warmup. Prepared caching
+and input reuse reduce prefill time. The remaining decode gap and other shapes
+and dtypes still need measurement before broad CPU performance parity is claimed.
+
 ### Expand model evidence
 
 Use bounded authored and imported models to validate the complete path:

@@ -183,6 +183,23 @@ describe('dataset tabular', () => {
     expect(ds.select('species').loader({ session, batchSize: 2 }).length).toBe(3)
   })
 
+  test('quoted csv fields preserve commas, escaped quotes, and embedded newlines', () => {
+    const ds = read('test/e2e/dataset/fixtures/quoted.csv')
+    const names = ds.select('name').encode('name').toTensor({ session })
+    const notes = ds.select('note').encode('note').toTensor({ session })
+
+    expect(ds.columns).toEqual(['name', 'note', 'value'])
+    expect(names.schema).toEqual({
+      'name_alpha, one': [0],
+      'name_beta\nline': [1],
+    })
+    expect(notes.schema).toEqual({
+      'note_he said "hi"': [0],
+      note_plain: [1],
+    })
+    expect(values(ds.select('value').toTensor({ session }).data)).toEqual([[1], [2]])
+  })
+
   test('normalize keeps expected shape', () => {
     const ds = read('test/e2e/dataset/fixtures/iris.csv')
     const normed = ds.select('sepal_length', 'sepal_width').normalize('sepal_length', 'sepal_width').toTensor({ session })

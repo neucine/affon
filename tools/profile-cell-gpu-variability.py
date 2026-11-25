@@ -27,7 +27,7 @@ def machine_snapshot():
 
 
 def benchmark_module():
-    spec = importlib.util.spec_from_file_location("cell_benchmark", ROOT / "tools/benchmark-cells-pytorch.py")
+    spec = importlib.util.spec_from_file_location("cell_benchmark", ROOT / "test/parity/reference/benchmark-cells-pytorch.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -35,7 +35,7 @@ def benchmark_module():
 
 def profile(binary, case, runs, samples, iterations, warmup_calls):
     benchmark = benchmark_module()
-    spec = importlib.util.spec_from_file_location("cell_probe", ROOT / "tools/probe-capabilities.py")
+    spec = importlib.util.spec_from_file_location("cell_probe", ROOT / "test/parity/reference/probe-capabilities.py")
     probe = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(probe)
     reference = probe.expected(case)
@@ -96,7 +96,7 @@ def profile(binary, case, runs, samples, iterations, warmup_calls):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--binary", type=Path, default=ROOT / "zig-out/bin/affon")
+    parser.add_argument("--binary", type=Path, default=ROOT / "build/affon")
     parser.add_argument("--catalog", type=Path, default=ROOT / "test/benchmark/capability-probes.json")
     parser.add_argument("--cell", required=True)
     parser.add_argument("--runs", type=int, default=5)

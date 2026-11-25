@@ -9,7 +9,7 @@ tag="$(buildkite-agent meta-data get release_tag)"
 [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || exit 1
 test "$(git rev-parse HEAD)" = "${BUILDKITE_COMMIT:?Buildkite commit required}"
 
-for tool in zig python3 tar gh npx; do
+for tool in python3 tar gh npx; do
   command -v "$tool" >/dev/null || { echo "Missing publish tool: $tool" >&2; exit 1; }
 done
 : "${GITHUB_RELEASE_TOKEN:?GITHUB_RELEASE_TOKEN is required}"
@@ -18,7 +18,7 @@ done
 export GH_TOKEN="$GITHUB_RELEASE_TOKEN"
 export AFFON_RELEASE_TAG="$tag" AFFON_R2_UPLOAD_TOOL=wrangler
 export AFFON_SITES_REPO="${AFFON_SITES_REPO:-/Users/chao.yang/Private/sites}"
-export AFFON_SITE_HAO_REPO="${AFFON_SITE_HAO_REPO:-/Users/chao.yang/Private/hao-legacy}"
+export AFFON_SITE_HAO_REPO="${AFFON_SITE_HAO_REPO:-/Users/chao.yang/Private/hao}"
 
 source "$root/tools/buildkite/release-deps.sh"
 rm -rf dist/release
@@ -29,17 +29,14 @@ python3 tools/buildkite/ci.py publish-check
 version="${tag#v}"
 archive="affon-$version.tar.gz"
 mkdir -p dist/source package-source verify-source
-git archive --format=tar --prefix='affon/' HEAD \
-  build.zig build.zig.zon LICENSE README.md THIRD_PARTY_NOTICES.md install.sh install.ps1 src tools packages/@types/affon |
+git archive --format=tar --prefix='affon/' HEAD |
   tar -C verify-source -xf -
-git -C ../hao-legacy archive --format=tar --prefix='hao-legacy/' HEAD -- \
-  build.zig build.zig.zon include src libs/transpiler | tar -C verify-source -xf -
-git -C ../compute archive --format=tar --prefix='compute/' HEAD -- \
-  build.zig build.zig.zon README.md src tools | tar -C verify-source -xf -
-git -C ../zig-libs archive --format=tar --prefix='zig-libs/' HEAD -- \
-  build.zig build.zig.zon README.md src .gitignore | tar -C verify-source -xf -
-cp -R verify-source/affon verify-source/hao-legacy verify-source/compute verify-source/zig-libs package-source/
-tar -C package-source -czf "dist/source/$archive" affon hao-legacy compute zig-libs
+git -C ../hao archive --format=tar --prefix='hao/' HEAD |
+  tar -C verify-source -xf -
+git -C ../compute-core archive --format=tar --prefix='compute-core/' HEAD |
+  tar -C verify-source -xf -
+cp -R verify-source/affon verify-source/hao verify-source/compute-core package-source/
+tar -C package-source -czf "dist/source/$archive" affon hao compute-core
 buildkite-agent artifact upload 'dist/source/*'
 
 "$root/tools/release.sh" upload-r2

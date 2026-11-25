@@ -8,25 +8,34 @@ from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-COMPUTE = ROOT.parent / "compute"
+COMPUTE = ROOT.parent / "compute-core"
 sys.path.insert(0, str(ROOT / 'test/parity'))
 from case import operation_family
 
 
 def enum_names(source, name):
-    match = re.search(r"pub const " + re.escape(name) + r" = enum\s*\{(.*?)\n\};", source, re.S)
+    match = re.search(r"pub enum " + re.escape(name) + r"\b[^{]*\{(.*?)\n\}", source, re.S)
     if not match:
         raise ValueError(f"cannot find {name} enum")
     body = re.sub(r"///?[^\n]*", "", match.group(1))
-    if name == "DType":
-        body = body.split("pub fn", 1)[0]
-    return [item.strip() for item in body.split(",") if re.fullmatch(r"[a-z][a-z0-9_]*", item.strip())]
+    return [item.group(1) for line in body.splitlines()
+            if (item := re.match(r"\s*([a-z][a-z0-9_]*)(?:\s*=\s*[^,]+)?,?\s*$", line))]
+
+
+def expand_split_operation(case_id, operation):
+    parts = case_id.split("/")
+    if len(parts) >= 3 and parts[2] == "topk" and operation in (
+        "top_k_values", "top_k_indices"
+    ):
+        parts[2] = operation
+        return "/".join(parts)
+    return case_id
 
 
 def build(policy, diagnostics, outcomes=None):
     if policy.get("schema_version") != 1 or policy.get("suite") != "affon_coverage_policy":
         raise ValueError("invalid coverage policy")
-    source = (COMPUTE / "src/program/types.zig").read_text()
+    source = (COMPUTE / "src/types.cy").read_text()
     operations, dtypes = enum_names(source, "OpTag"), enum_names(source, "DType")
     if set(operations) != set(policy["op_regime"]):
         raise ValueError(f"operation policy drift: missing={sorted(set(operations)-set(policy['op_regime']))}, stale={sorted(set(policy['op_regime'])-set(operations))}")
@@ -43,13 +52,21 @@ def build(policy, diagnostics, outcomes=None):
         parts = entry["id"].split("/")
         if len(parts) >= 3:
             related.setdefault(tuple(parts[:2] + [entry["family"]]), []).append(entry["id"])
-    outcomes = outcomes or {}
+    outcomes = {
+        expand_split_operation(case_id, operation): outcome
+        for case_id, outcome in (outcomes or {}).items()
+        for operation in ("top_k_values", "top_k_indices")
+    }
     if not isinstance(outcomes, dict):
         raise ValueError("outcomes must be a mapping keyed by cell ID")
     canonical_ids = {f"{backend}/{dtype}/{op}/{regime}"
                                   for backend in policy["backends"] for dtype in dtypes
                                   for op in operations for regime in policy["regimes"][policy["op_regime"][op]]}
-    variants = policy.get("variants", {})
+    variants = {
+        expand_split_operation(case_id, operation): options
+        for case_id, options in policy.get("variants", {}).items()
+        for operation in ("top_k_values", "top_k_indices")
+    }
     if any(variant.rsplit("/", 1)[0] not in canonical_ids or
            set(options) != {"dense_inputs"} or type(options["dense_inputs"]) is not bool
            for variant, options in variants.items()):

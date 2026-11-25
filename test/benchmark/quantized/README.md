@@ -11,4 +11,4 @@ reports in `test/parity/` and `test/benchmark/results/`.
 | `profile-quantized.ts` | Execution, readback, and disposal timing phases. |
 | `trace-quantized-metal.ts` | Detailed Metal timing samples for tracing. |
 
-Run them with `./zig-out/bin/affon test/benchmark/quantized/<script>.ts`.
+Run them with `./build/affon test/benchmark/quantized/<script>.ts`.

@@ -3,6 +3,7 @@ import { text } from 'affon:dataset/text.ts'
 import { writeFileSync } from 'std:fs'
 import { Session } from 'affon:core'
 import { createLookupTokenizer } from '../../../packages/@affon/tokenizers/src/index.ts'
+import { createTempPath, removeTempPath } from '../../support/temp.ts'
 
 describe('dataset text', () => {
   test('text namespace reads line-oriented corpora', () => {
@@ -104,8 +105,8 @@ describe('dataset text', () => {
     session.dispose()
   })
 
-  test('text datasets can read paragraph corpora', () => {
-    const prefix = `/tmp/affon-dataset-paragraphs-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
+  test('text datasets can read paragraph corpora', async () => {
+    const prefix = await createTempPath('affon-dataset-paragraphs')
     const path = `${prefix}.txt`
     writeFileSync(path, ' first block \n\nsecond line\nstill second\n\n third ')
 
@@ -119,6 +120,7 @@ describe('dataset text', () => {
       'second line\nstill second',
       'third',
     ])
+    await removeTempPath(path)
   })
 
   test('text datasets can start from in-memory rows', () => {

@@ -1,6 +1,7 @@
 import native from "affon:core/native"
 import telemetry from "std:telemetry"
 import type { LRSchedule, Optimizer } from "affon:optim"
+import { compileOptionsKey, nativeCompileOptions, nativeProgram, nativeSessionOptions } from "affon:_internal/compute/program_wire"
 
 export type ProgramDType = "bf16" | "f32" | "f64" | "u32" | "i64"
 export type Device = "cpu" | "metal" | "cuda" | `cuda:${number}`
@@ -16,6 +17,8 @@ export type SearchLimits = Readonly<{
   completeEvaluations?: number
   physicalWork?: number
   readyWork?: number
+  maxPeakActiveBytes?: number
+  maxInvocationScratchBytes?: number
 }>
 export type CompileOptions = Readonly<{
   denseInputs?: boolean
@@ -27,10 +30,8 @@ export type CompileOptions = Readonly<{
   searchLimits?: SearchLimits
 }>
 export type TelemetryOptions = Readonly<{
-  /** Per-invocation backend timing scope. Defaults from backendTiming or none. */
+  /** Per-invocation backend timing scope. Defaults to none. */
   computeTiming?: ComputeTimingScope
-  /** Compatibility switch: true selects kernel timing, false selects none. */
-  backendTiming?: boolean
   hardwareMetrics?: boolean
   profilerMarkers?: boolean
   bridgeTiming?: boolean
@@ -38,8 +39,6 @@ export type TelemetryOptions = Readonly<{
 }>
 export type SessionTelemetry = Readonly<{
   computeTiming: ComputeTimingScope
-  /** True only for the legacy per-kernel timing scope. */
-  backendTiming: boolean
   hardwareMetrics: boolean
   profilerMarkers: boolean
   bridgeTiming: boolean
@@ -95,8 +94,21 @@ function normalizedCompileOptions(options: CompileOptions = {}): Required<Compil
   }
   if (typeof result.denseInputs !== "boolean") throw new TypeError("denseInputs must be boolean")
   for (const [name, value] of Object.entries(result.searchLimits)) {
-    if (!["structuralStates", "structuralExpansions", "completeEvaluations", "physicalWork", "readyWork"].includes(name) ||
-        !Number.isSafeInteger(value) || value < 1) throw new TypeError(`invalid searchLimits.${name}`)
+    const searchLimit = [
+      "structuralStates",
+      "structuralExpansions",
+      "completeEvaluations",
+      "physicalWork",
+      "readyWork",
+    ].includes(name)
+    const resourceLimit = [
+      "maxPeakActiveBytes",
+      "maxInvocationScratchBytes",
+    ].includes(name)
+    if ((!searchLimit && !resourceLimit) ||
+        !Number.isSafeInteger(value) || value < (searchLimit ? 1 : 0)) {
+      throw new TypeError(`invalid searchLimits.${name}`)
+    }
   }
   return Object.freeze(result)
 }
@@ -105,18 +117,14 @@ function normalizedSessionOptions(options: SessionOptions = {}): Readonly<Record
   const determinism = options.determinism ?? "strict"
   if (determinism !== "strict" && determinism !== "allow_nondeterministic") throw new TypeError(`unsupported determinism: ${determinism}`)
   if (options.telemetry === false) return Object.freeze({ determinism, telemetry: null })
+  if (options.telemetry && "backendTiming" in options.telemetry)
+    throw new TypeError("backendTiming has been removed; use computeTiming")
   const requestedTiming = options.telemetry?.computeTiming
   if (requestedTiming !== undefined && !["none", "invocation", "kernel"].includes(requestedTiming))
     throw new TypeError(`unsupported computeTiming: ${requestedTiming}`)
-  const legacyTiming = options.telemetry?.backendTiming
-  if (legacyTiming !== undefined && typeof legacyTiming !== "boolean") throw new TypeError("backendTiming must be boolean")
-  if (legacyTiming !== undefined && requestedTiming !== undefined &&
-      requestedTiming !== (legacyTiming ? "kernel" : "none"))
-    throw new TypeError("computeTiming conflicts with backendTiming")
-  const computeTiming = requestedTiming ?? (legacyTiming === true ? "kernel" : "none")
+  const computeTiming = requestedTiming ?? "none"
   return Object.freeze({ determinism, telemetry: Object.freeze({
     computeTiming,
-    backendTiming: computeTiming === "kernel",
     hardwareMetrics: options.telemetry?.hardwareMetrics ?? false,
     profilerMarkers: options.telemetry?.profilerMarkers ?? false,
     bridgeTiming: options.telemetry?.bridgeTiming ?? false,
@@ -356,6 +364,51 @@ function sameSpec(left: TensorSpec, right: TensorSpec): boolean {
 function scalarSpec(dtype: ProgramDType): TensorSpec { return freezeSpec(dtype, [1]) }
 
 function elementCount(shape: readonly number[]): number { return shape.reduce((product, size) => product * size, 1) }
+
+function tensorValuesFromBytes(bytes: ArrayBuffer, dtype: ProgramDType, shape: readonly number[]): TensorData {
+  if (shape.length === 2 && (dtype === "f32" || dtype === "f64" || dtype === "u32")) {
+    const encoded = dtype === "f32" ? new Float32Array(bytes) : dtype === "f64" ? new Float64Array(bytes) : new Uint32Array(bytes)
+    const columns = shape[1]
+    return Array.from({ length: shape[0] }, (_, row) => Array.from(encoded.subarray(row * columns, (row + 1) * columns)))
+  }
+  if (shape.length === 2 && dtype === "bf16") {
+    const encoded = new Uint16Array(bytes)
+    const widened = new Uint32Array(encoded.length)
+    for (let index = 0; index < encoded.length; index++) widened[index] = encoded[index] << 16
+    const decoded = new Float32Array(widened.buffer)
+    const columns = shape[1]
+    return Array.from({ length: shape[0] }, (_, row) => Array.from(decoded.subarray(row * columns, (row + 1) * columns)))
+  }
+  const count = elementCount(shape)
+  let values: number[]
+  if (dtype === "f32") {
+    values = Array.from(new Float32Array(bytes))
+  } else if (dtype === "f64") {
+    values = Array.from(new Float64Array(bytes))
+  } else if (dtype === "u32") {
+    values = Array.from(new Uint32Array(bytes))
+  } else {
+    const view = new DataView(bytes)
+    if (dtype === "i64") {
+      values = Array.from({ length: count }, (_, index) => Number(view.getBigInt64(index * 8, true)))
+    } else {
+      const encoded = new Uint16Array(bytes)
+      const widened = new Uint32Array(count)
+      for (let index = 0; index < count; index++) widened[index] = encoded[index] << 16
+      values = Array.from(new Float32Array(widened.buffer))
+    }
+  }
+  const nest = (depth: number, cursor: { value: number }): TensorData => {
+    if (depth === shape.length) return values[cursor.value++]
+    if (depth === shape.length - 1) {
+      const start = cursor.value
+      cursor.value += shape[depth]
+      return values.slice(start, cursor.value)
+    }
+    return Array.from({ length: shape[depth] }, () => nest(depth + 1, cursor))
+  }
+  return nest(0, { value: 0 })
+}
 const MAX_ARRAY_TENSOR_ENTRIES = 262144
 const LARGE_ARRAY_WARNING_ELEMENTS = 16384
 let warnedLargeArrayInput = false
@@ -404,6 +457,17 @@ function snapshotTensorData(value: unknown, options: { label: string; finite?: b
     data: Object.freeze(children.map(child => child.data)),
     shape: Object.freeze([children.length, ...childShape]),
   }
+}
+
+function flattenTensorData(value: TensorData): number[] {
+  if (typeof value === "number") return [value]
+  const result: number[] = []
+  const visit = (item: TensorData): void => {
+    if (typeof item === "number") result.push(item)
+    else for (const child of item) visit(child)
+  }
+  visit(value)
+  return result
 }
 
 function broadcastShape(left: readonly number[], right: readonly number[]): number[] {
@@ -1619,7 +1683,15 @@ export class Executable<Out extends FormalTensor | readonly FormalTensor[] = For
       optimizer: this.optimization.optimizer,
       parameters: this.optimization.parameters,
     })
-    return freezeJson(JSON.parse(native.explainExecutable(this.nativeExecutable)))
+    const explanation = JSON.parse(native.explainExecutable(this.nativeExecutable))
+    explanation.selected_physical_values = JSON.parse(native.selectedPhysicalValues(this.nativeExecutable))
+    explanation.selected_physical_liveness = JSON.parse(native.selectedPhysicalLiveness(this.nativeExecutable))
+    explanation.selected_semantic_steps = JSON.parse(native.selectedSemanticSteps(this.nativeExecutable))
+    explanation.selected_physical_nodes = JSON.parse(native.selectedPhysicalNodes(this.nativeExecutable))
+    explanation.residual_decisions = JSON.parse(native.residualDecisions(this.nativeExecutable))
+    explanation.selection_comparison = JSON.parse(native.selectionComparison(this.nativeExecutable))
+    explanation.search = JSON.parse(native.searchEvidence(this.nativeExecutable))
+    return freezeJson(explanation)
   }
   [EXECUTABLE_EVIDENCE](): Readonly<Record<string, unknown>> | null {
     if (!this.optimization) return null
@@ -1743,35 +1815,6 @@ export class Executable<Out extends FormalTensor | readonly FormalTensor[] = For
   [Symbol.dispose](): void { this.dispose() }
 }
 
-// CUDA accepts the original [batch, class, spatial] view directly. Match only
-// the flatten sequence authored by dense_cross_entropy and log_softmax_nll.
-function cudaDenseLossInspection(inspection: ProgramInspection): ProgramInspection {
-  if (inspection.kind !== "authored") return inspection
-  const nodes = inspection.nodes
-  const original = (id: number): ProgramNode | undefined => {
-    const reshape = nodes[id]
-    if (reshape?.op !== "reshape" || reshape.operands?.length !== 1) return
-    const contiguous = nodes[reshape.operands[0]]
-    if (contiguous?.op !== "contiguous" || contiguous.operands?.length !== 1) return
-    const transpose = nodes[contiguous.operands[0]]
-    if (transpose?.op !== "transpose" || transpose.operands?.length !== 1 ||
-        JSON.stringify(transpose.options?.permutation) !== "[0,2,1]") return
-    const input = nodes[transpose.operands[0]]
-    return input?.spec.shape.length === 3 ? input : undefined
-  }
-  let changed = false
-  const lowered = nodes.map(node => {
-    if ((node.op !== "dense_cross_entropy" && node.op !== "log_softmax_nll") ||
-        node.operands?.length !== 2 || node.options?.class_axis !== 1) return node
-    const logits = original(node.operands[0])
-    const targets = original(node.operands[1])
-    if (!logits || !targets || JSON.stringify(logits.spec.shape) !== JSON.stringify(targets.spec.shape)) return node
-    changed = true
-    return { ...node, operands: [logits.id, targets.id] }
-  })
-  return changed ? { ...inspection, nodes: lowered } : inspection
-}
-
 export class Session {
   readonly device: Device
   readonly determinism: "strict" | "allow_nondeterministic"
@@ -1787,7 +1830,7 @@ export class Session {
     const normalized = normalizedSessionOptions(options) as any
     this.determinism = normalized.determinism
     this.telemetry = normalized.telemetry ?? false
-    this.#native = native.createSession(this.device as any, JSON.stringify(normalized))
+    this.#native = native.createSession(this.device as any, nativeSessionOptions(this.determinism, this.telemetry))
   }
   get disposed(): boolean { return this.#disposed }
   tensor(values: TensorData, options: { dtype?: ProgramDType; axes?: readonly string[] } = {}): Tensor {
@@ -1834,7 +1877,14 @@ export class Session {
       throw new TypeError("Tensor axes must contain one non-empty name per dimension")
     }
     if (requestedShape && elementCount(requestedShape) !== elementCount(snapshot.shape)) throw new TypeError("Tensor shape does not match its values")
-    const value = native.sessionTensor(this.#native, snapshot.data, dtype, shape)
+    const value = dtype === "f32"
+      ? native.sessionTensorBytes(
+          this.#native,
+          new Float32Array(flattenTensorData(snapshot.data)).buffer,
+          dtype,
+          shape,
+        )
+      : native.sessionTensor(this.#native, snapshot.data, dtype, shape)
     if (options.axes) {
       Object.defineProperty(value, "axes", { value: Object.freeze([...options.axes]), enumerable: true })
     }
@@ -1857,7 +1907,7 @@ export class Session {
     if (this.#disposed) throw new Error("Session has been disposed")
     if (!isProgram(source)) throw new TypeError("Session.compile expects a Program")
     const normalized = normalizedCompileOptions(options)
-    const key = JSON.stringify(normalized)
+    const key = compileOptionsKey(normalized)
     let variants = this.#cache.get(source)
     const cached = variants?.get(key)
     if (cached && !cached.disposed) return cached as Executable<Out>
@@ -1877,8 +1927,11 @@ export class Session {
       }) as Executable<Out>
     } else {
       const inspection = source.inspect()
-      const lowered = this.device === "cuda" ? cudaDenseLossInspection(inspection) : inspection
-      executable = new Executable(this, source, native.compileProgram(this.#native, JSON.stringify(lowered), JSON.stringify(normalized))) as Executable<Out>
+      executable = new Executable(
+        this,
+        source,
+        native.compileProgram(this.#native, nativeProgram(inspection), nativeCompileOptions(normalized)),
+      ) as Executable<Out>
     }
     variants.set(key, executable)
     return executable
@@ -1908,7 +1961,9 @@ export class Session {
             throw new TypeError(`${formal.name} initializer does not match its TensorSpec`)
           }
         }
-        const copied = raw && typeof raw === "object" && "to_array" in raw ? native.sessionTensorCopy(this.#native, raw) : undefined
+        const copied = raw && typeof raw === "object" && typeof (raw as any).dispose === "function"
+          ? native.sessionTensorCopy(this.#native, raw)
+          : undefined
         let value: Tensor
         if (raw instanceof ArrayBuffer) {
           value = this.fromBytes(raw, formal.spec)
@@ -1937,10 +1992,25 @@ export class Session {
   }
   adopt(value: unknown): void {
     if (value && (typeof value === "object" || typeof value === "function")) {
-      const tensor = value as object & { dispose?: () => void; [Symbol.dispose]?: () => void }
+      const tensor = value as object & {
+        readonly dtype?: ProgramDType
+        readonly shape?: readonly number[]
+        to_bytes?: () => ArrayBuffer
+        dispose?: () => void
+        [Symbol.dispose]?: () => void
+      }
       if (tensorOwners.has(tensor)) return
       const nativeDispose = tensor.dispose
       if (typeof nativeDispose !== "function") throw new TypeError("Session can only adopt a Tensor")
+      const nativeToBytes = tensor.to_bytes
+      const dtype = tensor.dtype
+      const shape = tensor.shape
+      if (typeof nativeToBytes !== "function" || !dtype || !Array.isArray(shape)) throw new TypeError("Session can only adopt a Tensor")
+      const toArray = function (this: object): TensorData {
+        const bytes = nativeToBytes.call(this)
+        if (!(bytes instanceof ArrayBuffer)) throw new TypeError("Tensor.to_bytes() must return an ArrayBuffer")
+        return tensorValuesFromBytes(bytes, dtype, shape)
+      }
       const dispose = function (this: object) {
         if (disposedTensors.has(this)) return
         disposedTensors.add(this)
@@ -1950,6 +2020,7 @@ export class Session {
       Object.defineProperties(tensor, {
         disposed: { get: function (this: object) { return disposedTensors.has(this) }, enumerable: true },
         dispose: { value: dispose },
+        to_array: { value: toArray },
         [Symbol.dispose]: { value: dispose },
       })
       tensorOwners.set(tensor, this)

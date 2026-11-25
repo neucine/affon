@@ -1,10 +1,11 @@
 import { beforeAll, afterAll, test, expect } from 'std:test'
 import fs from 'std:fs'
-import { run, getEnv } from 'std:process'
+import { getEnv } from 'std:process'
 import checkpoint from 'affon:checkpoint'
 import { Session } from 'affon:core'
 import type { Device } from 'affon:core'
 import { load_model } from '../src/index.ts'
+import { createTempDirectory, removeTempPath } from '../../../../test/support/temp.ts'
 let directory=''
 const device=(getEnv('AFFON_DEVICE') ?? 'cpu') as Device
 const session=new Session({device})
@@ -23,7 +24,7 @@ function forward(model: ReturnType<typeof load_model>, values: unknown) {
   } finally {input.dispose();state.dispose()}
 }
 beforeAll(async()=>{
-  directory=(await run({cmd:'mktemp',args:['-d','/tmp/affon-hf-onnx.XXXXXX']})).stdout.trim()
+  directory=await createTempDirectory('affon-hf-onnx')
   fs.writeFileSync(`${directory}/config.json`,JSON.stringify(config))
   checkpoint.save({bias:tensor([1,2,3],{dtype:'f32',device:'cpu'})},`${directory}/weights.safetensors`)
   fs.writeFileSync(`${directory}/graph.json`,JSON.stringify({format:'affon-onnx-static/v1',opset:17,
@@ -32,7 +33,7 @@ beforeAll(async()=>{
       {op:'Add',name:'bias',inputs:['flat','bias'],output:'scores',shape:[1,3],attrs:{}}
     ]}))
 })
-afterAll(async()=>{if(directory)await run({cmd:'rm',args:['-rf',directory]});session.dispose()})
+afterAll(async()=>{if(directory)await removeTempPath(directory);session.dispose()})
 test('HF ONNX backend binds task inputs/outputs without architecture dispatch',()=>{
   const model=load_model(directory,{task:'image-classification',backend:'onnx',graph_dir:directory})
   expect(model.backend).toBe('onnx')

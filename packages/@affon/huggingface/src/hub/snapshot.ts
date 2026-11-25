@@ -23,7 +23,9 @@ async function command(cmd: string, args: string[]) {
   return result.stdout.trim()
 }
 async function digest(path: string) {
-  const hash = (await command('shasum', ['-a', '256', path])).split(/\s/)[0]
+  let hash = ''
+  try { hash = (await command('shasum', ['-a', '256', path])).split(/\s/)[0] }
+  catch { hash = (await command('sha256sum', [path])).split(/\s/)[0] }
   if (!/^[a-f0-9]{64}$/.test(hash)) throw new Error('Invalid SHA-256 response')
   return hash
 }
@@ -48,7 +50,8 @@ export async function snapshot_download(model_id: string, options: HubOptions): 
   if (!/^[A-Za-z0-9_-][A-Za-z0-9._-]*(\/[A-Za-z0-9_-][A-Za-z0-9._-]*)?$/.test(model_id)
     || model_id.includes('--') || model_id.includes('..')) throw Error('Invalid HF repository ID')
   if (!/^[a-f0-9]{40}$/.test(options.revision)) throw Error('HF revision must be an immutable 40-character commit SHA')
-  if (!options.cache_dir.startsWith('/') || options.cache_dir.includes('\0')) throw Error('HF cache_dir must be an absolute path')
+  if (!(options.cache_dir.startsWith('/') || /^[A-Za-z]:[\\/]/.test(options.cache_dir))
+    || options.cache_dir.includes('\0')) throw Error('HF cache_dir must be an absolute path')
   const directory = `${options.cache_dir}/models--${model_id.replace('/', '--')}/${options.revision}`
   const manifest_path = `${directory}/affon-snapshot.json`
   if (fs.existsSync(manifest_path)) {

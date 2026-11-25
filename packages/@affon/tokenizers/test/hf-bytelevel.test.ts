@@ -2,6 +2,7 @@ import fs from 'std:fs'
 import { describe, expect, test } from 'std:test'
 import { createHFTokenizerFromJSON, createHFTokenizerFromFile } from '../src/index.ts'
 import type { HFTokenizerJSON } from '../src/index.ts'
+import { createTempPath, removeTempPath } from '../../../../test/support/temp.ts'
 
 const reference = JSON.parse(fs.readFileSync('packages/@affon/tokenizers/test/hf-bytelevel-reference.json')) as {
   fixtures: { spec: HFTokenizerJSON; cases: { text: string; ids: number[]; decoded: string; skip_special: string }[] }[]
@@ -18,9 +19,9 @@ describe('HF ByteLevel independent reference parity', () => {
       })
     }
   }
-  test('added vocabulary is exposed through both JSON and file entrypoints', () => {
+  test('added vocabulary is exposed through both JSON and file entrypoints', async () => {
     const spec = reference.fixtures[0].spec
-    const path = `/tmp/affon-hf-added-${Date.now()}.json`
+    const path = `${await createTempPath('affon-hf-added')}.json`
     fs.writeFileSync(path, JSON.stringify(spec))
     for (const tokenizer of [createHFTokenizerFromJSON(spec), createHFTokenizerFromFile(path)]) {
       const id = spec.added_tokens!.find(token => token.content === 'tag')!.id
@@ -29,5 +30,6 @@ describe('HF ByteLevel independent reference parity', () => {
       expect(tokenizer.token(id)).toBe('tag')
       expect(tokenizer.allSpecialTokenIds.includes(id)).toBe(false)
     }
+    await removeTempPath(path)
   })
 })

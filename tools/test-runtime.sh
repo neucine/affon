@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-AFFON_BIN="${1:-$ROOT/zig-out/bin/affon}"
+AFFON_BIN="${1:-$ROOT/build/affon}"
 
 export RUNTIME_PACKAGE_PATH="${RUNTIME_PACKAGE_PATH:-$ROOT/packages}"
 
@@ -14,9 +14,10 @@ export RUNTIME_PACKAGE_PATH="${RUNTIME_PACKAGE_PATH:-$ROOT/packages}"
 "$AFFON_BIN" test "$ROOT/packages/@affon/models/test"
 "$AFFON_BIN" test "$ROOT/packages/@affon/inspector/test"
 "$AFFON_BIN" test "$ROOT/packages/@affon/tokenizers/test"
-"$AFFON_BIN" test \
-  "$ROOT/packages/@affon/huggingface/test" \
-  "$ROOT/packages/@affon/onnx/test" \
-  "$ROOT/apps/hf-inference/tests"
+for test in "$ROOT"/packages/@affon/huggingface/test/*.test.ts; do
+  "$AFFON_BIN" test "$test"
+done
+"$AFFON_BIN" test "$ROOT/packages/@affon/onnx/test"
+"$AFFON_BIN" test "$ROOT/apps/hf-inference/tests"
 "$AFFON_BIN" test "$ROOT/apps/decoder-lm/test"
 bash "$ROOT/test/e2e/cli/process.sh" "$AFFON_BIN"
