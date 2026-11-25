@@ -4,7 +4,7 @@ This page records a full sweep of Affon's Cyna-native compute path against PyTor
 
 ## Protocol
 
-- Affon branch `compute-cyna-routing` at `3f3974ce38c1d6625f3c986a0a1bb6ee9076a442`.
+- Affon branch `compute-cyna-routing` at `874d89d9558d2d8706eb52915c0b5e8847570214` (the binary and sweep evidence were produced from this code).
 - Compute Core at `0bcc364d3b1d18334ebd1439b78d285ec3310b7f`.
 - Hao at `42d57709117a7414547ef60808d9c6e31bf084e8`.
 - Released Cyna 0.5.4.
