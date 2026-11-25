@@ -44,6 +44,7 @@ Complete runnable workflows live under `apps/`.
 
 - [Compute Programs](./core/compute.md) - Programs, formal and evaluated tensors, Sessions, differentiation, optimization, and inspection
 - [Backend Support](./core/backend-support.md) - portable contracts and accelerator boundaries
+- [Parity Evidence](./core/parity-evidence.md) - full-catalog Metal and CUDA coverage and performance versus PyTorch
 - [Error Handling](./core/errors.md)
 
 ## Machine Learning

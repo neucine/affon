@@ -16,7 +16,8 @@ Program -> Session.compile -> Executable.run -> evaluated Tensor
 Start with [Compute Programs](./compute.md), use
 [Optimization, Profiling, and Evidence](./optimization-and-profiling.md) for
 compiler/runtime controls and extension rules, then consult the
-[Backend Support](./backend-support.md) for device contracts and
+[Backend Support](./backend-support.md) for device contracts,
+[Full-catalog Parity Evidence](./parity-evidence.md) for measured coverage, and
 [Error Handling](./errors.md) for failure and cleanup patterns.
 
 [Quantized Inference](./quantized-inference.md) documents the affine packed-weight
