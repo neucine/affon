@@ -4,11 +4,11 @@ This page records a full sweep of Affon's Cyna-native compute path against PyTor
 
 ## Protocol
 
-- Affon branch `compute-cyna-routing` at `ce2185cce`.
-- Compute Core at `da314e7`.
-- Hao at `42d5770`.
+- Affon branch `compute-cyna-routing` at `3f3974ce38c1d6625f3c986a0a1bb6ee9076a442`.
+- Compute Core at `0bcc364d3b1d18334ebd1439b78d285ec3310b7f`.
+- Hao at `42d57709117a7414547ef60808d9c6e31bf084e8`.
 - Released Cyna 0.5.4.
-- Affon binary SHA-256 `Metal 8dc2bba6… / CUDA c18f1d54…`.
+- Affon binary SHA-256 `Metal f4ae82b3d17129a66fbeb0ce822c5723c81cea8517510b6be8a3c0f4a9c16660 / CUDA 11a51d4313a44ce7a22410013c90bd0662c79a4bca487ce3464c18257de17fcd`.
 - Resumable sweep with three phases: capability probe, operator peer, Program peer.
 - 10 iterations per sample, 5 samples, 3 rounds. Ratios are Affon elapsed time divided by PyTorch elapsed time, so lower is better. Timing covers a resident operation, a synchronized host materialization, and output allocation and disposal.
 
@@ -17,7 +17,7 @@ This page records a full sweep of Affon's Cyna-native compute path against PyTor
 | Target | Cases | Numerical correct | Terminal unsupported | Operator passed | Program passed |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Metal (`Mac16,1/26.6.2/arm64`) | 11989 | 11950 | 39 | 11950 | 11950 |
-| CUDA (`NVIDIA GeForce RTX 3090/7.0.0-43-generic/x86_64`) | 11946 | 11945 | 1 | 11945 | 11945 |
+| CUDA (`NVIDIA GeForce RTX 3090/7.0.0-43-generic/x86_64`) | 11946 | 11946 | 0 | 11946 | 11946 |
 
 A case counts as covered only when the capability probe reaches a terminal status. Every numerical-correct case also has a passing operator peer and a passing Program peer with recorded timings. Unsupported cases are listed below and are never counted as passes.
 
@@ -25,70 +25,70 @@ A case counts as covered only when the capability probe reaches a terminal statu
 
 | Target | Check | Timed cells | Geomean | Median | Maximum | Slowest cell |
 | --- | --- | ---: | ---: | ---: | ---: | --- |
-| Metal | operator | 11950 | 2.03× | 2.05× | 63.77× | `metal/f32/std_all/strided/r64_c127` |
-| Metal | program | 11950 | 2.07× | 2.06× | 57.59× | `metal/f32/std_all/strided/r64_c127` |
-| CUDA | operator | 11945 | 5.06× | 4.87× | 710.00× | `cuda/bf16/topk/large/dense_axis0_r128_c257_k1_smallest` |
-| CUDA | program | 11945 | 5.26× | 5.19× | 728.45× | `cuda/f32/topk/large/dense_axis0_r128_c257_k1_smallest` |
+| Metal | operator | 11950 | 2.07× | 2.03× | 60.47× | `metal/f32/std_all/strided/r64_c127` |
+| Metal | program | 11950 | 2.06× | 2.02× | 58.76× | `metal/f32/variance_all/strided/r64_c127` |
+| CUDA | operator | 11946 | 4.24× | 3.92× | 820.87× | `cuda/bf16/topk/large/dense_axis0_r128_c257_k1_smallest` |
+| CUDA | program | 11946 | 4.25× | 3.83× | 754.84× | `cuda/f32/topk/large/dense_axis0_r128_c257_k1_smallest` |
 
 ### Metal operator: slowest cells
 
 | Case | Affon ms | PyTorch ms | Ratio |
 | --- | ---: | ---: | ---: |
-| `metal/f32/std_all/strided/r64_c127` | 14.1426 | 0.2218 | 63.77× |
-| `metal/f32/variance_all/strided/r64_c127` | 14.1356 | 0.2279 | 62.02× |
-| `metal/f32/variance_all/outer_axis` | 13.2621 | 0.2417 | 54.87× |
-| `metal/f32/std_all/outer_axis` | 13.2464 | 0.2487 | 53.25× |
-| `metal/f32/std_all/long_axis` | 5.6736 | 0.2086 | 27.19× |
-| `metal/f32/variance_all/long_axis` | 5.6448 | 0.2224 | 25.39× |
-| `metal/bf16/eq/offset/r129_c257` | 4.9361 | 0.4056 | 12.17× |
-| `metal/bf16/gt/offset/r129_c257` | 4.9252 | 0.4072 | 12.10× |
-| `metal/bf16/lt/strided/r129_c257` | 4.9875 | 0.4126 | 12.09× |
-| `metal/bf16/eq/strided/r129_c257` | 4.9701 | 0.4121 | 12.06× |
+| `metal/f32/std_all/strided/r64_c127` | 14.6973 | 0.2431 | 60.47× |
+| `metal/f32/variance_all/strided/r64_c127` | 14.5761 | 0.2415 | 60.36× |
+| `metal/f32/variance_all/outer_axis` | 12.4936 | 0.2259 | 55.30× |
+| `metal/f32/std_all/outer_axis` | 12.5338 | 0.2278 | 55.02× |
+| `metal/f32/std_all/long_axis` | 5.1747 | 0.2094 | 24.71× |
+| `metal/f32/variance_all/long_axis` | 5.1700 | 0.2119 | 24.40× |
+| `metal/bf16/eq/offset/r129_c257` | 4.9062 | 0.3915 | 12.53× |
+| `metal/bf16/lt/offset/r129_c257` | 4.9648 | 0.4060 | 12.23× |
+| `metal/bf16/eq/strided/r129_c257` | 4.9659 | 0.4067 | 12.21× |
+| `metal/bf16/lt/strided/r129_c257` | 4.9825 | 0.4089 | 12.19× |
 
 ### Metal program: slowest cells
 
 | Case | Affon ms | PyTorch ms | Ratio |
 | --- | ---: | ---: | ---: |
-| `metal/f32/std_all/strided/r64_c127` | 13.2576 | 0.2302 | 57.59× |
-| `metal/f32/variance_all/strided/r64_c127` | 13.3060 | 0.2326 | 57.20× |
-| `metal/f32/variance_all/outer_axis` | 12.4327 | 0.2274 | 54.68× |
-| `metal/f32/std_all/outer_axis` | 12.4277 | 0.2291 | 54.24× |
-| `metal/f32/std_all/long_axis` | 5.1160 | 0.2181 | 23.46× |
-| `metal/f32/variance_all/long_axis` | 5.1163 | 0.2208 | 23.17× |
-| `metal/bf16/gt/strided/r129_c257` | 5.0744 | 0.4151 | 12.23× |
-| `metal/bf16/eq/offset/r129_c257` | 5.0851 | 0.4185 | 12.15× |
-| `metal/bf16/lt/strided/r129_c257` | 5.0456 | 0.4173 | 12.09× |
-| `metal/bf16/lt/offset/r129_c257` | 5.0562 | 0.4194 | 12.05× |
+| `metal/f32/variance_all/strided/r64_c127` | 14.7274 | 0.2506 | 58.76× |
+| `metal/f32/std_all/strided/r64_c127` | 14.6881 | 0.2501 | 58.73× |
+| `metal/f32/std_all/outer_axis` | 12.5367 | 0.2399 | 52.27× |
+| `metal/f32/variance_all/outer_axis` | 12.5161 | 0.2409 | 51.96× |
+| `metal/f32/variance_all/long_axis` | 5.2020 | 0.2217 | 23.47× |
+| `metal/f32/std_all/long_axis` | 5.2072 | 0.2270 | 22.94× |
+| `metal/bf16/lt/offset/r129_c257` | 5.0477 | 0.4142 | 12.19× |
+| `metal/bf16/eq/offset/r129_c257` | 5.0271 | 0.4182 | 12.02× |
+| `metal/bf16/gt/strided/r129_c257` | 5.0617 | 0.4213 | 12.01× |
+| `metal/bf16/gt/offset/r129_c257` | 5.0211 | 0.4189 | 11.99× |
 
 ### CUDA operator: slowest cells
 
 | Case | Affon ms | PyTorch ms | Ratio |
 | --- | ---: | ---: | ---: |
-| `cuda/bf16/topk/large/dense_axis0_r128_c257_k1_smallest` | 26.5019 | 0.0373 | 710.00× |
-| `cuda/bf16/topk/large/strided_axis0_r128_c257_k1_smallest` | 26.9527 | 0.0394 | 684.42× |
-| `cuda/bf16/topk/large/offset_axis0_r128_c257_k1_smallest` | 26.0148 | 0.0398 | 652.89× |
-| `cuda/f32/topk/large/dense_axis0_r128_c257_k1_smallest` | 29.6228 | 0.0456 | 650.26× |
-| `cuda/f32/topk/large/strided_axis0_r128_c257_k1_smallest` | 29.7964 | 0.0476 | 626.51× |
-| `cuda/f32/topk/large/offset_axis0_r128_c257_k1_smallest` | 29.2509 | 0.0487 | 601.25× |
-| `cuda/f32/topk/batched/dense_axis1_b4_r33_c129_k16` | 48.4821 | 0.1614 | 300.33× |
-| `cuda/bf16/topk/batched/dense_axis1_b4_r33_c129_k16` | 41.7789 | 0.1642 | 254.49× |
-| `cuda/f32/topk/batched/dense_axis1_b2_r33_c129_k16` | 23.7006 | 0.1021 | 232.16× |
-| `cuda/f32/topk/batched/dense_axis1_b4_r33_c65_k16` | 24.3550 | 0.1073 | 226.92× |
+| `cuda/bf16/topk/large/dense_axis0_r128_c257_k1_smallest` | 30.1258 | 0.0367 | 820.87× |
+| `cuda/bf16/topk/large/strided_axis0_r128_c257_k1_smallest` | 29.2396 | 0.0411 | 711.52× |
+| `cuda/bf16/topk/large/offset_axis0_r128_c257_k1_smallest` | 29.8170 | 0.0426 | 700.48× |
+| `cuda/f32/topk/large/dense_axis0_r128_c257_k1_smallest` | 30.8426 | 0.0456 | 676.16× |
+| `cuda/f32/topk/large/offset_axis0_r128_c257_k1_smallest` | 31.1380 | 0.0477 | 653.03× |
+| `cuda/f32/topk/large/strided_axis0_r128_c257_k1_smallest` | 31.2844 | 0.0487 | 642.11× |
+| `cuda/f32/topk/batched/dense_axis1_b4_r33_c129_k16` | 48.0194 | 0.1642 | 292.36× |
+| `cuda/bf16/topk/batched/dense_axis1_b4_r33_c129_k16` | 42.6290 | 0.1668 | 255.63× |
+| `cuda/f32/topk/large/dense_axis0_r128_c65_k1_smallest` | 8.1303 | 0.0342 | 237.94× |
+| `cuda/f32/topk/large/strided_axis0_r128_c65_k1_smallest` | 8.3965 | 0.0361 | 232.68× |
 
 ### CUDA program: slowest cells
 
 | Case | Affon ms | PyTorch ms | Ratio |
 | --- | ---: | ---: | ---: |
-| `cuda/f32/topk/large/dense_axis0_r128_c257_k1_smallest` | 29.8002 | 0.0409 | 728.45× |
-| `cuda/f32/topk/large/strided_axis0_r128_c257_k1_smallest` | 29.8253 | 0.0434 | 687.02× |
-| `cuda/bf16/topk/large/dense_axis0_r128_c257_k1_smallest` | 26.8523 | 0.0407 | 659.57× |
-| `cuda/f32/topk/large/offset_axis0_r128_c257_k1_smallest` | 29.5894 | 0.0463 | 639.43× |
-| `cuda/bf16/topk/large/strided_axis0_r128_c257_k1_smallest` | 26.9391 | 0.0427 | 630.27× |
-| `cuda/bf16/topk/large/offset_axis0_r128_c257_k1_smallest` | 26.2546 | 0.0436 | 601.70× |
-| `cuda/f32/topk/batched/dense_axis1_b4_r33_c129_k16` | 47.7033 | 0.1646 | 289.89× |
-| `cuda/bf16/topk/batched/dense_axis1_b4_r33_c129_k16` | 42.9784 | 0.1568 | 274.17× |
-| `cuda/f32/topk/batched/dense_axis1_b2_r33_c129_k16` | 24.1809 | 0.1031 | 234.58× |
-| `cuda/f32/topk/batched/dense_axis1_b4_r33_c65_k16` | 24.5546 | 0.1108 | 221.60× |
+| `cuda/f32/topk/large/dense_axis0_r128_c257_k1_smallest` | 31.9213 | 0.0423 | 754.84× |
+| `cuda/f32/topk/large/strided_axis0_r128_c257_k1_smallest` | 32.0058 | 0.0434 | 737.63× |
+| `cuda/bf16/topk/large/dense_axis0_r128_c257_k1_smallest` | 29.5263 | 0.0404 | 731.29× |
+| `cuda/bf16/topk/large/strided_axis0_r128_c257_k1_smallest` | 30.1879 | 0.0423 | 713.06× |
+| `cuda/bf16/topk/large/offset_axis0_r128_c257_k1_smallest` | 29.4233 | 0.0419 | 702.19× |
+| `cuda/f32/topk/large/offset_axis0_r128_c257_k1_smallest` | 30.8100 | 0.0459 | 671.41× |
+| `cuda/f32/topk/batched/dense_axis1_b4_r33_c129_k16` | 46.4261 | 0.1593 | 291.47× |
+| `cuda/bf16/topk/batched/dense_axis1_b4_r33_c129_k16` | 43.7081 | 0.1623 | 269.30× |
+| `cuda/f32/topk/batched/dense_axis1_b2_r33_c129_k16` | 23.8250 | 0.1014 | 234.95× |
+| `cuda/f32/topk/batched/dense_axis1_b4_r33_c65_k16` | 24.4846 | 0.1078 | 227.12× |
 
 ## Unsupported cases
 
@@ -136,16 +136,26 @@ A case counts as covered only when the capability probe reaches a terminal statu
 | `metal/bf16/argmax_axis/scalar` | probe_failed | argmax axis is out of range |
 | `metal/bf16/scatter_add/invalid_index` | probe_failed | Program execution failed: InvalidCommand (BackendFailure) |
 
-### CUDA
+CUDA: none.
 
-| Case | Probe status | First error |
-| --- | --- | --- |
-| `cuda/f32/scatter_add/invalid_index` | probe_failed | Program execution failed: InvalidCommand (InvalidValue) |
+## Kernel reuse and the remaining gap
+
+Both backends call the same accelerator kernels as the earlier Zig runtime. Metal reaches the Objective-C/Metal kernels through Compute Core's Metal backend. CUDA compiles the original CUDA kernel sources from `compute-core/src/backend/cuda/zig/` and calls them through the flat C adapter in `compute-core/src/backend/cuda/compat.c`.
+
+Reuse fixed the largest CUDA regressions. BF16 prefill matmul execution fell from 45.6 ms to 1.96 ms (23× faster) and the full CUDA geomean fell from 5.06× to 4.24×. Two integration costs still dominate the reported ratios:
+
+- Per-invocation overhead. A rank-2 view such as `squeeze` does no compute, yet takes 0.213 ms on Metal and 0.048 ms on CUDA in this harness, against 0.0089 ms and 0.007 ms in the earlier Zig report. That gap is Cyna Program invocation and output allocation, not a kernel.
+- Output materialization. `Tensor.to_array()` builds the nested result through one JavaScript bridge call per element. For the 98,304-element 128×768 matmul output, BF16 prefill readback alone is 9.5 ms on CUDA and 6.5 ms on Metal. The Zig runtime built whole array rows in one call, which is why its total was far smaller.
+
+Two compute gaps remain and are not kernel-reuse failures:
+
+- CUDA axis-0 and batched top-k still run on the CPU. The Cyna lowering produces two separate single-output nodes (`top_k_values` and `top_k_indices`), so the CUDA backend's fused-pair GPU path is never entered. Axis-0 k=1 takes 30.1 ms versus PyTorch's 0.037 ms. The earlier Zig path took 0.030 ms.
+- CUDA BF16 matmul still selects `matmul_small`. Execution is 1.96 ms against 0.027 ms in the earlier Zig report, which used `cuda_matmul_strided`. The shared kernels contain a faster GEMM path; the adapter needs to select it the way the Zig backend did.
 
 ## Raw evidence
 
-- Metal sweep: `test/benchmark/results/parity-metal-full-2026-11-25-final3/`.
-- CUDA sweep: `test/benchmark/results/parity-cuda-full-2026-11-25-final3/`.
+- Metal sweep: `test/benchmark/results/parity-metal-full-2026-11-26-final2/`.
+- CUDA sweep: `test/benchmark/results/parity-cuda-full-2026-11-26-final2/`.
 - Each sweep directory keeps `capability.json`, `manifest.json`, per-cell numerical checkpoints under `numerical/`, and per-cell peer reports under `operator_peer/` and `program_peer/`.
 
 ## Scope notes
